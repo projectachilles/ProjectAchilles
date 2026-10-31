@@ -366,6 +366,57 @@ export function sortBundleMembers(members: EnrichedTestExecution[]): EnrichedTes
   });
 }
 
+// Mappings from terms-aggregation buckets to filter-dropdown options. Shared
+// by the per-list getAvailable* methods and getFilterOptions(), so the
+// combined endpoint can never drift from the individual ones.
+type TermsBucket = { key: string | number; doc_count: number };
+const bucketsOf = (agg: unknown): TermsBucket[] =>
+  (agg as { buckets?: TermsBucket[] } | undefined)?.buckets ?? [];
+const byCountDesc = (a: FilterOption, b: FilterOption) => b.count - a.count;
+const SEVERITY_ORDER = ['critical', 'high', 'medium', 'low', 'info'];
+
+const filterOptionMappers = {
+  keys: (agg: unknown): string[] => bucketsOf(agg).map((b) => b.key as string),
+  options: (agg: unknown): FilterOption[] =>
+    bucketsOf(agg).map((b) => ({ value: b.key as string, label: b.key as string, count: b.doc_count })),
+  optionsByCount: (agg: unknown): FilterOption[] => filterOptionMappers.options(agg).sort(byCountDesc),
+  severities: (agg: unknown): FilterOption[] =>
+    bucketsOf(agg)
+      .map((b) => {
+        const key = b.key as string;
+        return { value: key, label: key.charAt(0).toUpperCase() + key.slice(1), count: b.doc_count };
+      })
+      .sort((a, b) => SEVERITY_ORDER.indexOf(a.value) - SEVERITY_ORDER.indexOf(b.value)),
+  errorNames: (agg: unknown): FilterOption[] =>
+    bucketsOf(agg)
+      .map((b) => {
+        const name = resolveErrorName(b.key as number);
+        return { value: name, label: name, count: b.doc_count };
+      })
+      .sort(byCountDesc),
+  errorCodes: (agg: unknown): FilterOption[] =>
+    bucketsOf(agg)
+      .map((b) => ({
+        value: String(b.key),
+        label: `${b.key} (${resolveErrorName(b.key as number)})`,
+        count: b.doc_count,
+      }))
+      .sort(byCountDesc),
+};
+
+export interface FilterOptionsResponse {
+  tests: string[];
+  techniques: string[];
+  hostnames: FilterOption[];
+  categories: FilterOption[];
+  severities: FilterOption[];
+  threatActors: FilterOption[];
+  tags: FilterOption[];
+  errorNames: FilterOption[];
+  errorCodes: FilterOption[];
+  bundleNames: FilterOption[];
+}
+
 export class ElasticsearchService {
   private client: Client;
   private settings: AnalyticsSettings;
@@ -2103,8 +2154,7 @@ export class ElasticsearchService {
       },
     });
 
-    const buckets = (response.aggregations?.tests as any)?.buckets || [];
-    return buckets.map((bucket: any) => bucket.key);
+    return filterOptionMappers.keys(response.aggregations?.tests);
   }
 
   // Get list of test UUIDs that have been executed (for NRY filter)
@@ -2141,8 +2191,7 @@ export class ElasticsearchService {
       },
     });
 
-    const buckets = (response.aggregations?.techniques as any)?.buckets || [];
-    return buckets.map((bucket: any) => bucket.key);
+    return filterOptionMappers.keys(response.aggregations?.techniques);
   }
 
   // Get defense score by organization
@@ -2615,6 +2664,65 @@ export class ElasticsearchService {
   }
 
   // Get available hostnames with counts
+
+  /**
+   * All ten filter-dropdown lists in ONE search (one round trip, one
+   * connection) instead of ten. Each list keeps its per-endpoint scope: tests
+   * and techniques ignore org/date, like /available-tests and
+   * /available-techniques; the other eight take the optional org/date filter
+   * through the `scoped` filter aggregation. error names and error codes share
+   * one event.ERROR aggregation.
+   */
+  async getFilterOptions(params?: AnalyticsQueryParams): Promise<FilterOptionsResponse> {
+    const scopedFilters: any[] = [];
+    if (params) {
+      if (params.from || params.to) {
+        scopedFilters.push(this.buildDateFilter(params.from, params.to));
+      }
+      const orgFilter = this.buildOrgFilter(params.org);
+      if (orgFilter) scopedFilters.push(orgFilter);
+    }
+
+    const response = await this.client.search({
+      index: this.settings.indexPattern,
+      size: 0,
+      query: { bool: { filter: [this.buildTestDataFilter()] } },
+      aggs: {
+        tests: { terms: { field: 'f0rtika.test_name', size: 100 } },
+        techniques: {
+          filter: NOT_STAGELESS,
+          aggs: { techniques: { terms: { field: 'f0rtika.techniques', size: 100 } } },
+        },
+        scoped: {
+          filter: { bool: { filter: scopedFilters } },
+          aggs: {
+            hostnames: { terms: { field: 'routing.hostname', size: 200 } },
+            categories: { terms: { field: 'f0rtika.category', size: 50 } },
+            severities: { terms: { field: 'f0rtika.severity', size: 10 } },
+            threat_actors: { terms: { field: 'f0rtika.threat_actor', size: 100 } },
+            tags: { terms: { field: 'f0rtika.tags', size: 200 } },
+            error_codes: { terms: { field: 'event.ERROR', size: 50 } },
+            bundle_names: { terms: { field: 'f0rtika.bundle_name', size: 50 } },
+          },
+        },
+      },
+    });
+
+    const aggs = response.aggregations as Record<string, any> | undefined;
+    const scoped = aggs?.scoped;
+    return {
+      tests: filterOptionMappers.keys(aggs?.tests),
+      techniques: filterOptionMappers.keys(aggs?.techniques?.techniques),
+      hostnames: filterOptionMappers.options(scoped?.hostnames),
+      categories: filterOptionMappers.options(scoped?.categories),
+      severities: filterOptionMappers.severities(scoped?.severities),
+      threatActors: filterOptionMappers.optionsByCount(scoped?.threat_actors),
+      tags: filterOptionMappers.optionsByCount(scoped?.tags),
+      errorNames: filterOptionMappers.errorNames(scoped?.error_codes),
+      errorCodes: filterOptionMappers.errorCodes(scoped?.error_codes),
+      bundleNames: filterOptionMappers.optionsByCount(scoped?.bundle_names),
+    };
+  }
   // Note: For filter dropdowns, we show all available values unless date range is explicitly specified
   async getAvailableHostnames(params?: AnalyticsQueryParams): Promise<FilterOption[]> {
     const filters: any[] = [this.buildTestDataFilter()];
@@ -2638,12 +2746,7 @@ export class ElasticsearchService {
       },
     });
 
-    const buckets = (response.aggregations?.hostnames as any)?.buckets || [];
-    return buckets.map((bucket: any) => ({
-      value: bucket.key,
-      label: bucket.key,
-      count: bucket.doc_count,
-    }));
+    return filterOptionMappers.options(response.aggregations?.hostnames);
   }
 
   // Get available categories with counts
@@ -2668,12 +2771,7 @@ export class ElasticsearchService {
       },
     });
 
-    const buckets = (response.aggregations?.categories as any)?.buckets || [];
-    return buckets.map((bucket: any) => ({
-      value: bucket.key,
-      label: bucket.key,
-      count: bucket.doc_count,
-    }));
+    return filterOptionMappers.options(response.aggregations?.categories);
   }
 
   // Get available severities with counts
@@ -2698,17 +2796,7 @@ export class ElasticsearchService {
       },
     });
 
-    const buckets = (response.aggregations?.severities as any)?.buckets || [];
-    const severityOrder = ['critical', 'high', 'medium', 'low', 'info'];
-    return buckets
-      .map((bucket: any) => ({
-        value: bucket.key,
-        label: bucket.key.charAt(0).toUpperCase() + bucket.key.slice(1),
-        count: bucket.doc_count,
-      }))
-      .sort((a: FilterOption, b: FilterOption) =>
-        severityOrder.indexOf(a.value) - severityOrder.indexOf(b.value)
-      );
+    return filterOptionMappers.severities(response.aggregations?.severities);
   }
 
   // Get available threat actors with counts
@@ -2733,14 +2821,7 @@ export class ElasticsearchService {
       },
     });
 
-    const buckets = (response.aggregations?.threat_actors as any)?.buckets || [];
-    return buckets
-      .map((bucket: any) => ({
-        value: bucket.key,
-        label: bucket.key,
-        count: bucket.doc_count,
-      }))
-      .sort((a: FilterOption, b: FilterOption) => b.count - a.count);
+    return filterOptionMappers.optionsByCount(response.aggregations?.threat_actors);
   }
 
   // Get available tags with counts
@@ -2765,14 +2846,7 @@ export class ElasticsearchService {
       },
     });
 
-    const buckets = (response.aggregations?.tags as any)?.buckets || [];
-    return buckets
-      .map((bucket: any) => ({
-        value: bucket.key,
-        label: bucket.key,
-        count: bucket.doc_count,
-      }))
-      .sort((a: FilterOption, b: FilterOption) => b.count - a.count);
+    return filterOptionMappers.optionsByCount(response.aggregations?.tags);
   }
 
   // Get available error names with counts
@@ -2797,17 +2871,7 @@ export class ElasticsearchService {
       },
     });
 
-    const buckets = (response.aggregations?.error_codes as any)?.buckets || [];
-    return buckets
-      .map((bucket: any) => {
-        const name = resolveErrorName(bucket.key);
-        return {
-          value: name,
-          label: name,
-          count: bucket.doc_count,
-        };
-      })
-      .sort((a: FilterOption, b: FilterOption) => b.count - a.count);
+    return filterOptionMappers.errorNames(response.aggregations?.error_codes);
   }
 
   // Get available error codes with counts
@@ -2832,14 +2896,7 @@ export class ElasticsearchService {
       },
     });
 
-    const buckets = (response.aggregations?.error_codes as any)?.buckets || [];
-    return buckets
-      .map((bucket: any) => ({
-        value: String(bucket.key),
-        label: `${bucket.key} (${resolveErrorName(bucket.key)})`,
-        count: bucket.doc_count,
-      }))
-      .sort((a: FilterOption, b: FilterOption) => b.count - a.count);
+    return filterOptionMappers.errorCodes(response.aggregations?.error_codes);
   }
 
   // Get available bundle names with counts
@@ -2864,14 +2921,7 @@ export class ElasticsearchService {
       },
     });
 
-    const buckets = (response.aggregations?.bundle_names as any)?.buckets || [];
-    return buckets
-      .map((bucket: any) => ({
-        value: bucket.key,
-        label: bucket.key,
-        count: bucket.doc_count,
-      }))
-      .sort((a: FilterOption, b: FilterOption) => b.count - a.count);
+    return filterOptionMappers.optionsByCount(response.aggregations?.bundle_names);
   }
 
   // Get defense score by severity

@@ -413,6 +413,20 @@ router.get('/executions/paginated', asyncHandler(async (req, res) => {
   }
 }));
 
+// GET /api/analytics/filter-options - Every filter-dropdown list in one ES query.
+// Same lists as the ten /available-* endpoints (kept for other API clients);
+// org/from/to scope the same eight lists those endpoints scope.
+router.get('/filter-options', asyncHandler(async (req, res) => {
+  const es = await getEsService();
+  const { org, from, to } = req.query;
+  const options = await es.getFilterOptions({
+    org: org as string,
+    from: from as string,
+    to: to as string,
+  });
+  res.json(options);
+}));
+
 // GET /api/analytics/available-hostnames - List available hostnames with counts
 router.get('/available-hostnames', asyncHandler(async (req, res) => {
   const es = await getEsService();

@@ -199,6 +199,20 @@ export interface FilterOption {
   count: number;
 }
 
+/** Every filter-dropdown list, from GET /analytics/filter-options (one ES query). */
+export interface FilterOptionsResponse {
+  tests: string[];
+  techniques: string[];
+  hostnames: FilterOption[];
+  categories: FilterOption[];
+  severities: FilterOption[];
+  threatActors: FilterOption[];
+  tags: FilterOption[];
+  errorNames: FilterOption[];
+  errorCodes: FilterOption[];
+  bundleNames: FilterOption[];
+}
+
 export interface SeverityBreakdownItem {
   severity: SeverityLevel;
   score: number;
@@ -635,6 +649,11 @@ export const analyticsApi = {
 
   async getAvailableErrorCodes(params?: { org?: string; from?: string; to?: string }): Promise<FilterOption[]> {
     const response = await apiClient.get('/analytics/available-error-codes', { params });
+    return response.data;
+  },
+
+  async getFilterOptions(params?: { org?: string; from?: string; to?: string }): Promise<FilterOptionsResponse> {
+    const response = await apiClient.get('/analytics/filter-options', { params });
     return response.data;
   },
 

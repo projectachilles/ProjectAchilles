@@ -110,6 +110,10 @@ describe('AnalyticsDashboardPage request discipline', () => {
       getErrorRate: { errorRate: 0 },
       getCanonicalTestCount: { count: 0 },
       listAcceptances: { total: 0 },
+      getFilterOptions: {
+        tests: [], techniques: [], hostnames: [], categories: [], severities: [],
+        threatActors: [], tags: [], errorNames: [], errorCodes: [], bundleNames: [],
+      },
     });
     mocks.defender.reset({ getSecureScore: null });
     mocks.crowdstrike.reset({ getZtaScore: null });
@@ -126,6 +130,18 @@ describe('AnalyticsDashboardPage request discipline', () => {
     }
     expect(mocks.defender.api.getSecureScore).toHaveBeenCalledTimes(1);
     expect(mocks.defender.api.getSecureScoreTrend).toHaveBeenCalledTimes(1);
+  });
+
+  it('loads all filter dropdowns with one request', async () => {
+    renderPage();
+    await waitFor(() => expect(mocks.analytics.api.getFilterOptions).toHaveBeenCalledTimes(1));
+    for (const name of [
+      'getAvailableTests', 'getAvailableTechniques', 'getAvailableHostnames', 'getAvailableCategories',
+      'getAvailableSeverities', 'getAvailableThreatActors', 'getAvailableTags', 'getAvailableErrorNames',
+      'getAvailableErrorCodes', 'getAvailableBundleNames',
+    ]) {
+      expect(mocks.analytics.api[name], name).not.toHaveBeenCalled();
+    }
   });
 
   it('does not hold the vendor cards until the core requests finish', async () => {

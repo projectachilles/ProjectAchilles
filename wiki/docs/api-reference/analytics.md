@@ -280,6 +280,19 @@ GET /api/analytics/available-bundle-names
 
 These power the filter dropdowns in the UI. They accept the shared filter parameters but most ignore date filters by default so the dropdowns stay populated.
 
+`GET /api/analytics/filter-options` returns all ten dropdown lists from one Elasticsearch query, which is what the Analytics page uses:
+
+```json
+{
+  "tests": ["…"], "techniques": ["T1059"],
+  "hostnames": [{ "value": "host-1", "label": "host-1", "count": 8 }],
+  "categories": [], "severities": [], "threatActors": [], "tags": [],
+  "errorNames": [], "errorCodes": [], "bundleNames": []
+}
+```
+
+Each list is the same as the matching `available-*` endpoint. Optional `org`, `from` and `to` scope the same eight lists those endpoints scope (everything except `tests` and `techniques`); with none, no date or org filter applies.
+
 ### Archive Operations
 
 ```
