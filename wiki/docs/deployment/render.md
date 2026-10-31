@@ -100,6 +100,18 @@ GITHUB_TOKEN=ghp_...  # if repo is private
 
 Before **every build**, the backend fetches the latest commit of `AGENT_REPO_BRANCH` (`git fetch --depth 1` + hard reset), so a build always compiles the current branch, even when an agent-only merge didn't trigger a redeploy. The commit is recorded in the version's release notes (`Built from source (windows/amd64) at 1bbe749`). If the fetch fails, the build fails rather than compiling stale code. This matters on Render because `buildFilter` doesn't redeploy the backend for agent-only merges.
 
+## Auto-Deploy
+
+By default the Blueprint sets `autoDeployTrigger: checksPass`: Render deploys a pushed commit once its checks pass. Render reads the commit's **combined status**, so any failing status on that commit, even one unrelated to Render (for example a rate-limited Vercel preview or a failing `npm audit` job), stops the deploy with no error on Render's side. The service keeps running the previous commit.
+
+If you deploy from your own fork and see that, deploy from GitHub Actions instead. `.github/workflows/deploy-render.yml` runs after the `CI` workflow succeeds on `main` and calls each service's deploy hook with the tested commit (`ref=<sha>`). It uses the same path filters as `buildFilter`, so a service only redeploys when its files changed. It reads changed files from the GitHub API and runs no repository code.
+
+1. In Render, open each service → **Settings** → **Deploy Hook** and copy the URL.
+2. In GitHub, add the repository secrets `RENDER_DEPLOY_HOOK_BACKEND` and `RENDER_DEPLOY_HOOK_FRONTEND`.
+3. In Render, set **Auto-Deploy** to **Off** on both services, so a commit isn't deployed twice.
+
+To redeploy by hand, run the workflow from the **Actions** tab (**Deploy to Render** → **Run workflow**, choose `both`, `backend` or `frontend`). Without the secrets the workflow only logs a notice, so the Blueprint default is unaffected.
+
 ## Custom Domains
 
 Add CNAME records in your DNS provider:
@@ -142,6 +154,10 @@ Verify `CORS_ORIGIN` is set to the frontend's **full URL** with `https://` prefi
 ### GitHub/Google login returns 404
 
 You're using a Clerk **production instance** without custom OAuth credentials. Follow the [Prerequisites](./prerequisites) Clerk OAuth setup.
+
+### Render stopped deploying after a merge
+
+Check the merge commit's combined status: `gh api repos/<owner>/<repo>/commits/<sha>/status`. A `failure` from any context, Render's or not, holds the `checksPass` auto-deploy. Deploy the commit manually (service → **Manual Deploy** → **Deploy latest commit**) and consider [deploying from GitHub Actions](#auto-deploy).
 
 ### Agent builds fail with "Agent source not found"
 

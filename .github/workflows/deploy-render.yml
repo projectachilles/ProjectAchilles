@@ -1,0 +1,110 @@
+name: Deploy to Render
+
+# Deploys the Render services from GitHub Actions once CI has passed on main,
+# instead of Render's "After CI checks pass" auto-deploy. That setting waits on
+# the commit's combined status, so an unrelated failing status (a rate-limited
+# Vercel preview, an npm audit finding) silently stops every Render deploy.
+#
+# Opt-in per install: set the repository secrets RENDER_DEPLOY_HOOK_BACKEND and
+# RENDER_DEPLOY_HOOK_FRONTEND (Render → service → Settings → Deploy Hook), then
+# set Auto-Deploy to Off on both services. Without the secrets this workflow
+# only logs a notice, so render.yaml's Blueprint default keeps working.
+
+on:
+  workflow_run:
+    workflows: [CI]
+    types: [completed]
+    branches: [main]
+  workflow_dispatch:
+    inputs:
+      service:
+        description: Service(s) to redeploy at the current main commit
+        type: choice
+        options: [both, backend, frontend]
+        default: both
+
+concurrency:
+  group: render-deploy
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  deploy:
+    name: Deploy to Render
+    # Only CI runs for pushes to main (never pull requests), and only green ones.
+    if: >-
+      github.event_name == 'workflow_dispatch' ||
+      (github.event.workflow_run.conclusion == 'success' && github.event.workflow_run.event == 'push')
+    runs-on: ubuntu-latest
+    steps:
+      # No checkout: the changed files come from the GitHub API, so no
+      # repository code runs in a job that holds the deploy hooks.
+      - name: Decide what to deploy
+        id: plan
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+          EVENT: ${{ github.event_name }}
+          RUN_SHA: ${{ github.event.workflow_run.head_sha }}
+          DISPATCH_SHA: ${{ github.sha }}
+          SERVICE: ${{ inputs.service }}
+        run: |
+          set -euo pipefail
+          if [ "$EVENT" = "workflow_dispatch" ]; then
+            sha="$DISPATCH_SHA"
+            backend=false; frontend=false
+            case "$SERVICE" in
+              both) backend=true; frontend=true ;;
+              backend) backend=true ;;
+              frontend) frontend=true ;;
+            esac
+          else
+            sha="$RUN_SHA"
+            # main only takes PR merges, so the pushed commit's first parent is
+            # the previous main. Same paths as render.yaml's buildFilter (plus
+            # the frontend entrypoint, which is part of its image).
+            parent=$(gh api "repos/$REPO/commits/$sha" --jq '.parents[0].sha')
+            files=$(gh api --paginate "repos/$REPO/compare/$parent...$sha" --jq '.files[].filename')
+            backend=false; frontend=false
+            if grep -qE '^backend/(src/|package\.json$|package-lock\.json$|tsconfig\.json$|Dockerfile$)' <<<"$files"; then backend=true; fi
+            if grep -qE '^frontend/(src/|public/|package\.json$|package-lock\.json$|tsconfig\.json$|Dockerfile$|nginx\.conf$|docker-entrypoint\.sh$)' <<<"$files"; then frontend=true; fi
+          fi
+          {
+            echo "sha=$sha"
+            echo "backend=$backend"
+            echo "frontend=$frontend"
+          } >> "$GITHUB_OUTPUT"
+          echo "Commit $sha: backend=$backend frontend=$frontend" >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Deploy backend
+        if: steps.plan.outputs.backend == 'true'
+        env:
+          HOOK: ${{ secrets.RENDER_DEPLOY_HOOK_BACKEND }}
+          SHA: ${{ steps.plan.outputs.sha }}
+        run: |
+          set -euo pipefail
+          if [ -z "$HOOK" ]; then
+            echo "::notice::RENDER_DEPLOY_HOOK_BACKEND is not set; skipping (Render auto-deploy, if on, still applies)."
+            exit 0
+          fi
+          # ref pins the deploy to the commit CI tested, not whatever main is now.
+          sep='?'; case "$HOOK" in *\?*) sep='&' ;; esac
+          curl -fsS -X POST "${HOOK}${sep}ref=${SHA}" -o /dev/null
+          echo "Backend deploy requested for $SHA" >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Deploy frontend
+        if: steps.plan.outputs.frontend == 'true'
+        env:
+          HOOK: ${{ secrets.RENDER_DEPLOY_HOOK_FRONTEND }}
+          SHA: ${{ steps.plan.outputs.sha }}
+        run: |
+          set -euo pipefail
+          if [ -z "$HOOK" ]; then
+            echo "::notice::RENDER_DEPLOY_HOOK_FRONTEND is not set; skipping (Render auto-deploy, if on, still applies)."
+            exit 0
+          fi
+          sep='?'; case "$HOOK" in *\?*) sep='&' ;; esac
+          curl -fsS -X POST "${HOOK}${sep}ref=${SHA}" -o /dev/null
+          echo "Frontend deploy requested for $SHA" >> "$GITHUB_STEP_SUMMARY"
