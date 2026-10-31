@@ -171,6 +171,7 @@ func main() {
 			if w := service.OutOfPlaceWarning(exePath); w != "" {
 				log.Println(w)
 			}
+			service.RemoveReplacedLeftover(exePath)
 		}
 
 		st, err := store.New(cfg.WorkDir)

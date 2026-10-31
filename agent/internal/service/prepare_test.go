@@ -15,6 +15,9 @@ func TestPlaceBinaryForceRewritesTheFileInPlace(t *testing.T) {
 	dst := filepath.Join(dir, "achilles-agent")
 	writeFile(t, dst, "agent v1")
 	before, _ := os.Stat(dst)
+	// On Windows os.Stat only records the path; the file ID is read at the
+	// first SameFile call. Read it now, or it would be the new file's ID.
+	os.SameFile(before, before)
 
 	copied, err := placeBinary(dst, dst, true)
 	if err != nil || !copied {
@@ -119,5 +122,45 @@ func TestPrepareInstallDirRefusesLinksAndFiles(t *testing.T) {
 		if c.locks != 0 {
 			t.Errorf("%s was locked", p)
 		}
+	}
+}
+
+// --install that rewrote the binary it runs from leaves the previous file set
+// aside (it is that process's image); the agent deletes it when it starts.
+func TestRemoveReplacedLeftoverDeletesTheSetAsideBinary(t *testing.T) {
+	dir := t.TempDir()
+	canonical := filepath.Join(dir, "achilles-agent")
+	writeFile(t, canonical, "agent v2")
+	writeFile(t, canonical+replacedSuffix, "agent v1")
+
+	if err := removeReplacedLeftover(canonical, canonical, 3, func() {}); err != nil {
+		t.Fatalf("removeReplacedLeftover: %v", err)
+	}
+	onlyEntries(t, dir, "achilles-agent")
+}
+
+// An agent running from anywhere else never touches the canonical folder.
+func TestRemoveReplacedLeftoverIgnoresAnAgentOutOfPlace(t *testing.T) {
+	dir := t.TempDir()
+	canonical := filepath.Join(dir, "achilles-agent")
+	writeFile(t, canonical, "agent v2")
+	writeFile(t, canonical+replacedSuffix, "agent v1")
+	other := filepath.Join(t.TempDir(), "achilles-agent")
+	writeFile(t, other, "agent v2")
+
+	if err := removeReplacedLeftover(other, canonical, 3, func() {}); err != nil {
+		t.Fatalf("removeReplacedLeftover: %v", err)
+	}
+	onlyEntries(t, dir, "achilles-agent", "achilles-agent"+replacedSuffix)
+}
+
+// Nothing set aside is not an error.
+func TestRemoveReplacedLeftoverWithNothingLeft(t *testing.T) {
+	dir := t.TempDir()
+	canonical := filepath.Join(dir, "achilles-agent")
+	writeFile(t, canonical, "agent v2")
+
+	if err := removeReplacedLeftover(canonical, canonical, 3, func() {}); err != nil {
+		t.Fatalf("removeReplacedLeftover: %v", err)
 	}
 }

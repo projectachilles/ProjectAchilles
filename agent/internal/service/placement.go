@@ -5,6 +5,7 @@ import (
 	"crypto/sha256"
 	"fmt"
 	"io"
+	"log"
 	"os"
 	"path/filepath"
 	"time"
@@ -161,6 +162,41 @@ func removeReplaced(dst string) {
 		time.Sleep(500 * time.Millisecond)
 	}
 	fmt.Fprintf(os.Stderr, "warning: could not remove the previous agent binary %s (%v); delete it once it is no longer in use\n", aside, err)
+}
+
+// removeReplacedLeftover deletes canonical+replacedSuffix when exe is the
+// canonical binary, retrying while sleep allows (the file can still be held).
+// It returns the last error, or nil when nothing was left behind.
+func removeReplacedLeftover(exe, canonical string, attempts int, sleep func()) error {
+	if !sameFile(exe, canonical) {
+		return nil
+	}
+	aside := canonical + replacedSuffix
+	var err error
+	for i := 0; i < attempts; i++ {
+		if err = os.Remove(aside); err == nil || os.IsNotExist(err) {
+			return nil
+		}
+		sleep()
+	}
+	return err
+}
+
+// RemoveReplacedLeftover deletes a previous agent binary that --install set
+// aside but could not delete: when --install rewrites the canonical binary it
+// runs from (untrusted owner), the set-aside file is that process's own image.
+// Runs in the background at agent start, because that process may still be
+// exiting when the service it registered starts.
+func RemoveReplacedLeftover(exe string) {
+	canonical := CanonicalBinaryPath()
+	if _, err := os.Lstat(canonical + replacedSuffix); err != nil {
+		return
+	}
+	go func() {
+		if err := removeReplacedLeftover(exe, canonical, 60, func() { time.Sleep(time.Second) }); err != nil {
+			log.Printf("warning: could not remove the previous agent binary %s: %v", canonical+replacedSuffix, err)
+		}
+	}()
 }
 
 // prepareInstallDir makes dir safe to hold the agent before anything is
