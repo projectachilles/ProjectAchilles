@@ -478,6 +478,21 @@ export function transformGraphqlDetection(d: unknown): SophosAlertDoc {
     else if ((PATH_ENTITY.test(kind) || NAME_ENTITY.test(kind)) && /[\\/]/.test(value)) pathVals.push(value);
     else if (/^sha256$/i.test(kind)) sha = sha ?? sha256Of(value);
   }
+  // The flat list names the triggering process and its file. The process
+  // that started the chain (the test's stage binary: cmd.exe <- conhost.exe
+  // <- stage on a live tenant) is often only in source_entities, so its File
+  // entities follow the trigger's (attribution takes the first stage binary).
+  // Process entities are skipped: they hold bare names of the whole ancestry
+  // (System ... achilles-agent.exe, orchestrator), not paths.
+  for (const e of arr(o.source_entities)) {
+    const ent = obj(e);
+    if (str(ent.subtype) !== 'File') continue;
+    const props = obj(ent.properties);
+    const path = str(props.file_path);
+    const name = str(props.file_name);
+    if (path && /[\\/]/.test(path)) pathVals.push(path);
+    else if (name && !/[\\/]/.test(name)) nameVals.push(name);
+  }
   const ev = pathEvidence(pathVals, nameVals);
   const enrichment = arr(o.enrichment_details).map((x) => obj(obj(x).mitre_attack_info).technique_id);
   const prevention = xdrPreventionAction(str(meta.title));

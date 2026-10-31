@@ -27,7 +27,9 @@ const ENTITY_PROPERTIES = `properties {
 /** Fields the sync reads (normalize.transformGraphqlDetection). */
 export const SOPHOS_DETECTION_SYNC_FIELDS =
   `id status attack_technique_ids metadata { ${METADATA_SYNC} } entities { entities } event_ids { id } `
-  + 'enrichment_details { mitre_attack_info { technique_id } }';
+  + 'enrichment_details { mitre_attack_info { technique_id } } '
+  // The stage binary that started the chain is often only here (normalize.ts).
+  + 'source_entities { subtype properties { ... on EntityFile { file_name file_path } } }';
 
 /** A superset of the sync fields, for the owner-run PoC capture (decides the final parser). */
 export const SOPHOS_DETECTION_CAPTURE_FIELDS = `

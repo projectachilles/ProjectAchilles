@@ -1,4 +1,5 @@
 import { describe, it, expect } from 'vitest';
+import { classifyAttribution } from '../../alerts/alertHit.js';
 import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { dirname, join } from 'node:path';
@@ -208,6 +209,50 @@ describe('transformGraphqlDetection', () => {
     const d = transformGraphqlDetection({ id: 'x', status: 'FALSE_POSITIVE', metadata: { updated_at: '2026-10-28T11:00:00Z' } });
     expect(d.status).toBe('false_positive');
     expect(d.resolved_at).toBe('2026-10-28T11:00:00.000Z');
+  });
+});
+
+describe('transformGraphqlDetection — source entities (live capture)', () => {
+  // A live tenant's XDR detections name only the triggering process and its
+  // file in the flat entities list; the test's stage binary that started the
+  // chain (cmd.exe <- conhost.exe <- stage, powershell.exe <- stage) is only in
+  // source_entities. Without it the detection matched no test.
+  const UUID = 'c3b4301e-b502-43a4-9f01-66a874239d1b';
+  const [conhost, lnkBlocked, rundll32] = fx('graphql-detection-source-entities-live').detections;
+
+  it('adds the File source entities after the flat entities', () => {
+    const d = transformGraphqlDetection(conhost);
+    expect(d.evidence_filepaths).toContain(`c:\\f0\\${UUID}-t1204.002.exe`);
+    expect(d.evidence_filenames).toContain(`${UUID}-t1204.002.exe`);
+    // The trigger's own file stays first.
+    expect(d.evidence_filenames[0]).toBe('invite_viewer.bat');
+  });
+
+  it('attributes each detection to the stage binary in its source entities', () => {
+    expect(classifyAttribution(transformGraphqlDetection(conhost).evidence_filenames, UUID))
+      .toEqual({ attribution: 'stage', attributed_control_id: 't1204.002' });
+    expect(classifyAttribution(transformGraphqlDetection(lnkBlocked).evidence_filenames, UUID))
+      .toEqual({ attribution: 'stage', attributed_control_id: 't1204.002' });
+    expect(classifyAttribution(transformGraphqlDetection(rundll32).evidence_filenames, UUID))
+      .toEqual({ attribution: 'stage', attributed_control_id: 't1218.011' });
+  });
+
+  it('keeps the block as prevention evidence', () => {
+    expect(transformGraphqlDetection(lnkBlocked).prevention_action).toBe('blocked');
+  });
+
+  it('ignores non-File source entities (process ancestry names are not paths)', () => {
+    const d = transformGraphqlDetection({
+      id: 'x',
+      entities: { entities: ['fileName:C:\\Windows\\System32\\cmd.exe'] },
+      source_entities: [
+        { subtype: 'Process', properties: { process_name: `${UUID}.exe` } },
+        { subtype: 'File', properties: { file_name: 'cmd.exe', file_path: 'C:\\Windows\\System32\\cmd.exe' } },
+        { subtype: 'File', properties: null },
+      ],
+    });
+    expect(d.evidence_filenames).toEqual(['cmd.exe']);
+    expect(d.evidence_filepaths).toEqual(['c:\\windows\\system32\\cmd.exe']);
   });
 });
 
