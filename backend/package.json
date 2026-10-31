@@ -1,6 +1,6 @@
 {
   "name": "project-achilles-backend",
-  "version": "2.7.0",
+  "version": "2.8.0",
   "description": "ProjectAchilles - Unified Security Platform Backend",
   "main": "dist/server.js",
   "type": "module",
@@ -29,7 +29,7 @@
     "jsonwebtoken": "^9.0.3",
     "morgan": "^1.12.1",
     "multer": "^2.5.0",
-    "node-forge": "^1.4.0",
+    "node-forge": "^1.4.2",
     "nodemailer": "^10.1.7",
     "simple-git": "^4.0.2",
     "ws": "^8.22.0",

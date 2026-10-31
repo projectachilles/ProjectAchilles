@@ -1,6 +1,6 @@
 {
   "name": "project-achilles-backend-serverless",
-  "version": "2.7.0",
+  "version": "2.8.0",
   "description": "ProjectAchilles - Serverless Backend for Vercel",
   "main": "dist/app.js",
   "type": "module",
@@ -28,7 +28,7 @@
     "helmet": "^8.3.0",
     "morgan": "^1.12.1",
     "multer": "^2.5.0",
-    "node-forge": "^1.4.0",
+    "node-forge": "^1.4.2",
     "zod": "^4.6.7"
   },
   "overrides": {

@@ -1,12 +1,4 @@
 {
   "$comment": "Accepted production advisories for .github/scripts/npm-audit-gate.mjs. Each entry needs a reason and an expiry (max ~3 months); an expired entry fails CI so the risk is re-checked. Never add an entry that has a fix: upgrade instead.",
-  "advisories": [
-    {
-      "id": "GHSA-86w9-cpqp-85rv",
-      "package": "node-forge",
-      "projects": ["backend", "backend-serverless"],
-      "reason": "No fixed release (all versions <= 1.4.0 affected). The flaw is in RSA PKCS#1 v1.5 signature verification; we only parse PFX files and generate certificates, and never call forge's verify.",
-      "expires": "2027-01-16"
-    }
-  ]
+  "advisories": []
 }
