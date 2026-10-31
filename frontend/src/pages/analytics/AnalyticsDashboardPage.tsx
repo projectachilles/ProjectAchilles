@@ -276,18 +276,9 @@ export default function AnalyticsDashboardPage() {
   async function loadFilterOptions() {
     setLoadingFilters(true);
     try {
-      const [tests, techniques, hostnames, categories, severities, threatActors, tags, errorNames, errorCodes, bundleNames] = await Promise.all([
-        analyticsApi.getAvailableTests(),
-        analyticsApi.getAvailableTechniques(),
-        analyticsApi.getAvailableHostnames(),
-        analyticsApi.getAvailableCategories(),
-        analyticsApi.getAvailableSeverities(),
-        analyticsApi.getAvailableThreatActors(),
-        analyticsApi.getAvailableTags(),
-        analyticsApi.getAvailableErrorNames(),
-        analyticsApi.getAvailableErrorCodes(),
-        analyticsApi.getAvailableBundleNames(),
-      ]);
+      // One request and one ES query for all ten lists (was ten of each).
+      const { tests, techniques, hostnames, categories, severities, threatActors, tags, errorNames, errorCodes, bundleNames } =
+        await analyticsApi.getFilterOptions();
 
       setAvailableTests(tests);
       setAvailableTechniques(techniques);
