@@ -28,7 +28,7 @@ import type { SophosSyncStatus } from '../services/sophos/sync.service.js';
 import { detectionCql, detectionSearchVariables } from '../services/sophos/detection-query.js';
 import { SOPHOS_INDEX } from '../services/sophos/index-management.js';
 import { SettingsService as AnalyticsSettingsService } from '../services/analytics/settings.js';
-import { createEsClient } from '../services/analytics/client.js';
+import { getSharedEsClient } from '../services/analytics/sharedClient.js';
 import type { SophosCapabilities, SophosCapabilityState } from '../types/sophos.js';
 import { prepareEdrEs } from '../services/edr/es-readiness.js';
 
@@ -221,7 +221,7 @@ router.get('/sync/status', requirePermission('integrations:read'), (req, res) =>
 
 function esClientOrNull() {
   const settings = new AnalyticsSettingsService().getSettings();
-  return settings.configured ? createEsClient(settings) : null;
+  return settings.configured ? getSharedEsClient(settings) : null;
 }
 
 const WINDOWS = [['last24h', 'now-24h'], ['last7d', 'now-7d'], ['last30d', 'now-30d']] as const;

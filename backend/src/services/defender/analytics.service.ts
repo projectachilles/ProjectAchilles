@@ -2,7 +2,7 @@
 // for Secure Score, alerts, and control profile data.
 
 import { SettingsService } from '../analytics/settings.js';
-import { createEsClient } from '../analytics/client.js';
+import { getSharedEsClient } from '../analytics/sharedClient.js';
 import { DEFENDER_INDEX } from './index-management.js';
 import { buildAlertTimeWindowQuery, buildDefenderEvidenceQuery } from './evidence-correlation.js';
 import { attackSimulationExclusions } from '../analytics/attack-simulation-filter.js';
@@ -162,7 +162,7 @@ export class DefenderAnalyticsService {
     if (!settings.configured) {
       throw new Error('Elasticsearch is not configured');
     }
-    return { client: createEsClient(settings), settings };
+    return { client: getSharedEsClient(settings), settings };
   }
 
   private getEsClient(): Client {

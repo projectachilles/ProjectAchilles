@@ -16,7 +16,7 @@ import {
 import { defaultCoverageWindow } from '../services/analytics/technique-coverage.js';
 import { SophosPostureService, resolveActiveAchillesCert } from '../services/sophos/posture.service.js';
 import { SettingsService as AnalyticsSettingsService } from '../services/analytics/settings.js';
-import { createEsClient } from '../services/analytics/client.js';
+import { getSharedEsClient } from '../services/analytics/sharedClient.js';
 
 const SOURCE_TYPES = new Set(['alert', 'siem_event', 'xdr_detection']);
 
@@ -25,7 +25,7 @@ function postureService(): SophosPostureService | null {
   const es = new AnalyticsSettingsService().getSettings();
   if (!es.configured) return null;
   // The query methods don't touch the Sophos client.
-  return new SophosPostureService(createEsClient(es), {} as never);
+  return new SophosPostureService(getSharedEsClient(es), {} as never);
 }
 
 const router = Router();

@@ -16,7 +16,7 @@ import {
 import { defaultCoverageWindow } from '../services/analytics/technique-coverage.js';
 import { SentinelOnePostureService } from '../services/sentinelone/posture.service.js';
 import { SettingsService as AnalyticsSettingsService } from '../services/analytics/settings.js';
-import { createEsClient } from '../services/analytics/client.js';
+import { getSharedEsClient } from '../services/analytics/sharedClient.js';
 
 const SOURCE_TYPES = new Set(['threats', 'cloud_detection_alerts']);
 
@@ -25,7 +25,7 @@ function postureService(): SentinelOnePostureService | null {
   const es = new AnalyticsSettingsService().getSettings();
   if (!es.configured) return null;
   // The query methods don't touch the S1 client.
-  return new SentinelOnePostureService(createEsClient(es), {} as never);
+  return new SentinelOnePostureService(getSharedEsClient(es), {} as never);
 }
 
 const router = Router();

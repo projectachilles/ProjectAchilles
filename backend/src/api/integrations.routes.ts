@@ -33,7 +33,7 @@ import multer from 'multer';
 
 const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 4 * 1024 * 1024 } });
 import { SettingsService as AnalyticsSettingsService } from '../services/analytics/settings.js';
-import { createEsClient } from '../services/analytics/client.js';
+import { getSharedEsClient } from '../services/analytics/sharedClient.js';
 import { prepareEdrEs, checkEdrEs, getEdrEsReadiness } from '../services/edr/es-readiness.js';
 import { EDR_VENDOR_KEYS } from '../services/outcomes/vendors.js';
 import type { EdrVendorKey } from '../services/outcomes/vendors.js';
@@ -453,10 +453,10 @@ router.get('/defender/sync/status', requirePermission('integrations:read'), (_re
  * status + receipts endpoints query the achilles-defender index directly
  * (not via DefenderSyncService) because those reads don't need Graph access.
  */
-function getEsClientForRequest(): ReturnType<typeof createEsClient> | null {
+function getEsClientForRequest(): ReturnType<typeof getSharedEsClient> | null {
   const settings = new AnalyticsSettingsService().getSettings();
   if (!settings.configured) return null;
-  return createEsClient(settings);
+  return getSharedEsClient(settings);
 }
 
 /**
