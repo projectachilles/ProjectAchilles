@@ -424,7 +424,8 @@ sudo docker exec achilles-server-elasticsearch-1 \
 #### 7/10 Organisation
 
 - **Organisation name** (`ORGANIZATION_NAME`, at most 56 characters), printed on
-  execution reports.
+  execution reports until a console identity with a full name is saved in
+  Settings → General.
 - **Test library repository** and **branch** (default
   `https://github.com/ubercylon8/f0_library.git`, `main`).
 - **GitHub token**, only for a private test library (scope `repo`).

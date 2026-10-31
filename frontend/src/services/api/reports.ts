@@ -127,7 +127,8 @@ export interface ReportMeta {
   generatedAt: string;
   tz: string;
   /** id: the agent-org filter from the URL. name: that org's short name or, with no org in the URL,
-   *  the deployment's ORGANIZATION_NAME; null when neither applies. */
+   *  the console identity's full name (saved in Settings, else CONSOLE_ORG_NAME / ORGANIZATION_NAME);
+   *  null when neither applies. */
   org: { id: string | null; name: string | null };
   /** Applied filter-bar params, echoed (non-empty values only). */
   filters: Record<string, string>;

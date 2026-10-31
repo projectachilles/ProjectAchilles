@@ -11,6 +11,9 @@ This project uses two version streams:
 
 ## [Unreleased]
 
+### Changed
+- **The execution report names the organization from the console identity.** The cover, the scope table and the page headers print the full name saved in Settings → General, then `CONSOLE_ORG_NAME`, then `ORGANIZATION_NAME`, so a name set in the console no longer needs a redeploy to reach the PDF. A saved identity replaces the environment values, as it does in the console. Names are still cut to 56 characters in the report. `backend-serverless/`, which has no console identity, keeps reading `ORGANIZATION_NAME`.
+
 ## Agent [0.7.2] - 2026-10-31
 
 ### Security

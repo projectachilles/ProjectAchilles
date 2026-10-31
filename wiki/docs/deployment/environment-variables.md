@@ -84,10 +84,10 @@ For local development, `start.sh` creates this key automatically from the `elast
 
 | Variable | Description | Default |
 |----------|-------------|---------|
-| `ORGANIZATION_NAME` | The organization this deployment serves. The [execution report](../user-guide/analytics/execution-report) prints it on the cover, in the scope table and in every page header. A name longer than 56 characters is cut with an ellipsis. | Unset: the report says *All organizations* |
+| `ORGANIZATION_NAME` | The organization this deployment serves. The [execution report](../user-guide/analytics/execution-report) prints it on the cover, in the scope table and in every page header, unless `CONSOLE_ORG_NAME` is set or a [console identity](../user-guide/settings/console-identity) is saved in Settings → General (the saved full name wins). A name longer than 56 characters is cut with an ellipsis in the report. | Unset: the report says *All organizations* |
 | `ORG_NAMES` | Display names for organization UUIDs (`routing.oid`) in Analytics, the execution report and the compliance export. JSON keyed by org UUID; each value is a short name or `{"shortName": "...", "fullName": "..."}`, for example `{"<org-uuid>": {"shortName": "ACME", "fullName": "Acme Corporation"}}`. | Unset: organizations show the first 8 characters of their UUID |
 | `CONSOLE_ORG_CODE` | Organization code (2-6 letters or digits, uppercased) shown in the sidebar, page headers, colour ribbon, browser tab and favicon. See [console identity](../user-guide/settings/console-identity). A code saved in Settings → General replaces these three variables. Not supported on Vercel. | Unset: no console identity |
-| `CONSOLE_ORG_NAME` | Optional full name shown beside the code (up to 80 characters). Falls back to `ORGANIZATION_NAME`. See [console identity](../user-guide/settings/console-identity). | Unset: no name |
+| `CONSOLE_ORG_NAME` | Optional full name shown beside the code (up to 80 characters), and printed as the organization name on the execution report. Falls back to `ORGANIZATION_NAME`. See [console identity](../user-guide/settings/console-identity). | Unset: no name |
 | `CONSOLE_ORG_COLOR` | Identity colour preset: `violet`, `indigo`, `blue`, `cyan`, `fuchsia`, `pink`, `orange`, `silver` or `none`. See [console identity](../user-guide/settings/console-identity). | `none` |
 
 ### Vercel-Only

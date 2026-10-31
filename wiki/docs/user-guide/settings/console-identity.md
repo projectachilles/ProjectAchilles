@@ -24,7 +24,7 @@ An administrator sets three values:
 - **Browser tab**: the title becomes `[ACME] Settings · f0_csv` (the suffix is the console wordmark) and the favicon becomes a rounded square carrying the code, so you can tell consoles apart in a crowded tab strip.
 - **CLI authorization**: the "Authorize CLI" screen shows the identity, so you know which console you are granting access to.
 
-It is not shown on the sign-in pages or on printed reports and evidence pages. If no code is set anywhere, nothing changes: the console looks exactly as it did before.
+It is not shown on the sign-in pages or on printed reports and evidence pages. The [execution report](../analytics/execution-report#organization-name) does print the **full name**, as the organization the deployment serves (cut to 56 characters). If no code is set anywhere, nothing changes: the console looks exactly as it did before.
 
 ## Colours
 
