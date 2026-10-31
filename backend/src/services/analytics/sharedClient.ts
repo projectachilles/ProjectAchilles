@@ -4,7 +4,6 @@
 // stall whenever the network drops a handshake); a shared client keeps its
 // connections alive. A change to the connection settings builds a new client.
 
-import { createHash } from 'crypto';
 import type { Client } from '@elastic/elasticsearch';
 import type { AnalyticsSettings } from '../../types/analytics.js';
 import { createEsClient } from './client.js';
@@ -12,20 +11,26 @@ import { createEsClient } from './client.js';
 /** How long a replaced client stays open, so requests already running on it can finish. */
 export const CLOSE_GRACE_MS = 60_000;
 
-let shared: { key: string; client: Client } | null = null;
+type ConnectionFields = readonly unknown[];
+
+let shared: { fields: ConnectionFields; client: Client } | null = null;
 
 /** Only what decides where and how the client connects; index names don't need a new client. */
-function connectionKey(s: AnalyticsSettings): string {
-  const fields = [s.connectionType, s.cloudId, s.node, s.apiKey, s.username, s.password, s.caCert, s.tlsInsecureSkipVerify];
-  return createHash('sha256').update(JSON.stringify(fields)).digest('hex');
+function connectionFields(s: AnalyticsSettings): ConnectionFields {
+  return [s.connectionType, s.cloudId, s.node, s.apiKey, s.username, s.password, s.caCert, s.tlsInsecureSkipVerify];
+}
+
+// Compared field by field in memory: credentials are never hashed, serialized or stored elsewhere.
+function sameConnection(a: ConnectionFields, b: ConnectionFields): boolean {
+  return a.length === b.length && a.every((v, i) => v === b[i]);
 }
 
 /** The shared client for these settings; callers check `settings.configured` first and never close it. */
 export function getSharedEsClient(settings: AnalyticsSettings): Client {
-  const key = connectionKey(settings);
-  if (shared?.key === key) return shared.client;
+  const fields = connectionFields(settings);
+  if (shared && sameConnection(shared.fields, fields)) return shared.client;
   const previous = shared?.client;
-  shared = { key, client: createEsClient(settings) };
+  shared = { fields, client: createEsClient(settings) };
   if (previous) {
     setTimeout(() => {
       Promise.resolve(previous.close?.()).catch(() => undefined);
