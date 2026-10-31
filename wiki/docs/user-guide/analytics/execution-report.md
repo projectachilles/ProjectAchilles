@@ -35,15 +35,17 @@ If no execution matches the filters, the report says so and lists them instead o
 
 ## Organization name
 
-The cover, the scope table and every page header name the organization the deployment serves. An administrator sets it once per deployment with the backend variable `ORGANIZATION_NAME` (see [Environment Variables](../../deployment/environment-variables)):
+The cover, the scope table and every page header name the organization the deployment serves. It is the **full name** of the [console identity](../settings/console-identity), so an administrator sets it in **Settings → General**, and the next report picks it up.
+
+Without a saved identity, the report uses the backend variable `CONSOLE_ORG_NAME`, then `ORGANIZATION_NAME` (see [Environment Variables](../../deployment/environment-variables)). A saved identity replaces both, so an identity saved without a full name prints no name. On Vercel, which has no console identity, only `ORGANIZATION_NAME` applies. To set the name from the environment:
 
 - **Server install (`deploy-server.sh`):** set `ORGANIZATION_NAME` in `deploy.config.env` and re-run the installer. It rewrites `backend/.env` on every run, so a line added there by hand does not last.
 - **Docker Compose:** add `ORGANIZATION_NAME=Acme Corp` to `backend/.env`, then run `docker compose up -d`. A plain `docker compose restart` keeps the old environment.
 - **Render, Fly.io, Railway or Vercel:** add the variable to the backend service's environment and redeploy.
 
-Without it, the cover says *All organizations* and the page headers read *ProjectAchilles · Security Validation Report*.
+Without a name, the cover says *All organizations* and the page headers read *ProjectAchilles · Security Validation Report*.
 
-Keep the name to 56 characters or fewer, so the page header fits on one line beside the date range. A longer name is cut with an ellipsis everywhere it appears.
+Keep the name to 56 characters or fewer, so the page header fits on one line beside the date range. A longer name is cut with an ellipsis everywhere it appears in the report; the console itself shows up to 80 characters.
 
 ## How to read the numbers
 

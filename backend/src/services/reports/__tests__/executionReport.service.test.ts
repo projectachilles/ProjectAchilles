@@ -1,10 +1,14 @@
-import { describe, it, expect, vi, beforeEach, afterEach, type MockInstance } from 'vitest';
+import { describe, it, expect, vi, beforeEach, afterEach, afterAll, type MockInstance } from 'vitest';
+import * as fs from 'fs';
+import * as os from 'os';
+import * as path from 'path';
 
 vi.mock('../../analytics/client.js', () => ({ createEsClient: vi.fn() }));
 
 import { createEsClient } from '../../analytics/client.js';
 import { STAGE_OUTCOMES } from '../stageOutcome.js';
 import { ExecutionReportService, ORG_NAME_MAX, deploymentOrgName } from '../executionReport.service.js';
+import { ConsoleIdentityService } from '../../consoleIdentity/consoleIdentity.service.js';
 import type { OutcomeCounts } from '../../../types/reports.js';
 import type { AnalyticsSettings } from '../../../types/analytics.js';
 
@@ -12,6 +16,9 @@ const BUNDLE = '298cc137-ea39-4cf0-9b2d-b1c59a3cbacb';
 const TASK = '4c28f408-1676-40ff-a2e6-60ea5bdd6076';
 const NOW = new Date('2026-10-13T23:40:00.000Z');
 const T_RUN = Date.parse('2026-10-12T12:47:49.000Z');
+// Console identity lives here, never in the real ~/.projectachilles.
+const IDENTITY_DIR = fs.mkdtempSync(path.join(os.tmpdir(), 'report-identity-'));
+afterAll(() => fs.rmSync(IDENTITY_DIR, { recursive: true, force: true }));
 const settings: AnalyticsSettings = { connectionType: 'direct', node: 'http://localhost:9200', indexPattern: 'achilles-results-*', configured: true };
 
 const agg = (c: Partial<OutcomeCounts>) => ({ buckets: Object.fromEntries(STAGE_OUTCOMES.map((k) => [k, { doc_count: c[k] ?? 0 }])) });
@@ -121,6 +128,8 @@ function makeDeps(over: Record<string, unknown> = {}): any {
     getAcceptances: vi.fn(async () => ({})),
     budgetMs: 5_000,
     vendorBudgetMs: 5_000,
+    // A fresh service per report, so env stubs made before generate() are read.
+    getDeploymentName: () => new ConsoleIdentityService(IDENTITY_DIR).get().name,
     ...over,
   };
 }
@@ -513,8 +522,46 @@ describe('ExecutionReportService.generate', () => {
 });
 
 describe('organization name', () => {
+  const saveIdentity = (name: string | null) =>
+    new ConsoleIdentityService(IDENTITY_DIR).save({ code: 'AC', name, color: 'none' });
+
   afterEach(() => {
     vi.unstubAllEnvs();
+    new ConsoleIdentityService(IDENTITY_DIR).reset();
+  });
+
+  it('prints the full name saved in Settings, over the environment', async () => {
+    vi.stubEnv('ORGANIZATION_NAME', 'Acme Corp');
+    saveIdentity('Acme Financial Group');
+    const report = await new ExecutionReportService(settings, makeDeps()).generate(params(), NOW);
+    expect(report.meta.org).toEqual({ id: null, name: 'Acme Financial Group' });
+  });
+
+  it('prints no name when the saved identity has none: a saved identity replaces the environment', async () => {
+    vi.stubEnv('ORGANIZATION_NAME', 'Acme Corp');
+    saveIdentity(null);
+    const report = await new ExecutionReportService(settings, makeDeps()).generate(params(), NOW);
+    expect(report.meta.org).toEqual({ id: null, name: null });
+  });
+
+  it('prefers CONSOLE_ORG_NAME to ORGANIZATION_NAME when nothing is saved', async () => {
+    vi.stubEnv('ORGANIZATION_NAME', 'Acme Corp');
+    vi.stubEnv('CONSOLE_ORG_NAME', 'Acme Financial Group');
+    const report = await new ExecutionReportService(settings, makeDeps()).generate(params(), NOW);
+    expect(report.meta.org).toEqual({ id: null, name: 'Acme Financial Group' });
+  });
+
+  it('cuts a saved name longer than ORG_NAME_MAX for the page header', async () => {
+    saveIdentity('x'.repeat(ORG_NAME_MAX + 10));
+    const report = await new ExecutionReportService(settings, makeDeps()).generate(params(), NOW);
+    expect(Array.from(report.meta.org.name!)).toHaveLength(ORG_NAME_MAX);
+    expect(report.meta.org.name!.endsWith('…')).toBe(true);
+  });
+
+  it('lets an org named in the URL win over the saved name', async () => {
+    saveIdentity('Acme Financial Group');
+    const report = await new ExecutionReportService(settings, makeDeps()).generate(params({ org: 'agent-org' }), NOW);
+    expect(report.meta.org).toEqual({ id: 'agent-org', name: null });
   });
 
   it('names the deployment organization when the URL names no org', async () => {
@@ -544,6 +591,7 @@ describe('organization name', () => {
 describe('deploymentOrgName', () => {
   it('reads nothing as unset', () => {
     expect(deploymentOrgName(undefined)).toBeNull();
+    expect(deploymentOrgName(null)).toBeNull();
     expect(deploymentOrgName('')).toBeNull();
   });
 

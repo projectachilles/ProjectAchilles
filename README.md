@@ -339,7 +339,7 @@ Quantify your security posture with 30+ query endpoints powered by Elasticsearch
 - **Defense Score** — Latest-result score (`basis=latest`) or per-execution score, with breakdowns by test, technique, category, hostname, and severity
 - **Run Detail** — bundle stages in execution order with plain-language verdicts, ATT&CK technique names, and an attack-chain strip
 - **Chain Depth** — how far each multi-stage attack got before something stopped it, split into detected / undetected chains, pre-execution blocks, and stage errors
-- **Execution Report** — a print-ready PDF report (executive verdict, kill chain, timeline, findings) at `/analytics/report`, named for your organisation via `ORGANIZATION_NAME`
+- **Execution Report** — a print-ready PDF report (executive verdict, kill chain, timeline, findings) at `/analytics/report`, named for your organisation via the console identity (Settings → General) or `ORGANIZATION_NAME`
 - **Compliance Export** — SB-PC-2026-001 JSON export (with JSON Schema) that honours the analytics scope filters
 - **Trend Analysis** — Rolling-window defense score and error rate trends over time
 - **MITRE ATT&CK Heatmaps** — Host-test matrix showing protection status across your fleet

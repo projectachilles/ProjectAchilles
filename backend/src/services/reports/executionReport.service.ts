@@ -19,6 +19,7 @@ import type { Client } from '@elastic/elasticsearch';
 import { createEsClient } from '../analytics/client.js';
 import { ElasticsearchService } from '../analytics/elasticsearch.js';
 import { orgShortName } from '../analytics/orgNames.js';
+import { ConsoleIdentityService } from '../consoleIdentity/consoleIdentity.service.js';
 import { RiskAcceptanceService, type RiskAcceptance } from '../risk-acceptance/risk-acceptance.service.js';
 import { getTestDirectory, getTestMetadata } from '../agent/test-catalog.service.js';
 import { AppError } from '../../middleware/error.middleware.js';
@@ -48,11 +49,11 @@ export const VENDOR_BUDGET_MS = 15_000;
 export const ORG_NAME_MAX = 56;
 
 /**
- * The organization this deployment serves (ORGANIZATION_NAME), as the report prints it.
+ * The organization this deployment serves, as the report prints it.
  * Runs of whitespace, line breaks included, become one space; a blank value means unset;
  * a longer name is cut to ORG_NAME_MAX characters, the last one an ellipsis.
  */
-export function deploymentOrgName(raw: string | undefined = process.env.ORGANIZATION_NAME): string | null {
+export function deploymentOrgName(raw: string | null | undefined): string | null {
   const name = (raw ?? '').replace(/\s+/g, ' ').trim();
   if (!name) return null;
   const chars = Array.from(name);
@@ -82,7 +83,13 @@ export interface ExecutionReportDeps {
   getAcceptances: (testNames: string[], org?: string) => Promise<Record<string, RiskAcceptance[]>>;
   budgetMs: number;
   vendorBudgetMs: number;
+  /** Raw name of the organization this deployment serves: the console identity's full name
+   *  (Settings → General, else CONSOLE_ORG_NAME, else ORGANIZATION_NAME). */
+  getDeploymentName: () => string | null;
 }
+
+// Shared by every report; reads the saved identity file on each call, so a Settings change shows on the next report.
+const consoleIdentity = new ConsoleIdentityService();
 
 /** Fixed order for meta.unavailable, whatever order the steps finished in. */
 const ENRICHMENT_ORDER: readonly ReportEnrichment[] = ['defenseScore', 'alerts', 'startTimes', 'acceptedRisks'];
@@ -314,6 +321,7 @@ export class ExecutionReportService {
         ?? ((names, org) => new RiskAcceptanceService(realClient()).getAcceptancesForControls(names, org)),
       budgetMs: deps.budgetMs ?? REPORT_BUDGET_MS,
       vendorBudgetMs: deps.vendorBudgetMs ?? VENDOR_BUDGET_MS,
+      getDeploymentName: deps.getDeploymentName ?? (() => consoleIdentity.get().name),
     };
   }
 
@@ -364,7 +372,7 @@ export class ExecutionReportService {
       reportId: makeReportId(now),
       generatedAt: now.toISOString(),
       tz,
-      org: { id: params.org ?? null, name: params.org ? orgShortName(params.org) ?? null : deploymentOrgName() },
+      org: { id: params.org ?? null, name: params.org ? orgShortName(params.org) ?? null : deploymentOrgName(this.deps.getDeploymentName()) },
       filters: echoFilters(params),
       outcomeFiltered: outcomeFilters(params),
       window: { ...window, ...axis, firstExecution: scope.firstExecution, lastExecution: scope.lastExecution },
