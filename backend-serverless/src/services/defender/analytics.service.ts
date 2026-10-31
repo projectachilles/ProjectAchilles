@@ -216,6 +216,10 @@ function techniqueMatch(techniques: string[]): QueryDslQueryContainer {
   };
 }
 
+/** Fields read from secure_score docs (the rest is per-control detail). */
+export const SECURE_SCORE_SUMMARY_FIELDS = ['current_score', 'max_score', 'score_percentage', 'average_comparative_score'];
+export const SECURE_SCORE_TREND_FIELDS = ['timestamp', 'current_score', 'max_score', 'score_percentage'];
+
 export class DefenderAnalyticsService {
   private async getEsContext() {
     const settingsService = new SettingsService();
@@ -258,6 +262,9 @@ export class DefenderAnalyticsService {
       size: 1,
       query: { term: { doc_type: 'secure_score' } },
       sort: [{ timestamp: { order: 'desc' } }],
+      // A secure_score doc also carries every control's score (~20 KB/day);
+      // only these fields are read.
+      _source: SECURE_SCORE_SUMMARY_FIELDS,
     });
 
     const hit = result.hits.hits[0];
@@ -297,6 +304,9 @@ export class DefenderAnalyticsService {
         },
       },
       sort: [{ timestamp: { order: 'asc' } }],
+      // Measured on a live tenant: 588 KB for 30 days with full documents,
+      // 7 KB with these four fields (each doc carries every control's score).
+      _source: SECURE_SCORE_TREND_FIELDS,
     });
 
     return result.hits.hits.map((hit) => {
