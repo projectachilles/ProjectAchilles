@@ -268,6 +268,8 @@ export interface TaskResult {
   os: AgentOS;
   arch: AgentArch;
   bundle_results?: BundleResults;
+  /** ISO time the retention job removed stdout/stderr/control details; set only on compacted results. */
+  compacted_at?: string;
 }
 
 export interface BundleControlResult {

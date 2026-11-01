@@ -28,6 +28,7 @@ import integrationsRoutes, { alertsService } from './api/integrations.routes.js'
 import { processSchedules } from './services/agent/schedules.service.js';
 import { processAutoRotation } from './services/agent/autoRotation.service.js';
 import { pruneHeartbeatHistory, detectOfflineAgents } from './services/agent/heartbeat.service.js';
+import { runRetentionTick } from './services/agent/retention.service.js';
 import { initCatalog } from './services/agent/test-catalog.service.js';
 import { startIngestionRetryWorker, stopIngestionRetryWorker } from './services/agent/ingestionWorker.service.js';
 import type { TestSource } from './types/test.js';
@@ -470,6 +471,15 @@ function startBackgroundJobs(httpServer?: http.Server) {
   // --- Heartbeat history pruning: every hour ---
   const heartbeatPruneInterval = setInterval(pruneHeartbeatHistory, 60 * 60 * 1000);
 
+  // --- Retention: compact old task output + prune old agent events, every hour ---
+  const retentionInterval = setInterval(() => {
+    try {
+      runRetentionTick();
+    } catch (err) {
+      console.error('[retention] Tick failed:', err);
+    }
+  }, 60 * 60 * 1000);
+
   // --- Offline agent detection + agent alerts: every 60s ---
   const offlineDetectionInterval = setInterval(() => {
     detectOfflineAgents();
@@ -635,6 +645,7 @@ function startBackgroundJobs(httpServer?: http.Server) {
     clearInterval(sophosInterval);
     clearInterval(autoRotationInterval);
     clearInterval(heartbeatPruneInterval);
+    clearInterval(retentionInterval);
     clearInterval(offlineDetectionInterval);
     stopIngestionRetryWorker();
     if (defenderScoreInterval) clearInterval(defenderScoreInterval);
