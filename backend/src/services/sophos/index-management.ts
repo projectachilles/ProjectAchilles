@@ -13,6 +13,7 @@
 
 import { SettingsService } from '../analytics/settings.js';
 import { createEsClient } from '../analytics/client.js';
+import { createAchillesIndex } from '../shared/esIndexCreate.js';
 
 export const SOPHOS_INDEX = 'achilles-sophos';
 
@@ -112,7 +113,7 @@ export async function ensureSophosIndex(): Promise<void> {
     return;
   }
   try {
-    await client.indices.create({ index: SOPHOS_INDEX, ...SOPHOS_INDEX_MAPPING });
+    await createAchillesIndex(client, SOPHOS_INDEX, SOPHOS_INDEX_MAPPING);
   } catch (err: unknown) {
     // 400 resource_already_exists (race with another sync) is fine.
     if (err && typeof err === 'object' && 'statusCode' in err && (err as { statusCode: number }).statusCode === 400) return;
