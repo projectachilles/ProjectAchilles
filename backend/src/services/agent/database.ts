@@ -413,7 +413,7 @@ export function initializeTables(database: Database.Database): void {
     );
   `);
 
-  // Persisted agent-key digests (agentKeyDigest.ts): SHA-256 of an agent's
+  // Persisted agent-key digests (agentKeyDigest.ts): HMAC-SHA256 of an agent's
   // bearer key, bound to the agents.api_key_hash it passed bcrypt against, so
   // a restart doesn't make every agent re-run a cost-12 bcrypt compare.
   // Deliberately a separate table with no FK: the agents table is recreated

@@ -22,16 +22,17 @@ type AgentRow = CachedAgentRow;
 // M2: Pre-computed dummy hash so bcrypt.compare always runs, eliminating timing oracle
 const DUMMY_HASH = bcrypt.hashSync('dummy-value-for-timing', 12);
 
-// bcrypt compares currently running, keyed by hash + token digest. A burst of
-// requests carrying the same key (an agent's parallel calls, or a fleet
-// reconnecting after a restart before its digests are recorded) shares one
-// cost-12 compare instead of queueing N of them on the main thread. The
+// bcrypt compares currently running, keyed by the hash being compared against
+// plus the token's digest under that hash. A burst of requests carrying the
+// same key (an agent's parallel calls, or a fleet reconnecting after a restart
+// before its digests are recorded) shares one cost-12 compare instead of
+// queueing N of them on the main thread. The
 // result is exactly bcrypt.compare(token, hash) for that pair, so sharing it
 // is sound; the entry is dropped as soon as the compare settles.
 const inFlightCompares = new Map<string, Promise<boolean>>();
 
 function compareOnce(token: string, hash: string): Promise<boolean> {
-  const key = hash + '\0' + digestAgentKey(token);
+  const key = hash + '\0' + digestAgentKey(token, hash);
   let pending = inFlightCompares.get(key);
   if (!pending) {
     pending = bcrypt.compare(token, hash).finally(() => {

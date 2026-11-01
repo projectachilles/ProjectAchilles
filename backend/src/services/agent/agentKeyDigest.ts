@@ -8,11 +8,13 @@ import { getDatabase } from './database.js';
  * thread, a few hundred ms each). With only an in-memory shortcut, every
  * backend restart made the whole fleet re-run bcrypt at once, which stalled
  * the event loop long enough for agents to be marked offline. This module
- * stores, per agent, a SHA-256 digest of the key together with the bcrypt
- * hash (`agents.api_key_hash`) it was proven against, in `agent_key_digests`.
+ * stores, per agent, an HMAC-SHA256 digest of the key (keyed by the bcrypt
+ * hash `agents.api_key_hash` it was proven against) together with that hash,
+ * in `agent_key_digests`.
  *
  * A digest is only ever trusted for the exact `api_key_hash` it was recorded
- * against, so any key change (promotion, re-enrollment, a manual SQL update)
+ * against (checked explicitly, and bound cryptographically by the HMAC key),
+ * so any key change (promotion, re-enrollment, a manual SQL update)
  * voids it without an explicit invalidation step. `agents.api_key_hash` itself
  * is never touched here, so rolling back to a build without this table is safe:
  * the old code ignores it and falls back to bcrypt.
@@ -23,7 +25,7 @@ const MAX_MEMORY_ENTRIES = 10_000;
 interface DigestEntry {
   /** The agents.api_key_hash the key was proven against. */
   apiKeyHash: string;
-  /** digestAgentKey() of the key. */
+  /** digestAgentKey(key, apiKeyHash). */
   keyDigest: string;
 }
 
@@ -40,16 +42,20 @@ function remember(agentId: string, entry: DigestEntry): void {
 }
 
 /**
- * Hex SHA-256 of the full bearer token (`ak_…`).
+ * Hex HMAC-SHA256 of the full bearer token (`ak_…`), keyed by the bcrypt hash
+ * (`agents.api_key_hash`) the token is checked against.
  *
- * A fast hash is sufficient here, unlike for passwords: agent keys are 256-bit
- * random values (crypto.randomBytes(32)), so the keyspace makes brute force
- * infeasible regardless of hash speed. bcrypt stays the authority for the key
- * (`agents.api_key_hash`); this digest only lets a key already proven against
- * that hash skip the repeat compare. Same reasoning as the `pa_` API keys.
+ * A fast keyed hash is sufficient here, unlike for passwords: agent keys are
+ * 256-bit random values (crypto.randomBytes(32)), so the keyspace makes brute
+ * force infeasible regardless of hash speed. Keying the HMAC by the bcrypt
+ * hash is stable across restarts (no extra secret to manage) and binds the
+ * digest to that hash: the same token yields a different digest under any
+ * other hash. bcrypt remains the authority for every key without a digest;
+ * this only lets a key already proven against that hash skip the repeat
+ * compare.
  */
-export function digestAgentKey(token: string): string {
-  return crypto.createHash('sha256').update(token).digest('hex');
+export function digestAgentKey(token: string, apiKeyHash: string): string {
+  return crypto.createHmac('sha256', apiKeyHash).update(token).digest('hex');
 }
 
 /**
@@ -57,7 +63,7 @@ export function digestAgentKey(token: string): string {
  * Replaces any earlier digest for the agent (one row per agent).
  */
 export function recordAgentKeyDigest(agentId: string, apiKeyHash: string, token: string): void {
-  const keyDigest = digestAgentKey(token);
+  const keyDigest = digestAgentKey(token, apiKeyHash);
   getDatabase().prepare(`
     INSERT INTO agent_key_digests (agent_id, api_key_hash, key_digest, verified_at)
     VALUES (?, ?, ?, ?)
@@ -90,7 +96,7 @@ export function agentKeyDigestMatches(agentId: string, apiKeyHash: string, token
   if (entry.apiKeyHash !== apiKeyHash) return false;
 
   const stored = Buffer.from(entry.keyDigest, 'hex');
-  const presented = Buffer.from(digestAgentKey(token), 'hex');
+  const presented = Buffer.from(digestAgentKey(token, apiKeyHash), 'hex');
   return stored.length === presented.length && crypto.timingSafeEqual(stored, presented);
 }
 

@@ -1,4 +1,5 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest';
+import { createHmac } from 'crypto';
 import Database from 'better-sqlite3';
 import { createTestDatabase } from '../../../__tests__/helpers/db.js';
 
@@ -29,11 +30,29 @@ describe('agentKeyDigest', () => {
     _clearAgentKeyDigestMemory();
   });
 
-  it('digestAgentKey is a deterministic hex SHA-256 of the full token', () => {
-    const d = digestAgentKey(TOK_A);
+  it('digestAgentKey is a deterministic hex HMAC-SHA256 of the token keyed by the bcrypt hash', () => {
+    const d = digestAgentKey(TOK_A, H);
     expect(d).toMatch(/^[0-9a-f]{64}$/);
-    expect(digestAgentKey(TOK_A)).toBe(d);
-    expect(digestAgentKey(TOK_B)).not.toBe(d);
+    expect(d).toBe(createHmac('sha256', H).update(TOK_A).digest('hex'));
+    expect(digestAgentKey(TOK_A, H)).toBe(d);
+    expect(digestAgentKey(TOK_B, H)).not.toBe(d);
+  });
+
+  it('a digest recorded under one hash never matches under another, even with the same token', () => {
+    recordAgentKeyDigest(AGENT, H, TOK_A);
+    const underH = (testDb.prepare('SELECT key_digest FROM agent_key_digests WHERE agent_id = ?').get(AGENT) as {
+      key_digest: string;
+    }).key_digest;
+    recordAgentKeyDigest(AGENT, H2, TOK_A);
+    const underH2 = (testDb.prepare('SELECT key_digest FROM agent_key_digests WHERE agent_id = ?').get(AGENT) as {
+      key_digest: string;
+    }).key_digest;
+
+    // Cryptographic binding: the same token yields a different digest per hash.
+    expect(underH).not.toBe(underH2);
+    _clearAgentKeyDigestMemory();
+    expect(agentKeyDigestMatches(AGENT, H, TOK_A)).toBe(false);
+    expect(agentKeyDigestMatches(AGENT, H2, TOK_A)).toBe(true);
   });
 
   it('matches only the token it was recorded for', () => {
@@ -60,7 +79,7 @@ describe('agentKeyDigest', () => {
       .prepare('SELECT * FROM agent_key_digests WHERE agent_id = ?')
       .get(AGENT) as Record<string, string>;
     expect(row.api_key_hash).toBe(H);
-    expect(row.key_digest).toBe(digestAgentKey(TOK_A));
+    expect(row.key_digest).toBe(digestAgentKey(TOK_A, H));
     expect(JSON.stringify(row)).not.toContain(TOK_A);
   });
 
