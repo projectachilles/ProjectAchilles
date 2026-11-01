@@ -58,6 +58,19 @@ export function compactResult(result: TaskResult, compactedAtIso: string): TaskR
   return compacted;
 }
 
+/**
+ * Candidate query. The unary plus on `status` stops SQLite choosing
+ * idx_tasks_es_ingested (every terminal row) over the partial
+ * idx_tasks_compactable (only uncompacted rows by completed_at).
+ */
+export const COMPACTABLE_SELECT_SQL = `SELECT id, result FROM tasks
+     WHERE result_compacted_at IS NULL
+       AND completed_at < ?
+       AND +status IN ('completed','failed')
+       AND result IS NOT NULL
+       AND (type != 'execute_test' OR es_ingested = 1)
+     LIMIT ?`;
+
 export interface CompactOptions {
   olderThanDays?: number;
   batchSize?: number;
@@ -75,15 +88,7 @@ export function compactTaskResults(opts: CompactOptions = {}): number {
   const cutoff = sqliteCutoff(now, days);
   const compactedAtIso = now.toISOString();
 
-  const select = db.prepare(
-    `SELECT id, result FROM tasks
-     WHERE result_compacted_at IS NULL
-       AND completed_at < ?
-       AND status IN ('completed','failed')
-       AND result IS NOT NULL
-       AND (type != 'execute_test' OR es_ingested = 1)
-     LIMIT ?`,
-  );
+  const select = db.prepare(COMPACTABLE_SELECT_SQL);
   const update = db.prepare('UPDATE tasks SET result = ?, result_compacted_at = ? WHERE id = ?');
 
   let total = 0;

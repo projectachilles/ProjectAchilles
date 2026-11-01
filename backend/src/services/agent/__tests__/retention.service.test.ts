@@ -10,7 +10,7 @@ vi.mock('../database.js', async (orig) => ({
   getDatabase: () => testDb,
 }));
 
-const { compactResult, compactTaskResults, pruneAgentEvents, getRetentionSettings, runRetentionTick } =
+const { COMPACTABLE_SELECT_SQL, compactResult, compactTaskResults, pruneAgentEvents, getRetentionSettings, runRetentionTick } =
   await import('../retention.service.js');
 const { classifyTaskOutcome } = await import('../../outcomes/taskOutcome.js');
 const { controlsOf } = await import('../../outcomes/verdict.js');
@@ -225,6 +225,17 @@ describe('pruneAgentEvents', () => {
     const ins = testDb.prepare(`INSERT INTO agent_events (agent_id, event_type, created_at) VALUES ('agent-1', 'came_online', ?)`);
     testDb.transaction(() => { for (let i = 0; i < 2500; i++) ins.run(OLD); })();
     expect(pruneAgentEvents({ olderThanDays: 90, now: NOW })).toBe(2500);
+  });
+});
+
+describe('compaction query plan', () => {
+  it('uses the partial idx_tasks_compactable index', () => {
+    const plan = testDb
+      .prepare(`EXPLAIN QUERY PLAN ${COMPACTABLE_SELECT_SQL}`)
+      .all('2026-01-01 00:00:00', 500) as { detail: string }[];
+    const detail = plan.map((r) => r.detail).join('\n');
+    expect(detail).toContain('idx_tasks_compactable');
+    expect(detail).not.toContain('idx_tasks_es_ingested');
   });
 });
 
