@@ -33,6 +33,8 @@ export interface DefenderIntegrationSettings {
   label?: string;
   last_alert_sync?: string;
   last_score_sync?: string;
+  /** Alert sync schema version; a mismatch forces a full re-sync at startup. */
+  sync_version?: number;
   /** Auto-resolve pillar mode. Missing/undefined = 'disabled' (default). */
   auto_resolve_mode?: AutoResolveMode;
 }

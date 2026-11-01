@@ -282,6 +282,7 @@ export class IntegrationsSettingsService {
       label: settings.label !== undefined ? settings.label : current.label,
       last_alert_sync: settings.last_alert_sync !== undefined ? settings.last_alert_sync : current.last_alert_sync,
       last_score_sync: settings.last_score_sync !== undefined ? settings.last_score_sync : current.last_score_sync,
+      sync_version: settings.sync_version !== undefined ? settings.sync_version : current.sync_version,
       auto_resolve_mode: settings.auto_resolve_mode !== undefined ? settings.auto_resolve_mode : current.auto_resolve_mode,
     };
     const encryptedDefender: Record<string, unknown> = {
@@ -328,6 +329,7 @@ export class IntegrationsSettingsService {
     if (existing.defender) {
       if (timestamps.last_alert_sync !== undefined) existing.defender.last_alert_sync = timestamps.last_alert_sync;
       if (timestamps.last_score_sync !== undefined) existing.defender.last_score_sync = timestamps.last_score_sync;
+      if (timestamps.sync_version !== undefined) existing.defender.sync_version = timestamps.sync_version;
     } else {
       existing.defender_sync = { ...existing.defender_sync, ...timestamps };
     }
