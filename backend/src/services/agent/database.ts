@@ -413,6 +413,21 @@ export function initializeTables(database: Database.Database): void {
     );
   `);
 
+  // Persisted agent-key digests (agentKeyDigest.ts): SHA-256 of an agent's
+  // bearer key, bound to the agents.api_key_hash it passed bcrypt against, so
+  // a restart doesn't make every agent re-run a cost-12 bcrypt compare.
+  // Deliberately a separate table with no FK: the agents table is recreated
+  // by CHECK-constraint migrations (with FKs off), and agents.api_key_hash
+  // keeps its meaning, so an older build can ignore this table entirely.
+  database.exec(`
+    CREATE TABLE IF NOT EXISTS agent_key_digests (
+      agent_id TEXT PRIMARY KEY,
+      api_key_hash TEXT NOT NULL,
+      key_digest TEXT NOT NULL,
+      verified_at TEXT NOT NULL
+    );
+  `);
+
   // Migration: expand api_keys.scope CHECK constraint to include 'admin'.
   // Must run after the CREATE TABLE IF NOT EXISTS api_keys above — on a fresh
   // database the table doesn't exist until that statement runs.

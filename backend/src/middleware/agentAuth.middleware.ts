@@ -6,11 +6,13 @@ import {
   getCachedAgent,
   setCachedAgent,
   invalidateAgentCache,
-  isTokenVerifiedRecently,
-  setVerifiedToken,
-  hashTokenForCache,
 } from '../services/agent/agentAuthCache.js';
 import type { CachedAgentRow } from '../services/agent/agentAuthCache.js';
+import {
+  agentKeyDigestMatches,
+  digestAgentKey,
+  recordAgentKeyDigest,
+} from '../services/agent/agentKeyDigest.js';
 import type { AuthenticatedAgent } from '../types/agent.js';
 
 const MAX_TIMESTAMP_SKEW_SECONDS = 300; // 5 minutes
@@ -19,6 +21,49 @@ type AgentRow = CachedAgentRow;
 
 // M2: Pre-computed dummy hash so bcrypt.compare always runs, eliminating timing oracle
 const DUMMY_HASH = bcrypt.hashSync('dummy-value-for-timing', 12);
+
+// bcrypt compares currently running, keyed by hash + token digest. A burst of
+// requests carrying the same key (an agent's parallel calls, or a fleet
+// reconnecting after a restart before its digests are recorded) shares one
+// cost-12 compare instead of queueing N of them on the main thread. The
+// result is exactly bcrypt.compare(token, hash) for that pair, so sharing it
+// is sound; the entry is dropped as soon as the compare settles.
+const inFlightCompares = new Map<string, Promise<boolean>>();
+
+function compareOnce(token: string, hash: string): Promise<boolean> {
+  const key = hash + '\0' + digestAgentKey(token);
+  let pending = inFlightCompares.get(key);
+  if (!pending) {
+    pending = bcrypt.compare(token, hash).finally(() => {
+      inFlightCompares.delete(key);
+    });
+    inFlightCompares.set(key, pending);
+  }
+  return pending;
+}
+
+/**
+ * True when this exact key already passed bcrypt against the hash the row
+ * carries now. Best-effort: a digest-table error falls back to bcrypt instead
+ * of failing the request.
+ */
+function provenByDigest(row: AgentRow, token: string): boolean {
+  try {
+    return agentKeyDigestMatches(row.id, row.api_key_hash, token);
+  } catch (err) {
+    console.warn(`[agentAuth] key digest lookup failed agent_id=${row.id} error=${err instanceof Error ? err.message : String(err)}`);
+    return false;
+  }
+}
+
+/** Record a bcrypt-proven key; a failure only costs the next request a compare. */
+function rememberProvenKey(agentId: string, apiKeyHash: string, token: string): void {
+  try {
+    recordAgentKeyDigest(agentId, apiKeyHash, token);
+  } catch (err) {
+    console.warn(`[agentAuth] key digest record failed agent_id=${agentId} error=${err instanceof Error ? err.message : String(err)}`);
+  }
+}
 
 /**
  * Express middleware that authenticates agent API calls.
@@ -66,7 +111,6 @@ export function requireAgentAuth(req: Request, res: Response, next: NextFunction
   }
 
   const token = parts[1];
-  const tokenHash = hashTokenForCache(token);
 
   // Try in-memory cache first, fall back to DB on miss
   let row: AgentRow | undefined = getCachedAgent(agentId) ?? undefined;
@@ -83,12 +127,12 @@ export function requireAgentAuth(req: Request, res: Response, next: NextFunction
   // guessing bricks an agent either way — see the comment on the bcrypt branches
   // below. Both keys stay acceptable until the agent proves which one it has.
 
-  // Verdict-cache fast path: if this exact tokenHash passed bcrypt against
-  // the api_key_hash the agent row carries now, skip the cost-12
-  // bcrypt.compare. The verdict is void once the key changes and is never
-  // used while a rotation is pending (see isTokenVerifiedRecently); status
-  // is still checked in finalizeAgentAuth.
-  if (row && isTokenVerifiedRecently(agentId, tokenHash, row)) {
+  // Digest fast path: if this exact key already passed bcrypt against the
+  // api_key_hash the agent row carries now (recorded in agent_key_digests,
+  // so it survives restarts), skip the cost-12 bcrypt.compare. The digest is
+  // void once the key changes and is never used while a rotation is pending;
+  // status and timestamp are still checked in finalizeAgentAuth.
+  if (row && !row.pending_api_key_hash && provenByDigest(row, token)) {
     finalizeAgentAuth(req, res, next, row);
     return;
   }
@@ -96,10 +140,10 @@ export function requireAgentAuth(req: Request, res: Response, next: NextFunction
   // M2: Always run bcrypt.compare to prevent timing oracle — use dummy hash if agent not found
   const hashToCompare = row?.api_key_hash ?? DUMMY_HASH;
 
-  bcrypt.compare(token, hashToCompare)
+  compareOnce(token, hashToCompare)
     .then(async (match) => {
-      // The hash the presented token matched, recorded with the verdict so
-      // it is void as soon as the agent's api_key_hash differs from it.
+      // The hash the presented token matched, recorded with its digest so the
+      // digest is void as soon as the agent's api_key_hash differs from it.
       let matchedKeyHash = hashToCompare;
       // A rotation is resolved by which key the agent presents, never by a
       // clock. Both keys stay acceptable until then, because at grace expiry
@@ -125,7 +169,7 @@ export function requireAgentAuth(req: Request, res: Response, next: NextFunction
           invalidateAgentCache(row.id);
         }
       } else if (!match && row?.pending_api_key_hash) {
-        const pendingMatch = await bcrypt.compare(token, row.pending_api_key_hash);
+        const pendingMatch = await compareOnce(token, row.pending_api_key_hash);
         if (pendingMatch) {
           // Agent has proven it holds the new key — the only safe moment to
           // make it primary. No grace-period check: an agent that adopted the
@@ -148,10 +192,11 @@ export function requireAgentAuth(req: Request, res: Response, next: NextFunction
         return;
       }
 
-      // Record verdict so the next request from this agent with the same
-      // token can take the fast path. Done before finalize so even rejected
-      // status/timestamp checks below don't suppress the bcrypt-pass record.
-      setVerifiedToken(row.id, tokenHash, matchedKeyHash);
+      // Record the digest so the next request from this agent with the same
+      // key takes the fast path, across restarts too. Done before finalize so
+      // even rejected status/timestamp checks below don't suppress the
+      // bcrypt-pass record (finalize re-checks both on the fast path).
+      rememberProvenKey(row.id, matchedKeyHash, token);
 
       finalizeAgentAuth(req, res, next, row);
     })
@@ -162,10 +207,10 @@ export function requireAgentAuth(req: Request, res: Response, next: NextFunction
 }
 
 /**
- * Post-bcrypt (or post-verdict-cache-hit) checks: agent status + replay-protection
+ * Post-bcrypt (or post-digest-hit) checks: agent status + replay-protection
  * timestamp. On success, attaches `req.agent` and calls `next()`. On any failure,
  * responds 401 with the uniform message. Same semantics whether reached via the
- * slow bcrypt path or the verdict fast path — the only thing the fast path skips
+ * slow bcrypt path or the digest fast path — the only thing the fast path skips
  * is the bcrypt compare itself.
  */
 function finalizeAgentAuth(
