@@ -159,6 +159,7 @@ curl -H "Authorization: Bearer $CLERK_JWT" \
 - A `403` halts the pass cleanly (no error spam); a `404` writes a
   skip-forever receipt; transient errors skip the receipt so the next pass
   retries.
+- The last pass's errors appear on the auto-resolve card in **Settings → Integrations** (**Last pass: N errors**, the counts and the first error) and in the backend log as `[CrowdStrike-AutoResolve-ERROR] …`.
 
 :::warning[Defense Score invariant]
 **Auto-resolve never changes the [Defense Score](../analytics/defense-score).**
@@ -181,6 +182,19 @@ reporting.
 — add `Alerts: write` to the API client. The pass halts cleanly after the
 first 403 rather than spamming errors, so a short interruption is the worst
 case.
+
+### 400 "failed to read and parse request" on every alert
+
+**Symptom:** every PATCH fails with
+`HTTP 400 {"code":400,"message":"failed to read and parse request"}` and
+nothing is closed.
+
+**Cause:** releases before the fix sent the status and comment as top-level
+`update_status` / `append_comment` keys. The v3 API takes them as
+`action_parameters: [{ name, value }]`.
+
+**Fix:** upgrade ProjectAchilles. No setting needs to change; the next pass
+closes the queued alerts.
 
 ### 404 on a specific alert
 

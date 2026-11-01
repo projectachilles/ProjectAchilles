@@ -20,7 +20,7 @@ The integration runs on the Docker-style backends (`backend/`). Vercel deploymen
 
 1. In Sophos Central go to **Global Settings → Access Control → API Credentials** (tenant level) and add a credential:
    - **Read-only mode:** `Service Principal Read-Only`.
-   - **Response mode:** `Service Principal Management` or `Super Admin` (the write role is still being confirmed).
+   - **Response mode:** `Service Principal Management` (confirmed on a live tenant: it resolves XDR detections as `TRUE_POSITIVE_BENIGN`; alert acknowledgement uses the same role but hasn't been exercised live yet).
 2. Copy the **client ID** and the **client secret** (shown once).
 3. In ProjectAchilles go to **Settings → Integrations → Sophos** and fill in the client ID and secret.
 4. Click **Test Connection** (it shows the data region and one line per capability), then **Save Settings**.
@@ -48,4 +48,4 @@ Saving or testing the integration needs `integrations:write`, which the **admin*
 | "Sophos sync gap" warning | Achilles hasn't polled for more than about 23 hours and Sophos keeps only 24 hours of SIEM events | Restore polling; the gap clears after a reset or a clean poll 24 hours later |
 | Save returns 400 about environment variables | `SOPHOS_*` env credentials are set | Change the env vars, or remove them to configure from the UI |
 | Save or Sync returns 403 | `REQUIRE_ORG_ISOLATION=true` | Configure with the `SOPHOS_*` env vars |
-| Auto-resolve pass stops with `403` | The credential can't acknowledge or resolve | Give it Service Principal Management or Super Admin |
+| Auto-resolve pass stops with `403` | The credential can't acknowledge or resolve | Give it Service Principal Management (the card's **Last pass** notice and `[Sophos-AutoResolve-ERROR]` log lines show the error) |

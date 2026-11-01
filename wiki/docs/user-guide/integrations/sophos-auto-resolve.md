@@ -44,17 +44,17 @@ requests locally: in Response mode it will send only the two writes above.
 | Mode | Role for the API credential |
 |------|-----------------------------|
 | Read-only | **Service Principal Read-Only** |
-| Response | **Service Principal Management** (or **Super Admin**): a role that may acknowledge alerts and resolve detections |
+| Response | **Service Principal Management**: confirmed on a live tenant for resolving XDR detections. Super Admin is not needed. |
 
 A `403` halts the pass and names the role needed. The permission mode is set in
 **Settings → Integrations → Sophos**, or with `SOPHOS_PERMISSION_MODE=response`
 when the credentials come from environment variables.
 
-:::note[Pending validation]
-Exactly which Sophos roles may acknowledge alerts and resolve XDR detections is
-still being confirmed on a proof-of-concept tenant (Service Principal
-Management (or Super Admin) is the expectation). Treat the table as the safe
-choice, and use the `403` message as the final word.
+:::note[What was confirmed]
+On a live tenant (October 2026), a Service Principal Management credential in
+Response mode resolved XDR detections as `TRUE_POSITIVE_BENIGN`. Acknowledging
+Common Alerts uses the same credential but did not come up in that run; if
+Sophos refuses it, the `403` message on the card is the final word.
 :::
 
 ## When the pass runs
@@ -121,6 +121,7 @@ Turning auto-resolve on never touches an alert an analyst already picked up.
   receipt, so the item is retried next pass.
 - Achilles stays within its 50 requests per minute share of the tenant's API
   budget.
+- The last pass's errors appear on the auto-resolve card in **Settings → Integrations** (**Last pass: N errors**, the counts and the first error) and in the backend log as `[Sophos-AutoResolve-ERROR] …` (up to five per pass).
 
 ## Receipts
 
@@ -165,8 +166,9 @@ keeps its own copy, so it stays in the Sophos tab and in your history.
 
 ## Verifying it works
 
-In Sophos Central, an acknowledged alert is gone from the alert list. The
-reason text names the Achilles test.
+In Sophos Central, an acknowledged alert is gone from the alert list. A
+resolved XDR detection shows the status `TRUE_POSITIVE_BENIGN` with the reason
+"ProjectAchilles security test &lt;test uuid&gt; on &lt;host&gt; (auto-resolve)".
 
 ```bash
 # Mode, permission mode, receipt counts and the last pass result
@@ -186,7 +188,7 @@ a backend restart until the next sync.
 | Symptom | Cause and fix |
 |---------|---------------|
 | "Enabled" is refused or greyed out | The integration isn't saved in Response mode. Switch the permission mode and save first. |
-| Pass stops with `403 ... Management role` | The credential's role can't acknowledge or resolve. Give it Service Principal Management or Super Admin in Sophos Central. |
+| Pass stops with `403 ... Management role` | The credential's role can't acknowledge or resolve. Give it Service Principal Management in Sophos Central. The card's **Last pass** notice shows the error. |
 | `auto-resolve is enabled but the integration is read-only` | Credentials come from env vars and `SOPHOS_PERMISSION_MODE` isn't `response`. Set it, or use `dry_run`. |
 | Receipts show `not_found` | The item no longer exists in Sophos (purged or already handled). No action needed. |
 | Receipts show `not_actionable` | Sophos no longer offers the acknowledge action for it. No action needed. |

@@ -48,7 +48,7 @@ tenant.
 | Role | Use it for | Notes |
 |------|-----------|-------|
 | **Service Principal Read-Only** | Sync, correlation and posture | Everything Achilles reads. This is all you need until you turn on auto-resolve. |
-| **Service Principal Management** (or **Super Admin**) | Auto-resolve writes only | Acknowledging alerts and resolving XDR detections needs a role that can act on them. Pair it with **Response** permission mode. |
+| **Service Principal Management** | Auto-resolve writes only | Acknowledging alerts and resolving XDR detections needs a role that can act on them. Pair it with **Response** permission mode. Super Admin is not needed. |
 
 A **Service Principal Read-Only** credential reads everything the sync and
 posture passes need: the tenant identity (`whoami`), Common Alerts, XDR
@@ -58,11 +58,12 @@ allowed items. This was confirmed on a live tenant. If a capability still shows
 **forbidden** after **Test Connection**, the credential's role is lower than
 that; the error names the role needed.
 
-:::note[Write role: pending validation]
-Which role can acknowledge alerts and resolve XDR detections is still being
-confirmed on a proof-of-concept tenant. Service Principal Management (or Super
-Admin) is the expectation; the `403` message in the Sophos tab is the final
-word.
+:::note[Write role]
+**Service Principal Management** was confirmed on a live tenant (October 2026):
+with it, auto-resolve resolved XDR detections as `TRUE_POSITIVE_BENIGN`.
+Acknowledging Common Alerts uses the same credential and role but did not come
+up in that run. If Sophos ever refuses it, the pass stops with a `403` and the
+auto-resolve card shows the error.
 :::
 
 ## Configure

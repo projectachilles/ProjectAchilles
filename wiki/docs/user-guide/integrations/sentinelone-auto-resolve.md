@@ -46,7 +46,7 @@ Syncs start every `poll_interval_minutes` (default 5) and on **Sync Now**.
 | Mode | Role for the API token's service user |
 |------|---------------------------------------|
 | Read-only | **Viewer** (or higher) in the configured scope |
-| Response | A role that can change threat and alert incident status and mitigate threats, e.g. **IR Team** or **SOC** |
+| Response | A role that can change threat and alert incident status and mitigate threats, e.g. **SOC** (confirmed on a live console) or **IR Team**. **Viewer** can't: SentinelOne answers `403` `{"code":4030010,"title":"Insufficient permissions"}` and the pass stops. |
 
 The permission mode is set in **Settings → Integrations → SentinelOne**
 (`permission_mode`) or with `SENTINELONE_PERMISSION_MODE=response` when the
@@ -65,7 +65,9 @@ only the five write requests listed on this page.
 | `enabled` | Resolves each candidate in SentinelOne and writes a receipt with `mode=enabled`. Requires Response mode: the settings layer refuses `enabled` otherwise. |
 
 A dry-run receipt doesn't block a later real run: switching from `dry_run` to
-`enabled` processes the same alerts again.
+`enabled` processes the same alerts again. In `dry_run` an alert is logged
+once: after the first passes, `candidates=0` is expected until new alerts are
+matched to a test.
 
 ### Which alerts are eligible
 
@@ -168,6 +170,7 @@ tile also says "Read-only token: nothing is written" (see
 - If the mode is `enabled` but the integration is read-only, the pass writes
   nothing and reports `auto-resolve is enabled but the integration is
   read-only` (see [Troubleshooting](#auto-resolve-is-enabled-but-the-integration-is-read-only)).
+- The last pass's errors appear on the auto-resolve card in **Settings → Integrations** (**Last pass: N errors**, the counts and the first error) and in the backend log as `[SentinelOne-AutoResolve-ERROR] …` (up to five per pass).
 
 ## Automatic mitigation
 
