@@ -1,4 +1,4 @@
-import type { Request } from 'express';
+import type { NextFunction, Request, Response } from 'express';
 import { AppError } from './error.middleware.js';
 import { getUserOrgId } from './clerk.middleware.js';
 import { getDb } from '../services/agent/database.js';
@@ -65,4 +65,45 @@ export async function assertAgentsInOrg(agentIds: readonly string[], orgId: stri
  */
 export function assertRowInOrg(rowOrgId: string, orgId: string | undefined, what: string): void {
   if (orgId && rowOrgId !== orgId) throw new AppError(`${what} not found`, 404);
+}
+
+/**
+ * Router middleware for the Elasticsearch-backed routes (Analytics, reports):
+ * a caller with an organization only ever queries its own organization's
+ * results. A missing `?org=` is filled in with the caller's org and any other
+ * value is refused (403). Results carry the org of the task that produced
+ * them (`routing.oid` = `tasks.org_id`), which for an org caller is always its
+ * own Clerk org id.
+ *
+ * Callers without an organization are unchanged, except under
+ * REQUIRE_ORG_ISOLATION=true (403, via callerOrg). `exempt` lists the
+ * router-relative paths that are install configuration, not results
+ * (e.g. the Elasticsearch connection settings).
+ */
+export function scopeResultsToCallerOrg(exempt: readonly string[] = []) {
+  const exemptPaths = new Set(exempt.map((p) => p.toLowerCase()));
+  return (req: Request, res: Response, next: NextFunction): void => {
+    if (exemptPaths.has(req.path.toLowerCase())) {
+      next();
+      return;
+    }
+    let own: string | undefined;
+    try {
+      own = callerOrg(req);
+    } catch (err) {
+      next(err);
+      return;
+    }
+    if (!own) {
+      next();
+      return;
+    }
+    const requested = req.query.org;
+    if (requested !== undefined && requested !== '' && requested !== own) {
+      res.status(403).json({ success: false, error: 'Access denied to this organization' });
+      return;
+    }
+    req.query.org = own;
+    next();
+  };
 }
