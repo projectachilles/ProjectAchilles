@@ -2,10 +2,21 @@
  * SQLite retention for the agent tables.
  *
  * `tasks.result` holds the full agent output (mostly stdout) and `agent_events`
- * grows ~10 rows per agent per day; neither was ever pruned. Elasticsearch holds
- * the canonical results, so after the retention window SQLite keeps only what the
- * verdict readers use (exit code, error, edr_terminated, the last 400 chars of
- * stderr, bundle control results) and drops the bulky output.
+ * grows ~10 rows per agent per day; neither was ever pruned. After the retention
+ * window SQLite keeps only what the verdict readers use (exit code, error,
+ * edr_terminated, the last 400 chars of stderr, bundle control results) and drops
+ * the bulky output:
+ *   - `execute_test`: only once the result is in Elasticsearch (`es_ingested = 1`),
+ *     which holds the canonical copy.
+ *   - `update_agent` / `uninstall`: never sent to Elasticsearch; their output is
+ *     dropped after the window anyway (it is only install/uninstall chatter).
+ *   - `execute_command`: never compacted. Admin shell-command output is
+ *     audit-relevant and those rows are rare.
+ *
+ * Event pruning keeps each agent's newest `went_offline` event whatever its age:
+ * `detectOfflineAgents` records a new one whenever none exists after the agent's
+ * last heartbeat, so deleting it would make every long-offline agent "go offline"
+ * again once per retention window.
  *
  * The SQLite file does not shrink (no VACUUM): freed pages are reused, so growth stops.
  */
@@ -68,6 +79,7 @@ export const COMPACTABLE_SELECT_SQL = `SELECT id, result FROM tasks
        AND completed_at < ?
        AND +status IN ('completed','failed')
        AND result IS NOT NULL
+       AND type NOT IN ('execute_command')
        AND (type != 'execute_test' OR es_ingested = 1)
      LIMIT ?`;
 
@@ -78,11 +90,16 @@ export interface CompactOptions {
   now?: Date;
 }
 
-/** Compact the output of finished, ES-ingested tasks older than the window. Returns rows compacted. */
+/**
+ * Compact the output of finished tasks older than the window (test results only
+ * once ingested; execute_command never). A window of 0 or less does nothing.
+ * Returns rows compacted.
+ */
 export function compactTaskResults(opts: CompactOptions = {}): number {
+  const days = opts.olderThanDays ?? getRetentionSettings().taskOutputDays;
+  if (!(days > 0)) return 0;
   const db = getDatabase();
   const now = opts.now ?? new Date();
-  const days = opts.olderThanDays ?? getRetentionSettings().taskOutputDays;
   const batchSize = opts.batchSize ?? 500;
   const maxRows = opts.maxRows ?? 5000;
   const cutoff = sqliteCutoff(now, days);
@@ -119,15 +136,32 @@ export function compactTaskResults(opts: CompactOptions = {}): number {
   return total;
 }
 
-/** Delete agent events older than the window, in batches of 1000. Returns rows deleted. */
+/**
+ * Pruning candidates: events older than the cutoff, except each agent's newest
+ * `went_offline` (see the header). The correlated subquery only runs for
+ * `went_offline` rows and walks idx_agent_events_agent_ts.
+ */
+export const PRUNABLE_EVENTS_DELETE_SQL = `DELETE FROM agent_events WHERE id IN (
+       SELECT e.id FROM agent_events e
+        WHERE e.created_at < ?
+          AND NOT (e.event_type = 'went_offline' AND e.id = (
+            SELECT w.id FROM agent_events w
+             WHERE w.agent_id = e.agent_id AND w.event_type = 'went_offline'
+             ORDER BY w.created_at DESC, w.id DESC
+             LIMIT 1))
+        LIMIT ?)`;
+
+/**
+ * Delete agent events older than the window, in batches of 1000, keeping each
+ * agent's newest `went_offline`. A window of 0 or less does nothing. Returns rows deleted.
+ */
 export function pruneAgentEvents(opts: { olderThanDays?: number; now?: Date } = {}): number {
-  const db = getDatabase();
   const days = opts.olderThanDays ?? getRetentionSettings().agentEventDays;
+  if (!(days > 0)) return 0;
+  const db = getDatabase();
   const cutoff = sqliteCutoff(opts.now ?? new Date(), days);
   const BATCH_SIZE = 1000;
-  const stmt = db.prepare(
-    'DELETE FROM agent_events WHERE id IN (SELECT id FROM agent_events WHERE created_at < ? LIMIT ?)',
-  );
+  const stmt = db.prepare(PRUNABLE_EVENTS_DELETE_SQL);
   let total = 0;
   while (true) {
     const { changes } = stmt.run(cutoff, BATCH_SIZE);
@@ -140,10 +174,24 @@ export function pruneAgentEvents(opts: { olderThanDays?: number; now?: Date } = 
   return total;
 }
 
-/** Hourly job: runs each retention job unless its window is 0 (disabled). */
+/**
+ * Hourly job: runs each retention job unless its window is 0 (disabled). Each
+ * job is isolated, so a failure in one never skips the other; a failed job
+ * counts 0 and is retried on the next tick.
+ */
 export function runRetentionTick(): { compacted: number; pruned: number } {
   const { taskOutputDays, agentEventDays } = getRetentionSettings();
-  const compacted = taskOutputDays > 0 ? compactTaskResults({ olderThanDays: taskOutputDays }) : 0;
-  const pruned = agentEventDays > 0 ? pruneAgentEvents({ olderThanDays: agentEventDays }) : 0;
+  let compacted = 0;
+  let pruned = 0;
+  try {
+    compacted = compactTaskResults({ olderThanDays: taskOutputDays });
+  } catch (err) {
+    console.error('[retention] Task output compaction failed:', err);
+  }
+  try {
+    pruned = pruneAgentEvents({ olderThanDays: agentEventDays });
+  } catch (err) {
+    console.error('[retention] Agent event pruning failed:', err);
+  }
   return { compacted, pruned };
 }
