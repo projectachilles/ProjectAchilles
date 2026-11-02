@@ -37,7 +37,7 @@ npx tsx scripts/load/agent-fleet-sim.ts --base http://localhost:3000 \
 CPU is capped with Docker's CFS quota (the same mechanism small hosted tiers use):
 
 ```bash
-docker build -t achilles-sim-backend backend/
+docker build -t achilles-sim-backend .   # run from backend/, like the commands above
 docker run -d --name sim-backend --cpus=0.5 --memory=512m \
   --user "$(id -u):$(id -g)" -e HOME=/home/sim --env-file sim.env \
   -v /tmp/sim:/home/sim/.projectachilles -p 3000:3000 achilles-sim-backend
