@@ -11,8 +11,21 @@ This project uses two version streams:
 
 ## [Unreleased]
 
+## [2.9.0] - 2026-11-01
+
+**Performance & Scale.** This release is about growing agent fleets on small instances. On a backend capped at 0.5 CPU / 512 MB (the smallest hosted instance size), 3,000 simulated agents run at p95 3 ms, and restarting the backend with all of them connected marks none offline; before, agents started dropping offline after every deploy at about 110 agents. On live installs, an agent poll went from 728 ms to 2–3 ms, selecting a run in Executions from three requests of 1.2–1.8 s to one of 370 ms, and the Secure Score trend loads ~80× less data. Also in this release: SQLite retention, paced test-binary handouts, Elasticsearch indices that stay green on single-node clusters, rate limits that no longer throttle agents behind one NAT, and CrowdStrike and Sophos alert correlation through process lineage. Reproduce the capacity numbers on your own hardware with `backend/scripts/load/agent-fleet-sim.ts`.
+
+### Upgrade notes
+- **First start after upgrading:** each agent's next request runs one bcrypt check to record its key digest; after that, restarts cost nothing. Small fleets finish in seconds; about 1,000 agents on half a CPU take ~6 minutes, during which some may briefly show offline. Upgrade large fleets off-hours.
+- **Existing Elasticsearch indices** keep their replica setting. Run the one-time `_settings` command under *Fixed* to turn a single-node cluster green.
+- **Daily write-index rollover** creates an index per testing day. On small or shared clusters choose **Monthly** or **None** in Analytics settings.
+- **New optional settings** (safe defaults): `TASK_OUTPUT_RETENTION_DAYS` (90), `AGENT_EVENT_RETENTION_DAYS` (90), `AGENT_DOWNLOAD_BUDGET_MB_PER_MIN` (1500), `ES_TIMING_LOG`.
+- **Known limitation:** *Update All* agent updates aren't paced yet (#703); on large fleets, update in batches.
+- **No agent release is needed;** agents stay on 0.7.2. Rolling back to 2.8.0 keeps agents authenticating: their bcrypt key hashes are untouched.
+
 ### Added
 
+- **Agent fleet load test.** `backend/scripts/load/agent-fleet-sim.ts` simulates N agents at the real poll and heartbeat cadence against a backend and reports per-minute latency, errors and agents silent past the 180 s offline threshold. `--seed-only` seeds a fresh database and refuses `~/.projectachilles` or any database holding real agents. The README has the measured results and how to cap the backend like a small hosted instance. (#697)
 - **Elasticsearch time per API request.** Every API response that queried Elasticsearch carries a `Server-Timing` header (number of calls, time spent waiting for them, and the `took` Elasticsearch reports), and the backend logs one `[es-timing]` line for it. The gap between the wait and `took` is network and connection setup, which tells a slow query apart from a distant cluster. Set `ES_TIMING_LOG=off` to drop the log line. Both backends.
 
 - **Old task output and agent events are pruned.** The SQLite database grew without bound: every task result keeps its full stdout (about 15 KB each) and every agent logs about ten events a day. Hourly, finished tasks older than `TASK_OUTPUT_RETENTION_DAYS` (default 90, `0` disables) lose their stdout, keep the last 400 characters of stderr, and lose each stage's `details`. Test results are compacted only once they are in Elasticsearch; agent update and uninstall output, which never goes to Elasticsearch, is compacted after the window too; admin shell-command (`execute_command`) output is never compacted, because it is audit-relevant. The exit code, error, EDR-kill marker and per-stage results stay, so verdicts and the campaign matrix do not change, and the Tasks page notes when the output was removed. Agent events older than `AGENT_EVENT_RETENTION_DAYS` (default 90) are deleted, except each agent's latest went-offline event, so an agent that has been offline longer than the window is not reported as going offline again. A failure in one job no longer skips the other. The file does not shrink, but freed pages are reused. Backend only.
@@ -922,7 +935,8 @@ Complete platform overhaul — custom agent system, multi-deployment support, Mi
 | Agent 0.6.0 | 2026-04-03 | First tagged agent binary release |
 | 1.0.0 | 2024-12-10 | Initial release |
 
-[Unreleased]: https://github.com/projectachilles/ProjectAchilles/compare/v2.8.0...HEAD
+[Unreleased]: https://github.com/projectachilles/ProjectAchilles/compare/v2.9.0...HEAD
+[2.9.0]: https://github.com/projectachilles/ProjectAchilles/compare/v2.8.0...v2.9.0
 [2.8.0]: https://github.com/projectachilles/ProjectAchilles/compare/v2.7.0...v2.8.0
 [2.7.0]: https://github.com/projectachilles/ProjectAchilles/compare/v2.6.1...v2.7.0
 [2.6.1]: https://github.com/projectachilles/ProjectAchilles/compare/v2.6.0...v2.6.1
