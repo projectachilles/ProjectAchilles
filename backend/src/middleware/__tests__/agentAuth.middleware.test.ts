@@ -55,7 +55,16 @@ vi.mock('../../services/agent/enrollment.service.js', () => ({
   },
 }));
 
+// The per-IP guard's own behaviour is covered in agentFailedAuthLimiter tests;
+// here we only check which failures requireAgentAuth records.
+const { recordUnknownAgentFailure } = vi.hoisted(() => ({ recordUnknownAgentFailure: vi.fn() }));
+vi.mock('../agentFailedAuthLimiter.js', () => ({ recordUnknownAgentFailure }));
+
 const { requireAgentAuth } = await import('../agentAuth.middleware.js');
+
+beforeEach(() => {
+  recordUnknownAgentFailure.mockClear();
+});
 const { recordAgentKeyDigest, _clearAgentKeyDigestMemory } = await import(
   '../../services/agent/agentKeyDigest.js'
 );
@@ -112,6 +121,8 @@ describe('requireAgentAuth', () => {
     requireAgentAuth(req, res, next);
 
     expect(res.status).toHaveBeenCalledWith(401);
+    // Rejected before any bcrypt work: not an unknown-agent failure.
+    expect(recordUnknownAgentFailure).not.toHaveBeenCalled();
   });
 
   it('returns 401 when token does not start with ak_', () => {
@@ -141,6 +152,10 @@ describe('requireAgentAuth', () => {
     await waitForResponse(() => {
       expect(res.status).toHaveBeenCalledWith(401);
     });
+    // Recorded for the per-IP failed-auth guard; the response body stays uniform.
+    expect(recordUnknownAgentFailure).toHaveBeenCalledTimes(1);
+    expect(recordUnknownAgentFailure).toHaveBeenCalledWith(req);
+    expect(res.json).toHaveBeenCalledWith({ success: false, error: 'Invalid agent credentials' });
   });
 
   it('returns 401 when agent is disabled (uniform error)', async () => {
@@ -166,6 +181,7 @@ describe('requireAgentAuth', () => {
     expect(res.json).toHaveBeenCalledWith(
       expect.objectContaining({ error: 'Invalid agent credentials' })
     );
+    expect(recordUnknownAgentFailure).not.toHaveBeenCalled();
   });
 
   it('calls next() and sets req.agent for valid credentials', async () => {
@@ -294,6 +310,8 @@ describe('requireAgentAuth', () => {
     });
 
     expect(next).not.toHaveBeenCalled();
+    // A known agent: not counted by the failed-auth guard (agentDeviceLimiter caps it).
+    expect(recordUnknownAgentFailure).not.toHaveBeenCalled();
   });
 
   describe('dual-key rotation', () => {

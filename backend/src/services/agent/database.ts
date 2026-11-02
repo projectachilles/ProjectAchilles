@@ -175,6 +175,9 @@ export function initializeTables(database: Database.Database): void {
     );
     CREATE INDEX IF NOT EXISTS idx_agent_events_agent_ts ON agent_events(agent_id, created_at);
     CREATE INDEX IF NOT EXISTS idx_agent_events_created ON agent_events(created_at);
+    -- Each agent's newest went_offline, which retention keeps (retention.service.ts).
+    -- Without it pruneAgentEvents walks every event of each agent it checks.
+    CREATE INDEX IF NOT EXISTS idx_agent_events_went_offline ON agent_events(agent_id, created_at) WHERE event_type = 'went_offline';
 
     CREATE TABLE IF NOT EXISTS run_notices (
       id TEXT PRIMARY KEY,
@@ -701,6 +704,7 @@ function migrateKeyRotationCancelledEvent(database: Database.Database): void {
     ALTER TABLE agent_events_new RENAME TO agent_events;
     CREATE INDEX IF NOT EXISTS idx_agent_events_agent_ts ON agent_events(agent_id, created_at);
     CREATE INDEX IF NOT EXISTS idx_agent_events_created ON agent_events(created_at);
+    CREATE INDEX IF NOT EXISTS idx_agent_events_went_offline ON agent_events(agent_id, created_at) WHERE event_type = 'went_offline';
   `);
 
   database.pragma('foreign_keys = ON');

@@ -69,7 +69,7 @@ POST /_security/api_key
     "achilles-rw": {
       "cluster": ["monitor"],
       "indices": [{
-        "names": ["achilles-*", "archived-achilles-*"],
+        "names": ["achilles-*", "archived-achilles*"],
         "privileges": ["all"]
       }]
     }

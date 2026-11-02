@@ -1,10 +1,6 @@
 import type { Request } from 'express';
+import { isAgentDevicePath } from './agentDevicePath.js';
 import { safeClerkAuth } from './clerkAuthHelpers.js';
-
-function isAgentDevicePath(url: string | undefined): boolean {
-  const p = (url ?? '').split('?')[0].toLowerCase();
-  return p.startsWith('/api/agent/') && p !== '/api/agent/admin' && !p.startsWith('/api/agent/admin/');
-}
 
 /**
  * Skip predicate for the CLI bearer-auth rate limiter (`cliBearerAuthLimiter`
@@ -28,8 +24,9 @@ function isAgentDevicePath(url: string | undefined): boolean {
  *      `/api/agent/admin/*`). Agents behind one egress IP (office NAT, proxy)
  *      would otherwise share this per-IP budget and be throttled on
  *      heartbeat/poll. Those routes have `agentDeviceLimiter` (per IP + agent
- *      ID). `ak_` on any other path is still counted, so the CLI verifier
- *      can't be hammered unthrottled by adding the prefix.
+ *      ID) and `agentFailedAuthGuard` (per IP, unknown-agent failures only).
+ *      `ak_` on any other path is still counted, so the CLI verifier can't be
+ *      hammered unthrottled by adding the prefix.
  *
  * `safeClerkAuth` swallows synchronous throws from Clerk's JWT parser
  * (malformed tokens) — see its docstring for the regression context.

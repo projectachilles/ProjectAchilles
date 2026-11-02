@@ -10,9 +10,10 @@ vi.mock('../database.js', async (orig) => ({
   getDatabase: () => testDb,
 }));
 
-const { COMPACTABLE_SELECT_SQL, compactResult, compactTaskResults, pruneAgentEvents, getRetentionSettings, runRetentionTick } =
+const { COMPACTABLE_SELECT_SQL, PRUNABLE_EVENTS_DELETE_SQL, compactResult, compactTaskResults, pruneAgentEvents, getRetentionSettings, runRetentionTick } =
   await import('../retention.service.js');
 const { classifyTaskOutcome } = await import('../../outcomes/taskOutcome.js');
+const { detectOfflineAgents } = await import('../heartbeat.service.js');
 const { controlsOf } = await import('../../outcomes/verdict.js');
 
 const NOW = new Date('2026-11-01T12:00:00Z');
@@ -176,6 +177,25 @@ describe('compactTaskResults', () => {
     expect(compactTaskResults({ olderThanDays: 90, now: NOW, batchSize: 5 })).toBe(7);
   });
 
+  it('compacts nothing when called directly with a window of 0 or less', () => {
+    const id = insertTask({ completedAt: '2000-01-01 00:00:00' });
+    expect(compactTaskResults({ olderThanDays: 0, now: NOW })).toBe(0);
+    expect(compactTaskResults({ olderThanDays: -1, now: NOW })).toBe(0);
+    expect(compactedAt(id)).toBeNull();
+  });
+
+  it('never compacts execute_command output (admin shell commands stay auditable)', () => {
+    const cmd = insertTask({ completedAt: OLD, type: 'execute_command', ingested: 0 });
+    const cmdIngestedFlag = insertTask({ completedAt: OLD, type: 'execute_command', ingested: 1 });
+    expect(compactTaskResults({ olderThanDays: 90, now: NOW })).toBe(0);
+    expect(compactedAt(cmd)).toBeNull();
+    expect(compactedAt(cmdIngestedFlag)).toBeNull();
+    const stored = JSON.parse(
+      (testDb.prepare('SELECT result FROM tasks WHERE id = ?').get(cmd) as { result: string }).result,
+    ) as TaskResult;
+    expect(stored.stdout).toHaveLength(50_000);
+  });
+
   it('skips rows without a result and survives an unparseable one', () => {
     insertTask({ completedAt: OLD, result: null });
     const bad = insertTask({ completedAt: OLD });
@@ -212,7 +232,60 @@ describe('retention settings and tick', () => {
   });
 });
 
+describe('runRetentionTick isolation', () => {
+  it('still prunes agent events when compaction throws', () => {
+    testDb.prepare(`INSERT INTO agent_events (agent_id, event_type, created_at) VALUES ('agent-1', 'came_online', '2000-01-01 00:00:00')`).run();
+    // Make compaction fail: its SELECT references tasks, which no longer exists.
+    testDb.pragma('foreign_keys = OFF');
+    testDb.exec('DROP TABLE tasks');
+    const err = vi.spyOn(console, 'error').mockImplementation(() => {});
+    expect(runRetentionTick()).toEqual({ compacted: 0, pruned: 1 });
+    expect(testDb.prepare('SELECT COUNT(*) AS c FROM agent_events').get()).toEqual({ c: 0 });
+    expect(err).toHaveBeenCalledWith(expect.stringContaining('[retention] Task output compaction failed'), expect.anything());
+    err.mockRestore();
+  });
+
+  it('still compacts when pruning throws', () => {
+    const id = insertTask({ completedAt: '2000-01-01 00:00:00' });
+    testDb.exec('DROP TABLE agent_events');
+    const err = vi.spyOn(console, 'error').mockImplementation(() => {});
+    expect(runRetentionTick()).toEqual({ compacted: 1, pruned: 0 });
+    expect(compactedAt(id)).not.toBeNull();
+    expect(err).toHaveBeenCalledWith(expect.stringContaining('[retention] Agent event pruning failed'), expect.anything());
+    err.mockRestore();
+  });
+});
+
 describe('pruneAgentEvents', () => {
+  it('deletes nothing when called directly with a window of 0 or less', () => {
+    testDb.prepare(`INSERT INTO agent_events (agent_id, event_type, created_at) VALUES ('agent-1', 'came_online', '2000-01-01 00:00:00')`).run();
+    expect(pruneAgentEvents({ olderThanDays: 0, now: NOW })).toBe(0);
+    expect(pruneAgentEvents({ olderThanDays: -1, now: NOW })).toBe(0);
+    expect(testDb.prepare('SELECT COUNT(*) AS c FROM agent_events').get()).toEqual({ c: 1 });
+  });
+
+  it("keeps each agent's newest went_offline, so a long-offline agent does not go offline again", () => {
+    // Offline since well before the retention window; detectOfflineAgents
+    // already recorded it (twice over time) and must not record it again.
+    testDb.prepare(`UPDATE agents SET last_heartbeat = '2026-04-01T00:00:00.000Z' WHERE id = 'agent-1'`).run();
+    insertTestAgent(testDb, { id: 'agent-2', last_heartbeat: '2026-04-01T00:00:00.000Z' });
+    const ins = testDb.prepare(`INSERT INTO agent_events (agent_id, event_type, created_at) VALUES (?, ?, ?)`);
+    ins.run('agent-1', 'went_offline', '2026-04-02 00:00:00');
+    const newest1 = Number(ins.run('agent-1', 'went_offline', '2026-05-01 00:00:00').lastInsertRowid);
+    ins.run('agent-1', 'came_online', '2026-04-15 00:00:00');
+    const newest2 = Number(ins.run('agent-2', 'went_offline', '2026-04-02 00:00:00').lastInsertRowid);
+
+    expect(pruneAgentEvents({ olderThanDays: 90, now: NOW })).toBe(2);
+    const left = testDb.prepare('SELECT id, agent_id, event_type FROM agent_events ORDER BY id').all();
+    expect(left).toEqual([
+      { id: newest1, agent_id: 'agent-1', event_type: 'went_offline' },
+      { id: newest2, agent_id: 'agent-2', event_type: 'went_offline' },
+    ]);
+
+    expect(detectOfflineAgents()).toBe(0);
+    expect(testDb.prepare('SELECT COUNT(*) AS c FROM agent_events').get()).toEqual({ c: 2 });
+  });
+
   it('deletes only older rows', () => {
     const ins = testDb.prepare(`INSERT INTO agent_events (agent_id, event_type, created_at) VALUES ('agent-1', 'came_online', ?)`);
     for (let i = 0; i < 3; i++) ins.run(OLD);
@@ -239,15 +312,29 @@ describe('compaction query plan', () => {
   });
 });
 
+describe('prune query plan', () => {
+  it("finds each agent's newest went_offline through the partial idx_agent_events_went_offline index", () => {
+    const plan = testDb
+      .prepare(`EXPLAIN QUERY PLAN ${PRUNABLE_EVENTS_DELETE_SQL}`)
+      .all('2026-01-01 00:00:00', 1000) as { id: number; parent: number; detail: string }[];
+    const correlated = plan.find((r) => r.detail.startsWith('CORRELATED SCALAR SUBQUERY'));
+    expect(correlated).toBeDefined();
+    const inner = plan.filter((r) => r.parent === correlated!.id).map((r) => r.detail).join('\n');
+    expect(inner).toMatch(/SEARCH w USING (COVERING )?INDEX idx_agent_events_went_offline/);
+    expect(inner).not.toContain('idx_agent_events_agent_ts');
+  });
+});
+
 describe('schema', () => {
   const indexSql = (db: Database.Database, name: string) =>
     (db.prepare(`SELECT sql FROM sqlite_master WHERE type='index' AND name=?`).get(name) as { sql: string } | undefined)?.sql;
 
-  it('fresh DB has the column and both indexes', () => {
+  it('fresh DB has the column and the retention indexes', () => {
     const cols = (testDb.prepare('PRAGMA table_info(tasks)').all() as { name: string }[]).map((c) => c.name);
     expect(cols).toContain('result_compacted_at');
     expect(indexSql(testDb, 'idx_tasks_compactable')).toMatch(/WHERE result_compacted_at IS NULL/);
     expect(indexSql(testDb, 'idx_agent_events_created')).toBeDefined();
+    expect(indexSql(testDb, 'idx_agent_events_went_offline')).toMatch(/WHERE event_type = 'went_offline'/);
   });
 
   it('result_compacted_at survives the tasks table recreation', () => {
@@ -287,7 +374,7 @@ describe('schema', () => {
     expect(indexSql(db, 'idx_tasks_compactable')).toMatch(/WHERE result_compacted_at IS NULL/);
   });
 
-  it('idx_agent_events_created survives the agent_events recreation', () => {
+  it('idx_agent_events_created and idx_agent_events_went_offline survive the agent_events recreation', () => {
     const db = createTestDatabase();
     db.pragma('foreign_keys = OFF');
     db.exec(`
@@ -305,6 +392,7 @@ describe('schema', () => {
     db.pragma('foreign_keys = ON');
     initializeTables(db);
     expect(indexSql(db, 'idx_agent_events_created')).toBeDefined();
+    expect(indexSql(db, 'idx_agent_events_went_offline')).toMatch(/WHERE event_type = 'went_offline'/);
     expect(db.prepare(`SELECT sql FROM sqlite_master WHERE name='agent_events'`).get())
       .toEqual({ sql: expect.stringContaining('key_rotation_cancelled') });
   });

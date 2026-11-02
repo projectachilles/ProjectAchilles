@@ -4,6 +4,7 @@ import { Router } from 'express';
 import rateLimit from 'express-rate-limit';
 import { requireAgentAuth } from '../../middleware/agentAuth.middleware.js';
 import { agentDeviceKey } from '../../middleware/rateLimitKeys.js';
+import { agentFailedAuthGuard } from '../../middleware/agentFailedAuthLimiter.js';
 import { requireClerkAuth, requireOrgAccess } from '../../middleware/clerk.middleware.js';
 import { agentEnrollmentRouter, adminEnrollmentRouter } from './enrollment.routes.js';
 import { agentHeartbeatRouter, adminAgentRouter } from './heartbeat.routes.js';
@@ -67,6 +68,14 @@ export function createAgentRouter(options: {
     keyGenerator: agentDeviceKey,
     message: { success: false, error: 'Too many agent requests, try again later' },
   });
+
+  // Per-IP bound on agent authentication failures by UNKNOWN agent IDs (see
+  // middleware/agentFailedAuthLimiter.ts). The guard only reads the IP's count;
+  // requireAgentAuth records each unknown-agent failure. Successful, in-flight
+  // and known-agent requests never count, so open downloads can't fill it.
+  //
+  // Order matters: both limiters, then requireAgentAuth, then the routers.
+  router.use(agentFailedAuthGuard);
   router.use(agentDeviceLimiter);
 
   // Agent-authenticated endpoints

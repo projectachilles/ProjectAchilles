@@ -14,6 +14,7 @@ import {
   recordAgentKeyDigest,
 } from '../services/agent/agentKeyDigest.js';
 import type { AuthenticatedAgent } from '../types/agent.js';
+import { recordUnknownAgentFailure } from './agentFailedAuthLimiter.js';
 
 const MAX_TIMESTAMP_SKEW_SECONDS = 300; // 5 minutes
 
@@ -137,6 +138,11 @@ export function requireAgentAuth(req: Request, res: Response, next: NextFunction
     finalizeAgentAuth(req, res, next, row);
     return;
   }
+
+  // An unknown agent ID always ends in the uniform 401 below. Count it for the
+  // per-IP failed-auth guard now, before the compare, so a concurrent burst
+  // can't run more compares than the guard allows (agentFailedAuthLimiter.ts).
+  if (!row) recordUnknownAgentFailure(req);
 
   // M2: Always run bcrypt.compare to prevent timing oracle — use dummy hash if agent not found
   const hashToCompare = row?.api_key_hash ?? DUMMY_HASH;
