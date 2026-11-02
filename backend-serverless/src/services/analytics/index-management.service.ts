@@ -3,6 +3,7 @@
 
 import { SettingsService } from './settings.js';
 import { createEsClient } from './client.js';
+import { createAchillesIndex } from '../shared/esIndexCreate.js';
 
 export interface IndexInfo {
   name: string;
@@ -87,10 +88,7 @@ export async function createResultsIndex(
   const client = createEsClient(settings);
 
   try {
-    await client.indices.create({
-      index: indexName,
-      ...RESULTS_INDEX_MAPPING,
-    });
+    await createAchillesIndex(client, indexName, RESULTS_INDEX_MAPPING);
     return { created: true, message: `Index "${indexName}" created successfully` };
   } catch (err: unknown) {
     // ES returns 400 with resource_already_exists_exception when the index exists

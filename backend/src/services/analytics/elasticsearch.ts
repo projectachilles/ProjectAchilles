@@ -58,6 +58,7 @@ import type {
   GroupedPaginatedResponse,
 } from '../../types/analytics.js';
 import { orgName, orgShortName } from './orgNames.js';
+import { createAchillesIndex } from '../shared/esIndexCreate.js';
 
 // Canonical error code → name mapping
 // Categories: protected, failed, inconclusive, contextual, error
@@ -3730,12 +3731,9 @@ export class ElasticsearchService {
     if (!exists) {
       const { RESULTS_INDEX_MAPPING } = await import('./index-management.service.js');
       try {
-        await this.client.indices.create({
-          index: archiveIndex,
-          ...RESULTS_INDEX_MAPPING,
-        });
+        await createAchillesIndex(this.client, archiveIndex, RESULTS_INDEX_MAPPING);
       } catch (err) {
-        this.wrapEsError(`indices.create(${archiveIndex})`, err);
+        this.wrapEsError(`createIndex(${archiveIndex})`, err);
       }
     }
     return archiveIndex;

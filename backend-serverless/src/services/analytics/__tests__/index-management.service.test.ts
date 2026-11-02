@@ -101,6 +101,7 @@ describe('index-management.service', () => {
       expect(mockIndicesCreate).toHaveBeenCalledWith({
         index: 'new-index',
         ...RESULTS_INDEX_MAPPING,
+        settings: { 'index.auto_expand_replicas': '0-1' },
       });
     });
 
