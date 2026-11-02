@@ -77,7 +77,7 @@ Security test results are a map of where your defenses fail. Each install keeps 
 
 Sign-in uses Clerk, a hosted identity service, so the server needs outbound access to it. Agent traffic and test results never pass through Clerk.
 
-**One install per organization is the separation model.** Inside one install, Clerk organizations (and API keys created in one) scope agents, tasks, schedules, Analytics, reports, campaigns, pre-execution notices, alert settings and enrollment tokens: a member of one organization can't list another's endpoints, run anything on them, or read their results. `REQUIRE_ORG_ISOLATION=true` rejects callers that belong to no organization. The Elasticsearch connection, the EDR integrations (their tabs show install-wide alerts), agent versions and the test library are shared by the whole install, so when two organizations must not see anything of each other's, give each its own install.
+**One install per organization is the separation model.** Inside one install, Clerk organizations (and API keys created in one) scope agents, tasks, schedules, Analytics, reports, campaigns, pre-execution notices, alert settings and enrollment tokens: a member of one organization can't list another's endpoints, run anything on them, or read their results. `REQUIRE_ORG_ISOLATION=true` rejects callers that belong to no organization. The Elasticsearch connection, the EDR integrations (their tabs show install-wide alerts and correlate them with every organization's results), agent versions and the test library are shared by the whole install, so when two organizations must not see anything of each other's, give each its own install.
 
 ### Sized for real fleets
 

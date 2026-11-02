@@ -2695,7 +2695,9 @@ export class ElasticsearchService {
     const response = await this.client.search({
       index: this.settings.indexPattern,
       size: 0,
-      query: { bool: { filter: [this.buildTestDataFilter()] } },
+      // The org applies to every list, including tests and techniques (which
+      // ignore only the date); a caller in an organization never sees another's.
+      query: { bool: { filter: this.withOrgFilter([this.buildTestDataFilter()], params?.org) } },
       aggs: {
         tests: { terms: { field: 'f0rtika.test_name', size: 100 } },
         techniques: {

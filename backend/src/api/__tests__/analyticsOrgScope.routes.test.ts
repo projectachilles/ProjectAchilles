@@ -46,6 +46,7 @@ const record = (method: string, value: unknown) => (...args: unknown[]) => {
 vi.mock('../../services/analytics/elasticsearch.js', () => ({
   ElasticsearchService: class {
     getDefenseScore = record('getDefenseScore', { score: 1 });
+    getDefenseScoreByOrg = record('getDefenseScoreByOrg', []);
     getOrganizations = record('getOrganizations', []);
     getAvailableTests = record('getAvailableTests', []);
     getExecutedTestUuids = record('getExecutedTestUuids', []);
@@ -87,7 +88,7 @@ function orgPassedTo(method: string): unknown {
   const call = [...calls].reverse().find((c) => c.method === method);
   if (!call) throw new Error(`${method} was not called`);
   const [first, second] = call.args;
-  if (method === 'getDefenseScore') return (first as { org?: string }).org;
+  if (method === 'getDefenseScore' || method === 'getDefenseScoreByOrg') return (first as { org?: string }).org;
   if (method === 'archiveByGroupKeys' || method === 'archiveByDateRange') return second;
   return first;
 }
@@ -117,6 +118,12 @@ describe('a caller in an organization', () => {
     const res = await request(appAs(ORG_A)).get(`/api/analytics/defense-score?org=${ORG_B}`);
     expect(res.status).toBe(403);
     expect(calls).toEqual([]);
+  });
+
+  it('gets only its own bucket from /defense-score/by-org', async () => {
+    const res = await request(appAs(ORG_A)).get('/api/analytics/defense-score/by-org');
+    expect(res.status).toBe(200);
+    expect(orgPassedTo('getDefenseScoreByOrg')).toBe(ORG_A);
   });
 
   it('is refused a repeated ?org=', async () => {

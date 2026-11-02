@@ -364,9 +364,12 @@ router.get('/available-techniques', asyncHandler(async (req, res) => {
 // GET /api/analytics/defense-score/by-org - Score by organization (optional)
 router.get('/defense-score/by-org', asyncHandler(async (req, res) => {
   const es = await getEsService();
-  const { from, to } = req.query;
+  const { org, from, to } = req.query;
 
+  // For a caller in an organization, org is its own (scopeResultsToCallerOrg):
+  // one bucket, never every organization's score.
   const result = await es.getDefenseScoreByOrg({
+    org: org as string,
     from: from as string,
     to: to as string,
   });
