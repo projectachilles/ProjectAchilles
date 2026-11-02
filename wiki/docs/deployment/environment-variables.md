@@ -80,6 +80,7 @@ For local development, `start.sh` creates this key automatically from the `elast
 |----------|-------------|---------|
 | `PORT` | Server port | `3000` |
 | `NODE_ENV` | Node environment | `development` |
+| `AGENT_DOWNLOAD_BUDGET_MB_PER_MIN` | Binary handouts per minute, in MB. Once a minute's worth of test and agent-update binaries has been handed out, other agents get "no task" and pick theirs up at the next poll. `0` disables pacing. Read once at startup. Not used on Vercel. | `1500` |
 
 ### Organization
 

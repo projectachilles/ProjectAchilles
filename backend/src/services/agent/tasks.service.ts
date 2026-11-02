@@ -1,4 +1,5 @@
 import crypto from 'crypto';
+import { taskDownloadBytes, tryReserveDownload, logDeferredHandout } from './downloadBudget.js';
 import { getDatabase } from './database.js';
 import { AppError } from '../../middleware/error.middleware.js';
 import type {
@@ -564,6 +565,13 @@ export function getNextTask(agentId: string, now: Date = new Date()): Task | nul
     `).get(agentId, nowIso, nowIso) as TaskRow | undefined;
 
     if (!row) return null;
+
+    // Pace binary handouts; a deferred task stays pending for the next poll.
+    const downloadBytes = taskDownloadBytes(row.type as TaskType, JSON.parse(row.payload) as Record<string, unknown>);
+    if (downloadBytes > 0 && !tryReserveDownload(downloadBytes, now.getTime())) {
+      logDeferredHandout(now.getTime());
+      return null;
+    }
 
     db.prepare(`
       UPDATE tasks SET status = 'assigned', assigned_at = datetime('now')
