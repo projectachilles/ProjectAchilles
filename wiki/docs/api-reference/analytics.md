@@ -20,7 +20,7 @@ Most endpoints accept the same filter vocabulary. Pass any combination:
 |-------|------|-------------|
 | `from` | string | Start of window. Accepts ISO-8601 (`2026-04-23T00:00:00Z`), calendar dates (`2026-04-23`), or Elasticsearch date math (`now-30d`). |
 | `to` | string | End of window. Same formats as `from`. |
-| `org` | string | Filter by organization UUID (Clerk org id). |
+| `org` | string | Organization whose results to include (the `routing.oid` of the results: the org of the task that produced them). For a user or API key in a Clerk organization it is always that organization: omitted means its own, any other value returns `403`. Users without an organization can pass any org, or omit it for all. |
 | `tests` | string | Comma-separated test UUIDs. |
 | `techniques` | string | Comma-separated MITRE ATT&CK technique IDs (e.g. `T1486,T1059`). |
 | `hostnames` | string | Comma-separated hostnames. |

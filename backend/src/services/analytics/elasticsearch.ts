@@ -467,6 +467,12 @@ export class ElasticsearchService {
     return { term: { 'routing.oid': org } };
   }
 
+  /** `filters` plus the org filter when an org is given. */
+  private withOrgFilter(filters: any[], org?: string): any[] {
+    const orgFilter = this.buildOrgFilter(org);
+    return orgFilter ? [...filters, orgFilter] : filters;
+  }
+
   // Filter for valid test execution data only
   // Excludes incomplete records (cleanup operations, etc.)
   private buildTestDataFilter(): any {
@@ -1863,10 +1869,12 @@ export class ElasticsearchService {
   }
 
   // Get list of organizations
-  async getOrganizations(): Promise<OrganizationInfo[]> {
+  async getOrganizations(org?: string): Promise<OrganizationInfo[]> {
+    const orgFilter = this.buildOrgFilter(org);
     const response = await this.client.search({
       index: this.settings.indexPattern,
       size: 0,
+      ...(orgFilter ? { query: { bool: { filter: [orgFilter] } } } : {}),
       aggs: {
         orgs: {
           terms: { field: 'routing.oid', size: 50 },
@@ -2141,12 +2149,12 @@ export class ElasticsearchService {
   }
 
   // Get list of available tests (for filter dropdown)
-  async getAvailableTests(): Promise<string[]> {
+  async getAvailableTests(org?: string): Promise<string[]> {
     const response = await this.client.search({
       index: this.settings.indexPattern,
       size: 0,
       query: {
-        bool: { filter: [this.buildTestDataFilter()] }
+        bool: { filter: this.withOrgFilter([this.buildTestDataFilter()], org) }
       },
       aggs: {
         tests: {
@@ -2159,12 +2167,12 @@ export class ElasticsearchService {
   }
 
   // Get list of test UUIDs that have been executed (for NRY filter)
-  async getExecutedTestUuids(): Promise<string[]> {
+  async getExecutedTestUuids(org?: string): Promise<string[]> {
     const response = await this.client.search({
       index: this.settings.indexPattern,
       size: 0,
       query: {
-        bool: { filter: [this.buildTestDataFilter()] }
+        bool: { filter: this.withOrgFilter([this.buildTestDataFilter()], org) }
       },
       aggs: {
         uuids: {
@@ -2178,12 +2186,12 @@ export class ElasticsearchService {
   }
 
   // Get list of available techniques (for filter dropdown)
-  async getAvailableTechniques(): Promise<string[]> {
+  async getAvailableTechniques(org?: string): Promise<string[]> {
     const response = await this.client.search({
       index: this.settings.indexPattern,
       size: 0,
       query: {
-        bool: { filter: [this.buildTestDataFilter(), NOT_STAGELESS] }
+        bool: { filter: this.withOrgFilter([this.buildTestDataFilter(), NOT_STAGELESS], org) }
       },
       aggs: {
         techniques: {
@@ -3763,6 +3771,7 @@ export class ElasticsearchService {
    */
   async archiveByGroupKeys(
     groupKeys: string[],
+    org?: string,
   ): Promise<{ archived: number; errors: string[] }> {
     const errors: string[] = [];
     const shouldClauses: any[] = [];
@@ -3825,7 +3834,7 @@ export class ElasticsearchService {
 
     const query = {
       bool: {
-        filter: [this.buildTestDataFilter()],
+        filter: this.withOrgFilter([this.buildTestDataFilter()], org),
         should: shouldClauses,
         minimum_should_match: 1,
       },
@@ -3865,18 +3874,19 @@ export class ElasticsearchService {
     return { archived, errors };
   }
 
-  /** Archive all executions before a given date. */
+  /** Archive all executions before a given date (of one org, when given). */
   async archiveByDateRange(
     before: string,
+    org?: string,
   ): Promise<{ archived: number; errors: string[] }> {
     const errors: string[] = [];
 
     const query = {
       bool: {
-        filter: [
+        filter: this.withOrgFilter([
           this.buildTestDataFilter(),
           { range: { 'routing.event_time': { lt: before } } },
-        ],
+        ], org),
       },
     };
 

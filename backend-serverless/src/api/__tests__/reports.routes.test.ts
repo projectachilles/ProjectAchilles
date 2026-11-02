@@ -75,23 +75,35 @@ describe('GET /api/reports/executions', () => {
     expect(constructed[0][1]).toEqual({ vendors: { defender: true, crowdstrike: false } });
   });
 
-  it('does not default the org to the JWT org', async () => {
+  // Results carry the org of the task that produced them, which for a caller
+  // in an organization is always its own Clerk org id (scopeResultsToCallerOrg).
+  it('limits a caller in an organization to its own org when ?org= is omitted', async () => {
     await request(app()).get('/api/reports/executions');
     expect(mockGenerate).toHaveBeenCalledTimes(1);
+    expect(mockGenerate.mock.calls[0][0].org).toBe('org-jwt');
+  });
+
+  it("refuses another org's report for a caller in an organization", async () => {
+    const res = await request(app()).get('/api/reports/executions?org=agent-org-uuid');
+    expect(res.status).toBe(403);
+    expect(mockGenerate).not.toHaveBeenCalled();
+  });
+
+  it('leaves the org unset for a caller without an organization', async () => {
+    mockGetUserOrgId.mockReturnValue(undefined);
+    await request(app()).get('/api/reports/executions');
     expect(mockGenerate.mock.calls[0][0].org).toBeUndefined();
     expect(mockValidateOrg).not.toHaveBeenCalled();
   });
 
-  it('scopes risk acceptances to the caller JWT org, independent of ?org=', async () => {
-    await request(app()).get('/api/reports/executions');
-    expect(mockGenerate.mock.calls[0][0].acceptanceOrg).toBe('org-jwt');
+  it('scopes risk acceptances to the caller JWT org', async () => {
+    await request(app()).get('/api/reports/executions?org=org-jwt');
+    expect(mockGenerate.mock.calls[0][0]).toMatchObject({ org: 'org-jwt', acceptanceOrg: 'org-jwt' });
     expect(mockGetUserOrgId).toHaveBeenCalledWith({ userId: 'u1' });
-
-    await request(app()).get('/api/reports/executions?org=agent-org-uuid');
-    expect(mockGenerate.mock.calls[1][0]).toMatchObject({ org: 'agent-org-uuid', acceptanceOrg: 'org-jwt' });
   });
 
-  it('validates an explicit org against the caller and passes it through with tz', async () => {
+  it('passes an explicit org through for a caller without an organization, with tz', async () => {
+    mockGetUserOrgId.mockReturnValue(undefined);
     await request(app()).get('/api/reports/executions?org=org-x&tz=America%2FSanto_Domingo');
     expect(mockValidateOrg).toHaveBeenCalledWith('org-x', { userId: 'u1' });
     expect(mockGenerate).toHaveBeenCalledWith(expect.objectContaining({ org: 'org-x', tz: 'America/Santo_Domingo' }));
@@ -120,6 +132,7 @@ describe('GET /api/reports/executions', () => {
   });
 
   it.each(['hostnames', 'org', 'from', 'result', 'tz'])('400s when %s arrives more than once', async (name) => {
+    mockGetUserOrgId.mockReturnValue(undefined); // an org caller's repeated ?org= is a 403 (see above)
     const res = await request(app()).get(`/api/reports/executions?${name}=a&${name}=b`);
     expect(res.status).toBe(400);
     expect(res.body).toEqual({ success: false, error: `Invalid query parameter: ${name}` });

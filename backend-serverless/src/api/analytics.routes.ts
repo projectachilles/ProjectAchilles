@@ -1,5 +1,6 @@
 import { Router } from 'express';
 import { requireClerkAuth, requirePermission } from '../middleware/clerk.middleware.js';
+import { scopeResultsToCallerOrg } from '../middleware/orgScope.js';
 import { asyncHandler, AppError } from '../middleware/error.middleware.js';
 import { validate } from '../middleware/validation.js';
 import { validateUrlForSSRF } from '../middleware/urlValidation.js';
@@ -45,6 +46,11 @@ function extractFilterParams(query: Record<string, any>): AnalyticsQueryParams &
 
 // Protect all analytics routes with Clerk authentication
 router.use(requireClerkAuth());
+
+// A caller in an organization only queries its own organization's results.
+// The Elasticsearch connection and index management are install
+// configuration, not results.
+router.use(scopeResultsToCallerOrg(['/settings', '/settings/test', '/indices', '/index/create']));
 
 // Initialize services
 const settingsService = new SettingsService();
@@ -269,9 +275,9 @@ router.get('/executions', asyncHandler(async (req, res) => {
 }));
 
 // GET /api/analytics/organizations - List organizations
-router.get('/organizations', asyncHandler(async (_req, res) => {
+router.get('/organizations', asyncHandler(async (req, res) => {
   const es = await getEsService();
-  const result = await es.getOrganizations();
+  const result = await es.getOrganizations(req.query.org as string | undefined);
   res.json(result);
 }));
 
@@ -324,23 +330,23 @@ router.get('/host-test-matrix', asyncHandler(async (req, res) => {
 }));
 
 // GET /api/analytics/available-tests - List all available tests
-router.get('/available-tests', asyncHandler(async (_req, res) => {
+router.get('/available-tests', asyncHandler(async (req, res) => {
   const es = await getEsService();
-  const tests = await es.getAvailableTests();
+  const tests = await es.getAvailableTests(req.query.org as string | undefined);
   res.json(tests);
 }));
 
 // GET /api/analytics/executed-test-uuids - List all test UUIDs that have been executed
-router.get('/executed-test-uuids', asyncHandler(async (_req, res) => {
+router.get('/executed-test-uuids', asyncHandler(async (req, res) => {
   const es = await getEsService();
-  const uuids = await es.getExecutedTestUuids();
+  const uuids = await es.getExecutedTestUuids(req.query.org as string | undefined);
   res.json({ success: true, uuids });
 }));
 
 // GET /api/analytics/available-techniques - List all available techniques
-router.get('/available-techniques', asyncHandler(async (_req, res) => {
+router.get('/available-techniques', asyncHandler(async (req, res) => {
   const es = await getEsService();
-  const techniques = await es.getAvailableTechniques();
+  const techniques = await es.getAvailableTechniques(req.query.org as string | undefined);
   res.json(techniques);
 }));
 
