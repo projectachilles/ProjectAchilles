@@ -83,11 +83,15 @@ export function acceptApiKey() {
     touchLastUsed(row.id);
 
     const permissions = permissionsForScope(row.scope);
+    // A key created by a user without an organization through the CLI was
+    // stored with org_id 'default' (the CLI token's placeholder); it belongs to
+    // no organization, like a key created from the browser by the same user.
+    const orgId = row.org_id && row.org_id !== 'default' ? row.org_id : undefined;
     const authData = {
       userId: `apikey:${row.id}`,
-      orgId: row.org_id ?? undefined,
+      orgId,
       sessionClaims: {
-        org_id: row.org_id ?? undefined,
+        org_id: orgId,
         metadata: {},
       },
       apiKeyPermissions: permissions,

@@ -66,11 +66,16 @@ export function acceptCliAuth() {
     if (cliPayload) {
       // Clerk's @clerk/express now uses req.auth() as a function (not a property).
       // We must match that interface so requireClerkAuth() works with CLI tokens.
+      // The device flow stores 'default' (or nothing) for a user without a
+      // Clerk organization. Such a token must carry no org, exactly like the
+      // same user's browser session; otherwise every org-scoped route would
+      // treat the CLI user as a member of an organization named "default".
+      const orgId = cliPayload.org_id && cliPayload.org_id !== 'default' ? cliPayload.org_id : undefined;
       const authData = {
         userId: cliPayload.sub,
-        orgId: cliPayload.org_id,
+        orgId,
         sessionClaims: {
-          org_id: cliPayload.org_id,
+          org_id: orgId,
           metadata: { role: cliPayload.role },
         },
       };
