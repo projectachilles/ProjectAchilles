@@ -42,7 +42,7 @@ unchanged.
 | **Enrollment** | `agent/enrollment.routes.ts` | 300 / 15 min | IP | `POST /enroll` |
 | **Download** | `agent/enrollment.routes.ts` | 300 / 15 min | IP | `GET /download` (binary) |
 | **Global UI** | `server.ts` / `app.ts` | 1000 / 15 min | Clerk user (IP fallback) | All `/api/*` except agent device + cron |
-| **CLI bearer auth** | `server.ts` | 60 / 1 min | IP | Unverified CLI bearer tokens (skips authed traffic) |
+| **CLI bearer auth** | `server.ts` | 60 / 1 min | IP | Unverified CLI bearer tokens (skips authed traffic and agent `ak_` keys on `/api/agent/*` device routes, matched case-insensitively) |
 | **API key auth** | `server.ts` | 60 / 1 min | IP | `Bearer pa_…` keys (pre-hash brute-force guard) |
 | **Key rotation** | `agent/heartbeat.routes.ts` | 3 / 15 min | IP | Agent API-key rotation |
 | **CLI device flow** | `cli-auth.routes.ts` | 10·60·10 | IP | OAuth device-code / poll / refresh |
