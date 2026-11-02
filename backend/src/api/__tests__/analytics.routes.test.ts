@@ -15,6 +15,7 @@ vi.mock('../../middleware/clerk.middleware.js', () => ({
     next();
   },
   getUserId: (auth: any) => auth?.userId || 'test-user-001',
+  getUserOrgId: (auth: any) => auth?.orgId,
   requirePermission: () => (_req: any, _res: any, next: any) => next(),
 }));
 
@@ -350,7 +351,7 @@ describe('analytics routes', () => {
       expect(res.status).toBe(200);
       expect(res.body.success).toBe(true);
       expect(res.body.archived).toBe(3);
-      expect(mockArchiveByGroupKeys).toHaveBeenCalledWith(['standalone::uuid-001::host-a', 'bundle::b1::host-b']);
+      expect(mockArchiveByGroupKeys).toHaveBeenCalledWith(['standalone::uuid-001::host-a', 'bundle::b1::host-b'], undefined);
     });
   });
 
@@ -390,7 +391,7 @@ describe('analytics routes', () => {
       expect(res.status).toBe(200);
       expect(res.body.success).toBe(true);
       expect(res.body.archived).toBe(15);
-      expect(mockArchiveByDateRange).toHaveBeenCalledWith('2025-01-01T00:00:00Z');
+      expect(mockArchiveByDateRange).toHaveBeenCalledWith('2025-01-01T00:00:00Z', undefined);
     });
   });
   describe('GET /api/analytics/error-rate/trend', () => {

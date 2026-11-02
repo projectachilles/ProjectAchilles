@@ -457,6 +457,12 @@ export class ElasticsearchService {
     return { term: { 'routing.oid': org } };
   }
 
+  /** `filters` plus the org filter when an org is given. */
+  private withOrgFilter(filters: any[], org?: string): any[] {
+    const orgFilter = this.buildOrgFilter(org);
+    return orgFilter ? [...filters, orgFilter] : filters;
+  }
+
   // Filter for valid test execution data only
   // Excludes incomplete records (cleanup operations, etc.)
   private buildTestDataFilter(): any {
@@ -1819,10 +1825,12 @@ export class ElasticsearchService {
   }
 
   // Get list of organizations
-  async getOrganizations(): Promise<OrganizationInfo[]> {
+  async getOrganizations(org?: string): Promise<OrganizationInfo[]> {
+    const orgFilter = this.buildOrgFilter(org);
     const response = await this.client.search({
       index: this.settings.indexPattern,
       size: 0,
+      ...(orgFilter ? { query: { bool: { filter: [orgFilter] } } } : {}),
       aggs: {
         orgs: {
           terms: { field: 'routing.oid', size: 50 },
@@ -2097,12 +2105,12 @@ export class ElasticsearchService {
   }
 
   // Get list of available tests (for filter dropdown)
-  async getAvailableTests(): Promise<string[]> {
+  async getAvailableTests(org?: string): Promise<string[]> {
     const response = await this.client.search({
       index: this.settings.indexPattern,
       size: 0,
       query: {
-        bool: { filter: [this.buildTestDataFilter()] }
+        bool: { filter: this.withOrgFilter([this.buildTestDataFilter()], org) }
       },
       aggs: {
         tests: {
@@ -2115,12 +2123,12 @@ export class ElasticsearchService {
   }
 
   // Get list of test UUIDs that have been executed (for NRY filter)
-  async getExecutedTestUuids(): Promise<string[]> {
+  async getExecutedTestUuids(org?: string): Promise<string[]> {
     const response = await this.client.search({
       index: this.settings.indexPattern,
       size: 0,
       query: {
-        bool: { filter: [this.buildTestDataFilter()] }
+        bool: { filter: this.withOrgFilter([this.buildTestDataFilter()], org) }
       },
       aggs: {
         uuids: {
@@ -2134,12 +2142,12 @@ export class ElasticsearchService {
   }
 
   // Get list of available techniques (for filter dropdown)
-  async getAvailableTechniques(): Promise<string[]> {
+  async getAvailableTechniques(org?: string): Promise<string[]> {
     const response = await this.client.search({
       index: this.settings.indexPattern,
       size: 0,
       query: {
-        bool: { filter: [this.buildTestDataFilter()] }
+        bool: { filter: this.withOrgFilter([this.buildTestDataFilter()], org) }
       },
       aggs: {
         techniques: {
@@ -2643,7 +2651,9 @@ export class ElasticsearchService {
     const response = await this.client.search({
       index: this.settings.indexPattern,
       size: 0,
-      query: { bool: { filter: [this.buildTestDataFilter()] } },
+      // The org applies to every list, including tests and techniques (which
+      // ignore only the date); a caller in an organization never sees another's.
+      query: { bool: { filter: this.withOrgFilter([this.buildTestDataFilter()], params?.org) } },
       aggs: {
         tests: { terms: { field: 'f0rtika.test_name', size: 100 } },
         techniques: {
