@@ -3,6 +3,7 @@ import multer from 'multer';
 import { asyncHandler, AppError } from '../../middleware/error.middleware.js';
 import { validate } from '../../middleware/validation.js';
 import { requirePermission } from '../../middleware/clerk.middleware.js';
+import { requireInstallOperator } from '../../middleware/installScope.js';
 import {
   getLatestVersion,
   streamUpdate,
@@ -102,6 +103,7 @@ export function createAdminUpdateRouter(_buildService: unknown): Router {
   router.post(
     '/versions',
     requirePermission('endpoints:versions:create'),
+    requireInstallOperator,
     validate(RegisterVersionSchema),
     asyncHandler(async (req, res) => {
       const { version, os, arch, binary_path, release_notes, mandatory } = req.body as {
@@ -158,6 +160,7 @@ export function createAdminUpdateRouter(_buildService: unknown): Router {
   router.post(
     '/versions/upload',
     requirePermission('endpoints:versions:create'),
+    requireInstallOperator,
     upload.single('binary'),
     asyncHandler(async (req, res) => {
       const { version, os, arch, release_notes, mandatory } = req.body as {
@@ -213,6 +216,7 @@ export function createAdminUpdateRouter(_buildService: unknown): Router {
   router.post(
     '/versions/build',
     requirePermission('endpoints:versions:create'),
+    requireInstallOperator,
     validate(BuildVersionSchema),
     asyncHandler(async (req, res) => {
       if (!_buildService) {
@@ -237,6 +241,7 @@ export function createAdminUpdateRouter(_buildService: unknown): Router {
   router.delete(
     '/versions/:version/:os/:arch',
     requirePermission('endpoints:versions:delete'),
+    requireInstallOperator,
     asyncHandler(async (req, res) => {
       const { version, os, arch } = req.params;
 

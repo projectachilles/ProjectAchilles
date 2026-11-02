@@ -79,6 +79,8 @@ Sign-in uses Clerk, a hosted identity service, so the server needs outbound acce
 
 **One install per organization is the separation model.** Inside one install, Clerk organizations (and API keys created in one) scope agents, tasks, schedules, campaigns, pre-execution notices, alert settings and enrollment tokens: a member of one organization can't list another's endpoints or run anything on them. `REQUIRE_ORG_ISOLATION=true` rejects callers that belong to no organization. Elasticsearch, EDR connections, agent versions and the test library are shared by the whole install, so when two organizations must not see each other's results at all, give each its own install.
 
+Install-wide configuration (agent versions, the Elasticsearch connection, agent key auto-rotation) can only be changed by an administrator outside any organization, so one organization can't choose the binary another's agents install or where their results go.
+
 ### Sized for real fleets
 
 An agent asks for work every 30 seconds and sends a heartbeat every 60. Since 2.9, the backend that answers them is built to grow on small instances:

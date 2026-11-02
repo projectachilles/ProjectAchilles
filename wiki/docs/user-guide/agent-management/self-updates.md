@@ -48,6 +48,8 @@ Each agent has **at most one** open update task: clicking **Update** again while
 
 ## Publishing a new version
 
+Agent versions are shared by the whole install: every agent updates to the newest version registered for its platform, whatever organization it belongs to. So when the install uses Clerk organizations, only an administrator who is not signed in to an organization can build, upload, register or delete a version. A user or API key in an organization can see the versions and update its own agents, but gets `403` when changing them.
+
 Go to **Settings → Agent**. There are two ways to publish.
 
 ### Build Agent Binary (recommended)
