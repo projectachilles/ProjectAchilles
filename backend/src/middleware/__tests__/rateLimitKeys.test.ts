@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import type { Request } from 'express';
-import { agentDeviceKey, uiLimiterKey } from '../rateLimitKeys.js';
+import { agentDeviceKey, agentFailedAuthKey, uiLimiterKey, uiLimiterSkip } from '../rateLimitKeys.js';
 
 function makeReq(opts: { ip?: string; headers?: Record<string, unknown>; auth?: unknown }): Request {
   const req: Record<string, unknown> = {
@@ -48,6 +48,20 @@ describe('agentDeviceKey()', () => {
   });
 });
 
+describe('agentFailedAuthKey()', () => {
+  it('keys on the IP alone, so rotating X-Agent-ID cannot mint fresh buckets', () => {
+    const a = agentFailedAuthKey(makeReq({ ip: '203.0.113.7', headers: { 'x-agent-id': 'agent-1' } }));
+    const b = agentFailedAuthKey(makeReq({ ip: '203.0.113.7', headers: { 'x-agent-id': 'agent-2' } }));
+    expect(a).toBe('ip:203.0.113.7');
+    expect(b).toBe(a);
+  });
+
+  it('normalizes IPv6 to its /56 block', () => {
+    expect(agentFailedAuthKey(makeReq({ ip: '2001:db8:abcd:0012::1' })))
+      .toBe(agentFailedAuthKey(makeReq({ ip: '2001:db8:abcd:0012::ffff' })));
+  });
+});
+
 describe('uiLimiterKey()', () => {
   it('keys on the Clerk user id when the request is authenticated', () => {
     const auth = () => ({ userId: 'user_2NxX' });
@@ -75,5 +89,30 @@ describe('uiLimiterKey()', () => {
     const a = uiLimiterKey(makeReq({ ip: '2001:db8:abcd:0012::1' }));
     const b = uiLimiterKey(makeReq({ ip: '2001:db8:abcd:0012::ffff' }));
     expect(a).toBe(b);
+  });
+});
+
+describe('uiLimiterSkip()', () => {
+  const at = (url: string) => ({ originalUrl: url, headers: {} }) as unknown as Request;
+
+  it('skips agent device routes (they have their own limiters)', () => {
+    expect(uiLimiterSkip(at('/api/agent/tasks'))).toBe(true);
+    expect(uiLimiterSkip(at('/api/agent/heartbeat'))).toBe(true);
+  });
+
+  it('counts the admin routes, whatever their case (Express routing is case-insensitive)', () => {
+    expect(uiLimiterSkip(at('/api/agent/admin/agents'))).toBe(false);
+    expect(uiLimiterSkip(at('/api/agent/ADMIN/agents'))).toBe(false);
+    expect(uiLimiterSkip(at('/api/agent/Admin/tasks'))).toBe(false);
+    expect(uiLimiterSkip(at('/API/AGENT/ADMIN/agents'))).toBe(false);
+  });
+
+  it('counts the bare admin path and admin paths with a query string', () => {
+    expect(uiLimiterSkip(at('/api/agent/admin'))).toBe(false);
+    expect(uiLimiterSkip(at('/api/agent/admin?x=1'))).toBe(false);
+  });
+
+  it('counts everything outside /api/agent/', () => {
+    expect(uiLimiterSkip(at('/api/analytics/defense-score'))).toBe(false);
   });
 });

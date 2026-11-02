@@ -1,5 +1,6 @@
 import type { Request } from 'express';
 import { ipKeyGenerator } from 'express-rate-limit';
+import { isAgentDevicePath } from './agentDevicePath.js';
 import { safeClerkAuth } from './clerkAuthHelpers.js';
 
 /**
@@ -37,6 +38,17 @@ export function agentDeviceKey(req: Request): string {
 }
 
 /**
+ * Failed agent-auth key: the normalized IP alone. Deliberately ignores the
+ * client-chosen X-Agent-ID, which an attacker rotates to escape
+ * agentDeviceKey. Only failed authentications are counted under it (see
+ * agentFailedAuthLimiter in api/agent/index.ts), so a NAT'd fleet of healthy
+ * agents never fills it.
+ */
+export function agentFailedAuthKey(req: Request): string {
+  return `ip:${normalizedIp(req)}`;
+}
+
+/**
  * Global UI key: the Clerk user id when authenticated, else the normalized IP.
  * Analysts behind a shared corporate IP each get their own dashboard budget
  * instead of collectively draining one per-IP bucket on heavy polling.
@@ -45,4 +57,12 @@ export function uiLimiterKey(req: Request): string {
   const userId = safeClerkAuth(req)?.userId;
   if (userId) return `user:${userId}`;
   return `ip:${normalizedIp(req)}`;
+}
+
+/**
+ * Skip predicate for the global UI limiter (`apiLimiter` in server.ts): agent
+ * device endpoints have their own dedicated limiters.
+ */
+export function uiLimiterSkip(req: Request): boolean {
+  return isAgentDevicePath(req.originalUrl);
 }

@@ -56,7 +56,7 @@ import apiKeysRoutes from './api/api-keys.routes.js';
 import consoleIdentityRoutes from './api/consoleIdentity.routes.js';
 import { acceptApiKey } from './middleware/apiKeyAuth.middleware.js';
 import { cliBearerLimiterSkip } from './middleware/cliBearerLimiterSkip.js';
-import { uiLimiterKey } from './middleware/rateLimitKeys.js';
+import { uiLimiterKey, uiLimiterSkip } from './middleware/rateLimitKeys.js';
 
 // Get __dirname equivalent in ES modules
 const __filename = fileURLToPath(import.meta.url);
@@ -188,11 +188,8 @@ const apiLimiter = rateLimit({
   legacyHeaders: false,
   keyGenerator: uiLimiterKey,
   message: { success: false, error: 'Too many requests, please try again later' },
-  skip: (req) => {
-    // Agent device endpoints have their own dedicated rate limiter
-    const p = req.originalUrl;
-    return p.startsWith('/api/agent/') && !p.startsWith('/api/agent/admin/');
-  },
+  // Agent device endpoints have their own dedicated rate limiters
+  skip: uiLimiterSkip,
 });
 app.use('/api', apiLimiter);
 

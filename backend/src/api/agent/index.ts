@@ -3,7 +3,7 @@ import path from 'path';
 import { Router } from 'express';
 import rateLimit from 'express-rate-limit';
 import { requireAgentAuth } from '../../middleware/agentAuth.middleware.js';
-import { agentDeviceKey } from '../../middleware/rateLimitKeys.js';
+import { agentDeviceKey, agentFailedAuthKey } from '../../middleware/rateLimitKeys.js';
 import { requireClerkAuth, requireOrgAccess } from '../../middleware/clerk.middleware.js';
 import { agentEnrollmentRouter, adminEnrollmentRouter } from './enrollment.routes.js';
 import { agentHeartbeatRouter, adminAgentRouter } from './heartbeat.routes.js';
@@ -67,6 +67,32 @@ export function createAgentRouter(options: {
     keyGenerator: agentDeviceKey,
     message: { success: false, error: 'Too many agent requests, try again later' },
   });
+
+  // Per-IP bound on FAILED agent authentication. agentDeviceLimiter is keyed
+  // on the client-chosen X-Agent-ID, so a random `ak_` token with a fresh ID
+  // on every request escapes it, and the CLI/UI limiters skip device routes.
+  // Each such request still costs requireAgentAuth one bcrypt cost-12 compare
+  // (against DUMMY_HASH for an unknown agent), ~0.2-0.5 s of main-thread CPU.
+  //
+  // Only responses that end in 401 count: express-rate-limit increments up
+  // front and, with skipSuccessfulRequests, decrements on `finish` when
+  // requestWasSuccessful says so. It reads the final status, including the
+  // 401 requireAgentAuth sends from its async bcrypt callback, so this must
+  // stay mounted BEFORE requireAgentAuth. Healthy agents almost never fail
+  // auth, so a NAT'd fleet sharing one IP never fills it.
+  const agentFailedAuthLimiter = rateLimit({
+    windowMs: 60 * 1000,         // 1 minute
+    max: 60,                      // 60 failed agent authentications per minute per IP
+    standardHeaders: true,
+    legacyHeaders: false,
+    keyGenerator: agentFailedAuthKey,
+    skipSuccessfulRequests: true,
+    requestWasSuccessful: (_req, res) => res.statusCode !== 401,
+    message: { success: false, error: 'Too many failed agent authentication attempts' },
+  });
+
+  // Order matters: both limiters, then requireAgentAuth, then the routers.
+  router.use(agentFailedAuthLimiter);
   router.use(agentDeviceLimiter);
 
   // Agent-authenticated endpoints
