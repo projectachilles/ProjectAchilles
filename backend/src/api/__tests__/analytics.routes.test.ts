@@ -200,7 +200,7 @@ describe('analytics routes', () => {
       expect(saved.connectionType).toBe('self-hosted');
     });
 
-    it('preserves existing apiKey on same-mode partial update (regression guard)', async () => {
+    it('preserves the saved apiKey for the same cluster, never for a new node (regression guard)', async () => {
       mockGetSettings.mockReturnValue({
         configured: true,
         connectionType: 'self-hosted',
@@ -213,18 +213,27 @@ describe('analytics routes', () => {
       });
 
       const app = createApp();
-      // User updates only the node, keeps apiKey blank (= keep existing)
+      // Same cluster (node blank = keep current), only the index pattern changes:
+      // a blank apiKey keeps the saved one.
       const res = await request(app)
         .post('/api/analytics/settings')
         .send({
           connectionType: 'self-hosted',
-          node: 'https://updated.example.com',
+          indexPattern: 'achilles-results-*',
         });
 
       expect(res.status).toBe(200);
       const saved = mockSaveSettings.mock.calls.at(-1)?.[0];
       expect(saved.apiKey).toBe('EXISTING_DIRECT_KEY');
-      expect(saved.node).toBe('https://updated.example.com');
+      expect(saved.node).toBe('https://existing.example.com');
+
+      // A new node is a new cluster: the saved key is not carried over to it.
+      await request(app)
+        .post('/api/analytics/settings')
+        .send({ connectionType: 'self-hosted', node: 'https://updated.example.com' });
+      const moved = mockSaveSettings.mock.calls.at(-1)?.[0];
+      expect(moved.node).toBe('https://updated.example.com');
+      expect(moved.apiKey).toBe('');
     });
 
     it('does not treat first-time setup as a mode switch', async () => {

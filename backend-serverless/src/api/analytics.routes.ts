@@ -45,6 +45,45 @@ function extractFilterParams(query: Record<string, any>): AnalyticsQueryParams &
 }
 
 // Protect all analytics routes with Clerk authentication
+
+/**
+ * Saved credentials (API key, username/password, CA certificate) belong to the
+ * saved cluster. A request reuses them only when it targets that same cluster:
+ * same connection type and, when it names one, the same Cloud ID or node URL.
+ * Otherwise anyone allowed to test or save settings could send the saved
+ * credentials to a host of their choosing just by changing the target.
+ */
+function targetsSavedCluster(
+  existing: { configured?: boolean; connectionType?: string; cloudId?: string; node?: string },
+  requested: { connectionType?: string; cloudId?: string; node?: string },
+): boolean {
+  if (!existing.configured) return false;
+  if (requested.connectionType && requested.connectionType !== existing.connectionType) return false;
+  if (requested.cloudId && requested.cloudId !== existing.cloudId) return false;
+  if (requested.node && normalizeNodeUrl(requested.node) !== normalizeNodeUrl(existing.node)) return false;
+  return true;
+}
+
+/** Comparable form of a node URL: parsed and without trailing slashes. */
+function normalizeNodeUrl(node: string | undefined): string {
+  const raw = (node ?? '').trim();
+  try {
+    return stripTrailingSlashes(new URL(raw).toString());
+  } catch {
+    return stripTrailingSlashes(raw);
+  }
+}
+
+/** Linear-time, unlike /\/+$/ (which backtracks on a long run of slashes). */
+function stripTrailingSlashes(value: string): string {
+  let end = value.length;
+  while (end > 0 && value.charCodeAt(end - 1) === 47 /* '/' */) end--;
+  return value.slice(0, end);
+}
+
+/** /indices lists Achilles indices only (results and archives), never the whole cluster. */
+const ACHILLES_INDEX_PATTERN = /^(archived-)?achilles[a-z0-9._*-]*$/;
+
 router.use(requireClerkAuth());
 
 // A caller in an organization only queries its own organization's results.
@@ -94,22 +133,19 @@ router.post('/settings', requirePermission('analytics:settings:write'), validate
   // This allows updating settings without providing all credentials
   const existingSettings = await settingsService.getSettings();
 
-  // When the connection type changes (e.g., 'cloud' → 'self-hosted'), the existing
-  // credentials belong to a *different* cluster and must not be carried forward.
-  const isModeSwitch =
-    !!existingSettings.configured &&
-    !!existingSettings.connectionType &&
-    !!connectionType &&
-    connectionType !== existingSettings.connectionType;
-  const fallback = <T>(prev: T | undefined): T | string => (isModeSwitch ? '' : (prev ?? ''));
+  // Saved credentials are reused only against the saved cluster (targetsSavedCluster):
+  // a different connection type, Cloud ID or node URL starts from empty credentials,
+  // so they can never be sent to a host the request names.
+  const isNewTarget = !targetsSavedCluster(existingSettings, { connectionType, cloudId, node });
+  const fallback = <T>(prev: T | undefined): T | string => (isNewTarget ? '' : (prev ?? ''));
 
   // Validate self-hosted ES node URL against SSRF before saving
-  const effectiveNode = node || (isModeSwitch ? '' : existingSettings.node);
+  const effectiveNode = node || (isNewTarget ? '' : existingSettings.node);
   if (connectionType === 'self-hosted' && effectiveNode) {
     await validateUrlForSSRF(effectiveNode);
   }
 
-  // Merge: use new values if provided, otherwise keep existing ones (unless mode switched).
+  // Merge: use new values if provided, otherwise keep existing ones (unless the target changed).
   const settingsToSave = {
     connectionType,
     cloudId: cloudId || fallback(existingSettings.cloudId),
@@ -125,7 +161,7 @@ router.post('/settings', requirePermission('analytics:settings:write'), validate
     tlsInsecureSkipVerify:
       typeof tlsInsecureSkipVerify === 'boolean'
         ? tlsInsecureSkipVerify
-        : isModeSwitch ? false : existingSettings.tlsInsecureSkipVerify,
+        : isNewTarget ? false : existingSettings.tlsInsecureSkipVerify,
   };
 
   await settingsService.saveSettings(settingsToSave);
@@ -140,25 +176,21 @@ router.post('/settings', requirePermission('analytics:settings:write'), validate
 }));
 
 // POST /api/analytics/settings/test - Test connection
-router.post('/settings/test', requirePermission('analytics:settings:read'), validate(AnalyticsTestSchema), asyncHandler(async (req, res) => {
+router.post('/settings/test', requirePermission('analytics:settings:write'), validate(AnalyticsTestSchema), asyncHandler(async (req, res) => {
   const { connectionType, cloudId, apiKey, node, username, password, caCert, tlsInsecureSkipVerify } = req.body;
 
   // Merge with existing settings so edit-mode tests work with blank credentials
   const existingSettings = await settingsService.getSettings();
 
-  // Mirror save handler's mode-switch guard: when testing a different connection type
-  // than what's saved, saved credentials belong to a different cluster and must not leak.
+  // Same rule as the save handler: saved credentials only ever go to the saved
+  // cluster, never to a node or Cloud ID the request supplies.
   const effectiveType = connectionType || existingSettings.connectionType;
-  const isModeSwitch =
-    !!existingSettings.configured &&
-    !!existingSettings.connectionType &&
-    !!connectionType &&
-    connectionType !== existingSettings.connectionType;
-  const fallback = <T>(prev: T | undefined): T | string => (isModeSwitch ? '' : (prev ?? ''));
+  const isNewTarget = !targetsSavedCluster(existingSettings, { connectionType, cloudId, node });
+  const fallback = <T>(prev: T | undefined): T | string => (isNewTarget ? '' : (prev ?? ''));
 
   try {
     // Validate self-hosted ES node URL against SSRF
-    const effectiveNode = node || (isModeSwitch ? '' : existingSettings.node);
+    const effectiveNode = node || (isNewTarget ? '' : existingSettings.node);
     if (effectiveType === 'self-hosted' && effectiveNode) {
       await validateUrlForSSRF(effectiveNode);
     }
@@ -176,7 +208,7 @@ router.post('/settings/test', requirePermission('analytics:settings:read'), vali
       tlsInsecureSkipVerify:
         typeof tlsInsecureSkipVerify === 'boolean'
           ? tlsInsecureSkipVerify
-          : isModeSwitch ? false : existingSettings.tlsInsecureSkipVerify,
+          : isNewTarget ? false : existingSettings.tlsInsecureSkipVerify,
     });
 
     const version = await testService.testConnection();
@@ -674,6 +706,9 @@ router.get('/indices', asyncHandler(async (req, res) => {
   // Always default to all results indices — the configured indexPattern scopes
   // analytics queries, not the management view.
   const indexPattern = (pattern as string | undefined) || 'achilles-results-*';
+  if (typeof indexPattern !== 'string' || !ACHILLES_INDEX_PATTERN.test(indexPattern)) {
+    throw new AppError('pattern must name Achilles indices (achilles-* or archived-achilles*)', 400);
+  }
 
   const indices = await listResultsIndices(indexPattern);
   res.json({ success: true, indices });

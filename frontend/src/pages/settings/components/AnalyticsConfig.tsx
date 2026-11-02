@@ -231,7 +231,7 @@ export function AnalyticsConfig({ onStatusChange }: AnalyticsConfigProps) {
           <Input
             label="API Key"
             type="password"
-            placeholder={editMode ? 'Leave blank to keep current' : 'Your Elasticsearch API key'}
+            placeholder={editMode ? 'Leave blank to keep current (same URL or Cloud ID only)' : 'Your Elasticsearch API key'}
             value={apiKey}
             onChange={(e) => setApiKey(e.target.value)}
             helperText={editMode ? 'Optional: Only fill in to update' : undefined}
@@ -251,7 +251,7 @@ export function AnalyticsConfig({ onStatusChange }: AnalyticsConfigProps) {
           <Input
             label="API Key (preferred)"
             type="password"
-            placeholder={editMode ? 'Leave blank to keep current' : 'Your Elasticsearch API key'}
+            placeholder={editMode ? 'Leave blank to keep current (same URL or Cloud ID only)' : 'Your Elasticsearch API key'}
             value={apiKey}
             onChange={(e) => setApiKey(e.target.value)}
             helperText={editMode ? 'Optional: Only fill in to update' : 'Optional for local instances with security disabled'}
@@ -259,7 +259,7 @@ export function AnalyticsConfig({ onStatusChange }: AnalyticsConfigProps) {
           <div className="text-center text-sm text-muted-foreground">— or —</div>
           <Input
             label="Username"
-            placeholder={editMode ? 'Leave blank to keep current' : 'elastic'}
+            placeholder={editMode ? 'Leave blank to keep current (same URL or Cloud ID only)' : 'elastic'}
             value={username}
             onChange={(e) => setUsername(e.target.value)}
             helperText={editMode ? 'Optional: Only fill in to update' : undefined}
@@ -267,7 +267,7 @@ export function AnalyticsConfig({ onStatusChange }: AnalyticsConfigProps) {
           <Input
             label="Password"
             type="password"
-            placeholder={editMode ? 'Leave blank to keep current' : 'Password'}
+            placeholder={editMode ? 'Leave blank to keep current (same URL or Cloud ID only)' : 'Password'}
             value={password}
             onChange={(e) => setPassword(e.target.value)}
             helperText={editMode ? 'Optional: Only fill in to update' : undefined}
