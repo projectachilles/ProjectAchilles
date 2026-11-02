@@ -186,6 +186,10 @@ export function requireAgentAuth(req: Request, res: Response, next: NextFunction
       if (!row || !match) {
         if (!row) {
           console.warn(`[agentAuth] REJECTED agent_id=${agentId} reason=not_found`);
+          // Read by agentFailedAuthLimiter (api/agent/index.ts), which counts only
+          // unknown-agent failures per IP. Never sent to the client: the 401
+          // body below is the same for every failure mode.
+          res.locals.agentAuthFailure = 'not_found';
         } else {
           console.warn(`[agentAuth] REJECTED agent_id=${row.id} hostname=${row.hostname} reason=key_mismatch`);
         }

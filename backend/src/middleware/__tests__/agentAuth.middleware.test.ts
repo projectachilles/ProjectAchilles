@@ -77,6 +77,7 @@ function mockRes() {
   const res = {
     status: vi.fn().mockReturnThis(),
     json: vi.fn().mockReturnThis(),
+    locals: {},
   } as unknown as Response;
   return res;
 }
@@ -112,6 +113,8 @@ describe('requireAgentAuth', () => {
     requireAgentAuth(req, res, next);
 
     expect(res.status).toHaveBeenCalledWith(401);
+    // Rejected before any bcrypt work: not an unknown-agent failure.
+    expect(res.locals.agentAuthFailure).toBeUndefined();
   });
 
   it('returns 401 when token does not start with ak_', () => {
@@ -141,6 +144,9 @@ describe('requireAgentAuth', () => {
     await waitForResponse(() => {
       expect(res.status).toHaveBeenCalledWith(401);
     });
+    // Marks the failure for agentFailedAuthLimiter; the response body stays uniform.
+    expect(res.locals.agentAuthFailure).toBe('not_found');
+    expect(res.json).toHaveBeenCalledWith({ success: false, error: 'Invalid agent credentials' });
   });
 
   it('returns 401 when agent is disabled (uniform error)', async () => {
@@ -166,6 +172,7 @@ describe('requireAgentAuth', () => {
     expect(res.json).toHaveBeenCalledWith(
       expect.objectContaining({ error: 'Invalid agent credentials' })
     );
+    expect(res.locals.agentAuthFailure).toBeUndefined();
   });
 
   it('calls next() and sets req.agent for valid credentials', async () => {
@@ -294,6 +301,8 @@ describe('requireAgentAuth', () => {
     });
 
     expect(next).not.toHaveBeenCalled();
+    // A known agent: not counted by agentFailedAuthLimiter (agentDeviceLimiter caps it).
+    expect(res.locals.agentAuthFailure).toBeUndefined();
   });
 
   describe('dual-key rotation', () => {

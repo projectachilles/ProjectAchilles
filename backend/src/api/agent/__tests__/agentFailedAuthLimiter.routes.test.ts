@@ -13,8 +13,11 @@ import { createTestDatabase, insertTestAgent } from '../../../__tests__/helpers/
  * The attack: random `ak_` token + a fresh X-Agent-ID on every request. Each
  * one costs a bcrypt cost-12 compare against DUMMY_HASH, and rotating the ID
  * escapes agentDeviceLimiter (keyed on IP + agent ID). The failed-auth limiter
- * only counts requests that end in 401, so it has to observe the final status
- * requireAgentAuth sends from inside its async bcrypt callback.
+ * only counts 401s for UNKNOWN agent IDs (requireAgentAuth marks them with
+ * res.locals.agentAuthFailure = 'not_found'), so it has to observe the final
+ * status requireAgentAuth sends from inside its async bcrypt callback. Known
+ * agents that fail (decommissioned, stale key, clock skew) are already capped
+ * per ID by agentDeviceLimiter and must not throttle healthy peers on one NAT.
  *
  * bcryptjs is swapped for a fast, still-async stand-in (counting compares) so
  * 60+ failures don't cost minutes of cost-12 hashing; everything else is real.
@@ -96,6 +99,7 @@ describe('agent failed-auth limiter (per IP)', () => {
     for (let i = 0; i < 60; i++) {
       const res = await forged(app, '203.0.113.10');
       expect(res.status).toBe(401);
+      expect(res.body).toEqual({ success: false, error: 'Invalid agent credentials' });
     }
     expect(compareCalls.n).toBe(60);
 
@@ -167,30 +171,56 @@ describe('agent failed-auth limiter (per IP)', () => {
     expect((await forged(app, '192.0.2.77')).status).toBe(429);
   });
 
-  it('counts every kind of agent-auth 401: wrong key for a known agent and missing headers', async () => {
-    // Wrong key for a real agent: the 401 is sent from the async compare
-    // callback, after the limiter middleware has already returned.
+  it('a known but decommissioned agent failing 70 times from one IP is never limited by it', async () => {
+    const token = randomToken();
+    insertTestAgent(testDb, { id: 'agent-gone', api_key_hash: `fake$${token}`, status: 'decommissioned' });
+    const app = makeApp();
+    const bodies: Array<{ status: number; error: string }> = [];
+    for (let i = 0; i < 70; i++) {
+      const res = await request(app)
+        .get('/api/agent/version')
+        .set('X-Forwarded-For', '203.0.113.99')
+        .set('Authorization', `Bearer ${token}`)
+        .set('X-Agent-ID', 'agent-gone')
+        .set('X-Request-Timestamp', new Date().toISOString());
+      bodies.push({ status: res.status, error: res.body.error });
+    }
+    // 30 x 401 (uniform body), then agentDeviceLimiter's per-ID cap; never this limiter.
+    expect(bodies.slice(0, 30).every((b) => b.status === 401 && b.error === 'Invalid agent credentials')).toBe(true);
+    expect(bodies.slice(30).every((b) => b.status === 429 && b.error === 'Too many agent requests, try again later')).toBe(true);
+
+    // None of the 70 counted: the IP still has its full 60 unknown-agent failures.
+    for (let i = 0; i < 60; i++) {
+      expect((await forged(app, '203.0.113.99')).status).toBe(401);
+    }
+    const blocked = await forged(app, '203.0.113.99');
+    expect(blocked.status).toBe(429);
+    expect(blocked.body.error).toBe('Too many failed agent authentication attempts');
+  });
+
+  it('does not count a known agent with a wrong key or a request missing its agent headers', async () => {
     insertTestAgent(testDb, { id: 'agent-known', api_key_hash: 'fake$ak_right' });
     const app = makeApp();
     for (let i = 0; i < 30; i++) {
       const res = await request(app)
         .get('/api/agent/version')
-        .set('X-Forwarded-For', '203.0.113.99')
+        .set('X-Forwarded-For', '203.0.113.98')
         .set('Authorization', 'Bearer ak_wrong')
         .set('X-Agent-ID', 'agent-known')
         .set('X-Request-Timestamp', new Date().toISOString());
       expect(res.status).toBe(401);
     }
-    // No X-Agent-ID: rejected synchronously, before any compare.
+    // No X-Agent-ID: rejected before any bcrypt work.
     for (let i = 0; i < 30; i++) {
       const res = await request(app)
         .get('/api/agent/version')
-        .set('X-Forwarded-For', '203.0.113.99')
+        .set('X-Forwarded-For', '203.0.113.98')
         .set('Authorization', `Bearer ${randomToken()}`);
       expect(res.status).toBe(401);
     }
-    const blocked = await forged(app, '203.0.113.99');
-    expect(blocked.status).toBe(429);
-    expect(blocked.body.error).toBe('Too many failed agent authentication attempts');
+    for (let i = 0; i < 60; i++) {
+      expect((await forged(app, '203.0.113.98')).status).toBe(401);
+    }
+    expect((await forged(app, '203.0.113.98')).status).toBe(429);
   });
 });
