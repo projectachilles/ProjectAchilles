@@ -11,6 +11,17 @@ This project uses two version streams:
 
 ## [Unreleased]
 
+## [2.9.1] - 2026-11-02
+
+**Security patch. Upgrade promptly.** It fixes a credential leak that affects every install: any signed-in user, including one with no role, or any `read` API key could make *Test connection* in the Elasticsearch settings send the install's saved Elasticsearch credentials to a host of their choice. This release also limits users and API keys in a Clerk organization to their own organization's agents, tasks, schedules and results, lets only administrators outside any organization change install-wide configuration, and fixes the CLI for users without an organization. One install per organization is the supported separation model; sharing one install between organizations is not supported (#715).
+
+### Upgrade notes
+- **Elasticsearch settings:** when you change the Elasticsearch URL or Cloud ID, enter the credentials again; blank fields keep the saved ones only for the same cluster. *Test connection* now needs `analytics:settings:write` (admin), like *Save*.
+- **If untrusted users could sign in to your install,** rotate the Elasticsearch API key or password after upgrading.
+- **Installs without Clerk organizations** (the console's default) behave as before.
+- **Installs with Clerk organizations:** users and API keys in an organization see and act on only their own organization's data, and get `403` when changing agent versions, the Elasticsearch connection, index creation or agent key auto-rotation; those need an administrator outside any organization.
+- **No agent release is needed;** agents stay on 0.7.2.
+
 ### Fixed
 - **CLI users without a Clerk organization see their whole install again.** The CLI's device sign-in records `default` as the organization of a user who has none, and the backend took that as a real organization. Since the organization scoping of agents, tasks and schedules, such a CLI user only saw agents enrolled under `default` and was refused tasks on the others, unlike the same user in the browser. A CLI token (and an API key created through the CLI) with `default` now carries no organization, exactly like the browser session.
 
@@ -944,7 +955,8 @@ Complete platform overhaul — custom agent system, multi-deployment support, Mi
 | Agent 0.6.0 | 2026-04-03 | First tagged agent binary release |
 | 1.0.0 | 2024-12-10 | Initial release |
 
-[Unreleased]: https://github.com/projectachilles/ProjectAchilles/compare/v2.9.0...HEAD
+[Unreleased]: https://github.com/projectachilles/ProjectAchilles/compare/v2.9.1...HEAD
+[2.9.1]: https://github.com/projectachilles/ProjectAchilles/compare/v2.9.0...v2.9.1
 [2.9.0]: https://github.com/projectachilles/ProjectAchilles/compare/v2.8.0...v2.9.0
 [2.8.0]: https://github.com/projectachilles/ProjectAchilles/compare/v2.7.0...v2.8.0
 [2.7.0]: https://github.com/projectachilles/ProjectAchilles/compare/v2.6.1...v2.7.0
