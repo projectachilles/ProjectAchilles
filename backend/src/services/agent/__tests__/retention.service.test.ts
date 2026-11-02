@@ -10,7 +10,7 @@ vi.mock('../database.js', async (orig) => ({
   getDatabase: () => testDb,
 }));
 
-const { COMPACTABLE_SELECT_SQL, compactResult, compactTaskResults, pruneAgentEvents, getRetentionSettings, runRetentionTick } =
+const { COMPACTABLE_SELECT_SQL, PRUNABLE_EVENTS_DELETE_SQL, compactResult, compactTaskResults, pruneAgentEvents, getRetentionSettings, runRetentionTick } =
   await import('../retention.service.js');
 const { classifyTaskOutcome } = await import('../../outcomes/taskOutcome.js');
 const { detectOfflineAgents } = await import('../heartbeat.service.js');
@@ -312,15 +312,29 @@ describe('compaction query plan', () => {
   });
 });
 
+describe('prune query plan', () => {
+  it("finds each agent's newest went_offline through the partial idx_agent_events_went_offline index", () => {
+    const plan = testDb
+      .prepare(`EXPLAIN QUERY PLAN ${PRUNABLE_EVENTS_DELETE_SQL}`)
+      .all('2026-01-01 00:00:00', 1000) as { id: number; parent: number; detail: string }[];
+    const correlated = plan.find((r) => r.detail.startsWith('CORRELATED SCALAR SUBQUERY'));
+    expect(correlated).toBeDefined();
+    const inner = plan.filter((r) => r.parent === correlated!.id).map((r) => r.detail).join('\n');
+    expect(inner).toMatch(/SEARCH w USING (COVERING )?INDEX idx_agent_events_went_offline/);
+    expect(inner).not.toContain('idx_agent_events_agent_ts');
+  });
+});
+
 describe('schema', () => {
   const indexSql = (db: Database.Database, name: string) =>
     (db.prepare(`SELECT sql FROM sqlite_master WHERE type='index' AND name=?`).get(name) as { sql: string } | undefined)?.sql;
 
-  it('fresh DB has the column and both indexes', () => {
+  it('fresh DB has the column and the retention indexes', () => {
     const cols = (testDb.prepare('PRAGMA table_info(tasks)').all() as { name: string }[]).map((c) => c.name);
     expect(cols).toContain('result_compacted_at');
     expect(indexSql(testDb, 'idx_tasks_compactable')).toMatch(/WHERE result_compacted_at IS NULL/);
     expect(indexSql(testDb, 'idx_agent_events_created')).toBeDefined();
+    expect(indexSql(testDb, 'idx_agent_events_went_offline')).toMatch(/WHERE event_type = 'went_offline'/);
   });
 
   it('result_compacted_at survives the tasks table recreation', () => {
@@ -360,7 +374,7 @@ describe('schema', () => {
     expect(indexSql(db, 'idx_tasks_compactable')).toMatch(/WHERE result_compacted_at IS NULL/);
   });
 
-  it('idx_agent_events_created survives the agent_events recreation', () => {
+  it('idx_agent_events_created and idx_agent_events_went_offline survive the agent_events recreation', () => {
     const db = createTestDatabase();
     db.pragma('foreign_keys = OFF');
     db.exec(`
@@ -378,6 +392,7 @@ describe('schema', () => {
     db.pragma('foreign_keys = ON');
     initializeTables(db);
     expect(indexSql(db, 'idx_agent_events_created')).toBeDefined();
+    expect(indexSql(db, 'idx_agent_events_went_offline')).toMatch(/WHERE event_type = 'went_offline'/);
     expect(db.prepare(`SELECT sql FROM sqlite_master WHERE name='agent_events'`).get())
       .toEqual({ sql: expect.stringContaining('key_rotation_cancelled') });
   });
