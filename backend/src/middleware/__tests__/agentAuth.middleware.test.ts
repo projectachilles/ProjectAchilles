@@ -1,5 +1,5 @@
-import { describe, it, expect, beforeEach, vi } from 'vitest';
-import type { Request, Response } from 'express';
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
+import type { NextFunction, Request, Response } from 'express';
 import bcrypt from 'bcryptjs';
 import Database from 'better-sqlite3';
 import { createTestDatabase, insertTestAgent } from '../../__tests__/helpers/db.js';
@@ -11,16 +11,19 @@ vi.mock('../../services/agent/database.js', async (importOriginal) => {
   return { ...actual, getDatabase: () => testDb };
 });
 
-// Disable agent auth cache in tests — each test creates a fresh DB,
-// so stale cache entries would cause false positives. The verdict-cache
-// stubs always say "not verified" so every test exercises the bcrypt path.
+// Disable the agent row cache in tests — each test creates a fresh DB,
+// so stale cache entries would cause false positives. The key-digest module
+// is real (it reads and writes the test DB); its memory is cleared per test.
 vi.mock('../../services/agent/agentAuthCache.js', () => ({
   getCachedAgent: () => null,
   setCachedAgent: () => {},
   invalidateAgentCache: () => {},
-  isTokenVerifiedRecently: () => false,
-  setVerifiedToken: () => {},
-  hashTokenForCache: (token: string) => `mock-hash:${token}`,
+}));
+
+// Only the real enrollAgent (loaded via importActual in one test) uses this.
+vi.mock('../../services/agent/signing.service.js', () => ({
+  getPublicKeyBase64: () => 'dGVzdC1wdWJsaWMta2V5LTMyLWJ5dGVzIQ==',
+  ensureSigningKeyPair: () => {},
 }));
 
 // Mock the enrollment service exports used by the auth middleware.
@@ -53,6 +56,9 @@ vi.mock('../../services/agent/enrollment.service.js', () => ({
 }));
 
 const { requireAgentAuth } = await import('../agentAuth.middleware.js');
+const { recordAgentKeyDigest, _clearAgentKeyDigestMemory } = await import(
+  '../../services/agent/agentKeyDigest.js'
+);
 
 // The middleware answers from inside a cost-12 bcryptjs compare (pure JS, and
 // it runs against a dummy hash even for unknown agents, to avoid a timing
@@ -81,6 +87,7 @@ describe('requireAgentAuth', () => {
 
   beforeEach(async () => {
     testDb = createTestDatabase();
+    _clearAgentKeyDigestMemory();
     apiKeyPlain = 'ak_testapikey123456';
     apiKeyHash = await bcrypt.hash(apiKeyPlain, 10);
     insertTestAgent(testDb, { id: 'agent-001', api_key_hash: apiKeyHash, status: 'active' });
@@ -455,5 +462,148 @@ describe('requireAgentAuth', () => {
       });
       expect(next).not.toHaveBeenCalled();
     });
+  });
+});
+
+describe('requireAgentAuth persisted key digest', () => {
+  const AGENT_ID = 'agent-digest-001';
+  const KEY_A = 'ak_' + 'a'.repeat(64);
+  const KEY_B = 'ak_' + 'b'.repeat(64);
+  let keyAHash: string;
+  let compareSpy: ReturnType<typeof vi.spyOn>;
+
+  /** Run the middleware once and resolve with 'next' or the HTTP status. */
+  function authOnce(token: string, agentId = AGENT_ID, timestamp = new Date().toISOString()): Promise<'next' | number> {
+    const req = {
+      headers: {
+        authorization: `Bearer ${token}`,
+        'x-agent-id': agentId,
+        'x-request-timestamp': timestamp,
+      },
+    } as unknown as Request;
+    return new Promise((resolve) => {
+      const res = {
+        status: (code: number) => {
+          resolve(code);
+          return res;
+        },
+        json: () => res,
+      } as unknown as Response;
+      requireAgentAuth(req, res, (() => resolve('next')) as NextFunction);
+    });
+  }
+
+  beforeEach(async () => {
+    testDb = createTestDatabase();
+    _clearAgentKeyDigestMemory();
+    keyAHash = await bcrypt.hash(KEY_A, 4);
+    insertTestAgent(testDb, { id: AGENT_ID, api_key_hash: keyAHash, status: 'active' });
+    compareSpy = vi.spyOn(bcrypt, 'compare');
+  });
+
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  it('skips bcrypt after the first success, even across a restart', async () => {
+    expect(await authOnce(KEY_A)).toBe('next');
+    expect(compareSpy).toHaveBeenCalledTimes(1);
+
+    _clearAgentKeyDigestMemory(); // simulated backend restart: DB rows survive
+
+    expect(await authOnce(KEY_A)).toBe('next');
+    expect(await authOnce(KEY_A)).toBe('next');
+    expect(compareSpy).toHaveBeenCalledTimes(1);
+  });
+
+  it('does not trust a digest bound to an older key', async () => {
+    recordAgentKeyDigest(AGENT_ID, keyAHash, KEY_A);
+    testDb
+      .prepare('UPDATE agents SET api_key_hash = ? WHERE id = ?')
+      .run(await bcrypt.hash(KEY_B, 4), AGENT_ID);
+
+    expect(await authOnce(KEY_A)).toBe(401);
+    expect(compareSpy).toHaveBeenCalled();
+  });
+
+  it('never uses the digest while a rotation is pending', async () => {
+    recordAgentKeyDigest(AGENT_ID, keyAHash, KEY_A);
+    const recentTime = new Date().toISOString().replace('T', ' ').slice(0, 19);
+    testDb
+      .prepare('UPDATE agents SET pending_api_key_hash = ?, key_rotation_initiated_at = ? WHERE id = ?')
+      .run(await bcrypt.hash(KEY_B, 4), recentTime, AGENT_ID);
+
+    expect(await authOnce(KEY_A)).toBe('next');
+    expect(compareSpy).toHaveBeenCalledTimes(1);
+  });
+
+  it('records the digest on pending-key promotion', async () => {
+    const recentTime = new Date().toISOString().replace('T', ' ').slice(0, 19);
+    testDb
+      .prepare('UPDATE agents SET pending_api_key_hash = ?, key_rotation_initiated_at = ? WHERE id = ?')
+      .run(await bcrypt.hash(KEY_B, 4), recentTime, AGENT_ID);
+
+    // Current key fails, pending key matches and is promoted.
+    expect(await authOnce(KEY_B)).toBe('next');
+    expect(compareSpy).toHaveBeenCalledTimes(2);
+    const row = testDb.prepare('SELECT pending_api_key_hash FROM agents WHERE id = ?').get(AGENT_ID) as {
+      pending_api_key_hash: string | null;
+    };
+    expect(row.pending_api_key_hash).toBeNull();
+
+    expect(await authOnce(KEY_B)).toBe('next');
+    expect(compareSpy).toHaveBeenCalledTimes(2);
+  });
+
+  it('concurrent requests share one bcrypt compare', async () => {
+    const results = await Promise.all(Array.from({ length: 5 }, () => authOnce(KEY_A)));
+    expect(results).toEqual(['next', 'next', 'next', 'next', 'next']);
+    expect(compareSpy).toHaveBeenCalledTimes(1);
+  });
+
+  it('newly enrolled agent authenticates without bcrypt', async () => {
+    const enrollment = await vi.importActual<typeof import('../../services/agent/enrollment.service.js')>(
+      '../../services/agent/enrollment.service.js',
+    );
+    const token = await enrollment.createToken('org-001', 'user-001', 24, 1);
+    const enrolled = await enrollment.enrollAgent({
+      token: token.token,
+      hostname: 'fresh-host',
+      os: 'linux',
+      arch: 'amd64',
+      agent_version: '1.0.0',
+    });
+    compareSpy.mockClear(); // enrollment itself bcrypt-checks the enrollment token
+
+    expect(await authOnce(enrolled.agent_key, enrolled.agent_id)).toBe('next');
+    expect(compareSpy).not.toHaveBeenCalled();
+  });
+
+  it('rejects decommissioned agents on the digest path', async () => {
+    recordAgentKeyDigest(AGENT_ID, keyAHash, KEY_A);
+    testDb.prepare(`UPDATE agents SET status = 'decommissioned' WHERE id = ?`).run(AGENT_ID);
+
+    expect(await authOnce(KEY_A)).toBe(401);
+    expect(compareSpy).not.toHaveBeenCalled();
+  });
+
+  it('still enforces the request timestamp on the digest path', async () => {
+    recordAgentKeyDigest(AGENT_ID, keyAHash, KEY_A);
+    const stale = new Date(Date.now() - 6 * 60 * 1000).toISOString();
+
+    expect(await authOnce(KEY_A, AGENT_ID, stale)).toBe(401);
+    expect(compareSpy).not.toHaveBeenCalled();
+  });
+
+  it('a wrong token never rides a recorded digest', async () => {
+    recordAgentKeyDigest(AGENT_ID, keyAHash, KEY_A);
+
+    expect(await authOnce(KEY_B)).toBe(401);
+    expect(compareSpy).toHaveBeenCalledTimes(1);
+  });
+
+  it('an unknown agent still pays a bcrypt compare', async () => {
+    expect(await authOnce(KEY_A, 'no-such-agent')).toBe(401);
+    expect(compareSpy).toHaveBeenCalledTimes(1);
   });
 });

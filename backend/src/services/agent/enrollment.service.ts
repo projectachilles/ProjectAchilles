@@ -11,6 +11,7 @@ import type {
 import { getPublicKeyBase64, ensureSigningKeyPair } from './signing.service.js';
 import { recordEvent } from './events.service.js';
 import { invalidateAgentCache } from './agentAuthCache.js';
+import { recordAgentKeyDigest } from './agentKeyDigest.js';
 import fs from 'fs';
 import path from 'path';
 import os from 'os';
@@ -133,6 +134,10 @@ export async function enrollAgent(request: EnrollmentRequest): Promise<Enrollmen
       now,
       matchedToken!.id
     );
+    // The server just generated this key, so it is proven against apiKeyHash
+    // by construction: record its digest so the agent's first request skips
+    // the cost-12 bcrypt compare.
+    recordAgentKeyDigest(agentId, apiKeyHash, plainApiKey);
   });
 
   transaction();

@@ -321,6 +321,9 @@ export default function SettingsModal({ isOpen, onClose, onSave }: SettingsModal
               <option value="daily">Daily (YYYY.MM.DD)</option>
               <option value="monthly">Monthly (YYYY.MM)</option>
             </select>
+            <p className="text-xs text-muted-foreground mt-1">
+              Daily creates an index for every day tests run. On a single-node or small cluster choose Monthly or None — every index costs memory.
+            </p>
           </div>
 
           {/* Test Result */}

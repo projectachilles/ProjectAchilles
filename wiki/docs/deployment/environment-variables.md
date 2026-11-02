@@ -27,6 +27,15 @@ This page consolidates all environment variables used across all deployment targ
 | `CLI_AUTH_SECRET` | JWT signing key for CLI device-flow auth | `openssl rand -base64 32` |
 | `AGENT_SERVER_URL` | External URL for agent communication | Must include `https://` |
 
+### Retention
+
+| Variable | Description |
+|----------|-------------|
+| `TASK_OUTPUT_RETENTION_DAYS` | Days to keep full task output in SQLite. After that, finished tasks already ingested into Elasticsearch lose their stdout, keep the last 400 characters of stderr, and lose each stage's `details`; exit code, error and stage results are kept, and the Tasks page says the output was removed. `0` disables. Default `90` |
+| `AGENT_EVENT_RETENTION_DAYS` | Days to keep agent events (online/offline, task, key and version events). `0` disables. Default `90` |
+
+The SQLite file does not shrink (no VACUUM); freed pages are reused, so growth stops. Both jobs run hourly.
+
 ### Elasticsearch
 
 | Variable | Description |
