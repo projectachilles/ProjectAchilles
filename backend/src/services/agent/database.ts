@@ -174,6 +174,7 @@ export function initializeTables(database: Database.Database): void {
       FOREIGN KEY (agent_id) REFERENCES agents(id)
     );
     CREATE INDEX IF NOT EXISTS idx_agent_events_agent_ts ON agent_events(agent_id, created_at);
+    CREATE INDEX IF NOT EXISTS idx_agent_events_created ON agent_events(created_at);
 
     CREATE TABLE IF NOT EXISTS run_notices (
       id TEXT PRIMARY KEY,
@@ -312,6 +313,13 @@ export function initializeTables(database: Database.Database): void {
     database.exec(`ALTER TABLE tasks ADD COLUMN campaign_run_id TEXT DEFAULT NULL`);
   }
   database.exec('CREATE INDEX IF NOT EXISTS idx_tasks_campaign_run ON tasks(campaign_run_id)');
+  // Retention: marks results whose bulky output was compacted (see retention.service.ts).
+  if (!colNames.has('result_compacted_at')) {
+    database.exec(`ALTER TABLE tasks ADD COLUMN result_compacted_at TEXT DEFAULT NULL`);
+  }
+  database.exec(
+    'CREATE INDEX IF NOT EXISTS idx_tasks_compactable ON tasks(completed_at) WHERE result_compacted_at IS NULL',
+  );
 
   // Migration: add api_key_rotated_at column to agents table
   const agentCols = database.prepare(`PRAGMA table_info(agents)`).all() as { name: string }[];
@@ -612,6 +620,7 @@ function migrateExecuteCommandType(database: Database.Database): void {
     colSet.has('last_ingest_attempt_at') ? 'last_ingest_attempt_at TEXT DEFAULT NULL' : null,
     colSet.has('notice_id') ? 'notice_id TEXT DEFAULT NULL' : null,
     colSet.has('campaign_run_id') ? 'campaign_run_id TEXT DEFAULT NULL' : null,
+    colSet.has('result_compacted_at') ? 'result_compacted_at TEXT DEFAULT NULL' : null,
   ].filter(Boolean);
 
   database.exec(`DROP TABLE IF EXISTS tasks_new`);
@@ -642,6 +651,7 @@ function migrateExecuteCommandType(database: Database.Database): void {
     CREATE INDEX IF NOT EXISTS idx_tasks_batch ON tasks(batch_id);
     ${colSet.has('notice_id') ? 'CREATE INDEX IF NOT EXISTS idx_tasks_notice ON tasks(notice_id);' : ''}
     ${colSet.has('campaign_run_id') ? 'CREATE INDEX IF NOT EXISTS idx_tasks_campaign_run ON tasks(campaign_run_id);' : ''}
+    ${colSet.has('result_compacted_at') ? 'CREATE INDEX IF NOT EXISTS idx_tasks_compactable ON tasks(completed_at) WHERE result_compacted_at IS NULL;' : ''}
   `);
 
   database.pragma('foreign_keys = ON');
@@ -690,6 +700,7 @@ function migrateKeyRotationCancelledEvent(database: Database.Database): void {
     DROP TABLE agent_events;
     ALTER TABLE agent_events_new RENAME TO agent_events;
     CREATE INDEX IF NOT EXISTS idx_agent_events_agent_ts ON agent_events(agent_id, created_at);
+    CREATE INDEX IF NOT EXISTS idx_agent_events_created ON agent_events(created_at);
   `);
 
   database.pragma('foreign_keys = ON');

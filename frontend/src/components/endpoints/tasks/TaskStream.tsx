@@ -444,6 +444,13 @@ export default function TaskStream({
             )}
             {selectedTask.result ? (
               <>
+                {selectedTask.result.compacted_at && (
+                  <div className="rounded-md bg-info-dim p-2 text-xs text-muted" data-testid="output-compacted-notice">
+                    Full output removed by the retention policy on{' '}
+                    {new Date(normalizeUtc(selectedTask.result.compacted_at)).toLocaleString()}. Exit code and stage
+                    results are kept.
+                  </div>
+                )}
                 <OutputBlock
                   label="stdout"
                   text={selectedTask.result.stdout}

@@ -88,6 +88,8 @@ export interface TaskResult {
     bundle_category?: string;
     controls?: Array<{ control_id: string; exit_code: number; skipped?: boolean; compliant?: boolean }>;
   };
+  /** ISO time the retention job removed the full output; set only on compacted results. */
+  compacted_at?: string;
 }
 
 export interface TaskNoteEntry {
