@@ -1,6 +1,7 @@
 import { Router } from 'express';
 import { requireClerkAuth, requirePermission } from '../middleware/clerk.middleware.js';
 import { scopeResultsToCallerOrg } from '../middleware/orgScope.js';
+import { requireInstallOperator } from '../middleware/installScope.js';
 import { asyncHandler, AppError } from '../middleware/error.middleware.js';
 import { validate } from '../middleware/validation.js';
 import { validateUrlForSSRF } from '../middleware/urlValidation.js';
@@ -126,7 +127,7 @@ router.get('/settings', requirePermission('analytics:settings:read'), asyncHandl
 }));
 
 // POST /api/analytics/settings - Save settings
-router.post('/settings', requirePermission('analytics:settings:write'), validate(AnalyticsSettingsSchema), asyncHandler(async (req, res) => {
+router.post('/settings', requirePermission('analytics:settings:write'), requireInstallOperator, validate(AnalyticsSettingsSchema), asyncHandler(async (req, res) => {
   const { connectionType, cloudId, apiKey, node, username, password, indexPattern, writeIndexPrefix, writeIndexRollover, caCert, tlsInsecureSkipVerify } = req.body;
 
   // Load existing settings to merge with new values
@@ -715,7 +716,7 @@ router.get('/indices', asyncHandler(async (req, res) => {
 }));
 
 // POST /api/analytics/index/create - Create an ES index with the results mapping
-router.post('/index/create', requirePermission('analytics:index:create'), validate(CreateIndexSchema), asyncHandler(async (req, res) => {
+router.post('/index/create', requirePermission('analytics:index:create'), requireInstallOperator, validate(CreateIndexSchema), asyncHandler(async (req, res) => {
   const { index_name } = req.body as { index_name: string };
 
   const result = await createResultsIndex(index_name);

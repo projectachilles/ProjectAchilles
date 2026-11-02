@@ -4,6 +4,7 @@ import rateLimit from 'express-rate-limit';
 import { asyncHandler, AppError } from '../../middleware/error.middleware.js';
 import { validate } from '../../middleware/validation.js';
 import { requireAgentOrgAccess, requirePermission } from '../../middleware/clerk.middleware.js';
+import { requireInstallOperator } from '../../middleware/installScope.js';
 import { callerOrg, listOrgScope } from '../../middleware/orgScope.js';
 import {
   processHeartbeat,
@@ -309,6 +310,7 @@ adminAgentRouter.get(
 adminAgentRouter.put(
   '/settings/auto-rotation',
   requirePermission('endpoints:agents:write'),
+  requireInstallOperator,
   validate(AutoRotationSchema),
   asyncHandler(async (req: Request, res: Response) => {
     const { enabled, intervalDays } = req.body as { enabled: boolean; intervalDays: number };

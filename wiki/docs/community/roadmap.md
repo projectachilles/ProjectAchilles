@@ -37,7 +37,7 @@ Carried over to Q3: agent groups and tagging, custom dashboard builder, enhanced
 
 ## Q3 2026 (Planned)
 
-- Multi-tenancy support
+- Multi-tenancy support. *Deferred:* one install per organization is the supported separation model; what shared installs would need is tracked in [#715](https://github.com/projectachilles/ProjectAchilles/issues/715)
 - SIEM connectors (Splunk, Sentinel)
 - Compliance reporting templates (DORA, TIBER-EU)
 - Advanced scheduling (event-triggered execution)
