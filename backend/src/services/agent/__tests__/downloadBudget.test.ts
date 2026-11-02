@@ -21,9 +21,11 @@ const MB = 1_048_576;
 const T0 = 1_800_000_000_000;
 
 describe('taskDownloadBytes', () => {
-  it('reads binary_size for execute_test and update_agent only', () => {
+  it('reads binary_size for execute_test; other task types carry no paced binary', () => {
     expect(taskDownloadBytes('execute_test', { binary_size: 5 })).toBe(5);
-    expect(taskDownloadBytes('update_agent', { binary_size: 7 })).toBe(7);
+    // Update tasks are created with binary_size 0 (createUpdateTasks), so they
+    // are not paced today; update_agent is still read generically.
+    expect(taskDownloadBytes('update_agent', { binary_size: 0 })).toBe(0);
     expect(taskDownloadBytes('execute_command', { binary_size: 7 })).toBe(0);
     expect(taskDownloadBytes('uninstall', {})).toBe(0);
     expect(taskDownloadBytes('execute_test', { binary_size: -1 })).toBe(0);

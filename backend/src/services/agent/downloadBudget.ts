@@ -35,7 +35,12 @@ function init(budgetMb: number): void {
   lastRefillMs = null;
 }
 
-/** Bytes an agent will download for this task (0 for tasks with no binary). */
+/**
+ * Bytes an agent will download for this task (0 for tasks with no binary).
+ * In practice only test binaries are paced: `update_agent` is read generically,
+ * but update tasks are created with `binary_size: 0` (createUpdateTasks), so
+ * today they never consume budget.
+ */
 export function taskDownloadBytes(
   type: TaskType,
   payload: TaskPayload | Record<string, unknown>,

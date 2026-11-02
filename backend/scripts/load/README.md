@@ -106,14 +106,21 @@ the cold start (first poll of each agent). After the restart the only errors
 are the 307 requests refused while the process was down; p95 was 3 ms again in
 the very next minute and no agent went silent.
 
-### Finding: one egress IP is capped at 60 agent requests per minute
+### Finding (fixed): one egress IP was capped at 60 agent requests per minute
 
 A first attempt without per-agent `X-Forwarded-For` (equivalent to `--single-ip`)
-got 2 757 non-2xx out of 2 817 requests in minute 1. They are HTTP 429
+got 2 757 non-2xx out of 2 817 requests in minute 1. They were HTTP 429
 `Too many authentication attempts` from `cliBearerAuthLimiter` in `server.ts`
-(60 requests/minute per IP). `cliBearerLimiterSkip` skips only `Bearer pa_...`
-and Clerk-authenticated requests, so `Bearer ak_...` agent traffic is counted
-against the per-IP budget before the per-agent limiter ever runs. At about 3
-requests/minute per agent, more than about 20 agents behind one NAT or
-reverse-proxy address exceed it. The runs above avoid it with per-agent
-`X-Forwarded-For`.
+(60 requests/minute per IP): at the time `cliBearerLimiterSkip` skipped only
+`Bearer pa_...` and Clerk-authenticated requests, so `Bearer ak_...` agent
+traffic was counted against that per-IP budget before the per-agent limiter
+ever ran. At about 3 requests/minute per agent, more than about 20 agents behind
+one NAT or reverse-proxy address exceeded it. The runs above avoid it with
+per-agent `X-Forwarded-For`.
+
+This finding led to the fix: agent traffic on device routes (`/api/agent/*`
+except `/api/agent/admin/*`, matched case-insensitively) is no longer counted per
+IP by the CLI or UI limiters. Device routes keep `agentDeviceLimiter` (per IP +
+agent ID) and, because a client can change its agent ID on every request, add
+`agentFailedAuthLimiter`, which counts only failed agent authentications (401)
+per IP. `--single-ip` now runs clean against current main.

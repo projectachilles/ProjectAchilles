@@ -31,8 +31,8 @@ This page consolidates all environment variables used across all deployment targ
 
 | Variable | Description |
 |----------|-------------|
-| `TASK_OUTPUT_RETENTION_DAYS` | Days to keep full task output in SQLite. After that, finished tasks already ingested into Elasticsearch lose their stdout, keep the last 400 characters of stderr, and lose each stage's `details`; exit code, error and stage results are kept, and the Tasks page says the output was removed. `0` disables. Default `90` |
-| `AGENT_EVENT_RETENTION_DAYS` | Days to keep agent events (online/offline, task, key and version events). `0` disables. Default `90` |
+| `TASK_OUTPUT_RETENTION_DAYS` | Days to keep full task output in SQLite. After that, finished tasks lose their stdout, keep the last 400 characters of stderr, and lose each stage's `details`; exit code, error and stage results are kept, and the Tasks page says the output was removed. Test results are compacted only once they are in Elasticsearch; agent update and uninstall output (never in Elasticsearch) is compacted after the window; admin shell-command (`execute_command`) output is never compacted. `0` disables. Default `90` |
+| `AGENT_EVENT_RETENTION_DAYS` | Days to keep agent events (online/offline, task, key and version events). Each agent's latest went-offline event is always kept, so a long-offline agent is not reported offline again. `0` disables. Default `90` |
 
 The SQLite file does not shrink (no VACUUM); freed pages are reused, so growth stops. Both jobs run hourly.
 
@@ -89,7 +89,7 @@ For local development, `start.sh` creates this key automatically from the `elast
 |----------|-------------|---------|
 | `PORT` | Server port | `3000` |
 | `NODE_ENV` | Node environment | `development` |
-| `AGENT_DOWNLOAD_BUDGET_MB_PER_MIN` | Binary handouts per minute, in MB. Once a minute's worth of test and agent-update binaries has been handed out, other agents get "no task" and pick theirs up at the next poll. `0` disables pacing. Read once at startup. Not used on Vercel. | `1500` |
+| `AGENT_DOWNLOAD_BUDGET_MB_PER_MIN` | Test binary handouts per minute, in MB. Once a minute's worth of test binaries has been handed out, other agents get "no task" and pick theirs up at the next poll (agent update tasks are not paced). At 1500 MB/min, a 30-minute pre-execution notice pickup window covers about 2,600 agents with a 17 MB binary (about 1,100 with 40 MB); raise the budget or the window beyond that. `0` disables pacing. Read once at startup. Not used on Vercel. | `1500` |
 
 ### Organization
 
