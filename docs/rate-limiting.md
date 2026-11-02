@@ -40,7 +40,7 @@ unchanged.
 | Limiter | Location | Window / Budget | Key | Purpose |
 |---------|----------|-----------------|-----|---------|
 | **Agent device** | `api/agent/index.ts` | 30 / 1 min | `IP:agentId` | All agent device calls (heartbeat, poll, results, update) |
-| **Agent failed auth** | `api/agent/index.ts` | 60 / 1 min | IP | Agent device calls that end in **401** only (`skipSuccessfulRequests` + `requestWasSuccessful: status !== 401`); mounted before `requireAgentAuth` |
+| **Agent failed auth** | `api/agent/index.ts` | 60 / 1 min | IP | Agent device calls from **unknown agent IDs** that fail auth (401 marked `res.locals.agentAuthFailure = 'not_found'`); mounted before `requireAgentAuth` |
 | **Enrollment** | `agent/enrollment.routes.ts` | 300 / 15 min | IP | `POST /enroll` |
 | **Download** | `agent/enrollment.routes.ts` | 300 / 15 min | IP | `GET /download` (binary) |
 | **Global UI** | `server.ts` / `app.ts` | 1000 / 15 min | Clerk user (IP fallback) | All `/api/*` except agent device routes (`isAgentDevicePath`, case-insensitive) + cron |
@@ -68,7 +68,7 @@ Keying on `IP:agentId` (not IP alone) gives each enrolled agent its own budget e
 when a whole fleet shares one NAT IP. An unauthenticated probe with no `X-Agent-ID`
 still can't escape its IP bucket.
 
-### Agent failed auth — 60 / 1 min, keyed IP, 401s only
+### Agent failed auth — 60 / 1 min, keyed IP, unknown-agent 401s only
 
 `agentDeviceLimiter` is keyed on the client-chosen `X-Agent-ID`, and the CLI and
 UI limiters skip agent device routes (`isAgentDevicePath` in
@@ -77,16 +77,26 @@ random `ak_` key with a fresh agent ID on every request was not limited per IP,
 while each such request still cost `requireAgentAuth` one bcrypt cost-12 compare
 (against a dummy hash for an unknown agent): roughly 0.2–0.5 s of main-thread CPU.
 
-This limiter counts only requests that end in **401**. express-rate-limit
-increments up front and, with `skipSuccessfulRequests`, takes the hit back on the
-response's `finish` when `requestWasSuccessful` returns true (any status but 401),
-so it sees the final status even when `requireAgentAuth` answers from its async
-bcrypt callback. It therefore has to stay mounted **before** `requireAgentAuth`;
-a request over the budget is refused with 429 before any bcrypt work. Healthy
-agents almost never fail authentication, and a `429` from `agentDeviceLimiter`
-does not count, so a fleet sharing one NAT IP is unaffected. Covered by
-`api/agent/__tests__/agentFailedAuthLimiter.routes.test.ts` against the real
-`createAgentRouter()`. Backend only for now: `backend-serverless/` does not have it.
+This limiter counts only requests from **agent IDs the backend doesn't know**
+that fail authentication: `requireAgentAuth` sets
+`res.locals.agentAuthFailure = 'not_found'` on that 401 (the response body is
+the same uniform 401 as every other failure). express-rate-limit increments up
+front and, with `skipSuccessfulRequests`, takes the hit back on the response's
+`finish` when `requestWasSuccessful` returns true, which it does for anything
+but a `not_found` 401. It sees the final status even when `requireAgentAuth`
+answers from its async bcrypt callback, so it has to stay mounted **before**
+`requireAgentAuth`; a request over the budget is refused with 429 before any
+bcrypt work.
+
+What does not count: successful requests, a `429` from `agentDeviceLimiter`, and
+failures by enrolled agents (decommissioned, stale key, clock skew, missing
+headers). Enrolled agents are already capped per ID by `agentDeviceLimiter`, and
+an attacker can't mint enrolled IDs, so a few broken agents behind one NAT can't
+get their healthy peers throttled. What does count beyond that: a response
+aborted before `finish` (for example, the client drops the connection) is never
+taken back. Covered by `api/agent/__tests__/agentFailedAuthLimiter.routes.test.ts`
+against the real `createAgentRouter()`. Backend only for now:
+`backend-serverless/` does not have it.
 
 ### Enrollment & download — 300 / 15 min, keyed IP
 
