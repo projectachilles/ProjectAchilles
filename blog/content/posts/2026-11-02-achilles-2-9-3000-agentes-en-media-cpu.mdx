@@ -1,0 +1,130 @@
+---
+title: "Achilles 2.9: 3.000 Agentes en Media CPU"
+description: "Cómo encontramos y quitamos los límites que mantenían pequeñas las flotas de Achilles, y cómo reproducir los números en tu propio hardware."
+date: "2026-11-02"
+tags:
+  - release
+  - performance
+  - scale
+  - agents
+  - elasticsearch
+author: james
+lang: es
+translationKey: release-2-9-performance-scale
+---
+
+## TL;DR
+
+- Antes de 2.9, un backend en la instancia hospedada más pequeña (0,5 CPU) empezaba a perder agentes después de cada despliegue a partir de unos 110 agentes.
+- En 2.9, esa misma instancia atiende 3.000 agentes simulados con un p95 de 3 ms, y reiniciarla con todos conectados no marca ninguno como offline.
+- En instalaciones reales, el poll de un agente bajó de 728 ms a 2–3 ms.
+- También corregimos los cuatro límites siguientes con los que nos íbamos a topar: el throttling por IP detrás de un NAT, una base SQLite que solo crecía, los shards que se acumulan en clusters de Elasticsearch de un solo nodo y las ráfagas de descarga de binarios de prueba.
+- La prueba de carga viene incluida en el release, así que puedes comprobar cada número de este artículo en tu propio hardware.
+
+---
+
+## La pregunta que lo empezó todo
+
+Estábamos aumentando la cantidad de agentes en las instalaciones que operamos (Docker on-prem, Render y Fly.io) y queríamos saber cuánto podía crecer cada una y qué recursos iba a necesitar.
+
+Para responder con honestidad había que medir, no adivinar. Un agente es barato: pide trabajo cada 30 segundos y envía un heartbeat cada 60, unas 3 peticiones por minuto. En régimen estable, mil agentes son apenas unas 50 peticiones por segundo. El régimen estable nunca fue el problema.
+
+## La tormenta del reinicio
+
+Cada petición de un agente se autentica con su API key, guardada como hash bcrypt (cost 12). bcrypt es lento a propósito: entre 0,4 y 0,7 segundos de CPU en medio núcleo. El backend recordaba una key verificada en memoria durante 30 segundos, justo el intervalo de poll, así que en la práctica casi cada poll volvía a ejecutar bcrypt. Peor aún: tras cada reinicio o despliegue la caché quedaba vacía, y la siguiente petición de **todos** los agentes ejecutaba bcrypt al mismo tiempo.
+
+bcrypt corre en el hilo principal de Node. Mientras se acumulan unos cientos de comparaciones, no se atiende nada más, ni siquiera los heartbeats. Un agente del que no se sabe nada en 180 segundos se marca offline. El propio despliegue tumbaba la flota, y cuanto más grande la flota, más larga la caída. En la instancia hospedada más pequeña, nuestra estimación ponía el techo en unos 110 agentes.
+
+La prueba de carga lo hizo concreto. 1.000 agentes con keys solo en bcrypt, en un contenedor limitado a 0,5 CPU / 512 MB:
+
+| Minuto | Latencia p95 | Agentes sin respuesta > 180 s |
+|---:|---:|---:|
+| 1 | 47 s | 0 |
+| 3 | 118 s | 571 |
+| 5 | 182 s | 323 |
+| 7 | 113 s | 0 |
+| 8 | 3 ms | 0 |
+
+Durante unos seis minutos, hasta 571 de los 1.000 agentes aparecieron offline a la vez.
+
+### La corrección
+
+Cuando la key de un agente pasa bcrypt una vez, el backend guarda un digest HMAC-SHA256 de ella en una tabla nueva, ligado al hash bcrypt exacto contra el que se comprobó. Las peticiones siguientes, incluidas las posteriores a un reinicio, verifican el digest, lo que cuesta microsegundos. Si la key se rota, el hash bcrypt cambia y el digest viejo deja de coincidir; mientras hay una rotación pendiente, el digest no se usa. Además, las peticiones simultáneas de un mismo agente comparten una sola comparación bcrypt en vez de lanzar una cada una.
+
+El hash bcrypt no se toca, y eso hace que la actualización sea reversible: si vuelves a 2.8, los agentes siguen autenticándose.
+
+Había un segundo coste escondido en cada poll. Las keys de agente empiezan por `ak_`, que también es el prefijo de las API keys de Clerk, y el middleware de Clerk enviaba cada poll a Clerk para verificarla (unos 140 ms cada vez). Ahora Clerk solo ve tokens con forma de JWT. Las dos correcciones juntas llevaron el poll de 728 ms a 2–3 ms en instalaciones reales.
+
+El resultado con 3.000 agentes (unas 150 peticiones por segundo), en el mismo contenedor de 0,5 CPU, reiniciado a mitad de la prueba:
+
+| Minuto | Peticiones | p95 | Máx. | Agentes sin respuesta > 180 s |
+|---:|---:|---:|---:|---:|
+| 1 (arranque en frío) | 8.979 | 494 ms | 6,7 s | 0 |
+| 3 | 9.040 | 3 ms | 93 ms | 0 |
+| 4 (reinicio) | 8.988 | 3 ms | 502 ms | 0 |
+| 5 | 8.984 | 3 ms | 86 ms | 0 |
+
+Los únicos errores fueron las 307 peticiones rechazadas durante los pocos segundos en que el proceso estuvo caído.
+
+---
+
+## Los cuatro muros siguientes
+
+Arreglar la tormenta mueve el cuello de botella a otro sitio, así que fuimos a buscar qué se rompería después.
+
+**Agentes detrás de un mismo NAT.** Un limitador pensado para tokens de CLI (60 peticiones por minuto por IP) también contaba el tráfico de los agentes. A unas 3 peticiones por minuto por agente, con más de unos 20 agentes detrás del NAT, proxy o VPN de una oficina empezaban los 429 y los agentes pasaban a offline. La prueba de carga lo encontró en su primer intento. Ahora las rutas de los agentes se saltan ese limitador. Conservan su limitador por agente, y un control nuevo por IP cuenta solo los fallos de autenticación de IDs de agente que el servidor no conoce: una ráfaga de keys falsas sigue limitada a 60 por minuto por IP, sin castigar a una oficina real.
+
+**Una base de datos que solo crecía.** Cada resultado de tarea guardaba su salida completa (unos 15 KB) para siempre, y cada agente registraba unos diez eventos al día. Ahora, cada hora, las tareas terminadas con más de 90 días (`TASK_OUTPUT_RETENTION_DAYS`) pierden su stdout, pero solo cuando el resultado ya está en Elasticsearch. Los eventos de agente viejos se eliminan (`AGENT_EVENT_RETENTION_DAYS`). La salida de los comandos de administrador nunca se compacta.
+
+**Shards en clusters de un solo nodo.** Achilles creaba sus índices con el valor por defecto de Elasticsearch, 1 réplica. En un cluster de un nodo esa réplica nunca se puede asignar: el cluster se queda en amarillo y el número de shards crece con cada índice. Si además el rollover es diario (un índice por cada día con pruebas), el problema se multiplica; en una instalación consolidamos 30 índices diarios en 3 mensuales. Los índices nuevos se crean con `auto_expand_replicas: 0-1`: sin réplica en un nodo y una réplica cuando hay un segundo nodo de datos.
+
+**Ráfagas de descarga.** Cuando un schedule apunta a muchos agentes, todos descargaban el binario de prueba en la misma ventana de poll. Ahora hay un presupuesto por minuto (`AGENT_DOWNLOAD_BUDGET_MB_PER_MIN`, 1.500 MB por defecto). Un agente que se pasa del presupuesto recibe "no hay tarea" y la recoge en su siguiente poll. Con el valor por defecto, una ventana de 30 minutos cubre unos 2.600 agentes con un binario de 17 MB.
+
+---
+
+## Actualizar a 2.9
+
+- **Primer arranque:** la siguiente petición de cada agente ejecuta un bcrypt para registrar su digest; a partir de ahí, los reinicios no cuestan nada. Con flotas pequeñas tarda segundos. Con unos 1.000 agentes en media CPU tarda unos 6 minutos, y algunos pueden aparecer offline brevemente. Actualiza las flotas grandes fuera de horario.
+- **Índices existentes:** conservan su configuración de réplicas. Ejecuta esto una vez para poner en verde un cluster de un nodo:
+
+```
+PUT achilles-*,archived-achilles*/_settings
+{"index.auto_expand_replicas":"0-1"}
+```
+
+- **Rollover:** en clusters pequeños o compartidos, elige **Monthly** o **None** en la configuración de Analytics.
+- **Agentes:** no hace falta actualizarlos; siguen en 0.7.2.
+- **Limitación conocida:** *Update All* todavía no reparte las actualizaciones en el tiempo. En flotas grandes, actualiza por lotes.
+
+---
+
+## Compruébalo tú mismo
+
+La prueba de carga es `backend/scripts/load/agent-fleet-sim.ts`. Simula N agentes con la cadencia real de poll y heartbeat, y cada minuto reporta latencia, errores y agentes sin respuesta durante más de 180 s. No necesita Elasticsearch, Clerk ni agentes reales.
+
+```bash
+cd backend
+# 1. Crea una base de datos NUEVA (nunca ~/.projectachilles)
+npx tsx scripts/load/agent-fleet-sim.ts --base http://localhost:3000 \
+  --db /tmp/sim/agents.db --agents 1000 --minutes 1 --seed-only
+
+# 2. Arranca el backend limitado como una instancia pequeña
+docker build -t achilles-sim-backend .
+docker run -d --name sim-backend --cpus=0.5 --memory=512m \
+  --user "$(id -u):$(id -g)" -e HOME=/home/sim --env-file sim.env \
+  -v /tmp/sim:/home/sim/.projectachilles -p 3000:3000 achilles-sim-backend
+
+# 3. Lanza la flota (prueba también: docker restart sim-backend)
+npx tsx scripts/load/agent-fleet-sim.ts --base http://localhost:3000 \
+  --db /tmp/sim/agents.db --agents 1000 --minutes 15
+```
+
+El [README de la prueba](https://github.com/projectachilles/ProjectAchilles/blob/main/backend/scripts/load/README.md) explica qué poner en `sim.env` y trae las tablas completas. Las [notas del release](https://github.com/projectachilles/ProjectAchilles/releases/tag/v2.9.0) tienen la lista completa de cambios.
+
+---
+
+## Lo que aprendimos
+
+- **Mide el reinicio, no solo el régimen estable.** Con 3 peticiones por minuto por agente, el régimen estable parecía resuelto. El fallo estaba en el minuto después de cada despliegue.
+- **Un hash lento en el camino caliente funciona hasta que algo vacía la caché.** Una caché de 30 segundos en memoria escondía el coste de bcrypt justo hasta el momento en que más se notaba.
+- **Cada corrección mueve el cuello de botella.** Sin la prueba de carga, habríamos publicado el arreglo de la tormenta con el límite del NAT todavía dentro.
