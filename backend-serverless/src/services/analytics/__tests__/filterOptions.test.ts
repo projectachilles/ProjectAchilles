@@ -77,21 +77,29 @@ describe('ElasticsearchService.getFilterOptions', () => {
     expect(mockSearch).toHaveBeenCalledTimes(1);
   });
 
-  it('scopes only the eight param-aware lists to org and dates, like the per-list methods', async () => {
+  it('scopes every list to the org, and only the eight param-aware lists to dates', async () => {
     const svc = new ElasticsearchService(settings);
     await svc.getFilterOptions({ org: 'org-1', from: 'now-30d' });
 
     const req = mockSearch.mock.calls[0][0];
     expect(req.size).toBe(0);
+    // The org is in the top-level query, so it also limits tests and techniques:
+    // a caller in an organization never sees another organization's test names.
     const topFilter = JSON.stringify(req.query);
-    expect(topFilter).not.toContain('org-1');
+    expect(topFilter).toContain('org-1');
     expect(topFilter).not.toContain('now-30d');
-    // tests / techniques sit outside the scoped filter (their endpoints take no params)
+    // tests / techniques ignore dates (their endpoints take no date params)
     expect(req.aggs.tests.terms.field).toBe('f0rtika.test_name');
-    expect(JSON.stringify(req.aggs.techniques.filter)).not.toContain('org-1');
+    expect(JSON.stringify(req.aggs.techniques.filter)).not.toContain('now-30d');
     const scoped = JSON.stringify(req.aggs.scoped.filter);
-    expect(scoped).toContain('org-1');
     expect(scoped).toContain('now-30d');
+  });
+
+  it('matches the per-list methods for an org too', async () => {
+    const svc = new ElasticsearchService(settings);
+    await svc.getAvailableTests('org-1');
+    await svc.getAvailableTechniques('org-1');
+    for (const call of mockSearch.mock.calls) expect(JSON.stringify(call[0].query)).toContain('org-1');
   });
 
   it('applies no date or org filter when none is given', async () => {
