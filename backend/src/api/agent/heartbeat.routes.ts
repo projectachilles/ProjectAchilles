@@ -2,7 +2,8 @@ import { Router } from 'express';
 import type { Request, Response } from 'express';
 import rateLimit from 'express-rate-limit';
 import { asyncHandler, AppError } from '../../middleware/error.middleware.js';
-import { getUserOrgId, requireAgentOrgAccess, requirePermission } from '../../middleware/clerk.middleware.js';
+import { requireAgentOrgAccess, requirePermission } from '../../middleware/clerk.middleware.js';
+import { callerOrg, listOrgScope } from '../../middleware/orgScope.js';
 import {
   processHeartbeat,
   getPendingRotationKey,
@@ -87,8 +88,7 @@ adminAgentRouter.get(
   '/metrics',
   requirePermission('endpoints:agents:read'),
   asyncHandler(async (req: Request, res: Response) => {
-    const orgId = req.query.org_id as string | undefined;
-    const metrics = getAgentMetrics(orgId);
+    const metrics = getAgentMetrics(listOrgScope(req));
 
     res.json({ success: true, data: metrics });
   })
@@ -103,7 +103,7 @@ adminAgentRouter.get(
   requirePermission('endpoints:agents:read'),
   asyncHandler(async (req: Request, res: Response) => {
     const filters: ListAgentsRequest = {
-      org_id: req.query.org_id as string | undefined,
+      org_id: listOrgScope(req),
       status: req.query.status as ListAgentsRequest['status'],
       os: req.query.os as ListAgentsRequest['os'],
       hostname: req.query.hostname as string | undefined,
@@ -140,9 +140,7 @@ adminAgentRouter.get(
     if (isNaN(hours) || hours < 1 || hours > 168) {
       throw new AppError('hours must be between 1 and 168', 400);
     }
-    const orgId = req.query.org_id as string | undefined;
-
-    res.json({ success: true, data: getBulkHeartbeatBuckets(hours, orgId) });
+    res.json({ success: true, data: getBulkHeartbeatBuckets(hours, listOrgScope(req)) });
   })
 );
 
@@ -243,20 +241,6 @@ adminAgentRouter.post(
     });
   })
 );
-
-/**
- * The caller's Clerk org, or undefined in legacy single-org mode. A no-org
- * caller is rejected when REQUIRE_ORG_ISOLATION=true (same rule as campaigns,
- * notices and enrollment tokens).
- */
-function callerOrg(req: Request): string | undefined {
-  const orgId = getUserOrgId(req.auth);
-  if (orgId) return orgId;
-  if (process.env.REQUIRE_ORG_ISOLATION === 'true') {
-    throw new AppError('Organization isolation required. Configure Clerk Organizations.', 403);
-  }
-  return undefined;
-}
 
 /**
  * GET /admin/tags
@@ -372,8 +356,7 @@ adminAgentRouter.get(
   '/metrics/fleet-health',
   requirePermission('endpoints:agents:read'),
   asyncHandler(async (req: Request, res: Response) => {
-    const orgId = req.query.org_id as string | undefined;
-    const metrics = getFleetHealthMetrics(orgId);
+    const metrics = getFleetHealthMetrics(listOrgScope(req));
     res.json({ success: true, data: metrics });
   })
 );

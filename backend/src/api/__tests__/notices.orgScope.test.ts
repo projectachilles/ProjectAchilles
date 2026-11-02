@@ -514,12 +514,11 @@ describe('R21. grouped task list: the notices map is scoped to the caller org', 
     );
   };
 
-  it("an org A caller still gets org B's group, but not org B's notice; org A's notice is there", async () => {
+  it("an org A caller gets only org A's group, with org A's notice", async () => {
     asOrg(ORG_A);
     const g = await groups();
-    expect([...g.keys()].sort()).toEqual(['batch-a', 'batch-b']);
+    expect([...g.keys()]).toEqual(['batch-a']);
     expect(Object.keys(g.get('batch-a')!.notices ?? {})).toEqual([NA]);
-    expect(g.get('batch-b')!.notices).toBeUndefined();
   });
 
   it('a no-org caller sees both notices', async () => {
