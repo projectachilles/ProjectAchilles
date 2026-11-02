@@ -1,6 +1,8 @@
 import { Router } from 'express';
+import type { Request } from 'express';
 import { asyncHandler, AppError } from '../../middleware/error.middleware.js';
-import { getUserId, getUserOrgId, hasRequestPermission, requirePermission, validateRequestOrgId } from '../../middleware/clerk.middleware.js';
+import { getUserId, hasRequestPermission, requirePermission, validateRequestOrgId } from '../../middleware/clerk.middleware.js';
+import { assertAgentsInOrg, assertRowInOrg, callerOrg, listOrgScope } from '../../middleware/orgScope.js';
 import {
   createTasks,
   createTasksBatch,
@@ -203,6 +205,7 @@ adminTasksRouter.post(
 
     const { org_id, ...taskRequest } = req.body as CreateTaskRequest & { org_id: string };
     validateRequestOrgId(org_id, req.auth);
+    assertAgentsInOrg(taskRequest.agent_ids, callerOrg(req));
 
     // The notice belongs to the tasks' (validated) org.
     const taskIds = runWithNotice(
@@ -233,6 +236,7 @@ adminTasksRouter.post(
 
     const { org_id, requests } = req.body as { org_id: string; requests: CreateTaskRequest[] };
     validateRequestOrgId(org_id, req.auth);
+    assertAgentsInOrg(requests.flatMap((r) => r.agent_ids), callerOrg(req));
 
     const taskIds = runWithNotice(
       { type: 'run_now', createdBy: userId, orgId: org_id },
@@ -260,6 +264,7 @@ adminTasksRouter.post(
 
     const { org_id, ...cmdRequest } = req.body as CreateCommandTaskRequest & { org_id: string };
     validateRequestOrgId(org_id, req.auth);
+    assertAgentsInOrg(cmdRequest.agent_ids, callerOrg(req));
 
     const taskIds = createCommandTasks(cmdRequest, org_id, userId);
 
@@ -283,6 +288,8 @@ adminTasksRouter.post(
     }
 
     const { org_id, agent_ids } = req.body as { org_id: string; agent_ids: string[] };
+    validateRequestOrgId(org_id, req.auth);
+    assertAgentsInOrg(agent_ids, callerOrg(req));
 
     const taskIds = createUpdateTasks(agent_ids, org_id, userId);
 
@@ -306,6 +313,8 @@ adminTasksRouter.post(
     }
 
     const { org_id, agent_ids, cleanup } = req.body as { org_id: string; agent_ids: string[]; cleanup?: boolean };
+    validateRequestOrgId(org_id, req.auth);
+    assertAgentsInOrg(agent_ids, callerOrg(req));
 
     const taskIds = createUninstallTasks(agent_ids, org_id, userId, cleanup ?? false);
 
@@ -324,7 +333,7 @@ adminTasksRouter.get(
   asyncHandler(async (req, res) => {
     const filters: ListTasksRequest = {
       agent_id: req.query.agent_id as string | undefined,
-      org_id: req.query.org_id as string | undefined,
+      org_id: listOrgScope(req),
       status: req.query.status as TaskStatus | undefined,
       type: req.query.type as TaskType | undefined,
       search: req.query.search as string | undefined,
@@ -340,6 +349,16 @@ adminTasksRouter.get(
     res.json({ success: true, data: result });
   })
 );
+
+/**
+ * 404 "Task not found" unless the task exists and, for a caller with an
+ * organization, belongs to it.
+ */
+function requireTaskInScope(req: Request): void {
+  const org = callerOrg(req);
+  const task = getTask(req.params.id);
+  assertRowInOrg(task.org_id, org, 'Task');
+}
 
 const GROUPED_TASK_TYPES: ReadonlySet<string> = new Set<TaskType>(['execute_test', 'execute_command', 'update_agent', 'uninstall']);
 
@@ -359,7 +378,7 @@ adminTasksRouter.get(
 
     const filters: ListTasksRequest = {
       agent_id: req.query.agent_id as string | undefined,
-      org_id: req.query.org_id as string | undefined,
+      org_id: listOrgScope(req),
       status: req.query.status as TaskStatus | undefined,
       types: types as TaskType[],
       search: req.query.search as string | undefined,
@@ -367,26 +386,25 @@ adminTasksRouter.get(
       offset: req.query.offset ? parseInt(req.query.offset as string, 10) : undefined,
     };
 
-    // Ruling R21: an org caller's notice map holds only its own org's notices.
-    // The task rows themselves are not org-scoped here (separate follow-up).
-    const callerOrg = getUserOrgId(req.auth);
-    const result = listTasksGrouped(filters, callerOrg ? { kind: 'org', orgId: callerOrg } : { kind: 'all' });
+    // An org caller sees only its own org's tasks (filters.org_id) and, per
+    // ruling R21, only its own org's notices.
+    const org = callerOrg(req);
+    const result = listTasksGrouped(filters, org ? { kind: 'org', orgId: org } : { kind: 'all' });
 
     // Notice errors can name recipients (`not accepted: a@…`); only callers
     // who can read the notice settings see them as-is.
     const fullNoticeErrors = hasRequestPermission(req, 'integrations:read');
 
     // Who asked for each task, resolved once per distinct creator (Clerk lookups
-    // are cached). It is personal data: only for tasks of the caller's own org
-    // (this list is not org-scoped yet), and emails only for user admins.
-    const inCallerOrg = (t: { org_id: string }) => !callerOrg || t.org_id === callerOrg;
+    // are cached). It is personal data: the rows are already limited to the
+    // caller's org, and emails go only to user admins.
     const showEmails = hasRequestPermission(req, 'settings:users:manage');
     const labels = await resolveRequesterLabels(
-      result.groups.flatMap((g) => g.tasks.filter(inCallerOrg).map((t) => t.created_by)),
-      callerOrg,
+      result.groups.flatMap((g) => g.tasks.map((t) => t.created_by)),
+      org,
     );
-    const requesterLabel = (t: { org_id: string; created_by: string }) => {
-      const label = inCallerOrg(t) ? labels.get(t.created_by) : undefined;
+    const requesterLabel = (t: { created_by: string }) => {
+      const label = labels.get(t.created_by);
       if (!label) return null;
       return showEmails ? label : withoutEmail(label);
     };
@@ -410,6 +428,7 @@ adminTasksRouter.get(
   '/tasks/:id',
   requirePermission('endpoints:tasks:read'),
   asyncHandler(async (req, res) => {
+    requireTaskInScope(req);
     const task = sanitizeTaskForAdmin(getTask(req.params.id));
 
     res.json({ success: true, data: task });
@@ -424,6 +443,7 @@ adminTasksRouter.post(
   '/tasks/:id/cancel',
   requirePermission('endpoints:tasks:cancel'),
   asyncHandler(async (req, res) => {
+    requireTaskInScope(req);
     const task = cancelTask(req.params.id);
 
     res.json({ success: true, data: task });
@@ -447,8 +467,13 @@ adminTasksRouter.post(
     }
 
     // The clone keeps the original task's org, so the notice belongs to it.
-    // getTask throws 404 for an unknown id before any notice is created.
-    const orgId = getTask(req.params.id).org_id;
+    // getTask throws 404 for an unknown or other-org id before any notice is created.
+    requireTaskInScope(req);
+    const original = getTask(req.params.id);
+    // The clone runs on the original task's agent: it must be in the caller's
+    // org too, whatever org the old task row was recorded under.
+    assertAgentsInOrg([original.agent_id], callerOrg(req));
+    const orgId = original.org_id;
     const task = runWithNotice(
       { type: 'manual_retry', createdBy: userId, orgId },
       (noticeId) => retryTask(req.params.id, userId, noticeId),
@@ -466,6 +491,7 @@ adminTasksRouter.delete(
   '/tasks/:id',
   requirePermission('endpoints:tasks:delete'),
   asyncHandler(async (req, res) => {
+    requireTaskInScope(req);
     deleteTask(req.params.id);
     res.json({ success: true, data: null });
   })
@@ -487,6 +513,7 @@ adminTasksRouter.patch(
     }
 
     const { content } = req.body as { content: string };
+    requireTaskInScope(req);
 
     const task = updateTaskNotes(req.params.id, content, userId);
 

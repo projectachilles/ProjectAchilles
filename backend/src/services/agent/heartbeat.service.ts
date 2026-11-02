@@ -907,9 +907,9 @@ export function getFleetHealthMetrics(orgId?: string): FleetHealthMetrics {
   const failureTimestamps = db.prepare(`
     SELECT created_at FROM agent_events
     WHERE event_type = 'task_failed'
-      AND created_at > datetime('now', '-30 days')
+      AND created_at > datetime('now', '-30 days')${orgId ? ' AND agent_id IN (SELECT id FROM agents WHERE org_id = ?)' : ''}
     ORDER BY created_at ASC
-  `).all() as { created_at: string }[];
+  `).all(...orgParams) as { created_at: string }[];
 
   let mtbfHours: number | null = null;
   if (failureTimestamps.length >= 2) {
@@ -937,7 +937,7 @@ export function getFleetHealthMetrics(orgId?: string): FleetHealthMetrics {
 
   // Average health score across active agents
   const activeAgentIds = db.prepare(
-    `SELECT id FROM agents WHERE status = 'active'${orgCondition}`
+    `SELECT a.id FROM agents a WHERE a.status = 'active'${orgCondition}`
   ).all(...orgParams) as { id: string }[];
   const healthScores = computeAgentHealthScores(activeAgentIds.map(a => a.id));
   const healthValues = [...healthScores.values()];

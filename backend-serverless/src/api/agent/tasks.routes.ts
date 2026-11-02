@@ -1,7 +1,9 @@
 import { Router } from 'express';
+import type { Request } from 'express';
 import { asyncHandler, AppError } from '../../middleware/error.middleware.js';
 import { validate } from '../../middleware/validation.js';
 import { getUserId, requirePermission, validateRequestOrgId } from '../../middleware/clerk.middleware.js';
+import { assertAgentsInOrg, assertRowInOrg, callerOrg, listOrgScope } from '../../middleware/orgScope.js';
 import {
   createTasks,
   createCommandTasks,
@@ -172,6 +174,7 @@ adminTasksRouter.post(
     const { org_id, ...taskRequest } = req.body as CreateTaskRequest & { org_id: string };
 
     validateRequestOrgId(org_id, req.auth);
+    await assertAgentsInOrg(taskRequest.agent_ids, callerOrg(req));
 
     const taskIds = await createTasks(taskRequest, org_id, userId);
 
@@ -197,6 +200,7 @@ adminTasksRouter.post(
     const { org_id, ...cmdRequest } = req.body as CreateCommandTaskRequest & { org_id: string };
 
     validateRequestOrgId(org_id, req.auth);
+    await assertAgentsInOrg(cmdRequest.agent_ids, callerOrg(req));
 
     const taskIds = await createCommandTasks(cmdRequest, org_id, userId);
 
@@ -220,6 +224,8 @@ adminTasksRouter.post(
     }
 
     const { org_id, agent_ids } = req.body as { org_id: string; agent_ids: string[] };
+    validateRequestOrgId(org_id, req.auth);
+    await assertAgentsInOrg(agent_ids, callerOrg(req));
 
     const taskIds = await createUpdateTasks(agent_ids, org_id, userId);
 
@@ -243,6 +249,8 @@ adminTasksRouter.post(
     }
 
     const { org_id, agent_ids, cleanup } = req.body as { org_id: string; agent_ids: string[]; cleanup?: boolean };
+    validateRequestOrgId(org_id, req.auth);
+    await assertAgentsInOrg(agent_ids, callerOrg(req));
 
     const taskIds = await createUninstallTasks(agent_ids, org_id, userId, cleanup ?? false);
 
@@ -261,7 +269,7 @@ adminTasksRouter.get(
   asyncHandler(async (req, res) => {
     const filters: ListTasksRequest = {
       agent_id: req.query.agent_id as string | undefined,
-      org_id: req.query.org_id as string | undefined,
+      org_id: listOrgScope(req),
       status: req.query.status as TaskStatus | undefined,
       type: req.query.type as TaskType | undefined,
       search: req.query.search as string | undefined,
@@ -274,6 +282,16 @@ adminTasksRouter.get(
     res.json({ success: true, data: result });
   })
 );
+
+/**
+ * 404 "Task not found" unless the task exists and, for a caller with an
+ * organization, belongs to it.
+ */
+async function requireTaskInScope(req: Request): Promise<void> {
+  const org = callerOrg(req);
+  const task = await getTask(req.params.id);
+  assertRowInOrg(task.org_id, org, 'Task');
+}
 
 const GROUPED_TASK_TYPES: ReadonlySet<string> = new Set<TaskType>(['execute_test', 'execute_command', 'update_agent', 'uninstall']);
 
@@ -293,7 +311,7 @@ adminTasksRouter.get(
 
     const filters: ListTasksRequest = {
       agent_id: req.query.agent_id as string | undefined,
-      org_id: req.query.org_id as string | undefined,
+      org_id: listOrgScope(req),
       status: req.query.status as TaskStatus | undefined,
       types: types as TaskType[],
       search: req.query.search as string | undefined,
@@ -314,6 +332,7 @@ adminTasksRouter.get(
   '/tasks/:id',
   requirePermission('endpoints:tasks:read'),
   asyncHandler(async (req, res) => {
+    await requireTaskInScope(req);
     const task = await getTask(req.params.id);
 
     res.json({ success: true, data: task });
@@ -328,6 +347,7 @@ adminTasksRouter.post(
   '/tasks/:id/cancel',
   requirePermission('endpoints:tasks:cancel'),
   asyncHandler(async (req, res) => {
+    await requireTaskInScope(req);
     const task = await cancelTask(req.params.id);
 
     res.json({ success: true, data: task });
@@ -350,6 +370,10 @@ adminTasksRouter.post(
       throw new AppError('Unable to determine user identity', 401);
     }
 
+    await requireTaskInScope(req);
+    // The clone runs on the original task's agent: it must be in the caller's
+    // org too, whatever org the old task row was recorded under.
+    await assertAgentsInOrg([(await getTask(req.params.id)).agent_id], callerOrg(req));
     const task = await retryTask(req.params.id, userId);
 
     res.status(201).json({ success: true, data: task });
@@ -364,6 +388,7 @@ adminTasksRouter.delete(
   '/tasks/:id',
   requirePermission('endpoints:tasks:delete'),
   asyncHandler(async (req, res) => {
+    await requireTaskInScope(req);
     await deleteTask(req.params.id);
     res.json({ success: true, data: null });
   })
@@ -386,6 +411,7 @@ adminTasksRouter.patch(
 
     const { content } = req.body as { content: string };
 
+    await requireTaskInScope(req);
     const task = await updateTaskNotes(req.params.id, content, userId);
 
     res.json({ success: true, data: task });

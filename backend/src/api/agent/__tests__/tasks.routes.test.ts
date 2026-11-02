@@ -518,11 +518,11 @@ describe('tasks routes', () => {
       insertTestTask(testDb, { id: 't-other', batch_id: 'b-other', agent_id: 'agent-b', org_id: 'org-002', created_by: 'user_jane' });
     });
 
-    it('shows user admins the name and email, for their own org only', async () => {
+    it('shows user admins the name and email; another org\'s tasks are not listed', async () => {
       const res = await request(appAs({ orgId: 'org-001' })).get('/admin/tasks/grouped');
       expect(res.status).toBe(200);
       expect(labels(res)['t-own']).toBe('Jane Doe (jane@example.com)');
-      expect(labels(res)['t-other']).toBeNull();
+      expect(labels(res)).not.toHaveProperty('t-other');
     });
 
     it('shows the name without the email to callers who cannot manage users', async () => {

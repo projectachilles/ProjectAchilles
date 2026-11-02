@@ -87,8 +87,11 @@ export function getUserOrgId(auth: any): string | undefined {
  * Requires Clerk auth to have been applied first.
  */
 export function requireOrgAccess(req: Request, res: Response, next: NextFunction): void {
-  const requestedOrgId = (req.query.org_id as string | undefined) || req.body?.org_id;
-  if (!requestedOrgId) {
+  // Every org_id the request supplies must be the caller's: a query value must
+  // not hide a different body value (or the reverse). A repeated query
+  // parameter arrives as an array and never matches.
+  const requestedOrgIds = [req.query.org_id, req.body?.org_id].filter((v) => v !== undefined && v !== '');
+  if (requestedOrgIds.length === 0) {
     // Routes that don't supply an org_id are allowed through (e.g., resource-specific routes)
     next();
     return;
@@ -106,7 +109,7 @@ export function requireOrgAccess(req: Request, res: Response, next: NextFunction
     return;
   }
 
-  if (userOrgId !== requestedOrgId) {
+  if (requestedOrgIds.some((orgId) => orgId !== userOrgId)) {
     res.status(403).json({ success: false, error: 'Access denied to this organization' });
     return;
   }
@@ -144,8 +147,9 @@ export function requireAgentOrgAccess(req: Request, res: Response, next: NextFun
     return;
   }
 
+  // Another org's agent answers like an unknown id, so ids can't be probed.
   if (row.org_id !== userOrgId) {
-    res.status(403).json({ success: false, error: 'Access denied to this organization' });
+    res.status(404).json({ success: false, error: 'Agent not found' });
     return;
   }
 
