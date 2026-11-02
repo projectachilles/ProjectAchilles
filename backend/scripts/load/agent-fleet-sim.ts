@@ -102,6 +102,9 @@ async function hashAll(keys: SimKey[]): Promise<string[]> {
   const started = Date.now();
   await new Promise<void>((resolve, reject) => {
     const workers: Worker[] = [];
+    const stopAll = (): void => {
+      for (const w of workers) void w.terminate();
+    };
     const feed = (w: Worker): void => {
       if (next < keys.length) {
         const i = next++;
@@ -118,10 +121,15 @@ async function hashAll(keys: SimKey[]): Promise<string[]> {
         if (done % 250 === 0 || done === keys.length) {
           console.log(`  hashed ${done}/${keys.length} (${((Date.now() - started) / 1000).toFixed(0)}s)`);
         }
-        if (done === keys.length) resolve();
-        else feed(w);
+        if (done === keys.length) {
+          stopAll();
+          resolve();
+        } else feed(w);
       });
-      w.on('error', reject);
+      w.on('error', (e) => {
+        stopAll();
+        reject(e);
+      });
       workers.push(w);
       feed(w);
     }
@@ -129,7 +137,51 @@ async function hashAll(keys: SimKey[]): Promise<string[]> {
   return hashes;
 }
 
+/** Resolve symlinks on the nearest existing ancestor, so `..` and links cannot hide a path. */
+function realPathLoose(p: string): string {
+  const abs = path.resolve(p);
+  const rest: string[] = [];
+  let cur = abs;
+  while (!fs.existsSync(cur)) {
+    rest.unshift(path.basename(cur));
+    const parent = path.dirname(cur);
+    if (parent === cur) break;
+    cur = parent;
+  }
+  return path.join(fs.realpathSync(cur), ...rest);
+}
+
+/**
+ * Seeding writes fake active agents, so it must never touch a real install:
+ * refuse anything inside ~/.projectachilles, and refuse an existing DB unless
+ * every agent in it is a simulator agent (hostname sim-*), which allows re-seeding.
+ */
+function assertSafeToSeed(dbPath: string): void {
+  const target = realPathLoose(dbPath);
+  const realDir = realPathLoose(path.join(os.homedir(), '.projectachilles'));
+  if (target === realDir || target.startsWith(realDir + path.sep)) {
+    throw new Error(`Refusing to seed ${target}: it is inside ${realDir}. Use a fresh temp directory.`);
+  }
+  if (!fs.existsSync(target)) return;
+  let rows: Array<{ hostname: string }> = [];
+  try {
+    const d = new Database(target, { readonly: true, fileMustExist: true });
+    try {
+      rows = d.prepare('SELECT hostname FROM agents').all() as Array<{ hostname: string }>;
+    } finally {
+      d.close();
+    }
+  } catch (err) {
+    throw new Error(`Refusing to seed existing file ${target}: not a readable agents database (${err instanceof Error ? err.message : String(err)}).`);
+  }
+  const foreign = rows.filter((r) => !r.hostname.startsWith('sim-')).length;
+  if (foreign > 0) {
+    throw new Error(`Refusing to seed ${target}: it holds ${foreign} agent(s) that are not simulator agents (hostname sim-*).`);
+  }
+}
+
 async function seed(args: Args): Promise<SimKey[]> {
+  assertSafeToSeed(args.db);
   fs.mkdirSync(path.dirname(args.db), { recursive: true });
   const keys: SimKey[] = [];
   for (let i = 0; i < args.agents; i++) {
@@ -154,6 +206,9 @@ async function seed(args: Args): Promise<SimKey[]> {
     INSERT INTO agent_key_digests (agent_id, api_key_hash, key_digest, verified_at) VALUES (?, ?, ?, ?)
   `);
   database.transaction(() => {
+    // Re-seeding: assertSafeToSeed guaranteed every existing agent is a simulator agent.
+    database.prepare('DELETE FROM agent_key_digests').run();
+    database.prepare('DELETE FROM agents').run();
     keys.forEach((k, i) => {
       insertAgent.run(k.id, SIM_ORG, k.hostname, hashes[i], now);
       if (!args.legacyBcrypt) insertDigest.run(k.id, hashes[i], digestAgentKey(k.key, hashes[i]), now);
