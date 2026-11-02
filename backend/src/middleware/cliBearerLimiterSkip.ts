@@ -2,7 +2,7 @@ import type { Request } from 'express';
 import { safeClerkAuth } from './clerkAuthHelpers.js';
 
 function isAgentDevicePath(url: string | undefined): boolean {
-  const p = (url ?? '').split('?')[0];
+  const p = (url ?? '').split('?')[0].toLowerCase();
   return p.startsWith('/api/agent/') && p !== '/api/agent/admin' && !p.startsWith('/api/agent/admin/');
 }
 

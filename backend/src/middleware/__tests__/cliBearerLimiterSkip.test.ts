@@ -110,6 +110,16 @@ describe('cliBearerLimiterSkip()', () => {
       }
     });
 
+    it('counts case-variant admin paths (Express routing is case-insensitive)', () => {
+      for (const url of ['/api/agent/ADMIN/agents', '/api/agent/Admin?x=1']) {
+        expect(cliBearerLimiterSkip(makeReq({ authorization: 'Bearer ak_abc123', url }))).toBe(false);
+      }
+    });
+
+    it('skips case-variant device paths (routed to the device routers)', () => {
+      expect(cliBearerLimiterSkip(makeReq({ authorization: 'Bearer ak_abc123', url: '/API/AGENT/tasks' }))).toBe(true);
+    });
+
     it('existing rules unchanged on agent paths', () => {
       const url = '/api/agent/tasks';
       expect(cliBearerLimiterSkip(makeReq({ url }))).toBe(true);
