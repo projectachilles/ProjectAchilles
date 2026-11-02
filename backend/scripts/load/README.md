@@ -122,5 +122,6 @@ This finding led to the fix: agent traffic on device routes (`/api/agent/*`
 except `/api/agent/admin/*`, matched case-insensitively) is no longer counted per
 IP by the CLI or UI limiters. Device routes keep `agentDeviceLimiter` (per IP +
 agent ID) and, because a client can change its agent ID on every request, add
-`agentFailedAuthLimiter`, which counts, per IP, only requests from unknown agent
-IDs that fail authentication. `--single-ip` now runs clean against current main.
+`agentFailedAuthGuard`, which refuses an IP once it has 60 authentication
+failures from unknown agent IDs in a minute (successful and in-flight requests
+never count). `--single-ip` now runs clean against current main.

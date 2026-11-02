@@ -24,7 +24,7 @@ import { safeClerkAuth } from './clerkAuthHelpers.js';
  *      `/api/agent/admin/*`). Agents behind one egress IP (office NAT, proxy)
  *      would otherwise share this per-IP budget and be throttled on
  *      heartbeat/poll. Those routes have `agentDeviceLimiter` (per IP + agent
- *      ID) and `agentFailedAuthLimiter` (per IP, failed authentications only).
+ *      ID) and `agentFailedAuthGuard` (per IP, unknown-agent failures only).
  *      `ak_` on any other path is still counted, so the CLI verifier can't be
  *      hammered unthrottled by adding the prefix.
  *

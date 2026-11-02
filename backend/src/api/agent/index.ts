@@ -3,7 +3,8 @@ import path from 'path';
 import { Router } from 'express';
 import rateLimit from 'express-rate-limit';
 import { requireAgentAuth } from '../../middleware/agentAuth.middleware.js';
-import { agentDeviceKey, agentFailedAuthKey } from '../../middleware/rateLimitKeys.js';
+import { agentDeviceKey } from '../../middleware/rateLimitKeys.js';
+import { agentFailedAuthGuard } from '../../middleware/agentFailedAuthLimiter.js';
 import { requireClerkAuth, requireOrgAccess } from '../../middleware/clerk.middleware.js';
 import { agentEnrollmentRouter, adminEnrollmentRouter } from './enrollment.routes.js';
 import { agentHeartbeatRouter, adminAgentRouter } from './heartbeat.routes.js';
@@ -68,38 +69,13 @@ export function createAgentRouter(options: {
     message: { success: false, error: 'Too many agent requests, try again later' },
   });
 
-  // Per-IP bound on FAILED agent authentication by UNKNOWN agent IDs.
-  // agentDeviceLimiter is keyed on the client-chosen X-Agent-ID, so a random
-  // `ak_` token with a fresh ID on every request escapes it, and the CLI/UI
-  // limiters skip device routes. Each such request still costs
-  // requireAgentAuth one bcrypt cost-12 compare against DUMMY_HASH, ~0.2-0.5 s
-  // of main-thread CPU.
+  // Per-IP bound on agent authentication failures by UNKNOWN agent IDs (see
+  // middleware/agentFailedAuthLimiter.ts). The guard only reads the IP's count;
+  // requireAgentAuth records each unknown-agent failure. Successful, in-flight
+  // and known-agent requests never count, so open downloads can't fill it.
   //
-  // Only 401s that requireAgentAuth marks `res.locals.agentAuthFailure =
-  // 'not_found'` count. Known agents that fail (decommissioned, stale key,
-  // clock skew) are already capped per ID by agentDeviceLimiter, and an
-  // attacker can't mint known IDs, so counting them would only let a few
-  // broken agents behind one NAT throttle their healthy peers.
-  //
-  // express-rate-limit increments up front and, with skipSuccessfulRequests,
-  // decrements on `finish` when requestWasSuccessful says so. It reads the
-  // final status and locals, including the 401 requireAgentAuth sends from
-  // its async bcrypt callback, so this must stay mounted BEFORE
-  // requireAgentAuth. A response aborted before `finish` stays counted.
-  const agentFailedAuthLimiter = rateLimit({
-    windowMs: 60 * 1000,         // 1 minute
-    max: 60,                      // 60 unknown-agent auth failures per minute per IP
-    standardHeaders: true,
-    legacyHeaders: false,
-    keyGenerator: agentFailedAuthKey,
-    skipSuccessfulRequests: true,
-    requestWasSuccessful: (_req, res) =>
-      res.statusCode !== 401 || res.locals.agentAuthFailure !== 'not_found',
-    message: { success: false, error: 'Too many failed agent authentication attempts' },
-  });
-
   // Order matters: both limiters, then requireAgentAuth, then the routers.
-  router.use(agentFailedAuthLimiter);
+  router.use(agentFailedAuthGuard);
   router.use(agentDeviceLimiter);
 
   // Agent-authenticated endpoints

@@ -40,9 +40,9 @@ export function agentDeviceKey(req: Request): string {
 /**
  * Failed agent-auth key: the normalized IP alone. Deliberately ignores the
  * client-chosen X-Agent-ID, which an attacker rotates to escape
- * agentDeviceKey. Only failed authentications are counted under it (see
- * agentFailedAuthLimiter in api/agent/index.ts), so a NAT'd fleet of healthy
- * agents never fills it.
+ * agentDeviceKey. Only unknown-agent authentication failures are recorded
+ * under it (see middleware/agentFailedAuthLimiter.ts), so a NAT'd fleet of
+ * healthy agents never fills it.
  */
 export function agentFailedAuthKey(req: Request): string {
   return `ip:${normalizedIp(req)}`;

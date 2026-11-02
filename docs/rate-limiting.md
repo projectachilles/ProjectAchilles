@@ -29,7 +29,7 @@ The shared keyGenerators live in `middleware/rateLimitKeys.ts` (mirrored in
 |--------|-----|---------|
 | `agentDeviceKey(req)` | `<normalized-ip>:<x-agent-id \| "none">` | agent device limiter |
 | `uiLimiterKey(req)` | `user:<clerkUserId>`, else `ip:<normalized-ip>` | global UI limiter |
-| `agentFailedAuthKey(req)` | `ip:<normalized-ip>` (ignores `X-Agent-ID`) | agent failed-auth limiter |
+| `agentFailedAuthKey(req)` | `ip:<normalized-ip>` (ignores `X-Agent-ID`) | agent failed-auth guard |
 
 `ipKeyGenerator` masks IPv6 to its `/56` block so an attacker can't mint fresh
 buckets by rotating the low bits of an allocated range. IPv4 passes through
@@ -40,7 +40,7 @@ unchanged.
 | Limiter | Location | Window / Budget | Key | Purpose |
 |---------|----------|-----------------|-----|---------|
 | **Agent device** | `api/agent/index.ts` | 30 / 1 min | `IP:agentId` | All agent device calls (heartbeat, poll, results, update) |
-| **Agent failed auth** | `api/agent/index.ts` | 60 / 1 min | IP | Agent device calls from **unknown agent IDs** that fail auth (401 marked `res.locals.agentAuthFailure = 'not_found'`); mounted before `requireAgentAuth` |
+| **Agent failed auth** | `middleware/agentFailedAuthLimiter.ts`, mounted in `api/agent/index.ts` | 60 / 1 min (fixed window) | IP | Counts only **unknown-agent** auth failures, recorded by `requireAgentAuth`; the guard before it only reads the count |
 | **Enrollment** | `agent/enrollment.routes.ts` | 300 / 15 min | IP | `POST /enroll` |
 | **Download** | `agent/enrollment.routes.ts` | 300 / 15 min | IP | `GET /download` (binary) |
 | **Global UI** | `server.ts` / `app.ts` | 1000 / 15 min | Clerk user (IP fallback) | All `/api/*` except agent device routes (`isAgentDevicePath`, case-insensitive) + cron |
@@ -68,7 +68,7 @@ Keying on `IP:agentId` (not IP alone) gives each enrolled agent its own budget e
 when a whole fleet shares one NAT IP. An unauthenticated probe with no `X-Agent-ID`
 still can't escape its IP bucket.
 
-### Agent failed auth — 60 / 1 min, keyed IP, unknown-agent 401s only
+### Agent failed auth — 60 / 1 min, keyed IP, unknown-agent failures only
 
 `agentDeviceLimiter` is keyed on the client-chosen `X-Agent-ID`, and the CLI and
 UI limiters skip agent device routes (`isAgentDevicePath` in
@@ -77,25 +77,34 @@ random `ak_` key with a fresh agent ID on every request was not limited per IP,
 while each such request still cost `requireAgentAuth` one bcrypt cost-12 compare
 (against a dummy hash for an unknown agent): roughly 0.2–0.5 s of main-thread CPU.
 
-This limiter counts only requests from **agent IDs the backend doesn't know**
-that fail authentication: `requireAgentAuth` sets
-`res.locals.agentAuthFailure = 'not_found'` on that 401 (the response body is
-the same uniform 401 as every other failure). express-rate-limit increments up
-front and, with `skipSuccessfulRequests`, takes the hit back on the response's
-`finish` when `requestWasSuccessful` returns true, which it does for anything
-but a `not_found` 401. It sees the final status even when `requireAgentAuth`
-answers from its async bcrypt callback, so it has to stay mounted **before**
-`requireAgentAuth`; a request over the budget is refused with 429 before any
-bcrypt work.
+This one is not an express-rate-limit instance but a small check-then-record
+limiter (`middleware/agentFailedAuthLimiter.ts`), in a fixed 60 s window per IP:
 
-What does not count: successful requests, a `429` from `agentDeviceLimiter`, and
+- `requireAgentAuth` calls `recordUnknownAgentFailure(req)` when it finds the
+  agent ID is unknown, a request that always ends in the uniform 401. It records
+  at that point, before its bcrypt compare, so a concurrent burst can't run more
+  than 60 compares before the guard closes.
+- `agentFailedAuthGuard`, mounted before `agentDeviceLimiter` and
+  `requireAgentAuth`, only reads the IP's count. Once it reaches 60 it answers
+  429 with `Retry-After` before any bcrypt work; otherwise it passes the
+  request on. It never counts anything itself.
+
+Only unknown-agent failures are counted, at the point they occur. Successful
+requests, requests still in flight, a `429` from `agentDeviceLimiter`, and
 failures by enrolled agents (decommissioned, stale key, clock skew, missing
-headers). Enrolled agents are already capped per ID by `agentDeviceLimiter`, and
-an attacker can't mint enrolled IDs, so a few broken agents behind one NAT can't
-get their healthy peers throttled. What does count beyond that: a response
-aborted before `finish` (for example, the client drops the connection) is never
-taken back. Covered by `api/agent/__tests__/agentFailedAuthLimiter.routes.test.ts`
-against the real `createAgentRouter()`. Backend only for now:
+headers) never count. Enrolled agents are already capped per ID by
+`agentDeviceLimiter`, and an attacker can't mint enrolled IDs, so broken agents
+behind one NAT can't get their healthy peers throttled.
+
+Why not express-rate-limit with `skipSuccessfulRequests`: that counts every
+request when it arrives and takes successes back only on `finish`, so long
+downloads (`binaryRouter`, agent updates) held the slots while open. More than
+60 concurrent downloads behind one NAT then got every heartbeat and poll from
+that IP refused. The map is in memory per process, swept of expired windows and
+capped at 10 000 IPs. Covered by
+`api/agent/__tests__/agentFailedAuthLimiter.routes.test.ts` (against the real
+`createAgentRouter()`, including 100 held-open requests from one IP) and
+`middleware/__tests__/agentFailedAuthLimiter.test.ts`. Backend only for now:
 `backend-serverless/` does not have it.
 
 ### Enrollment & download — 300 / 15 min, keyed IP

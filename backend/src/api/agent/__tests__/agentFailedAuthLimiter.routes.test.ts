@@ -12,12 +12,12 @@ import { createTestDatabase, insertTestAgent } from '../../../__tests__/helpers/
  *
  * The attack: random `ak_` token + a fresh X-Agent-ID on every request. Each
  * one costs a bcrypt cost-12 compare against DUMMY_HASH, and rotating the ID
- * escapes agentDeviceLimiter (keyed on IP + agent ID). The failed-auth limiter
- * only counts 401s for UNKNOWN agent IDs (requireAgentAuth marks them with
- * res.locals.agentAuthFailure = 'not_found'), so it has to observe the final
- * status requireAgentAuth sends from inside its async bcrypt callback. Known
- * agents that fail (decommissioned, stale key, clock skew) are already capped
- * per ID by agentDeviceLimiter and must not throttle healthy peers on one NAT.
+ * escapes agentDeviceLimiter (keyed on IP + agent ID). requireAgentAuth records
+ * each UNKNOWN-agent failure per IP, and agentFailedAuthGuard (mounted before
+ * it) refuses the IP once 60 are recorded in the current window. Known agents
+ * that fail (decommissioned, stale key, clock skew) are already capped per ID
+ * by agentDeviceLimiter and must not throttle healthy peers on one NAT, and
+ * requests still in flight (downloads) must never count.
  *
  * bcryptjs is swapped for a fast, still-async stand-in (counting compares) so
  * 60+ failures don't cost minutes of cost-12 hashing; everything else is real.
@@ -53,6 +53,31 @@ vi.mock('../../../services/agent/agentAuthCache.js', () => ({
   invalidateAgentCache: () => {},
 }));
 
+// A device route that holds its response open until the test releases it,
+// standing in for a slow binary download (binaryRouter is mounted behind
+// requireAgentAuth like every device router).
+const hold = vi.hoisted(() => {
+  let release!: () => void;
+  const gate = { promise: new Promise<void>((r) => { release = r; }), release: () => release(), arrived: 0 };
+  return {
+    gate,
+    reset() {
+      gate.promise = new Promise<void>((r) => { release = r; });
+      gate.arrived = 0;
+    },
+  };
+});
+vi.mock('../binary.routes.js', async () => {
+  const { Router } = await import('express');
+  const r = Router();
+  r.get('/hold', async (_req, res) => {
+    hold.gate.arrived++;
+    await hold.gate.promise;
+    res.json({ success: true });
+  });
+  return { default: r };
+});
+
 vi.mock('@clerk/express', () => ({
   clerkMiddleware: () => (_req: unknown, _res: unknown, next: () => void) => next(),
   requireAuth: () => (_req: unknown, res: { status: (n: number) => { json: (b: unknown) => void } }) => {
@@ -62,6 +87,9 @@ vi.mock('@clerk/express', () => ({
 
 const { createAgentRouter } = await import('../index.js');
 const { _clearAgentKeyDigestMemory } = await import('../../../services/agent/agentKeyDigest.js');
+const { _resetAgentFailedAuth, _setAgentFailedAuthClock } = await import(
+  '../../../middleware/agentFailedAuthLimiter.js'
+);
 
 function makeApp() {
   const app = express();
@@ -82,7 +110,23 @@ function forged(app: express.Express, ip: string) {
     .set('X-Request-Timestamp', new Date().toISOString());
 }
 
+function heartbeatBody(hostname: string) {
+  return {
+    timestamp: new Date().toISOString(),
+    status: 'idle',
+    current_task: null,
+    system: {
+      hostname, os: 'linux', arch: 'amd64', uptime_seconds: 10,
+      cpu_percent: 1, memory_mb: 100, disk_free_mb: 1000,
+    },
+    agent_version: '1.0.0',
+    last_task_completed: null,
+  };
+}
+
 beforeEach(() => {
+  hold.reset();
+  _resetAgentFailedAuth();
   testDb = createTestDatabase();
   _clearAgentKeyDigestMemory();
   compareCalls.n = 0;
@@ -90,10 +134,59 @@ beforeEach(() => {
 });
 
 afterEach(() => {
+  _resetAgentFailedAuth();
   vi.restoreAllMocks();
 });
 
 describe('agent failed-auth limiter (per IP)', () => {
+  it('100 concurrent in-flight requests from one IP never trip it', async () => {
+    const app = makeApp();
+    const agents = Array.from({ length: 26 }, (_, i) => {
+      const token = randomToken();
+      const id = `agent-dl-${i}`;
+      insertTestAgent(testDb, { id, api_key_hash: `fake$${token}` });
+      return { id, token };
+    });
+    const ip = '192.0.2.200';
+    const get = (a: { id: string; token: string }, path: string) =>
+      request(app)
+        .get(path)
+        .set('X-Forwarded-For', ip)
+        .set('Authorization', `Bearer ${a.token}`)
+        .set('X-Agent-ID', a.id)
+        .set('X-Request-Timestamp', new Date().toISOString());
+
+    // 100 downloads held open: 25 agents x 4 (under agentDeviceLimiter's 30/min each).
+    let settledEarly = 0;
+    const inFlight = Array.from({ length: 100 }, (_, i) =>
+      get(agents[i % 25], '/api/agent/hold').then((res) => {
+        settledEarly++;
+        return res;
+      }),
+    );
+    await vi.waitFor(() => expect(hold.gate.arrived + settledEarly).toBe(100), { timeout: 10_000, interval: 10 });
+    const earlyRejections = settledEarly;
+
+    // While all 100 are open, a heartbeat from a 26th agent on the same IP goes through.
+    const hb = agents[25];
+    const heartbeat = await request(app)
+      .post('/api/agent/heartbeat')
+      .set('X-Forwarded-For', ip)
+      .set('Authorization', `Bearer ${hb.token}`)
+      .set('X-Agent-ID', hb.id)
+      .set('X-Request-Timestamp', new Date().toISOString())
+      .send(heartbeatBody('hb-host'));
+
+    hold.gate.release();
+    const results = await Promise.all(inFlight);
+
+    expect(heartbeat.status).toBe(200);
+    expect(heartbeat.body.data.acknowledged).toBe(true);
+    expect(earlyRejections).toBe(0);
+    expect(hold.gate.arrived).toBe(100);
+    expect(results.map((r) => r.status).every((st) => st === 200)).toBe(true);
+  });
+
   it('one IP rotating agent IDs is limited after 60 failed auths', async () => {
     const app = makeApp();
     for (let i = 0; i < 60; i++) {
@@ -106,6 +199,7 @@ describe('agent failed-auth limiter (per IP)', () => {
     const blocked = await forged(app, '203.0.113.10');
     expect(blocked.status).toBe(429);
     expect(blocked.body).toEqual({ success: false, error: 'Too many failed agent authentication attempts' });
+    expect(Number(blocked.headers['retry-after'])).toBeGreaterThan(0);
     // Rejected before requireAgentAuth: no bcrypt compare for the 61st request.
     expect(compareCalls.n).toBe(60);
 
@@ -222,5 +316,30 @@ describe('agent failed-auth limiter (per IP)', () => {
       expect((await forged(app, '203.0.113.98')).status).toBe(401);
     }
     expect((await forged(app, '203.0.113.98')).status).toBe(429);
+  });
+
+  it('a concurrent burst of unknown-agent requests runs at most 60 compares', async () => {
+    const app = makeApp();
+    const results = await Promise.all(Array.from({ length: 100 }, () => forged(app, '203.0.113.40')));
+    const statuses = results.map((r) => r.status);
+    expect(statuses.filter((st) => st === 401)).toHaveLength(60);
+    expect(statuses.filter((st) => st === 429)).toHaveLength(40);
+    expect(compareCalls.n).toBe(60);
+  });
+
+  it('the window resets after 60 s', async () => {
+    let now = Date.parse('2026-11-01T12:00:00Z');
+    _setAgentFailedAuthClock(() => now);
+    const app = makeApp();
+    for (let i = 0; i < 60; i++) {
+      expect((await forged(app, '203.0.113.50')).status).toBe(401);
+    }
+    now += 30_000;
+    const blocked = await forged(app, '203.0.113.50');
+    expect(blocked.status).toBe(429);
+    expect(blocked.headers['retry-after']).toBe('30');
+
+    now += 30_000; // the window that started at the first failure has ended
+    expect((await forged(app, '203.0.113.50')).status).toBe(401);
   });
 });
