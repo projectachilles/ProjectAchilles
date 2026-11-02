@@ -63,14 +63,21 @@ function targetsSavedCluster(
   return true;
 }
 
-/** Comparable form of a node URL: parsed and without a trailing slash. */
+/** Comparable form of a node URL: parsed and without trailing slashes. */
 function normalizeNodeUrl(node: string | undefined): string {
   const raw = (node ?? '').trim();
   try {
-    return new URL(raw).toString().replace(/\/+$/, '');
+    return stripTrailingSlashes(new URL(raw).toString());
   } catch {
-    return raw.replace(/\/+$/, '');
+    return stripTrailingSlashes(raw);
   }
+}
+
+/** Linear-time, unlike /\/+$/ (which backtracks on a long run of slashes). */
+function stripTrailingSlashes(value: string): string {
+  let end = value.length;
+  while (end > 0 && value.charCodeAt(end - 1) === 47 /* '/' */) end--;
+  return value.slice(0, end);
 }
 
 /** /indices lists Achilles indices only (results and archives), never the whole cluster. */

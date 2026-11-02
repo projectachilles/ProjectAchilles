@@ -121,6 +121,14 @@ describe('POST /settings/test', () => {
     expect(lastTest()).toMatchObject({ apiKey: 'SAVED-API-KEY', password: 'SAVED-PASSWORD' });
   });
 
+  it('compares node URLs in linear time (no regex backtracking on many slashes)', async () => {
+    const started = Date.now();
+    const res = await request(appAs()).post('/api/analytics/settings/test')
+      .send({ connectionType: 'direct', node: `x${'/'.repeat(80_000)}x` });
+    expect(res.status).toBe(200);
+    expect(Date.now() - started).toBeLessThan(1000);
+  });
+
   it('uses credentials the request supplies for a new node', async () => {
     await request(appAs()).post('/api/analytics/settings/test')
       .send({ connectionType: 'direct', node: 'https://new-es.example', apiKey: 'NEW-KEY' });
