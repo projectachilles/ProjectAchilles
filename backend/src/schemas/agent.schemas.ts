@@ -104,6 +104,7 @@ const EndpointContextSchema = z.object({
   os_role: z.string(),
   role_source: z.string(),
   domain_joined: z.boolean(),
+  entra_joined: z.boolean().optional(),
 });
 
 export const BundleControlResultSchema = z.object({

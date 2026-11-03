@@ -80,6 +80,7 @@ export const RESULTS_INDEX_MAPPING = {
               os_role: { type: 'keyword' as const },
               role_source: { type: 'keyword' as const },
               domain_joined: { type: 'boolean' as const },
+              entra_joined: { type: 'boolean' as const },
             },
           },
           is_bundle_control: { type: 'boolean' as const },

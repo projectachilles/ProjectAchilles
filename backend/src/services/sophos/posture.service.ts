@@ -151,6 +151,8 @@ function toEndpointDoc(e: Raw, now: number): { id: string; doc: Raw } | null {
         health: overall,
         protection_status: protectionStatus,
         last_seen_at: lastSeen,
+        tamper_protection_enabled: typeof e.tamperProtectionEnabled === 'boolean' ? e.tamperProtectionEnabled : undefined,
+        tamper_protection_supported: typeof e.tamperProtectionSupported === 'boolean' ? e.tamperProtectionSupported : undefined,
         // Derived flags so the counts are plain term filters at read time.
         not_seen_7d: lastSeen ? now - Date.parse(lastSeen) > 7 * DAY_MS : true,
         out_of_date: protectionStatus === 'upgradable',

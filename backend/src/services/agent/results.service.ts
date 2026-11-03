@@ -9,6 +9,7 @@ import { SettingsService } from '../analytics/settings.js';
 import { createEsClient } from '../analytics/client.js';
 import { createResultsIndex, RESULTS_INDEX_MAPPING } from '../analytics/index-management.service.js';
 import { IntegrationsSettingsService } from '../integrations/settings.js';
+import { enrichBundleWithCentralPosture } from './central-compliance.js';
 import type { EdrTermination } from '../edr/agent-kill-evidence.js';
 
 function pad2(n: number): string { return n < 10 ? `0${n}` : `${n}`; }
@@ -272,6 +273,7 @@ async function ingestBundleControls(
   result: TaskResult,
 ): Promise<void> {
   const bundle = result.bundle_results!;
+  await enrichBundleWithCentralPosture(client, result);
 
   // Resolve tenant label for Azure integration bundles
   let tenantLabel: string | undefined;

@@ -291,6 +291,7 @@ export interface EndpointContext {
   os_role: string;
   role_source: string;
   domain_joined: boolean;
+  entra_joined?: boolean;
 }
 
 export interface BundleControlResult {

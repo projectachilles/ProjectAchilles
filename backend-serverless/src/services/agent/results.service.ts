@@ -9,6 +9,7 @@ import { SettingsService } from '../analytics/settings.js';
 import { createEsClient } from '../analytics/client.js';
 import { createResultsIndex } from '../analytics/index-management.service.js';
 import { IntegrationsSettingsService } from '../integrations/settings.js';
+import { enrichBundleWithCentralPosture } from './central-compliance.js';
 
 // Protected exit codes: file quarantined, execution prevented, quarantined on execution
 const PROTECTED_CODES = new Set([105, 126, 127]);
@@ -205,6 +206,7 @@ async function ingestBundleControls(
   result: TaskResult,
 ): Promise<void> {
   const bundle = result.bundle_results!;
+  await enrichBundleWithCentralPosture(client, result);
 
   // Resolve tenant label for Azure integration bundles
   let tenantLabel: string | undefined;
