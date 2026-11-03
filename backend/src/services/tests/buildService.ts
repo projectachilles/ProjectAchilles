@@ -8,6 +8,7 @@ import { promisify } from 'util';
 import type { BuildArtifact, BuildInfo, BuildJob, BuildMetadata, EmbedDependency, PlatformSettings } from '../../types/tests.js';
 import type { TestsSettingsService } from './settings.js';
 import { BuildJobs } from './buildJobs.js';
+import { describeCommandFailure } from '../shared/commandFailure.js';
 
 const execFileAsync = promisify(execFile);
 
@@ -19,7 +20,7 @@ export class BuildError extends Error {
   }
 }
 
-/** Run execFileAsync and convert failures into BuildError with stderr context */
+/** Run execFileAsync and convert failures into BuildError with stderr (or stdout) context */
 async function runBuildCommand(
   cmd: string,
   args: string[],
@@ -28,11 +29,7 @@ async function runBuildCommand(
   try {
     await execFileAsync(cmd, args, opts);
   } catch (err: unknown) {
-    const stderr = (err as { stderr?: string }).stderr || '';
-    const message = (err as Error).message || 'Build command failed';
-    // Combine command info with stderr for a useful error message
-    const detail = stderr.trim() || message;
-    throw new BuildError(`Command failed: ${cmd} ${args.join(' ')} ${detail}`);
+    throw new BuildError(describeCommandFailure(cmd, args, err));
   }
 }
 
