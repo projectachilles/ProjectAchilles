@@ -21,6 +21,7 @@ export interface StageInput {
   exit_code: number;
   skipped?: boolean;
   compliant?: boolean;
+  status?: string;
 }
 
 export interface VerdictInput {
@@ -60,7 +61,13 @@ export function controlsOf(value: unknown): StageInput[] | null {
   if (!Array.isArray(value) || value.length === 0) return null;
   const out = value
     .filter((c) => c && typeof c.control_id === 'string' && typeof c.exit_code === 'number')
-    .map((c) => ({ control_id: c.control_id, exit_code: c.exit_code, skipped: c.skipped === true, compliant: typeof c.compliant === 'boolean' ? c.compliant : undefined }));
+    .map((c) => ({
+      control_id: c.control_id,
+      exit_code: c.exit_code,
+      skipped: c.skipped === true,
+      compliant: typeof c.compliant === 'boolean' ? c.compliant : undefined,
+      status: typeof c.status === 'string' ? c.status : undefined,
+    }));
   return out.length > 0 ? out : null;
 }
 
@@ -121,15 +128,21 @@ export function cellVerdict(input: VerdictInput): Verdict {
   const { taskId, exitCode, controls, edr } = input;
 
   if (input.category === 'cyber-hygiene') {
-    const evaluated = (controls ?? []).filter((c) => !c.skipped);
+    const all = controls ?? [];
+    const notEvaluated = new Set(['NOT_APPLICABLE', 'UNKNOWN', 'ERROR', 'SKIPPED', 'NOT_EVALUATED']);
+    const evaluated = all.filter((c) => !c.skipped && !notEvaluated.has(c.status ?? ''));
+    const pending = all.filter((c) => c.skipped || notEvaluated.has(c.status ?? ''));
     const ok = evaluated.filter((c) => c.compliant ?? PROTECTED_CODES.includes(c.exit_code)).length;
     const o = classifyOutcome({ status: 'completed', result: exitCode === null ? null : ({ exit_code: exitCode } as TaskResult) });
     const state: VerdictState = o === 'protected' ? 'protected' : o === 'unprotected' ? 'unprotected' : 'error';
     const counted = evaluated.length > 0;
+    const incomplete = pending.length > 0 ? ` Assessment incomplete: ${pending.length} control(s) not evaluated.` : '';
     const reason = counted
-      ? `${ok} of ${evaluated.length} controls compliant${ok < evaluated.length ? `; ${evaluated.length - ok} not` : ''}.`
-      : exitCode === null ? 'No result.' : `Exit ${exitCode}: ${exitMeaning(exitCode)}.`;
-    return { state, reason, edr: null, stages: [], stagesText: counted ? `${ok} of ${evaluated.length} controls compliant` : '' };
+      ? `${ok} of ${evaluated.length} controls compliant${ok < evaluated.length ? `; ${evaluated.length - ok} not` : ''}.${incomplete}`
+      : all.length > 0 ? `No controls evaluated.${incomplete}`
+        : exitCode === null ? 'No result.' : `Exit ${exitCode}: ${exitMeaning(exitCode)}.`;
+    const summary = counted ? `${ok} of ${evaluated.length} controls compliant` : '';
+    return { state, reason, edr: null, stages: [], stagesText: summary };
   }
 
   const isBundle = !!controls && controls.length > 0;

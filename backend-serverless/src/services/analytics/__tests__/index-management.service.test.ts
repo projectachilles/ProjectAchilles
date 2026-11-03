@@ -14,6 +14,7 @@ vi.mock('../settings.js', () => ({
 
 const mockIndicesExists = vi.fn();
 const mockIndicesCreate = vi.fn();
+const mockIndicesPutMapping = vi.fn();
 const mockCatIndices = vi.fn();
 const mockIndex = vi.fn();
 
@@ -22,6 +23,7 @@ vi.mock('../client.js', () => ({
     indices: {
       exists: mockIndicesExists,
       create: mockIndicesCreate,
+      putMapping: mockIndicesPutMapping,
     },
     cat: {
       indices: mockCatIndices,
@@ -89,6 +91,9 @@ describe('index-management.service', () => {
 
       expect(result.created).toBe(false);
       expect(result.message).toContain('already exists');
+      expect(mockIndicesPutMapping).toHaveBeenCalledWith({
+        index: 'existing-index', properties: RESULTS_INDEX_MAPPING.mappings.properties,
+      });
     });
 
     it('creates index with correct mapping when it does not exist', async () => {

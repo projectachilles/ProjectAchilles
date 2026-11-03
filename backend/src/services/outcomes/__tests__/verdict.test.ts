@@ -111,10 +111,21 @@ describe('cellVerdict: rules', () => {
     const controls = [stage('CH-1', 126), stage('CH-2', 126), stage('CH-3', 101), stage('CH-4', 0, true)];
     const v = cellVerdict(base({ category: 'cyber-hygiene', exitCode: 101, controls }));
     expect(v.state).toBe('unprotected');
-    expect(v.reason).toBe('2 of 3 controls compliant; 1 not.');
+    expect(v.reason).toBe('2 of 3 controls compliant; 1 not. Assessment incomplete: 1 control(s) not evaluated.');
     expect(v.stages).toEqual([]);
     expect(v.stagesText).toBe('2 of 3 controls compliant');
     expect(cellVerdict(base({ category: 'cyber-hygiene', exitCode: 126, controls: controls.slice(0, 2) })).reason).toBe('2 of 2 controls compliant.');
+  });
+
+  it('cyber-hygiene bundle excludes unknown and not-applicable controls from compliance counts', () => {
+    const controls = [
+      { ...stage('CH-1', 126), status: 'PASS' },
+      { ...stage('CH-2', 0), compliant: false, status: 'UNKNOWN' },
+      { ...stage('CH-3', 0), compliant: false, status: 'NOT_APPLICABLE' },
+    ];
+    const v = cellVerdict(base({ category: 'cyber-hygiene', exitCode: 999, controls }));
+    expect(v.state).toBe('error');
+    expect(v.reason).toBe('1 of 1 controls compliant. Assessment incomplete: 2 control(s) not evaluated.');
   });
 
   it('stagesText for the CSV', () => {

@@ -85,12 +85,34 @@ export const UpdateTaskStatusSchema = z.object({
 
 // ── Task result submission (agent → backend) ─────────────────────────────────
 
+const BenchmarkReferenceSchema = z.object({
+  framework: z.string(),
+  product: z.string(),
+  version: z.string(),
+  profile: z.string(),
+  recommendation_id: z.string().optional(),
+  source: z.string().optional(),
+});
+
+const EndpointContextSchema = z.object({
+  hostname: z.string(),
+  os_family: z.string(),
+  os_product: z.string(),
+  os_version: z.string(),
+  os_build: z.string().optional(),
+  architecture: z.string(),
+  os_role: z.string(),
+  role_source: z.string(),
+  domain_joined: z.boolean(),
+});
+
 export const BundleControlResultSchema = z.object({
   control_id: z.string(),
   control_name: z.string(),
   validator: z.string(),
   exit_code: z.number().int(),
   compliant: z.boolean(),
+  status: z.enum(['PASS', 'FAIL', 'NOT_APPLICABLE', 'UNKNOWN', 'ERROR', 'SKIPPED', 'NOT_EVALUATED']).optional(),
   severity: z.string(),
   category: z.string(),
   subcategory: z.string(),
@@ -102,6 +124,12 @@ export const BundleControlResultSchema = z.object({
   skipped: z.boolean(),
   error_message: z.string(),
   description: z.string().optional(),
+  applicability: z.string().optional(),
+  benchmark: BenchmarkReferenceSchema.optional(),
+  evidence_source: z.string().optional(),
+  observed_at: z.string().optional(),
+  remediation: z.string().optional(),
+  evidence: z.record(z.string(), z.unknown()).optional(),
 });
 
 const BundleResultsSchema = z.object({
@@ -114,9 +142,20 @@ const BundleResultsSchema = z.object({
   started_at: z.string(),
   completed_at: z.string(),
   overall_exit_code: z.number().int(),
+  execution_status: z.string().optional(),
+  compliance_status: z.string().optional(),
+  assessment_complete: z.boolean().optional(),
+  context_error: z.string().optional(),
+  endpoint_context: EndpointContextSchema.optional(),
+  benchmark: BenchmarkReferenceSchema.optional(),
   total_controls: z.number().int(),
   passed_controls: z.number().int(),
   failed_controls: z.number().int(),
+  skipped_controls: z.number().int().optional(),
+  unknown_controls: z.number().int().optional(),
+  error_controls: z.number().int().optional(),
+  not_applicable_controls: z.number().int().optional(),
+  not_evaluated_controls: z.number().int().optional(),
   controls: z.array(BundleControlResultSchema),
 });
 
