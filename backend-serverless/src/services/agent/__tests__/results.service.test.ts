@@ -428,6 +428,37 @@ describe('results.service', () => {
       expect(doc1.f0rtika.control_validator).toBe('Microsoft Defender');
     });
 
+    it('persists compliance evidence, applicability, benchmark, and endpoint context', async () => {
+      const bundle = makeBundle({
+        schema_version: '1.1',
+        execution_status: 'partial',
+        compliance_status: 'incomplete',
+        assessment_complete: false,
+        benchmark: { framework: 'cis_benchmark', product: 'Windows 11', version: '5.1.1', profile: 'Level 1' },
+        endpoint_context: {
+          hostname: 'workstation-01', os_family: 'windows', os_product: 'Windows 11', os_version: '10.0.26200',
+          architecture: 'amd64', os_role: 'workstation', role_source: 'win32_operatingsystem', domain_joined: true,
+        },
+      });
+      bundle.controls[0] = {
+        ...bundle.controls[0],
+        status: 'UNKNOWN', applicability: 'Defender must be active', evidence_source: 'local_registry',
+        observed_at: '2026-11-03T12:00:00Z', remediation: 'Restore Defender', evidence: { service_running: false },
+      };
+      await ingestResult(makeTask(), makeResult({ bundle_results: bundle }));
+
+      const doc = mockEsBulk.mock.calls[0][0].operations[1];
+      expect(doc.f0rtika).toMatchObject({
+        control_status: 'UNKNOWN', expected: 'Enabled', actual: 'Enabled', details: 'Enabled',
+        applicability: 'Defender must be active', evidence_source: 'local_registry',
+        observed_at: '2026-11-03T12:00:00Z', remediation: 'Restore Defender',
+        evidence: { service_running: false }, bundle_schema_version: '1.1',
+        execution_status: 'partial', compliance_status: 'incomplete', assessment_complete: false,
+        benchmark: { framework: 'cis_benchmark', product: 'Windows 11', version: '5.1.1', profile: 'Level 1' },
+        endpoint_context: { os_role: 'workstation', domain_joined: true },
+      });
+    });
+
     it('writes control_description only when the stage has a non-empty description', async () => {
       const bundle = makeBundle();
       bundle.controls[0] = { ...bundle.controls[0], description: 'PowerShell recon' };

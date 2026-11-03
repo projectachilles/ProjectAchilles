@@ -260,12 +260,35 @@ export interface TaskResult {
   bundle_results?: BundleResults;
 }
 
+export interface BenchmarkReference {
+  framework: string;
+  product: string;
+  version: string;
+  profile: string;
+  recommendation_id?: string;
+  source?: string;
+}
+
+export interface EndpointContext {
+  hostname: string;
+  os_family: string;
+  os_product: string;
+  os_version: string;
+  os_build?: string;
+  architecture: string;
+  os_role: string;
+  role_source: string;
+  domain_joined: boolean;
+  entra_joined?: boolean;
+}
+
 export interface BundleControlResult {
   control_id: string;
   control_name: string;
   validator: string;
   exit_code: number;
   compliant: boolean;
+  status?: 'PASS' | 'FAIL' | 'NOT_APPLICABLE' | 'UNKNOWN' | 'ERROR' | 'SKIPPED' | 'NOT_EVALUATED';
   severity: string;
   category: string;
   subcategory: string;
@@ -278,6 +301,12 @@ export interface BundleControlResult {
   error_message: string;
   /** Optional human-readable summary of what this stage does. */
   description?: string;
+  applicability?: string;
+  benchmark?: BenchmarkReference;
+  evidence_source?: string;
+  observed_at?: string;
+  remediation?: string;
+  evidence?: Record<string, unknown>;
 }
 
 export interface BundleResults {
@@ -290,9 +319,20 @@ export interface BundleResults {
   started_at: string;
   completed_at: string;
   overall_exit_code: number;
+  execution_status?: string;
+  compliance_status?: string;
+  assessment_complete?: boolean;
+  context_error?: string;
+  endpoint_context?: EndpointContext;
+  benchmark?: BenchmarkReference;
   total_controls: number;
   passed_controls: number;
   failed_controls: number;
+  skipped_controls?: number;
+  unknown_controls?: number;
+  error_controls?: number;
+  not_applicable_controls?: number;
+  not_evaluated_controls?: number;
   controls: BundleControlResult[];
 }
 

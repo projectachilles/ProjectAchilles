@@ -44,6 +44,46 @@ export const RESULTS_INDEX_MAPPING = {
           control_id: { type: 'keyword' as const },
           control_validator: { type: 'keyword' as const },
           control_description: { type: 'text' as const, index: false },
+          compliant: { type: 'boolean' as const },
+          control_status: { type: 'keyword' as const },
+          expected: { type: 'text' as const, index: false },
+          actual: { type: 'text' as const, index: false },
+          details: { type: 'text' as const, index: false },
+          skipped: { type: 'boolean' as const },
+          error_message: { type: 'text' as const, index: false },
+          applicability: { type: 'keyword' as const },
+          evidence_source: { type: 'keyword' as const },
+          observed_at: { type: 'date' as const },
+          remediation: { type: 'text' as const, index: false },
+          evidence: { type: 'object' as const, enabled: false },
+          bundle_schema_version: { type: 'keyword' as const },
+          execution_status: { type: 'keyword' as const },
+          compliance_status: { type: 'keyword' as const },
+          assessment_complete: { type: 'boolean' as const },
+          benchmark: {
+            properties: {
+              framework: { type: 'keyword' as const },
+              product: { type: 'keyword' as const },
+              version: { type: 'keyword' as const },
+              profile: { type: 'keyword' as const },
+              recommendation_id: { type: 'keyword' as const },
+              source: { type: 'keyword' as const },
+            },
+          },
+          endpoint_context: {
+            properties: {
+              hostname: { type: 'keyword' as const },
+              os_family: { type: 'keyword' as const },
+              os_product: { type: 'keyword' as const },
+              os_version: { type: 'keyword' as const },
+              os_build: { type: 'keyword' as const },
+              architecture: { type: 'keyword' as const },
+              os_role: { type: 'keyword' as const },
+              role_source: { type: 'keyword' as const },
+              domain_joined: { type: 'boolean' as const },
+              entra_joined: { type: 'boolean' as const },
+            },
+          },
           is_bundle_control: { type: 'boolean' as const },
           // Whole-test result written when an EDR killed the agent mid-run
           // (no per-stage data exists, so stages_unknown is set).
@@ -109,6 +149,10 @@ export async function createResultsIndex(
   } catch (err: unknown) {
     // ES returns 400 with resource_already_exists_exception when the index exists
     if (err && typeof err === 'object' && 'statusCode' in err && (err as { statusCode: number }).statusCode === 400) {
+      if (indexName.startsWith('achilles-results-')) {
+        await client.indices.putMapping({ index: indexName, properties: RESULTS_INDEX_MAPPING.mappings.properties });
+        return { created: false, message: `Index "${indexName}" already exists; mappings updated` };
+      }
       return { created: false, message: `Index "${indexName}" already exists` };
     }
     throw err;

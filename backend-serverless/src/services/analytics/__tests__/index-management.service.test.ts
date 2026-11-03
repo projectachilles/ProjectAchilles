@@ -14,6 +14,7 @@ vi.mock('../settings.js', () => ({
 
 const mockIndicesExists = vi.fn();
 const mockIndicesCreate = vi.fn();
+const mockIndicesPutMapping = vi.fn();
 const mockCatIndices = vi.fn();
 const mockIndex = vi.fn();
 
@@ -22,6 +23,7 @@ vi.mock('../client.js', () => ({
     indices: {
       exists: mockIndicesExists,
       create: mockIndicesCreate,
+      putMapping: mockIndicesPutMapping,
     },
     cat: {
       indices: mockCatIndices,
@@ -82,13 +84,25 @@ describe('index-management.service', () => {
         .rejects.toThrow('Elasticsearch is not configured');
     });
 
-    it('returns created=false when index already exists (ES 400)', async () => {
+    it('updates mappings when a results index already exists (ES 400)', async () => {
       mockIndicesCreate.mockRejectedValue({ statusCode: 400, message: 'resource_already_exists_exception' });
 
-      const result = await createResultsIndex('existing-index');
+      const result = await createResultsIndex('achilles-results-existing');
 
       expect(result.created).toBe(false);
-      expect(result.message).toContain('already exists');
+      expect(result.message).toContain('mappings updated');
+      expect(mockIndicesPutMapping).toHaveBeenCalledWith({
+        index: 'achilles-results-existing', properties: RESULTS_INDEX_MAPPING.mappings.properties,
+      });
+    });
+
+    it('does not update mappings on an existing non-results index', async () => {
+      mockIndicesCreate.mockRejectedValue({ statusCode: 400, message: 'resource_already_exists_exception' });
+
+      const result = await createResultsIndex('achilles-sophos');
+
+      expect(result).toEqual({ created: false, message: 'Index "achilles-sophos" already exists' });
+      expect(mockIndicesPutMapping).not.toHaveBeenCalled();
     });
 
     it('creates index with correct mapping when it does not exist', async () => {

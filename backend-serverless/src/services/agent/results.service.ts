@@ -9,6 +9,7 @@ import { SettingsService } from '../analytics/settings.js';
 import { createEsClient } from '../analytics/client.js';
 import { createResultsIndex } from '../analytics/index-management.service.js';
 import { IntegrationsSettingsService } from '../integrations/settings.js';
+import { enrichBundleWithCentralPosture } from './central-compliance.js';
 
 // Protected exit codes: file quarantined, execution prevented, quarantined on execution
 const PROTECTED_CODES = new Set([105, 126, 127]);
@@ -205,6 +206,7 @@ async function ingestBundleControls(
   result: TaskResult,
 ): Promise<void> {
   const bundle = result.bundle_results!;
+  await enrichBundleWithCentralPosture(client, result);
 
   // Resolve tenant label for Azure integration bundles
   let tenantLabel: string | undefined;
@@ -250,6 +252,24 @@ async function ingestBundleControls(
           bundle_name: bundle.bundle_name,
           control_id: control.control_id,
           control_validator: control.validator,
+          compliant: control.compliant,
+          control_status: control.status,
+          expected: control.expected,
+          actual: control.actual,
+          details: control.details,
+          skipped: control.skipped,
+          error_message: control.error_message,
+          applicability: control.applicability,
+          benchmark: control.benchmark ?? bundle.benchmark,
+          evidence_source: control.evidence_source,
+          observed_at: control.observed_at,
+          remediation: control.remediation,
+          evidence: control.evidence,
+          bundle_schema_version: bundle.schema_version,
+          execution_status: bundle.execution_status,
+          compliance_status: bundle.compliance_status,
+          assessment_complete: bundle.assessment_complete,
+          endpoint_context: bundle.endpoint_context,
           ...(control.description ? { control_description: control.description } : {}),
           is_bundle_control: true,
           ...(tenantLabel ? { tenant_label: tenantLabel } : {}),
