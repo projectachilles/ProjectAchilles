@@ -133,8 +133,11 @@ export async function createResultsIndex(
   } catch (err: unknown) {
     // ES returns 400 with resource_already_exists_exception when the index exists
     if (err && typeof err === 'object' && 'statusCode' in err && (err as { statusCode: number }).statusCode === 400) {
-      await client.indices.putMapping({ index: indexName, properties: RESULTS_INDEX_MAPPING.mappings.properties });
-      return { created: false, message: `Index "${indexName}" already exists; mappings updated` };
+      if (indexName.startsWith('achilles-results-')) {
+        await client.indices.putMapping({ index: indexName, properties: RESULTS_INDEX_MAPPING.mappings.properties });
+        return { created: false, message: `Index "${indexName}" already exists; mappings updated` };
+      }
+      return { created: false, message: `Index "${indexName}" already exists` };
     }
     throw err;
   }
