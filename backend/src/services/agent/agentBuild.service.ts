@@ -9,6 +9,7 @@ import { promisify } from 'util';
 import type { TestsSettingsService } from '../tests/settings.js';
 import type { AgentOS, AgentArch, AgentVersion } from '../../types/agent.js';
 import { registerVersion } from './update.service.js';
+import { describeCommandFailure } from '../shared/commandFailure.js';
 
 const execFileAsync = promisify(execFile);
 
@@ -27,7 +28,7 @@ class BuildError extends Error {
   }
 }
 
-/** Run execFileAsync and convert failures into BuildError with stderr context */
+/** Run execFileAsync and convert failures into BuildError with stderr (or stdout) context */
 async function runBuildCommand(
   cmd: string,
   args: string[],
@@ -36,10 +37,7 @@ async function runBuildCommand(
   try {
     await execFileAsync(cmd, args, opts);
   } catch (err: unknown) {
-    const stderr = (err as { stderr?: string }).stderr || '';
-    const message = (err as Error).message || 'Build command failed';
-    const detail = stderr.trim() || message;
-    throw new BuildError(`Command failed: ${cmd} ${args.join(' ')}\n${detail}`);
+    throw new BuildError(describeCommandFailure(cmd, args, err));
   }
 }
 

@@ -11,6 +11,9 @@ This project uses two version streams:
 
 ## [Unreleased]
 
+### Fixed
+- **A failed test or agent build now says why, even when the build script wrote its error to standard output.** The build error only showed standard error, so a `build_all.sh` that printed its failure to standard output (often bash: an error printed inside `$(...)` just before `set -e` exits) showed only `Command failed: bash …/build_all.sh`, printed twice. The error now names the exit code (or the signal, for a build that ran into its time limit), shows the last 40 lines of standard error, or of standard output when standard error is empty, and drops terminal colour codes.
+
 ## [2.9.1] - 2026-11-02
 
 **Security patch. Upgrade promptly.** It fixes a credential leak that affects every install: any signed-in user, including one with no role, or any `read` API key could make *Test connection* in the Elasticsearch settings send the install's saved Elasticsearch credentials to a host of their choice. This release also limits users and API keys in a Clerk organization to their own organization's agents, tasks, schedules and results, lets only administrators outside any organization change install-wide configuration, and fixes the CLI for users without an organization. One install per organization is the supported separation model; sharing one install between organizations is not supported (#715).

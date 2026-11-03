@@ -55,7 +55,7 @@ vi.mock('child_process', async () => {
   };
 });
 
-const { BuildService } = await import('../buildService.js');
+const { BuildService, BuildError } = await import('../buildService.js');
 type TestsSettingsService = import('../settings.js').TestsSettingsService;
 
 // ── Helpers ──────────────────────────────────────────────────────────
@@ -1008,6 +1008,31 @@ var data string
         expect.objectContaining({ cwd: repoRoot }),
       );
       expect(mockCopyFileSync).toHaveBeenCalled();
+    });
+
+    it('surfaces the end of stdout when build_all.sh fails with empty stderr', async () => {
+      mockExistsSync.mockImplementation((p: string) => p === testDir || p === `${testDir}/build_all.sh`);
+      mockReaddirSync.mockReturnValue([]);
+      mockStatSync.mockImplementation((p: string) => {
+        if (p === testDir) return { isDirectory: () => true };
+        return { size: 4096 };
+      });
+      mockReadFileSync.mockReturnValue('SCRIPT_DIR="$(dirname "${BASH_SOURCE[0]}")"');
+      // A script whose signing error went to stdout before `set -e` exited
+      mockExecFileAsync.mockImplementation(async (cmd: string) => {
+        if (cmd === 'bash') {
+          throw Object.assign(new Error('Command failed: bash build_all.sh\n'), {
+            code: 1,
+            stderr: '',
+            stdout: '[SUCCESS] Built: out.exe\n[ERROR] Signing failed — aborting (fail-loud)\n',
+          });
+        }
+        return { stdout: '', stderr: '' };
+      });
+
+      const failure = service.buildAndSign(VALID_UUID);
+      await expect(failure).rejects.toBeInstanceOf(BuildError);
+      await expect(failure).rejects.toThrow('[ERROR] Signing failed — aborting (fail-loud)');
     });
 
     it('patches build_all.sh for categorized tests with flat TEST_DIR', async () => {
