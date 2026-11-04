@@ -22,8 +22,20 @@ const ROWS: Array<{ verdict: ExecutionVerdict; label: string; hint: string; colo
 ];
 
 function OutcomeBreakdownCard({ data, loading, onSelect }: OutcomeBreakdownCardProps) {
-  if (loading || !data) {
+  if (loading) {
     return <div className="h-72 animate-pulse rounded-lg border border-border bg-raised" aria-hidden="true" />;
+  }
+  if (!data) {
+    return (
+      <Card className="h-full">
+        <CardHeader>
+          <CardTitle>Outcome breakdown</CardTitle>
+        </CardHeader>
+        <CardContent className="flex h-40 items-center justify-center text-sm text-faint">
+          Couldn't load outcome breakdown.
+        </CardContent>
+      </Card>
+    );
   }
 
   const total = data.pairCount;
@@ -79,7 +91,7 @@ function OutcomeBreakdownCard({ data, loading, onSelect }: OutcomeBreakdownCardP
                     key={s.verdict}
                     type="button"
                     onClick={() => onSelect?.(s.verdict)}
-                    className="flex items-center justify-between gap-2 rounded px-1.5 py-1 text-left hover:bg-raised focus-visible:outline-2"
+                    className="flex items-center justify-between gap-2 rounded px-1.5 py-1 text-left outline-none hover:bg-raised focus-visible:outline-2 focus-visible:outline-accent"
                   >
                     <span className="flex min-w-0 items-center gap-1.5 text-xs text-muted">
                       <span className="h-2 w-2 shrink-0 rounded-full" style={{ backgroundColor: s.color }} />

@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, beforeAll } from 'vitest';
+import { describe, it, expect, vi, beforeAll, afterAll } from 'vitest';
 import { render, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import OutcomeBreakdownCard from '../OutcomeBreakdownCard';
@@ -33,6 +33,10 @@ describe('OutcomeBreakdownCard', () => {
     expect(screen.getByText('pairs')).toBeInTheDocument();
   });
 
+  afterAll(() => {
+    vi.unstubAllGlobals();
+  });
+
   it('calls onSelect with the verdict of the clicked row', async () => {
     const onSelect = vi.fn();
     render(<OutcomeBreakdownCard data={data} onSelect={onSelect} />);
@@ -55,6 +59,13 @@ describe('OutcomeBreakdownCard', () => {
   it('shows the empty state at zero pairs', () => {
     render(<OutcomeBreakdownCard data={{ ...data, pairCount: 0, protected: 0, prevented: 0, detected: 0, silent: 0 }} />);
     expect(screen.getByText('Nothing recorded yet.')).toBeInTheDocument();
+  });
+
+  it('shows a load error, not a skeleton, when data is null and not loading', () => {
+    const { container } = render(<OutcomeBreakdownCard data={null} />);
+    expect(screen.getByText('Outcome breakdown')).toBeInTheDocument();
+    expect(screen.getByText("Couldn't load outcome breakdown.")).toBeInTheDocument();
+    expect(container.querySelector('.animate-pulse')).toBeNull();
   });
 
   it('shows a skeleton while loading', () => {
