@@ -1624,5 +1624,32 @@ var data string
       expect(service.getBuildJob(VALID_UUID)).toBeUndefined();
       expect(service.isBuilding(VALID_UUID)).toBe(false);
     });
+
+    it('serializes builds for different tests (one slot, FIFO)', async () => {
+      const otherUuid = 'b1b2c3d4-e5f6-7890-abcd-ef1234567890';
+      let finishFirst!: (info: BuildInfo) => void;
+      const spy = vi.spyOn(service, 'buildAndSign').mockImplementation((id: string) =>
+        id === VALID_UUID
+          ? new Promise<BuildInfo>((resolve) => { finishFirst = resolve; })
+          : Promise.resolve({ exists: true }),
+      );
+
+      const first = service.startBuild(VALID_UUID);
+      const second = service.startBuild(otherUuid);
+
+      // The first build holds the only slot; the second is accepted (its job
+      // reads "running") but buildAndSign hasn't been invoked for it yet.
+      expect(spy).toHaveBeenCalledTimes(1);
+      expect(spy).toHaveBeenCalledWith(VALID_UUID);
+      expect(service.getBuildJob(otherUuid)?.status).toBe('running');
+
+      finishFirst({ exists: true });
+      await first.promise;
+      await second.promise;
+
+      // The second build ran only after the first released the slot.
+      expect(spy).toHaveBeenCalledTimes(2);
+      expect(spy).toHaveBeenCalledWith(otherUuid);
+    });
   });
 });

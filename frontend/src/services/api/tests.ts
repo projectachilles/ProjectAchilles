@@ -50,6 +50,16 @@ function isRateLimited(err: unknown): boolean {
   return isAxiosError(err) && err.response?.status === 429;
 }
 
+// A failed build *start* request is only worth retrying when the backend was
+// momentarily unreachable — a network error, or the edge's 502/504 while the
+// single instance restarts. A 503 is deliberate ("Go compilation not available
+// on serverless — use Upload Binary") and a 429 is rate-limiting; propagate
+// those immediately rather than masking them behind retries.
+function isBackendUnreachable(err: unknown): boolean {
+  if (!isAxiosError(err)) return false;
+  return !err.response || err.response.status === 502 || err.response.status === 504;
+}
+
 function abortError(): DOMException {
   return new DOMException('Build polling aborted', 'AbortError');
 }
@@ -178,10 +188,25 @@ export const testsApi = {
    * ?async=true and polls until it finishes.
    */
   async buildTest(uuid: string, opts: { signal?: AbortSignal } = {}): Promise<BuildInfo> {
-    const response = await apiClient.post(`/tests/builds/${uuid}`, null, { params: { async: 'true' } });
-    // A backend without background builds ignores ?async and answers 200
-    // with the finished BuildInfo.
-    if (response.status !== 202) return response.data.data;
+    // The single backend instance can be briefly unavailable while it restarts
+    // (a load spike recycles it). A transient failure on the *start* request
+    // shouldn't surface as a build failure — retry a few times with backoff,
+    // then hand off to waitForBuild, which has its own long-poll backoff.
+    for (let attempt = 0; ; attempt++) {
+      try {
+        const response = await apiClient.post(`/tests/builds/${uuid}`, null, {
+          params: { async: 'true' },
+          signal: opts.signal,
+        });
+        // A backend without background builds ignores ?async and answers 200
+        // with the finished BuildInfo.
+        if (response.status !== 202) return response.data.data;
+        break;
+      } catch (err) {
+        if (opts.signal?.aborted || !isBackendUnreachable(err) || attempt >= MAX_CONSECUTIVE_POLL_FAILURES) throw err;
+        await sleep(BUILD_POLL_INTERVAL_MS * 2 ** Math.min(attempt, MAX_BACKOFF_STEPS), opts.signal);
+      }
+    }
     return testsApi.waitForBuild(uuid, opts);
   },
 

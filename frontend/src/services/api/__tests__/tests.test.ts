@@ -156,4 +156,25 @@ describe('testsApi.buildTest', () => {
     await expect(testsApi.buildTest(UUID)).rejects.toMatchObject({ response: { status: 503 } });
     expect(getMock).not.toHaveBeenCalled();
   });
+
+  it('retries the start request through a transient 502 (instance restarting), then polls', async () => {
+    postMock
+      .mockRejectedValueOnce(httpError(502))
+      .mockResolvedValueOnce({ status: 202, data: { success: true, data: { job: RUNNING } } });
+    getMock.mockResolvedValue(envelope(BUILT));
+
+    const result = testsApi.buildTest(UUID);
+    await vi.advanceTimersByTimeAsync(10000); // backoff on the 502, then the poll
+
+    await expect(result).resolves.toEqual(BUILT);
+    expect(postMock).toHaveBeenCalledTimes(2);
+  });
+
+  it('propagates a non-transient POST failure (e.g. 500) without retrying', async () => {
+    postMock.mockRejectedValue(httpError(500));
+
+    await expect(testsApi.buildTest(UUID)).rejects.toMatchObject({ response: { status: 500 } });
+    expect(postMock).toHaveBeenCalledTimes(1);
+    expect(getMock).not.toHaveBeenCalled();
+  });
 });

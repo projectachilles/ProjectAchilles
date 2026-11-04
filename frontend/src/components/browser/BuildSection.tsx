@@ -56,8 +56,10 @@ export default function BuildSection({ uuid }: BuildSectionProps) {
     } catch (err: unknown) {
       if (controller.signal.aborted) return;
       const msg = err instanceof Error ? err.message : 'Build failed';
-      const axiosErr = err as { response?: { data?: { error?: string } } };
-      setError(axiosErr?.response?.data?.error || msg);
+      const data = (err as { response?: { data?: { error?: string; message?: string } } })?.response?.data;
+      // Prefer the server's `message` ("Cannot POST /api/…") over the bland
+      // `error` ("Not Found") so a routing/404 failure names the failing route.
+      setError(data?.message || data?.error || msg);
     } finally {
       // Only the build still being followed may clear the spinner.
       if (followRef.current === controller) {
@@ -187,8 +189,8 @@ export default function BuildSection({ uuid }: BuildSectionProps) {
       }
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : 'Upload failed';
-      const axiosErr = err as { response?: { data?: { error?: string } } };
-      setError(axiosErr?.response?.data?.error || msg);
+      const data = (err as { response?: { data?: { error?: string; message?: string } } })?.response?.data;
+      setError(data?.message || data?.error || msg);
     } finally {
       setUploading(false);
       if (binaryInputRef.current) binaryInputRef.current.value = '';
