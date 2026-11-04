@@ -124,7 +124,7 @@ graph TB
 
 ### Dashboard Tab
 
-![Analytics dashboard — results by error type, ATT&CK technique distribution, chain depth, Defense Score ledger, and trend overview](/img/screenshots/analytics-dashboard.png)
+![Analytics dashboard — outcome breakdown, ATT&CK technique distribution, chain depth, Defense Score ledger, and trend overview](/img/screenshots/analytics-dashboard.png)
 
 The **Dashboard** tab is the primary visualization hub. Since 2.1 it is laid out
 in analyst columns: a narrow left column carrying the numbers you quote, and a
@@ -132,7 +132,13 @@ wide right column carrying the shapes you read.
 
 **Top row — three cards**
 
-- **Results by error type** — donut plus a legend list of `name · count · pct`
+- **Outcome breakdown** — donut plus a legend list that splits the latest result
+  of each test x host pair into Protected (blocked by a control), Prevented (the
+  EDR stopped it), Detected only (it ran and the EDR alerted) and Silent (it ran
+  with no alert). Cyber-hygiene bundles are left out, and the outcome filters do
+  not narrow it. Click a slice to open the Executions tab filtered to that
+  outcome; an "Outcome: …" chip above the table removes the filter. On installs
+  whose backend does not offer it, the card shows Results by error type instead.
 - **ATT&CK technique distribution** — one row per technique with a stacked
   protected/unprotected bar and a percentage; a warning chip counts techniques
   that also raised Defender or CrowdStrike alerts

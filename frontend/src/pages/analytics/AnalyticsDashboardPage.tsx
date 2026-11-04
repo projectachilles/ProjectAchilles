@@ -11,6 +11,7 @@ import DateRangePicker from './components/DateRangePicker';
 import HeroMetricsCard from './components/HeroMetricsCard';
 import TrendChart from './components/TrendChart';
 import ErrorTypePieChart from './components/ErrorTypePieChart';
+import OutcomeBreakdownCard from './components/OutcomeBreakdownCard';
 import StackedBarChart from './components/StackedBarChart';
 import TechniqueDistributionCard from './components/TechniqueDistributionCard';
 import CoverageTreemap from './components/CoverageTreemap';
@@ -39,6 +40,7 @@ import { sentineloneAnalyticsApi } from '../../services/api/sentineloneAnalytics
 import { useSophosConfig } from '@/hooks/useSophosConfig';
 import { sophosAnalyticsApi } from '../../services/api/sophosAnalytics';
 import { useScoringMode } from '@/hooks/useScoringMode';
+import { useCapabilities } from '@/hooks/useCapabilities';
 import { analyticsApi } from '../../services/api/analytics';
 import { reportsApi } from '../../services/api/reports';
 import { defenderApi, type SecureScoreSummary, type SecureScoreTrendPoint } from '../../services/api/defender';
@@ -46,6 +48,8 @@ import { crowdstrikeApi, type ZtaScoreSummary, type ZtaScoreTrendPoint } from '.
 import type {
   TrendDataPoint,
   ErrorTypeBreakdown,
+  OutcomeBreakdown,
+  ExecutionVerdict,
   TestCoverageItem,
   TechniqueDistributionItem,
   HostTestMatrixCell,
@@ -71,6 +75,13 @@ interface DefenseScoreData {
   /** Test x endpoint pairs behind the tile score (basis=latest). */
   pairCount?: number;
 }
+
+const VERDICT_LABELS: Record<ExecutionVerdict, string> = {
+  protected: 'Protected',
+  prevented: 'Prevented',
+  detected: 'Detected only',
+  silent: 'Silent',
+};
 
 export default function AnalyticsDashboardPage() {
   // Performance measurement (dev only)
@@ -139,6 +150,7 @@ export default function AnalyticsDashboardPage() {
   // Handle tab change with URL sync
   const handleTabChange = useCallback((tab: TabType) => {
     setActiveTab(tab);
+    if (tab !== 'executions') setExecutionsVerdict(null);
     const newParams = new URLSearchParams(searchParams);
     if (tab === 'dashboard') {
       newParams.delete('tab');
@@ -170,6 +182,7 @@ export default function AnalyticsDashboardPage() {
 
   // Watch for settings changes (e.g., index pattern change)
   const { settingsVersion } = useAnalyticsAuth();
+  const capabilities = useCapabilities();
 
   // Load active risk count on mount for tab badge
   useEffect(() => {
@@ -198,6 +211,8 @@ export default function AnalyticsDashboardPage() {
   const [trendData, setTrendData] = useState<TrendDataPoint[]>([]);
   const [errorRateTrendData, setErrorRateTrendData] = useState<ErrorRateTrendDataPoint[]>([]);
   const [errorTypeData, setErrorTypeData] = useState<ErrorTypeBreakdown[]>([]);
+  // null after a failed fetch (the card shows its error state)
+  const [outcomeBreakdown, setOutcomeBreakdown] = useState<OutcomeBreakdown | null>(null);
   const [testCoverageData, setTestCoverageData] = useState<TestCoverageItem[]>([]);
   const [techniqueDistData, setTechniqueDistData] = useState<TechniqueDistributionItem[]>([]);
   const [hostTestMatrix, setHostTestMatrix] = useState<HostTestMatrixCell[]>([]);
@@ -214,6 +229,8 @@ export default function AnalyticsDashboardPage() {
   // Executions tab data
   const [executionsData, setExecutionsData] = useState<GroupedPaginatedResponse | null>(null);
   const [executionsPage, setExecutionsPage] = useState(1);
+  // Page state set by the Outcome breakdown card; not a filter, not in the URL
+  const [executionsVerdict, setExecutionsVerdict] = useState<ExecutionVerdict | null>(null);
   const [executionsPageSize, setExecutionsPageSize] = useState(25);
   const [executionsSortField, setExecutionsSortField] = useState<string>('routing.event_time');
   const [executionsSortOrder, setExecutionsSortOrder] = useState<'asc' | 'desc'>('desc');
@@ -260,17 +277,17 @@ export default function AnalyticsDashboardPage() {
   // "configured" flag resolving after mount no longer re-runs these 13
   // requests, and the vendor cards don't wait for them.
   useEffect(() => {
-    if (activeTab === 'dashboard') {
+    if (activeTab === 'dashboard' && capabilities.loaded) {
       loadDashboardData();
     }
-  }, [filterState.filters, activeTab, settingsVersion, scoringMode]);
+  }, [filterState.filters, activeTab, settingsVersion, scoringMode, capabilities.loaded]);
 
   // Load executions data when tab/filters/pagination/settings change
   useEffect(() => {
     if (activeTab === 'executions') {
       loadExecutionsData();
     }
-  }, [filterState.filters, activeTab, executionsPage, executionsPageSize, executionsSortField, executionsSortOrder, settingsVersion]);
+  }, [filterState.filters, activeTab, executionsPage, executionsPageSize, executionsSortField, executionsSortOrder, executionsVerdict, settingsVersion]);
 
   // Load filter dropdown options
   async function loadFilterOptions() {
@@ -311,6 +328,7 @@ export default function AnalyticsDashboardPage() {
         testCount,
         trend,
         errorTypes,
+        outcomes,
         coverage,
         techDist,
         matrix,
@@ -324,7 +342,15 @@ export default function AnalyticsDashboardPage() {
         analyticsApi.getUniqueHostnames(params),
         analyticsApi.getUniqueTests(params),
         analyticsApi.getDefenseScoreTrend({ ...scoreParams, interval: 'day' }),
-        analyticsApi.getResultsByErrorType(params),
+        capabilities.outcomeBreakdown
+          ? Promise.resolve([] as ErrorTypeBreakdown[])
+          : analyticsApi.getResultsByErrorType(params),
+        capabilities.outcomeBreakdown
+          ? analyticsApi.getOutcomeBreakdown(scoreParams).catch((err: unknown) => {
+              console.error('Failed to load outcome breakdown:', err);
+              return null;
+            })
+          : Promise.resolve(null),
         analyticsApi.getTestCoverage(scoreParams),
         analyticsApi.getTechniqueDistribution(scoreParams),
         analyticsApi.getHostTestMatrix(params),
@@ -354,6 +380,7 @@ export default function AnalyticsDashboardPage() {
       setUniqueTestCount(testCount);
       setTrendData(trend);
       setErrorTypeData(errorTypes);
+      setOutcomeBreakdown(outcomes);
       setTestCoverageData(coverage.slice(0, 10));
       setTechniqueDistData(techDist.slice(0, 10));
       setHostTestMatrix(matrix);
@@ -486,6 +513,7 @@ export default function AnalyticsDashboardPage() {
         pageSize: executionsPageSize,
         sortField: executionsSortField,
         sortOrder: executionsSortOrder,
+        ...(executionsVerdict ? { verdict: executionsVerdict } : {}),
       });
       setExecutionsData(data);
     } catch (error) {
@@ -493,7 +521,7 @@ export default function AnalyticsDashboardPage() {
     } finally {
       setLoadingExecutions(false);
     }
-  }, [filterState, executionsPage, executionsPageSize, executionsSortField, executionsSortOrder]);
+  }, [filterState, executionsPage, executionsPageSize, executionsSortField, executionsSortOrder, executionsVerdict]);
 
   // Keep ref in sync with latest loadExecutionsData
   loadExecutionsDataRef.current = loadExecutionsData;
@@ -716,7 +744,7 @@ export default function AnalyticsDashboardPage() {
       <div>
         <PageHeader
           title="Analytics"
-          description="Detection depth across error types, techniques, and attack chains"
+          description="Detection depth across outcomes, techniques, and attack chains"
         >
           <Button
             variant={filterState.isExpanded || filterState.activeFilterCount > 0 ? 'secondary' : 'outline'}
@@ -810,11 +838,23 @@ export default function AnalyticsDashboardPage() {
                 in the posture section per the approved Analyst Columns
                 redesign, so this grid can never orphan a card) */}
             <div className="grid gap-4 md:grid-cols-3 max-lg:[&>*]:min-w-0">
-              <ErrorTypePieChart
-                data={errorTypeData}
-                loading={loadingDashboard}
-                title="Results by error type"
-              />
+              {capabilities.outcomeBreakdown ? (
+                <OutcomeBreakdownCard
+                  data={outcomeBreakdown}
+                  loading={loadingDashboard || !capabilities.loaded}
+                  onSelect={(verdict) => {
+                    setExecutionsVerdict(verdict);
+                    setExecutionsPage(1);
+                    handleTabChange('executions');
+                  }}
+                />
+              ) : (
+                <ErrorTypePieChart
+                  data={errorTypeData}
+                  loading={loadingDashboard || !capabilities.loaded}
+                  title="Results by error type"
+                />
+              )}
               <TechniqueDistributionCard
                 data={techniqueDistData}
                 loading={loadingDashboard}
@@ -950,6 +990,20 @@ export default function AnalyticsDashboardPage() {
           </div>
         ) : (
           /* All Executions Tab */
+          <div className="flex flex-col gap-3">
+          {executionsVerdict && (
+            <div>
+              <button
+                type="button"
+                onClick={() => { setExecutionsVerdict(null); setExecutionsPage(1); }}
+                className="inline-flex items-center gap-1.5 rounded-md border border-accent/25 bg-accent-dim px-3 py-1 text-xs font-medium text-accent hover:bg-overlay"
+                aria-label={`Remove outcome filter: ${VERDICT_LABELS[executionsVerdict]}`}
+              >
+                Outcome: {VERDICT_LABELS[executionsVerdict]}
+                <span aria-hidden="true">✕</span>
+              </button>
+            </div>
+          )}
           <ExecutionsDataTable
             data={executionsData}
             loading={loadingExecutions}
@@ -971,6 +1025,7 @@ export default function AnalyticsDashboardPage() {
             sbReportExporting={sbReportExporting}
             reportHref={reportHref}
           />
+          </div>
         )}
       </div>
 
