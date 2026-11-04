@@ -20,16 +20,64 @@ export class BuildError extends Error {
   }
 }
 
+// Heavy build subprocesses (go build/mod, build_all.sh) are CPU-bound and, on a
+// small shared instance, can starve the Node event loop — slowing the Render
+// /api/health check until the platform recycles the instance mid-build. Run
+// them at a lower scheduling priority via `nice` so the API and health check
+// keep the CPU they need. Opt-in via BUILD_NICE (a niceness level like "15",
+// set in render.yaml); unset or "off" disables it, so local dev and the test
+// suite (which mocks execFile) are unaffected. `nice` is POSIX; skip on Windows.
+const BUILD_NICE = process.env.BUILD_NICE;
+function withNice(cmd: string, args: string[]): { cmd: string; args: string[] } {
+  if (!BUILD_NICE || BUILD_NICE === 'off' || process.platform === 'win32') return { cmd, args };
+  return { cmd: 'nice', args: ['-n', BUILD_NICE, cmd, ...args] };
+}
+
 /** Run execFileAsync and convert failures into BuildError with stderr (or stdout) context */
 async function runBuildCommand(
   cmd: string,
   args: string[],
   opts: { cwd: string; env: NodeJS.ProcessEnv; timeout: number },
 ): Promise<void> {
+  const exec = withNice(cmd, args);
   try {
-    await execFileAsync(cmd, args, opts);
+    await execFileAsync(exec.cmd, exec.args, opts);
   } catch (err: unknown) {
+    // Report the logical command, not the `nice` wrapper, so failures read clearly.
     throw new BuildError(describeCommandFailure(cmd, args, err));
+  }
+}
+
+// Build concurrency limiter (size 1). A build is CPU- and memory-heavy; two
+// running at once (different test UUIDs) double the pressure on a single small
+// instance and can trip the health check into a restart. When the slot is free
+// the build starts synchronously (so its job shows "running" at once); a second
+// build queues and starts when the slot frees. Scoped per BuildService instance
+// — production has one, so this serializes process-wide; tests get a fresh slot.
+class BuildSlot {
+  private locked = false;
+  private readonly queue: Array<() => void> = [];
+
+  run<T>(fn: () => Promise<T>): Promise<T> {
+    if (!this.locked) {
+      this.locked = true;
+      return this.exec(fn);
+    }
+    return new Promise<T>((resolve, reject) => {
+      this.queue.push(() => { this.exec(fn).then(resolve, reject); });
+    });
+  }
+
+  private async exec<T>(fn: () => Promise<T>): Promise<T> {
+    try {
+      return await fn();
+    } finally {
+      // Hand the slot straight to the next waiter (lock stays held) so no new
+      // caller can slip in between; only release the lock when the queue drains.
+      const next = this.queue.shift();
+      if (next) next();
+      else this.locked = false;
+    }
   }
 }
 
@@ -94,6 +142,7 @@ export class BuildService {
   private settingsService: TestsSettingsService;
   private testSourcePaths: string[];
   private jobs = new BuildJobs<BuildInfo>();
+  private buildSlot = new BuildSlot();
 
   constructor(settingsService: TestsSettingsService, testSourcePaths: string[] | string) {
     this.settingsService = settingsService;
@@ -108,7 +157,10 @@ export class BuildService {
    * exposes the same build's status for callers that don't wait.
    */
   startBuild(uuid: string): { job: BuildJob; promise: Promise<BuildInfo> } {
-    return this.jobs.run(uuid, async () => {
+    // jobs.run dedupes by uuid (joins an in-flight build for the same test);
+    // the build slot serializes distinct builds process-wide. The job is marked
+    // running immediately, so polling works even while a build waits its turn.
+    return this.jobs.run(uuid, () => this.buildSlot.run(async () => {
       try {
         return await this.buildAndSign(uuid);
       } catch (err) {
@@ -119,7 +171,7 @@ export class BuildService {
         console.error('Build failed for %s: %s', uuid, err instanceof Error ? err.message : String(err));
         throw err;
       }
-    });
+    }));
   }
 
   /** Latest build job for `uuid` since this process started, if any. */

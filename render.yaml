@@ -14,7 +14,12 @@ services:
     dockerfilePath: ./Dockerfile
     dockerContext: .
     rootDir: backend
-    plan: starter  # minimum tier with persistent disk support
+    # Bumped starter -> standard (Nov 2026): the starter 512 MB / 0.5 CPU instance
+    # was starved by concurrent Elasticsearch analytics + background syncs (and
+    # on-demand Go builds), slowing the /api/health check to ~1.7 s until Render
+    # recycled the instance mid-build ("Build was interrupted...", "Failed to
+    # load tests"). standard = 2 GB / 1 CPU. Bump to `pro` if builds stay heavy.
+    plan: standard  # 2 GB / 1 CPU; starter tripped health-check restarts under load
     healthCheckPath: /api/health
     buildFilter:
       paths:
@@ -33,6 +38,9 @@ services:
         value: production
       - key: PORT
         value: "3000"
+      - key: BUILD_NICE
+        value: "15"  # run go/build_all.sh subprocesses at lower CPU priority so a
+                     # build can't starve the API/health check and trip a restart
       - key: CLERK_PUBLISHABLE_KEY
         sync: false  # set manually in Render dashboard
       - key: CLERK_SECRET_KEY
