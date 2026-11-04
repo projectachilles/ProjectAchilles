@@ -250,6 +250,7 @@ export default function AnalyticsDashboardPage() {
   // Loading States
   const [loadingFilters, setLoadingFilters] = useState(true);
   const [loadingDashboard, setLoadingDashboard] = useState(true);
+  const [loadingSlot, setLoadingSlot] = useState(true);
   const [loadingExecutions, setLoadingExecutions] = useState(false);
 
   // Load filter options and canonical test count on mount and when settings change
@@ -277,10 +278,23 @@ export default function AnalyticsDashboardPage() {
   // "configured" flag resolving after mount no longer re-runs these 13
   // requests, and the vendor cards don't wait for them.
   useEffect(() => {
-    if (activeTab === 'dashboard' && capabilities.loaded) {
+    if (activeTab === 'dashboard') {
       loadDashboardData();
     }
-  }, [filterState.filters, activeTab, settingsVersion, scoringMode, capabilities.loaded]);
+  }, [filterState.filters, activeTab, settingsVersion, scoringMode]);
+
+  // The top-left slot (Outcome breakdown or Results by error type) depends on
+  // /api/capabilities. It loads on its own so the other cards never wait for it.
+  useEffect(() => {
+    if (activeTab === 'dashboard' && capabilities.loaded) {
+      loadSlotData();
+    }
+  }, [filterState.filters, activeTab, settingsVersion, scoringMode, capabilities.loaded, capabilities.outcomeBreakdown]);
+
+  // Leaving Executions (tab click, URL, back button) drops the outcome chip
+  useEffect(() => {
+    if (activeTab !== 'executions') setExecutionsVerdict(null);
+  }, [activeTab]);
 
   // Load executions data when tab/filters/pagination/settings change
   useEffect(() => {
@@ -314,6 +328,29 @@ export default function AnalyticsDashboardPage() {
     }
   }
 
+  // Load the capability-dependent slot (see the effect above)
+  const loadSlotData = useCallback(async () => {
+    setLoadingSlot(true);
+    const params = filterState.getApiParams();
+    try {
+      if (capabilities.outcomeBreakdown) {
+        const scoreParams = { ...params, scoringMode, basis: 'latest' as const };
+        setOutcomeBreakdown(
+          await analyticsApi.getOutcomeBreakdown(scoreParams).catch((err: unknown) => {
+            console.error('Failed to load outcome breakdown:', err);
+            return null;
+          }),
+        );
+      } else {
+        setErrorTypeData(await analyticsApi.getResultsByErrorType(params));
+      }
+    } catch (error) {
+      console.error('Failed to load error types:', error);
+    } finally {
+      setLoadingSlot(false);
+    }
+  }, [filterState, scoringMode, capabilities.outcomeBreakdown]);
+
   // Load dashboard data
   const loadDashboardData = useCallback(async () => {
     setLoadingDashboard(true);
@@ -327,8 +364,6 @@ export default function AnalyticsDashboardPage() {
         hostnameCount,
         testCount,
         trend,
-        errorTypes,
-        outcomes,
         coverage,
         techDist,
         matrix,
@@ -342,15 +377,6 @@ export default function AnalyticsDashboardPage() {
         analyticsApi.getUniqueHostnames(params),
         analyticsApi.getUniqueTests(params),
         analyticsApi.getDefenseScoreTrend({ ...scoreParams, interval: 'day' }),
-        capabilities.outcomeBreakdown
-          ? Promise.resolve([] as ErrorTypeBreakdown[])
-          : analyticsApi.getResultsByErrorType(params),
-        capabilities.outcomeBreakdown
-          ? analyticsApi.getOutcomeBreakdown(scoreParams).catch((err: unknown) => {
-              console.error('Failed to load outcome breakdown:', err);
-              return null;
-            })
-          : Promise.resolve(null),
         analyticsApi.getTestCoverage(scoreParams),
         analyticsApi.getTechniqueDistribution(scoreParams),
         analyticsApi.getHostTestMatrix(params),
@@ -379,8 +405,6 @@ export default function AnalyticsDashboardPage() {
       setUniqueHostnames(hostnameCount);
       setUniqueTestCount(testCount);
       setTrendData(trend);
-      setErrorTypeData(errorTypes);
-      setOutcomeBreakdown(outcomes);
       setTestCoverageData(coverage.slice(0, 10));
       setTechniqueDistData(techDist.slice(0, 10));
       setHostTestMatrix(matrix);
@@ -702,6 +726,7 @@ export default function AnalyticsDashboardPage() {
     if (activeTab === 'dashboard') {
       await Promise.all([
         loadDashboardData(),
+        capabilities.loaded ? loadSlotData() : Promise.resolve(),
         loadDefenderSummary(),
         loadCrowdStrikeSummary(),
         loadSentinelOneSummary(),
@@ -841,7 +866,7 @@ export default function AnalyticsDashboardPage() {
               {capabilities.outcomeBreakdown ? (
                 <OutcomeBreakdownCard
                   data={outcomeBreakdown}
-                  loading={loadingDashboard || !capabilities.loaded}
+                  loading={loadingSlot || !capabilities.loaded}
                   onSelect={(verdict) => {
                     setExecutionsVerdict(verdict);
                     setExecutionsPage(1);
@@ -851,7 +876,7 @@ export default function AnalyticsDashboardPage() {
               ) : (
                 <ErrorTypePieChart
                   data={errorTypeData}
-                  loading={loadingDashboard || !capabilities.loaded}
+                  loading={loadingSlot || !capabilities.loaded}
                   title="Results by error type"
                 />
               )}
@@ -991,40 +1016,40 @@ export default function AnalyticsDashboardPage() {
         ) : (
           /* All Executions Tab */
           <div className="flex flex-col gap-3">
-          {executionsVerdict && (
-            <div>
-              <button
-                type="button"
-                onClick={() => { setExecutionsVerdict(null); setExecutionsPage(1); }}
-                className="inline-flex items-center gap-1.5 rounded-md border border-accent/25 bg-accent-dim px-3 py-1 text-xs font-medium text-accent hover:bg-overlay"
-                aria-label={`Remove outcome filter: ${VERDICT_LABELS[executionsVerdict]}`}
-              >
-                Outcome: {VERDICT_LABELS[executionsVerdict]}
-                <span aria-hidden="true">✕</span>
-              </button>
-            </div>
-          )}
-          <ExecutionsDataTable
-            data={executionsData}
-            loading={loadingExecutions}
-            onPageChange={handlePageChange}
-            onPageSizeChange={handlePageSizeChange}
-            onSort={handleSort}
-            sortField={executionsSortField}
-            sortOrder={executionsSortOrder}
-            onArchive={handleArchive}
-            onArchiveByDate={handleArchiveByDate}
-            archiving={archiving}
-            onAcceptRisk={handleAcceptRisk}
-            onRevokeRisk={handleRevokeRisk}
-            riskAcceptances={riskAcceptances}
-            acceptingRisk={acceptingRisk}
-            selectedKey={expandedFromUrl}
-            onSelectedKeyChange={handleExpandedChange}
-            onExportSbReport={handleExportSbReport}
-            sbReportExporting={sbReportExporting}
-            reportHref={reportHref}
-          />
+            {executionsVerdict && (
+              <div>
+                <button
+                  type="button"
+                  onClick={() => { setExecutionsVerdict(null); setExecutionsPage(1); }}
+                  className="inline-flex items-center gap-1.5 rounded-md border border-accent/25 bg-accent-dim px-3 py-1 text-xs font-medium text-accent hover:bg-overlay"
+                  aria-label={`Remove outcome filter: ${VERDICT_LABELS[executionsVerdict]}`}
+                >
+                  Outcome: {VERDICT_LABELS[executionsVerdict]}
+                  <span aria-hidden="true">✕</span>
+                </button>
+              </div>
+            )}
+            <ExecutionsDataTable
+              data={executionsData}
+              loading={loadingExecutions}
+              onPageChange={handlePageChange}
+              onPageSizeChange={handlePageSizeChange}
+              onSort={handleSort}
+              sortField={executionsSortField}
+              sortOrder={executionsSortOrder}
+              onArchive={handleArchive}
+              onArchiveByDate={handleArchiveByDate}
+              archiving={archiving}
+              onAcceptRisk={handleAcceptRisk}
+              onRevokeRisk={handleRevokeRisk}
+              riskAcceptances={riskAcceptances}
+              acceptingRisk={acceptingRisk}
+              selectedKey={expandedFromUrl}
+              onSelectedKeyChange={handleExpandedChange}
+              onExportSbReport={handleExportSbReport}
+              sbReportExporting={sbReportExporting}
+              reportHref={reportHref}
+            />
           </div>
         )}
       </div>

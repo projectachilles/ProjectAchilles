@@ -1,6 +1,6 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest';
-import { render, waitFor, screen, fireEvent } from '@testing-library/react';
-import { MemoryRouter } from 'react-router-dom';
+import { render, waitFor, screen, fireEvent, act } from '@testing-library/react';
+import { MemoryRouter, useLocation, useNavigate } from 'react-router-dom';
 
 /**
  * Request discipline of the Analytics dashboard tab: each endpoint once per
@@ -169,6 +169,11 @@ describe('AnalyticsDashboardPage request discipline', () => {
   });
 });
 
+function LocationProbe() {
+  const loc = useLocation();
+  return <div data-testid="loc">{loc.search}</div>;
+}
+
 describe('Outcome breakdown card wiring', () => {
   beforeEach(() => {
     mocks.defenderFlipsTo = false;
@@ -215,6 +220,8 @@ describe('Outcome breakdown card wiring', () => {
     await new Promise((r) => setTimeout(r, 50));
     expect(mocks.analytics.api.getResultsByErrorType).not.toHaveBeenCalled();
     expect(mocks.analytics.api.getOutcomeBreakdown).not.toHaveBeenCalled();
+    // ...but the rest of the dashboard does not wait for capabilities
+    expect(mocks.analytics.api.getDefenseScore).toHaveBeenCalled();
   });
 
   async function clickSilent() {
@@ -248,5 +255,29 @@ describe('Outcome breakdown card wiring', () => {
     await waitFor(() => expect(mocks.analytics.api.getGroupedPaginatedExecutions).toHaveBeenCalled());
     const last = mocks.analytics.api.getGroupedPaginatedExecutions.mock.calls.at(-1)![0];
     expect(last).not.toHaveProperty('verdict');
+  });
+
+  it('drops the verdict when the tab changes through the URL (back button)', async () => {
+    let navigate!: ReturnType<typeof useNavigate>;
+    function Nav() { navigate = useNavigate(); return null; }
+    render(
+      <MemoryRouter initialEntries={['/analytics']}>
+        <AnalyticsDashboardPage />
+        <Nav />
+        <LocationProbe />
+      </MemoryRouter>,
+    );
+    const silent = await screen.findByText('Silent');
+    fireEvent.click(silent.closest('button') ?? silent);
+    await screen.findByText(/Outcome: Silent/);
+    act(() => navigate('/analytics'));
+    await screen.findByText('Outcome breakdown');
+    act(() => navigate('/analytics?tab=executions'));
+    await waitFor(() => expect(screen.getByTestId('loc').textContent).toContain('tab=executions'));
+    await waitFor(() => {
+      const last = mocks.analytics.api.getGroupedPaginatedExecutions.mock.calls.at(-1)![0];
+      expect(last).not.toHaveProperty('verdict');
+    });
+    expect(screen.queryByText(/Outcome: Silent/)).toBeNull();
   });
 });
