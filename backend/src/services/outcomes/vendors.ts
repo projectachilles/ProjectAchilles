@@ -99,6 +99,11 @@ export function edrDetectedTerms(): Array<{ term: Record<string, true> }> {
   return EDR_VENDOR_KEYS.map((v) => ({ term: { [edrFlagField(v, 'detected')]: true } }));
 }
 
+/** One `<key>_prevented: true` term per vendor: an EDR stopped it itself (see classifyPairOutcome). */
+export function edrPreventedTerms(): Array<{ term: Record<string, true> }> {
+  return EDR_VENDOR_KEYS.map((v) => ({ term: { [edrFlagField(v, 'prevented')]: true } }));
+}
+
 /** The per-vendor enrichment flags on a result row (API field names). */
 export type EdrResultFlags =
   { [K in EdrVendorKey as `${K}_detected` | `${K}_stage_detected` | `${K}_prevented`]?: boolean }

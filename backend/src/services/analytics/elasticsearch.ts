@@ -16,9 +16,10 @@ import {
   summarizePairs,
 } from './posture.js';
 import type { OutcomeFilters, PairRun, PostureWindow } from './posture.js';
+import type { OutcomeRun } from './outcomeBreakdown.js';
 import { TtlPromiseCache } from './postureCache.js';
 import type { TtlCacheOptions } from './postureCache.js';
-import { EDR_VENDOR_KEYS, edrDetectedTerms, edrFlagField, edrFlagSourceFields } from '../outcomes/vendors.js';
+import { EDR_VENDOR_KEYS, edrDetectedTerms, edrFlagField, edrFlagSourceFields, edrPreventedTerms } from '../outcomes/vendors.js';
 import type { EdrGroupRollup, EdrResultFlags } from '../outcomes/vendors.js';
 import type {
   ExecutionActivityResponse,
@@ -294,6 +295,8 @@ export const TEST_KEY_SCRIPT = {
 interface TechniqueScopeOption {
   /** Leave out stageless EDR docs (killed agent or launch block); the name predates launch blocks. */
   excludeEdrTerminated?: boolean;
+  /** Leave out cyber-hygiene docs (outcome breakdown: a configuration check is not an attack outcome). */
+  excludeCyberHygiene?: boolean;
 }
 
 /** Exit code for a test binary blocked before it ran (an EDR/AV, or an app-control rule such as an ASR prevalence rule). */
@@ -1270,7 +1273,7 @@ export class ElasticsearchService {
 
   /** Per-doc pairs: the latest doc per (oid, test_uuid, hostname[, UTC day]). */
   private async fetchDocPairRuns(filters: any[], opts: PairFetchOptions): Promise<PairRun[]> {
-    const runs: PairRun[] = [];
+    const runs: OutcomeRun[] = [];
     const uuidOf: string[] = []; // test_uuid of runs[i], for the metadata join
     await this.paginateComposite(
       filters,
@@ -1288,7 +1291,7 @@ export class ElasticsearchService {
             metrics: [
               'routing.event_time',
               'f0rtika.is_protected',
-              ...edrFlagSourceFields(['detected']),
+              ...edrFlagSourceFields(['detected', 'prevented']),
               'event.ERROR',
               'f0rtika.error_name',
             ].map(field => ({ field })),
@@ -1313,6 +1316,7 @@ export class ElasticsearchService {
           ts,
           protected: isProtected || edrFlagSourceFields(['detected']).some((f) => esBool(m[f])),
           strictProtected: isProtected,
+          edrPrevented: edrFlagSourceFields(['prevented']).some((f) => esBool(m[f])),
           errorCodes: codes,
           errorNames: errorNamesFor(codes, typeof m['f0rtika.error_name'] === 'string' ? [m['f0rtika.error_name']] : []),
           hostname,
@@ -1410,6 +1414,8 @@ export class ElasticsearchService {
           },
           aggs: { stages: { terms: { field: 'f0rtika.control_validator', size: this.CHAIN_STAGE_TERMS } } },
         },
+        // Outcome breakdown: an EDR prevention flag on any stage of the run.
+        prevented: { filter: { bool: { should: edrPreventedTerms(), minimum_should_match: 1 } } },
         codes: { terms: { field: 'event.ERROR', size: 10 } },
         names: { terms: { field: 'f0rtika.error_name', size: 20 } },
         // Chain depth: a kill run has no stage to bucket at.
@@ -1425,11 +1431,12 @@ export class ElasticsearchService {
           .filter(n => Number.isFinite(n))
           .sort((x, y) => x - y);
         const storedNames = ((b.names?.buckets ?? []) as any[]).map(n => String(n.key));
-        const run: ChainRun = {
+        const run: ChainRun & OutcomeRun = {
           pairKey: bundlePairKey(b.key.oid, bundleId, hostname),
           ts,
           protected: (b.combined?.doc_count ?? 0) > 0,
           strictProtected: (b.strict?.doc_count ?? 0) > 0,
+          edrPrevented: (b.prevented?.doc_count ?? 0) > 0,
           errorCodes: codes,
           errorNames: errorNamesFor(codes, storedNames),
           hostname,
@@ -1576,6 +1583,7 @@ export class ElasticsearchService {
     const clauses = this.buildFilterBarClauses(params, { excludeOutcome: true });
     // Technique views: an EDR-killed run has unknown stages and an EDR
     // launch-blocked run ran none, so no technique is credited.
+    if (params.excludeCyberHygiene) clauses.push({ bool: { must_not: [{ term: { 'f0rtika.category': 'cyber-hygiene' } }] } });
     if (params.excludeEdrTerminated) clauses.push(NOT_STAGELESS);
     // All-stages pairs are per stage doc; a stageless bundle doc has no stages, and
     // as its own `oid|<bundle>|host` pair no later real run would replace it.
@@ -1598,6 +1606,7 @@ export class ElasticsearchService {
         exclusion: exclusionFilter,
         // Only when set, so the tile's cache key is unchanged; the clause alone would differ too, this keeps it explicit.
         ...(params.excludeEdrTerminated ? { excludeEdrTerminated: true } : {}),
+        ...(params.excludeCyberHygiene ? { excludeCyberHygiene: true } : {}),
       },
     };
   }
