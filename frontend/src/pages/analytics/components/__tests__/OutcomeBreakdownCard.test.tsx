@@ -68,6 +68,15 @@ describe('OutcomeBreakdownCard', () => {
     expect(container.querySelector('.animate-pulse')).toBeNull();
   });
 
+  it('puts each explanation on its own line, never truncated', () => {
+    render(<OutcomeBreakdownCard data={data} />);
+    for (const hint of ['blocked by a control', 'the EDR stopped it', 'ran, the EDR alerted', 'ran, no alert']) {
+      const el = screen.getByText(hint);
+      expect(el.closest('.truncate')).toBeNull();
+      expect(el.textContent).toBe(hint);
+    }
+  });
+
   it('shows a skeleton while loading', () => {
     const { container } = render(<OutcomeBreakdownCard data={null} loading />);
     expect(container.querySelector('.animate-pulse')).not.toBeNull();

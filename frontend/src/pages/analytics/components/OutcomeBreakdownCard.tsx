@@ -91,14 +91,14 @@ function OutcomeBreakdownCard({ data, loading, onSelect }: OutcomeBreakdownCardP
                     key={s.verdict}
                     type="button"
                     onClick={() => onSelect?.(s.verdict)}
-                    className="flex items-center justify-between gap-2 rounded px-1.5 py-1 text-left outline-none hover:bg-raised focus-visible:outline-2 focus-visible:outline-accent"
+                    className="flex items-start justify-between gap-2 rounded px-1.5 py-1 text-left outline-none hover:bg-raised focus-visible:outline-2 focus-visible:outline-accent"
                   >
-                    <span className="flex min-w-0 items-center gap-1.5 text-xs text-muted">
-                      <span className="h-2 w-2 shrink-0 rounded-full" style={{ backgroundColor: s.color }} />
-                      <span className="truncate">
+                    {/* Label on its own line, the plain explanation under it (wraps, never truncated) */}
+                    <span className="flex min-w-0 items-start gap-1.5 text-xs">
+                      <span className="mt-1 h-2 w-2 shrink-0 rounded-full" style={{ backgroundColor: s.color }} />
+                      <span className="flex min-w-0 flex-col">
                         <span className="text-foreground">{s.label}</span>
-                        {' / '}
-                        {s.hint}
+                        <span className="text-[11px] leading-snug text-faint">{s.hint}</span>
                       </span>
                     </span>
                     <span className="shrink-0 font-mono text-xs">
