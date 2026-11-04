@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { classifyTaskOutcome } from '../taskOutcome.js';
+import { classifyTaskOutcome, taskBreakdown, breakdownLabel, outcomeWindowSql, TASK_BREAKDOWN_KEY_RE, OFFLINE_ERROR, TIMEOUT_ERROR } from '../taskOutcome.js';
 import type { TaskResult } from '../../../types/agent.js';
 
 // ── Golden table ──────────────────────────────────────────────────
@@ -54,5 +54,54 @@ describe('classifyTaskOutcome', () => {
   it('is null for other task types and unfinished runs', () => {
     expect(classifyTaskOutcome({ ...toTask({ name: '', exit: 1, expected: '' }), type: 'execute_command' })).toBeNull();
     expect(classifyTaskOutcome({ type: 'execute_test', status: 'executing', result: null })).toBeNull();
+  });
+});
+
+describe('taskBreakdown', () => {
+  it.each(GOLDEN.map((c) => [c.name, c] as const))('%s: outcome matches and key is well-formed', (_n, c) => {
+    const b = taskBreakdown(toTask(c));
+    expect(b?.outcome).toBe(classifyTaskOutcome(toTask(c)));
+    expect(b?.key).toMatch(TASK_BREAKDOWN_KEY_RE);
+  });
+
+  const key = (c: GoldenCase, error?: string) => {
+    const t = toTask(c);
+    if (error) (t.result as unknown as { error: string }).error = error;
+    return taskBreakdown(t)?.key;
+  };
+
+  it('maps specific cases', () => {
+    expect(key({ name: '', exit: 260, expected: '' })).toBe('exit:260');
+    expect(key({ name: '', exit: 999, category: 'intel-driven', stages: [[101], [126], [999]], expected: '' })).toBe('stage:126');
+    expect(key({ name: '', exit: 1, category: 'intel-driven', stages: [[101], [0, true]], expected: '' })).toBe('stage:101');
+    expect(key({ name: '', exit: 101, category: 'cyber-hygiene', stages: [[126], [101]], expected: '' })).toBe('exit:101');
+    expect(key({ name: '', status: 'failed', exit: -1, expected: '' }, OFFLINE_ERROR)).toBe('failed:offline');
+    expect(key({ name: '', status: 'failed', exit: -1, expected: '' }, TIMEOUT_ERROR)).toBe('failed:timeout');
+    expect(key({ name: '', status: 'failed', exit: -1, expected: '' }, 'boom')).toBe('failed:other');
+    expect(key({ name: '', status: 'failed', exit: -1, edrKilled: true, expected: '' }, OFFLINE_ERROR)).toBe('edr-stopped');
+  });
+
+  it('is null for non-execute_test and unfinished tasks', () => {
+    expect(taskBreakdown({ ...toTask({ name: '', exit: 1, expected: '' }), type: 'execute_command' })).toBeNull();
+    expect(taskBreakdown({ type: 'execute_test', status: 'executing', result: null })).toBeNull();
+  });
+});
+
+describe('breakdownLabel', () => {
+  it('labels keys', () => {
+    expect(breakdownLabel('exit:260')).toEqual({ code: 260, name: 'BlockedPreExecution' });
+    expect(breakdownLabel('stage:126')).toEqual({ code: 126, name: 'ExecutionPrevented · stage blocked' });
+    expect(breakdownLabel('stage:101')).toEqual({ code: 101, name: 'Unprotected · stage ran' });
+    expect(breakdownLabel('edr-stopped')).toEqual({ code: null, name: 'EDR stopped the agent' });
+    expect(breakdownLabel('failed:offline')).toEqual({ code: null, name: 'Agent offline' });
+    expect(breakdownLabel('failed:timeout')).toEqual({ code: null, name: 'Timeout' });
+    expect(breakdownLabel('failed:other')).toEqual({ code: null, name: 'Other failure' });
+  });
+});
+
+describe('outcomeWindowSql', () => {
+  it('builds the shared 7-day window', () => {
+    expect(outcomeWindowSql()).toBe("status IN ('completed', 'failed') AND completed_at > datetime('now', '-7 days')");
+    expect(outcomeWindowSql('t')).toBe("t.status IN ('completed', 'failed') AND t.completed_at > datetime('now', '-7 days')");
   });
 });

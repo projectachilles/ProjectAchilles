@@ -498,6 +498,15 @@ describe('tasks.service', () => {
       expect(JSON.parse(row.result)).toEqual({ error: 'Agent went offline during execution', exit_code: -1, stdout: '', stderr: 'Agent went offline during execution', execution_duration_ms: 0 });
     });
 
+    it('watchdog offline failure classifies as failed:offline (pins OFFLINE_ERROR)', async () => {
+      const { taskBreakdown } = await import('../../outcomes/taskOutcome.js');
+      const staleHeartbeat = new Date(Date.now() - 600_000).toISOString();
+      insertTestAgent(testDb, { id: 'offline-agent', last_heartbeat: staleHeartbeat });
+      insertTestTask(testDb, { id: 't-pin-off', agent_id: 'offline-agent', status: 'executing' });
+      expireStaleTasks();
+      expect(taskBreakdown(getTask('t-pin-off'))?.key).toBe('failed:offline');
+    });
+
     it('fails downloading tasks when agent is offline', () => {
       const staleHeartbeat = new Date(Date.now() - 600_000).toISOString();
       insertTestAgent(testDb, { id: 'offline-agent', last_heartbeat: staleHeartbeat });
@@ -643,6 +652,14 @@ describe('tasks.service', () => {
       const row = testDb.prepare('SELECT status, result FROM tasks WHERE id = ?').get('t-overdue') as any;
       expect(row.status).toBe('failed');
       expect(JSON.parse(row.result).error).toBe('Task exceeded execution timeout');
+    });
+
+    it('watchdog timeout failure classifies as failed:timeout (pins TIMEOUT_ERROR)', async () => {
+      const { taskBreakdown } = await import('../../outcomes/taskOutcome.js');
+      const assignedAt = new Date(Date.now() - 600_000).toISOString().replace('T', ' ').slice(0, 19);
+      insertTestTask(testDb, { id: 't-pin-to', status: 'executing', assigned_at: assignedAt });
+      expireOverdueTasks();
+      expect(taskBreakdown(getTask('t-pin-to'))?.key).toBe('failed:timeout');
     });
 
     it('does not fail tasks still within timeout + buffer', () => {
