@@ -59,6 +59,7 @@ import type {
   CategoryType,
   ExecutionGroup,
   GroupedPaginatedResponse,
+  ExecutionVerdict,
 } from '../../types/analytics.js';
 import { orgName, orgShortName } from './orgNames.js';
 import { createAchillesIndex } from '../shared/esIndexCreate.js';
@@ -2490,7 +2491,7 @@ export class ElasticsearchService {
    * Build all extended filters (base + filter-bar clauses). Public: the
    * execution report reuses it so its scope is exactly the tab's.
    */
-  buildExtendedFilters(params: Partial<ExtendedAnalyticsQueryParams>): any[] {
+  buildExtendedFilters(params: Partial<ExtendedAnalyticsQueryParams> & { verdict?: ExecutionVerdict }): any[] {
     const filters: any[] = [
       this.buildTestDataFilter(),
       this.buildDateFilter(params.from, params.to)
@@ -2501,7 +2502,31 @@ export class ElasticsearchService {
 
     filters.push(...this.buildFilterBarClauses(params));
 
+    if (params.verdict) {
+      filters.push(this.buildConclusiveResultsFilter(), ...this.buildVerdictClauses(params.verdict));
+    }
+
     return filters;
+  }
+
+  /**
+   * Per-document clauses for the executions `verdict` filter (the Outcome
+   * breakdown card's slices). Callers also require the conclusive codes.
+   */
+  private buildVerdictClauses(verdict: ExecutionVerdict): any[] {
+    const isProtected = { term: { 'f0rtika.is_protected': true } };
+    const notProtected = { bool: { must_not: [isProtected] } };
+    const detected = { bool: { should: edrDetectedTerms(), minimum_should_match: 1 } };
+    switch (verdict) {
+      case 'protected':
+        return [isProtected];
+      case 'prevented':
+        return [notProtected, detected, { bool: { should: edrPreventedTerms(), minimum_should_match: 1 } }];
+      case 'detected':
+        return [notProtected, detected, { bool: { must_not: edrPreventedTerms() } }];
+      case 'silent':
+        return [notProtected, { bool: { must_not: edrDetectedTerms() } }];
+    }
   }
 
   // ============================================

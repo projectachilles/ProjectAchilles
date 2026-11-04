@@ -238,8 +238,13 @@ export interface ExtendedAnalyticsQueryParams extends AnalyticsQueryParams {
 }
 
 // Combined query params for paginated executions
+/** Executions-list outcome filter (the Outcome breakdown card's slices); not the shared `result` filter. */
+export type ExecutionVerdict = 'protected' | 'prevented' | 'detected' | 'silent';
+export const EXECUTION_VERDICTS: readonly ExecutionVerdict[] = ['protected', 'prevented', 'detected', 'silent'];
+
 export interface PaginatedExecutionsParams extends ExtendedAnalyticsQueryParams, PaginationParams {
   grouped?: boolean;
+  verdict?: ExecutionVerdict;
 }
 
 // Grouped execution result (one per collapsed display row)

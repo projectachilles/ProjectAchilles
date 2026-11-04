@@ -61,6 +61,8 @@ const mockTechniqueOutcomes = vi.fn();
 const mockChainDepth = vi.fn();
 const mockOutcomeBreakdown = vi.fn();
 const mockTestResults = vi.fn();
+const mockGetPaginatedExecutions = vi.fn();
+const mockGetGroupedPaginatedExecutions = vi.fn();
 vi.mock('../../services/analytics/elasticsearch.js', () => ({
   ElasticsearchService: class MockElasticsearchService {
     testConnection = mockTestConnection;
@@ -86,6 +88,8 @@ vi.mock('../../services/analytics/elasticsearch.js', () => ({
     getChainDepth = mockChainDepth;
     getOutcomeBreakdown = mockOutcomeBreakdown;
     getTestResults = mockTestResults;
+    getPaginatedExecutions = mockGetPaginatedExecutions;
+    getGroupedPaginatedExecutions = mockGetGroupedPaginatedExecutions;
   },
 }));
 
@@ -511,6 +515,35 @@ describe('analytics routes', () => {
       const arg = mockOutcomeBreakdown.mock.calls[0][0];
       expect(arg).toEqual(expect.objectContaining({ org: 'o1' }));
       expect(arg.basis).toBeUndefined();
+    });
+  });
+
+  describe('executions verdict filter', () => {
+    beforeEach(() => {
+      mockGetSettings.mockReturnValue({ configured: true, connectionType: 'direct', node: 'http://localhost:9200' });
+      mockGetPaginatedExecutions.mockResolvedValue({ data: [] });
+      mockGetGroupedPaginatedExecutions.mockResolvedValue({ groups: [] });
+    });
+
+    it('rejects an unknown verdict with 400', async () => {
+      const res = await request(createApp()).get('/api/analytics/executions/paginated?verdict=bogus');
+      expect(res.status).toBe(400);
+      expect(res.body).toEqual({ success: false, error: 'Invalid verdict' });
+      expect(mockGetPaginatedExecutions).not.toHaveBeenCalled();
+    });
+
+    it('passes a valid verdict through (flat and grouped)', async () => {
+      const flat = await request(createApp()).get('/api/analytics/executions/paginated?verdict=silent');
+      expect(flat.status).toBe(200);
+      expect(mockGetPaginatedExecutions).toHaveBeenCalledWith(expect.objectContaining({ verdict: 'silent' }));
+      const grouped = await request(createApp()).get('/api/analytics/executions/paginated?verdict=detected&grouped=true');
+      expect(grouped.status).toBe(200);
+      expect(mockGetGroupedPaginatedExecutions).toHaveBeenCalledWith(expect.objectContaining({ verdict: 'detected' }));
+    });
+
+    it('leaves verdict undefined when absent', async () => {
+      await request(createApp()).get('/api/analytics/executions/paginated');
+      expect(mockGetPaginatedExecutions.mock.calls[0][0].verdict).toBeUndefined();
     });
   });
 
