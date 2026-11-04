@@ -4,7 +4,7 @@
 
 # ── Stage 1: Builder ──────────────────────────────────────────────────
 # Pin updated: 2026-03-26. Run 'docker pull node:22-slim' to get latest digest.
-FROM node:22-slim@sha256:de170b39439eb0e5a3444ad7d60b015614a381e10fecae2e30ec9e735122f38d AS builder
+FROM node:22-slim@sha256:4b150b48b4116e2a22f2c39cc27025fbf4f153e2078fd3b14d159fdb5c7279da AS builder
 
 # Build tools for native addon compilation (better-sqlite3)
 RUN apt-get update && \
@@ -19,7 +19,7 @@ RUN npm run build
 RUN npm prune --omit=dev
 
 # ── Stage 2: Runtime ──────────────────────────────────────────────────
-FROM node:22-slim@sha256:de170b39439eb0e5a3444ad7d60b015614a381e10fecae2e30ec9e735122f38d
+FROM node:22-slim@sha256:4b150b48b4116e2a22f2c39cc27025fbf4f153e2078fd3b14d159fdb5c7279da
 
 # Runtime-only system dependencies:
 #   git          - test repository sync (GitSyncService)
