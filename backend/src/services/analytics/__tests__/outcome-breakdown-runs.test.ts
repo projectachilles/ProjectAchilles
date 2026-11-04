@@ -21,7 +21,7 @@ vi.mock('../../risk-acceptance/risk-acceptance.service.js', () => ({
 }));
 
 const { ElasticsearchService } = await import('../elasticsearch.js');
-const { edrPreventedTerms } = await import('../../outcomes/vendors.js');
+const { edrPreventedTerms, edrDetectedTerms } = await import('../../outcomes/vendors.js');
 
 function createService() {
   const settings: AnalyticsSettings = {
@@ -99,7 +99,10 @@ describe('edrPrevented on latest-basis pair runs', () => {
     const runs: any[] = await createService().getLatestPairs({ ...P, scoringMode: 'any-stage' });
     const bundle = runs.find((r) => r.pairKey.includes('bundle-1'));
     expect(bundle.edrPrevented).toBe(true);
-    expect(aggOf('bundle_runs').aggs.prevented.filter.bool.should).toEqual(edrPreventedTerms());
+    expect(aggOf('bundle_runs').aggs.prevented.filter.bool.filter).toEqual([
+      { bool: { should: edrDetectedTerms(), minimum_should_match: 1 } },
+      { bool: { should: edrPreventedTerms(), minimum_should_match: 1 } },
+    ]);
 
     mockSearch.mockReset();
     mockEs({ bundle_runs: [bundleBucket({ prevented: { doc_count: 0 } })] });
@@ -164,6 +167,20 @@ describe('getOutcomeBreakdown', () => {
     expect(b.silent).toBe(score.unprotectedCount);
     expect(b).toMatchObject({ protected: 1, prevented: 1, detected: 1, silent: 2, noConclusive: 0, riskAccepted: 0 });
     expect(typeof b.windowLabel).toBe('string');
+  });
+
+  it('searches latest-per-pair runs with no lookback (window start = fromMs)', async () => {
+    mockBreakdownEs(dataset());
+    const svc = createService() as any;
+    const scope = await svc.resolvePostureScope({ ...P, excludeCyberHygiene: true });
+    await svc.getOutcomeBreakdown(P);
+    const pairBodies = bodies().filter((b) => b.aggs?.pairs);
+    expect(pairBodies.length).toBeGreaterThan(0);
+    for (const b of pairBodies) {
+      expect(JSON.stringify(b.aggs.pairs.composite.sources)).not.toContain('date_histogram');
+    }
+    const gte = JSON.stringify(pairBodies[0].query).match(/"gte":"([^"]+)"/)?.[1];
+    expect(gte).toBe(new Date(scope.window.fromMs).toISOString());
   });
 
   it('ignores outcome filters', async () => {

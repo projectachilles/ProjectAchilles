@@ -136,7 +136,7 @@ wide right column carrying the shapes you read.
   of each test x host pair into Protected (blocked by a control), Prevented (the
   EDR stopped it), Detected only (it ran and the EDR alerted) and Silent (it ran
   with no alert). Cyber-hygiene bundles are left out, and the outcome filters do
-  not narrow it. Click a slice to open the Executions tab filtered to that
+  not narrow it. Click an outcome in the legend to open the Executions tab filtered to that
   outcome; an "Outcome: …" chip above the table removes the filter. On installs
   whose backend does not offer it, the card shows Results by error type instead.
 - **ATT&CK technique distribution** — one row per technique with a stacked

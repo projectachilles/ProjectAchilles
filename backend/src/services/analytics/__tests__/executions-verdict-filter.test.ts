@@ -38,6 +38,17 @@ describe('executions verdict filter (buildExtendedFilters)', () => {
     expect(filters).not.toContainEqual(CONCLUSIVE);
   });
 
+  it('restricts a verdict to attack tests (cyber-hygiene excluded)', () => {
+    for (const verdict of ['protected', 'prevented', 'detected', 'silent'] as const) {
+      expect(service.buildExtendedFilters({ ...base, verdict })).toContainEqual({
+        bool: { must_not: [{ term: { 'f0rtika.category': 'cyber-hygiene' } }] },
+      });
+    }
+    expect(service.buildExtendedFilters(base)).not.toContainEqual({
+      bool: { must_not: [{ term: { 'f0rtika.category': 'cyber-hygiene' } }] },
+    });
+  });
+
   it('protected', () => {
     const filters = service.buildExtendedFilters({ ...base, verdict: 'protected' });
     expect(filters).toContainEqual(CONCLUSIVE);

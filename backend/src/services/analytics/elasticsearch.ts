@@ -206,12 +206,17 @@ interface PostureShapeSpec extends PairFetchOptions {
   withRaw: boolean;
 }
 
-type PostureShape = 'series' | 'metadata';
+type PostureShape = 'series' | 'metadata' | 'breakdown';
 
-/** The two snapshot shapes: tile + trend share 'series'; the four breakdowns share 'metadata'. */
+/**
+ * The snapshot shapes: tile + trend share 'series'; the four breakdowns share
+ * 'metadata'; the outcome breakdown card uses 'breakdown' (latest run per pair,
+ * no lookback, no metadata, with rawRuns for risk-accepted pairs).
+ */
 const POSTURE_SHAPES: Record<PostureShape, PostureShapeSpec> = {
   series: { lookback: true, withMetadata: false, withRaw: true, latestOnly: false },
   metadata: { lookback: false, withMetadata: true, withRaw: false, latestOnly: true },
+  breakdown: { lookback: false, withMetadata: false, withRaw: true, latestOnly: true },
 };
 
 /**
@@ -1418,7 +1423,17 @@ export class ElasticsearchService {
           aggs: { stages: { terms: { field: 'f0rtika.control_validator', size: this.CHAIN_STAGE_TERMS } } },
         },
         // Outcome breakdown: an EDR prevention flag on any stage of the run.
-        prevented: { filter: { bool: { should: edrPreventedTerms(), minimum_should_match: 1 } } },
+        // Detected-any AND prevented-any on the same doc, like the per-doc verdict rule.
+        prevented: {
+          filter: {
+            bool: {
+              filter: [
+                { bool: { should: edrDetectedTerms(), minimum_should_match: 1 } },
+                { bool: { should: edrPreventedTerms(), minimum_should_match: 1 } },
+              ],
+            },
+          },
+        },
         codes: { terms: { field: 'event.ERROR', size: 10 } },
         names: { terms: { field: 'f0rtika.error_name', size: 20 } },
         // Chain depth: a kill run has no stage to bucket at.
@@ -1584,9 +1599,10 @@ export class ElasticsearchService {
     const outcome = this.parseOutcomeFilters(params);
     const isAnyStage = params.scoringMode === 'any-stage';
     const clauses = this.buildFilterBarClauses(params, { excludeOutcome: true });
+    // Attack tests only (outcome breakdown card).
+    if (params.excludeCyberHygiene) clauses.push({ bool: { must_not: [{ term: { 'f0rtika.category': 'cyber-hygiene' } }] } });
     // Technique views: an EDR-killed run has unknown stages and an EDR
     // launch-blocked run ran none, so no technique is credited.
-    if (params.excludeCyberHygiene) clauses.push({ bool: { must_not: [{ term: { 'f0rtika.category': 'cyber-hygiene' } }] } });
     if (params.excludeEdrTerminated) clauses.push(NOT_STAGELESS);
     // All-stages pairs are per stage doc; a stageless bundle doc has no stages, and
     // as its own `oid|<bundle>|host` pair no later real run would replace it.
@@ -1736,7 +1752,7 @@ export class ElasticsearchService {
   async getOutcomeBreakdown(params: AnalyticsQueryParams & Partial<ExtendedAnalyticsQueryParams>): Promise<OutcomeBreakdownResponse> {
     const stripped = { ...params, result: undefined, errorCodes: undefined, errorNames: undefined, excludeCyberHygiene: true };
     const scope = await this.resolvePostureScope(stripped);
-    const { window, runs, rawRuns } = await this.latestPostureFor(scope, 'series');
+    const { window, runs, rawRuns } = await this.latestPostureFor(scope, 'breakdown');
     const pairs = latestPairsAsOf(runs, window.toMs, window.freshnessMs) as OutcomeRun[];
     const counts = countPairOutcomes(pairs);
     const riskAccepted = rawRuns ? Math.max(0, latestPairsAsOf(rawRuns, window.toMs, window.freshnessMs).length - pairs.length) : 0;
@@ -2503,7 +2519,12 @@ export class ElasticsearchService {
     filters.push(...this.buildFilterBarClauses(params));
 
     if (params.verdict) {
-      filters.push(this.buildConclusiveResultsFilter(), ...this.buildVerdictClauses(params.verdict));
+      // Same population as the Outcome breakdown card: attack tests only.
+      filters.push(
+        this.buildConclusiveResultsFilter(),
+        { bool: { must_not: [{ term: { 'f0rtika.category': 'cyber-hygiene' } }] } },
+        ...this.buildVerdictClauses(params.verdict),
+      );
     }
 
     return filters;

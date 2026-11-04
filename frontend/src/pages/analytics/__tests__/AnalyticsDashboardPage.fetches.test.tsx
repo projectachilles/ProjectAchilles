@@ -108,7 +108,7 @@ describe('AnalyticsDashboardPage request discipline', () => {
     mocks.defenderFlipsTo = true;
     mocks.caps = { outcomeBreakdown: false, loaded: true };
     mocks.analytics.reset({
-      getOutcomeBreakdown: { pairCount: 10, protected: 4, prevented: 2, detected: 1, silent: 3, noConclusive: 0, riskAccepted: 0, windowLabel: '90d window' },
+      getOutcomeBreakdown: { pairCount: 10, protected: 4, prevented: 2, detected: 1, silent: 3, noConclusive: 0, riskAccepted: 0, windowLabel: '30d' },
       getGroupedPaginatedExecutions: { groups: [], pagination: { page: 1, pageSize: 25, totalGroups: 0, totalDocuments: 0, totalPages: 0, hasNext: false, hasPrevious: false } },
       getDefenseScore: { score: 50, totalExecutions: 0, protectedCount: 0 },
       getUniqueHostnames: 0,
@@ -187,7 +187,7 @@ describe('Outcome breakdown card wiring', () => {
       getErrorRate: { errorRate: 0 },
       getCanonicalTestCount: { count: 0 },
       listAcceptances: { total: 0 },
-      getOutcomeBreakdown: { pairCount: 10, protected: 4, prevented: 2, detected: 1, silent: 3, noConclusive: 0, riskAccepted: 0, windowLabel: '90d window' },
+      getOutcomeBreakdown: { pairCount: 10, protected: 4, prevented: 2, detected: 1, silent: 3, noConclusive: 0, riskAccepted: 0, windowLabel: '30d' },
       getGroupedPaginatedExecutions: { groups: [], pagination: { page: 1, pageSize: 25, totalGroups: 0, totalDocuments: 0, totalPages: 0, hasNext: false, hasPrevious: false } },
       getFilterOptions: {
         tests: [], techniques: [], hostnames: [], categories: [], severities: [],
@@ -235,7 +235,7 @@ describe('Outcome breakdown card wiring', () => {
     );
   }
 
-  it('a slice click opens Executions filtered by verdict, and the chip clears it', async () => {
+  it('a legend click opens Executions filtered by verdict, and the chip clears it', async () => {
     await clickSilent();
     const chip = await screen.findByText(/Outcome: Silent/);
     mocks.analytics.api.getGroupedPaginatedExecutions.mockClear();

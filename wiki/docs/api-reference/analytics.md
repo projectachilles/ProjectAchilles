@@ -165,7 +165,7 @@ Filtered, grouped, paginated execution results. Accepts every shared filter plus
 | `sortField` | string | Field to sort by. |
 | `sortOrder` | string | `asc` or `desc`. |
 | `grouped` | boolean | If true, groups results by bundle/standalone identity. |
-| `verdict` | string | `protected`, `prevented`, `detected` or `silent`: keeps only rows with that outcome (any other value is a 400 `Invalid verdict`). Read only by this endpoint. It is what the Outcome breakdown card's slices open on the Executions tab. |
+| `verdict` | string | `protected`, `prevented`, `detected` or `silent`: keeps only rows with that outcome, for attack tests only (cyber-hygiene bundles are excluded, matching the Outcome breakdown card; any other value is a 400 `Invalid verdict`). Read only by this endpoint. It is what the Outcome breakdown card's legend rows open on the Executions tab. |
 
 **Response shape** depends on the `grouped` parameter:
 
@@ -248,7 +248,7 @@ Splits the latest result of each test x endpoint pair into the four outcomes the
 | `silent` | The test ran and nothing alerted. |
 | `noConclusive` | Pairs that have results in the window but none conclusive (all errors); not part of `pairCount`. |
 | `riskAccepted` | Pairs left out of the counts because a risk acceptance covers them. |
-| `windowLabel` | Active window, for example `90d window`. |
+| `windowLabel` | Active window, for example `30d`, or `last 365d` when the window is capped. |
 
 `protected + prevented + detected` equals the Defense Score's protected pairs when the window holds no cyber-hygiene data.
 

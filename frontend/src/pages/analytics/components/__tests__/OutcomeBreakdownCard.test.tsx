@@ -12,7 +12,7 @@ const data: OutcomeBreakdown = {
   silent: 63,
   noConclusive: 0,
   riskAccepted: 0,
-  windowLabel: 'last 30 days',
+  windowLabel: '30d',
 };
 
 describe('OutcomeBreakdownCard', () => {
@@ -23,7 +23,7 @@ describe('OutcomeBreakdownCard', () => {
   it('renders title, subtitle, four rows with counts and rounded percents', () => {
     render(<OutcomeBreakdownCard data={data} />);
     expect(screen.getByText('Outcome breakdown')).toBeInTheDocument();
-    expect(screen.getByText('Latest result per test × host · attack tests · last 30 days')).toBeInTheDocument();
+    expect(screen.getByText('Latest result per test × host · attack tests · 30d')).toBeInTheDocument();
     expect(screen.getByText('Protected')).toBeInTheDocument();
     expect(screen.getByText('Prevented')).toBeInTheDocument();
     expect(screen.getByText('Detected only')).toBeInTheDocument();
