@@ -419,3 +419,15 @@ export interface CanonicalTestCountResponse {
   tests: string[];
   days: number;
 }
+
+/** Latest-basis outcome split of non-cyber-hygiene pairs (GET /analytics/outcome-breakdown). */
+export interface OutcomeBreakdownResponse {
+  pairCount: number;
+  protected: number;      // strict: the test itself was blocked
+  prevented: number;      // detected and an EDR prevented it
+  detected: number;       // detected only
+  silent: number;         // nothing stopped or flagged it
+  noConclusive: number;   // pairs with docs but no conclusive result in the window
+  riskAccepted: number;   // pairs hidden by risk acceptance
+  windowLabel: string;
+}

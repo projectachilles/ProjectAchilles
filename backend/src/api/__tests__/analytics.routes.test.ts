@@ -59,6 +59,7 @@ const mockThreatActorLatest = vi.fn();
 const mockThreatActor = vi.fn();
 const mockTechniqueOutcomes = vi.fn();
 const mockChainDepth = vi.fn();
+const mockOutcomeBreakdown = vi.fn();
 const mockTestResults = vi.fn();
 vi.mock('../../services/analytics/elasticsearch.js', () => ({
   ElasticsearchService: class MockElasticsearchService {
@@ -83,6 +84,7 @@ vi.mock('../../services/analytics/elasticsearch.js', () => ({
     getThreatActorCoverage = mockThreatActor;
     getTechniqueOutcomes = mockTechniqueOutcomes;
     getChainDepth = mockChainDepth;
+    getOutcomeBreakdown = mockOutcomeBreakdown;
     getTestResults = mockTestResults;
   },
 }));
@@ -496,6 +498,19 @@ describe('analytics routes', () => {
         expect(r.status).toBe(200);
       }
       expect(mockChainDepth).toHaveBeenCalledTimes(3);
+    });
+  });
+
+  describe('outcome breakdown', () => {
+    it('/outcome-breakdown returns the service result and does not pass basis', async () => {
+      const body = { pairCount: 3, protected: 1, prevented: 1, detected: 0, silent: 1, noConclusive: 0, riskAccepted: 0, windowLabel: 'Last 30 days' };
+      mockOutcomeBreakdown.mockResolvedValue(body);
+      const res = await request(createApp()).get('/api/analytics/outcome-breakdown?basis=executions&org=o1');
+      expect(res.status).toBe(200);
+      expect(res.body).toEqual(body);
+      const arg = mockOutcomeBreakdown.mock.calls[0][0];
+      expect(arg).toEqual(expect.objectContaining({ org: 'o1' }));
+      expect(arg.basis).toBeUndefined();
     });
   });
 

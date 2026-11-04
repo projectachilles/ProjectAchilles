@@ -131,3 +131,72 @@ describe('excludeCyberHygiene scope option', () => {
     expect(scope.keyBase).not.toHaveProperty('excludeCyberHygiene');
   });
 });
+
+describe('getOutcomeBreakdown', () => {
+  beforeEach(() => mockSearch.mockReset());
+
+  /** Answers the conclusive pass with `pairs` and the no-conclusive pass (its must_not filter) with `noConc`. */
+  function mockBreakdownEs(pairs: any[], noConc: any[] = []) {
+    const marker = JSON.stringify({ bool: { must_not: [(createService() as any).buildConclusiveResultsFilter()] } });
+    mockSearch.mockImplementation(async (body: any) => {
+      const name = Object.keys(body?.aggs ?? {})[0];
+      if (name !== 'pairs') return { aggregations: {} };
+      const isNoConc = JSON.stringify(body.query).includes(marker);
+      return { aggregations: { pairs: { buckets: isNoConc ? noConc : pairs } } };
+    });
+  }
+
+  const dataset = () => [
+    docBucket('t-1', { 'f0rtika.is_protected': true }),
+    docBucket('t-2', { 'f0rtika.defender_detected': true, 'f0rtika.defender_prevented': true }),
+    docBucket('t-3', { 'f0rtika.defender_detected': true }),
+    docBucket('t-4', {}),
+    docBucket('t-5', { 'f0rtika.defender_prevented': true }),
+  ];
+
+  it('matches getDefenseScoreLatest on the same dataset', async () => {
+    mockBreakdownEs(dataset());
+    const svc = createService();
+    const score = await svc.getDefenseScoreLatest(P);
+    const b = await svc.getOutcomeBreakdown(P);
+    expect(b.pairCount).toBe(score.totalExecutions);
+    expect(b.protected + b.prevented + b.detected).toBe(score.protectedCount + score.detectedCount);
+    expect(b.silent).toBe(score.unprotectedCount);
+    expect(b).toMatchObject({ protected: 1, prevented: 1, detected: 1, silent: 2, noConclusive: 0, riskAccepted: 0 });
+    expect(typeof b.windowLabel).toBe('string');
+  });
+
+  it('ignores outcome filters', async () => {
+    mockBreakdownEs(dataset());
+    const base = await createService().getOutcomeBreakdown(P);
+    const filtered = await createService().getOutcomeBreakdown({ ...P, result: 'protected', errorCodes: '101' });
+    expect(filtered).toEqual(base);
+  });
+
+  it('counts a pair with only an inconclusive doc as noConclusive', async () => {
+    mockBreakdownEs([], [docBucket('t-9', { 'event.ERROR': 999 })]);
+    expect((await createService().getOutcomeBreakdown(P)).noConclusive).toBe(1);
+  });
+
+  it('does not count a pair that also has a conclusive run', async () => {
+    mockBreakdownEs([docBucket('t-9', {})], [docBucket('t-9', { 'event.ERROR': 999 })]);
+    const b = await createService().getOutcomeBreakdown(P);
+    expect(b.noConclusive).toBe(0);
+    expect(b.pairCount).toBe(1);
+  });
+
+  it('riskAccepted = pairs only present without the exclusion filter', async () => {
+    const svc = createService() as any;
+    svc.getRiskAcceptanceService = () => ({ buildExclusionFilter: async () => ({ bool: { must_not: [{ term: { x: 1 } }] } }) });
+    mockSearch.mockImplementation(async (body: any) => {
+      const name = Object.keys(body?.aggs ?? {})[0];
+      if (name !== 'pairs') return { aggregations: {} };
+      const excluded = JSON.stringify(body.query).includes('"x":1');
+      const all = [docBucket('t-1', {}), docBucket('t-2', {}), docBucket('t-3', {})];
+      return { aggregations: { pairs: { buckets: JSON.stringify(body.query).includes('must_not') && excluded ? all.slice(0, 2) : all } } };
+    });
+    const b = await svc.getOutcomeBreakdown(P);
+    expect(b.pairCount).toBe(2);
+    expect(b.riskAccepted).toBe(1);
+  });
+});

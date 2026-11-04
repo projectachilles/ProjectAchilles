@@ -17,6 +17,7 @@ import {
 } from './posture.js';
 import type { OutcomeFilters, PairRun, PostureWindow } from './posture.js';
 import type { OutcomeRun } from './outcomeBreakdown.js';
+import { countPairOutcomes } from './outcomeBreakdown.js';
 import { TtlPromiseCache } from './postureCache.js';
 import type { TtlCacheOptions } from './postureCache.js';
 import { EDR_VENDOR_KEYS, edrDetectedTerms, edrFlagField, edrFlagSourceFields, edrPreventedTerms } from '../outcomes/vendors.js';
@@ -49,6 +50,7 @@ import type {
   TestResultItem,
   ChainDepthBucket,
   ChainDepthResponse,
+  OutcomeBreakdownResponse,
   DefenseScoreByHostItem,
   CanonicalTestCountResponse,
   ErrorRateResponse,
@@ -1722,6 +1724,39 @@ export class ElasticsearchService {
   async getLatestPairs(params: AnalyticsQueryParams & Partial<ExtendedAnalyticsQueryParams> & TechniqueScopeOption): Promise<PairRun[]> {
     const { window, runs, outcome } = await this.getLatestPosture(params, 'metadata');
     return applyOutcomeFilters(latestPairsAsOf(runs, window.toMs, window.freshnessMs), outcome);
+  }
+
+  /**
+   * Outcome breakdown of the latest-basis pairs (non-cyber-hygiene): protected
+   * / prevented / detected / silent, plus pairs with no conclusive result in
+   * the window and pairs hidden by risk acceptance. Outcome filters are ignored
+   * (the card shows the whole split); basis is always latest.
+   */
+  async getOutcomeBreakdown(params: AnalyticsQueryParams & Partial<ExtendedAnalyticsQueryParams>): Promise<OutcomeBreakdownResponse> {
+    const stripped = { ...params, result: undefined, errorCodes: undefined, errorNames: undefined, excludeCyberHygiene: true };
+    const scope = await this.resolvePostureScope(stripped);
+    const { window, runs, rawRuns } = await this.latestPostureFor(scope, 'series');
+    const pairs = latestPairsAsOf(runs, window.toMs, window.freshnessMs) as OutcomeRun[];
+    const counts = countPairOutcomes(pairs);
+    const riskAccepted = rawRuns ? Math.max(0, latestPairsAsOf(rawRuns, window.toMs, window.freshnessMs).length - pairs.length) : 0;
+    const noConclusive = await this.countNoConclusivePairs(scope, new Set(pairs.map((p) => p.pairKey)));
+    return { ...counts, noConclusive, riskAccepted, windowLabel: window.label };
+  }
+
+  /** Pairs with docs in the window but no conclusive result (not cached). */
+  private async countNoConclusivePairs(scope: PostureScope, conclusiveKeys: Set<string>): Promise<number> {
+    const filters = this.buildPostureFilters(
+      scope.window.fromMs,
+      scope.window.toMs,
+      { bool: { must_not: [this.buildConclusiveResultsFilter()] } },
+      scope.org,
+      scope.clauses,
+    );
+    if (scope.exclusionFilter) filters.push(scope.exclusionFilter);
+    const runs = await this.fetchPairRuns(filters, scope.isAnyStage, { withMetadata: false, latestOnly: true });
+    const missing = new Set<string>();
+    for (const r of runs) if (!conclusiveKeys.has(r.pairKey)) missing.add(r.pairKey);
+    return missing.size;
   }
 
   /** Defense Score, basis=latest. Same snapshot and calculation as the trend's last point. */
