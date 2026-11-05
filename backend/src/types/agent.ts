@@ -428,6 +428,8 @@ export interface ListTasksRequest {
   /** Several types at once (grouped list: "Maintenance" = update_agent + uninstall). */
   types?: TaskType[];
   search?: string;
+  /** Grouped list only: a 7-day outcome breakdown key (execute_test tasks finished in the window). */
+  breakdown?: string;
   limit?: number;
   offset?: number;
 }

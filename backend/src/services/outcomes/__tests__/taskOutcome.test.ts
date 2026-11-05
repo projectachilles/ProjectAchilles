@@ -57,6 +57,15 @@ describe('classifyTaskOutcome', () => {
   });
 });
 
+describe('TASK_BREAKDOWN_KEY_RE', () => {
+  it.each(['exit:3221225477', 'exit:-1073741819', 'stage:-1', 'stage:126', 'exit:0'])('accepts %s', (k) => {
+    expect(TASK_BREAKDOWN_KEY_RE.test(k)).toBe(true);
+  });
+  it.each(['exit:12345678901', 'stage:12345678901', 'exit:', 'exit:--1'])('rejects %s', (k) => {
+    expect(TASK_BREAKDOWN_KEY_RE.test(k)).toBe(false);
+  });
+});
+
 describe('taskBreakdown', () => {
   it.each(GOLDEN.map((c) => [c.name, c] as const))('%s: outcome matches and key is well-formed', (_n, c) => {
     const b = taskBreakdown(toTask(c));

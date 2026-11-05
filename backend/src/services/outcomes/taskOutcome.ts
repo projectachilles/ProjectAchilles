@@ -46,7 +46,7 @@ export const OFFLINE_ERROR = 'Agent went offline during execution';
 export const TIMEOUT_ERROR = 'Task exceeded execution timeout';
 
 export type TaskBreakdownKey = string;
-export const TASK_BREAKDOWN_KEY_RE = /^(exit:-?\d{1,5}|stage:\d{1,5}|edr-stopped|failed:(offline|timeout|other))$/;
+export const TASK_BREAKDOWN_KEY_RE = /^(exit:-?\d{1,10}|stage:-?\d{1,10}|edr-stopped|failed:(offline|timeout|other))$/;
 
 /** SQL for "finished in the last 7 days"; pass a table alias when joining tables that also have `status`. */
 export function outcomeWindowSql(alias?: string): string {
