@@ -8,6 +8,11 @@ const sidebars: SidebarsConfig = {
       collapsed: false,
       items: [
         'getting-started/introduction',
+        {
+          type: 'link',
+          label: 'How It Works (interactive)',
+          href: 'pathname:///how-it-works/',
+        },
         'getting-started/features',
         'getting-started/architecture',
         'getting-started/quick-start-local',
