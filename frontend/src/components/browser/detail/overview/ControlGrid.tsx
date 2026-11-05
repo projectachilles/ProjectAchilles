@@ -1,5 +1,6 @@
 import { useState } from 'react';
 import type { TestFleetStage } from '@/services/api/analytics';
+import { hosts } from '../plural';
 
 interface ControlGridProps {
   validators: Record<string, string>;
@@ -9,6 +10,14 @@ interface ControlGridProps {
 
 const NO_VALIDATOR = '';
 
+/**
+ * Validator name as results carry it: info-card headings may add a count
+ * ("Credential & Password Policy (10 controls)") that results do not.
+ */
+function validatorKey(name: string): string {
+  return name.trim().replace(/\s*\(\d+\s+controls?\)$/i, '');
+}
+
 function ControlRow({ row }: { row: TestFleetStage }) {
   const pass = row.blocked + row.detected;
   return (
@@ -17,7 +26,7 @@ function ControlRow({ row }: { row: TestFleetStage }) {
         <p className="font-mono text-xs text-foreground">{row.controlId}</p>
         {row.description && <p className="mt-0.5 text-[13px] leading-snug text-muted">{row.description}</p>}
       </div>
-      <span className="shrink-0 text-[13px] text-muted">{`${pass} / ${row.hosts} hosts`}</span>
+      <span className="shrink-0 text-[13px] text-muted">{`${pass} / ${hosts(row.hosts)}`}</span>
     </li>
   );
 }
@@ -26,12 +35,18 @@ function ControlRow({ row }: { row: TestFleetStage }) {
  * Cyber-hygiene bundles: one collapsed group per validator, with control rows
  * (pass share across hosts) once fleet data exists.
  */
-export default function ControlGrid({ validators, fleet = [] }: ControlGridProps) {
+export default function ControlGrid({ validators: rawValidators, fleet = [] }: ControlGridProps) {
   const [open, setOpen] = useState<Record<string, boolean>>({});
+
+  const validators: Record<string, string> = {};
+  for (const [name, description] of Object.entries(rawValidators)) {
+    const key = validatorKey(name);
+    if (key && !validators[key]) validators[key] = description;
+  }
 
   const byValidator = new Map<string, TestFleetStage[]>();
   for (const row of fleet) {
-    const key = row.validator ?? NO_VALIDATOR;
+    const key = row.validator ? validatorKey(row.validator) : NO_VALIDATOR;
     byValidator.set(key, [...(byValidator.get(key) ?? []), row]);
   }
   const flat = byValidator.get(NO_VALIDATOR) ?? [];
@@ -40,7 +55,9 @@ export default function ControlGrid({ validators, fleet = [] }: ControlGridProps
 
   return (
     <section>
-      <h2 className="mb-2 text-[11px] font-semibold uppercase tracking-[0.06em] text-muted">Validators</h2>
+      <h2 className="mb-2 text-[11px] font-semibold uppercase tracking-[0.06em] text-muted">
+        {names.length > 0 ? 'Validators' : 'Controls'}
+      </h2>
       {flat.length > 0 && (
         <ul className="mb-2 divide-y divide-border rounded-lg border border-border bg-surface">
           {flat.map((r) => <ControlRow key={r.controlId} row={r} />)}

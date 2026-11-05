@@ -65,10 +65,12 @@ function Pill({ data }: { data: StagePillData }) {
 export default function StageChain({ stages, pills, budgetsSec }: StageChainProps) {
   const ordered = [...stages].sort((a, b) => a.stageId - b.stageId);
   const cols = COLS[stageColumns(ordered.length)];
+  // A lone stage keeps its card full width at every container size.
+  const small = ordered.length > 1 ? '@sm:grid-cols-2' : '';
 
   return (
     <div className="@container">
-      <ol aria-label="Stages" className={`grid grid-cols-1 gap-2 @sm:grid-cols-2 ${cols}`}>
+      <ol aria-label="Stages" className={`grid grid-cols-1 gap-2 ${small} ${cols}`}>
         {ordered.map((stage) => {
           const techniques = stage.techniques?.length ? stage.techniques : [stage.technique];
           const pill = pills?.[stage.stageId];

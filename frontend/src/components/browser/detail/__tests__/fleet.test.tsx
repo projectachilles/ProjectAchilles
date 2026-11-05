@@ -57,7 +57,8 @@ describe('Overview fleet', () => {
     renderTab(make());
     expect(await screen.findByText('9 blocked · 2 detected · 1 through')).toBeInTheDocument();
     expect(screen.getByText('chain stopped on 10 of 12 hosts')).toBeInTheDocument();
-    expect(screen.getByRole('link', { name: /Analytics/ })).toHaveAttribute('href', '/analytics?tests=My%20Test');
+    expect(screen.getByRole('heading', { name: 'On your fleet · 90 d' })).toBeInTheDocument();
+    expect(screen.getByRole('link', { name: /Analytics/ })).toHaveAttribute('href', '/analytics?tests=My%20Test&date=90d');
     expect(screen.queryByText(/stopped before any stage ran/)).toBeNull();
   });
   it('shows the stopped-before-stage line only when > 0, multi-stage only', async () => {
@@ -65,17 +66,25 @@ describe('Overview fleet', () => {
     renderTab(make());
     expect(await screen.findByText('2 hosts stopped before any stage ran (EDR killed / blocked at launch)')).toBeInTheDocument();
   });
-  it('not shown for standalone tests', async () => {
+  it('says "1 host" for a single host', async () => {
+    getTestFleet.mockResolvedValue(resp({ stoppedBeforeStage: 1, headline: { hostCount: 1, pairCount: 1, stoppedCount: 1, lastRunAt: null } }));
+    renderTab(make());
+    expect(await screen.findByText('1 host stopped before any stage ran (EDR killed / blocked at launch)')).toBeInTheDocument();
+    expect(screen.getByText('chain stopped on 1 of 1 host')).toBeInTheDocument();
+  });
+  it('not shown for standalone tests, which say "stopped on" without "chain"', async () => {
     getTestFleet.mockResolvedValue(resp({ stoppedBeforeStage: 2 }));
     renderTab(make({ isMultiStage: false, stages: [] }));
-    await screen.findByText('chain stopped on 10 of 12 hosts');
+    await screen.findByText('stopped on 10 of 12 hosts');
+    expect(screen.queryByText(/chain stopped/)).toBeNull();
     expect(screen.queryByText(/stopped before any stage ran/)).toBeNull();
   });
   it('lists earlier stages', async () => {
     getTestFleet.mockResolvedValue(resp({}, [fs({}), fs({ controlId: 'T9999', blocked: 1, detected: 0, through: 0 })]));
     renderTab(make());
     expect(await screen.findByText('T9999')).toBeInTheDocument();
-    expect(screen.getByText('Earlier stages')).toBeInTheDocument();
+    expect(screen.getByText('Other stage results')).toBeInTheDocument();
+    expect(screen.queryByText('Earlier stages')).toBeNull();
   });
   it('hides FleetPanel when pairCount is 0', async () => {
     getTestFleet.mockResolvedValue(resp({ headline: { hostCount: 0, pairCount: 0, stoppedCount: 0, lastRunAt: null } }, []));
@@ -96,6 +105,27 @@ describe('Overview fleet', () => {
     expect(screen.getByText('CH-DEF-001')).toBeInTheDocument();
     expect(screen.getByText('8 / 12 hosts')).toBeInTheDocument();
     expect(screen.getByText('RTP on')).toBeInTheDocument();
+  });
+  it('one validator group when the heading carries a "(N controls)" count', async () => {
+    getTestFleet.mockResolvedValue(resp({}, [
+      fs({ controlId: 'CH-CRD-001', validator: 'Credential & Password Policy', blocked: 1, detected: 0, through: 0, hosts: 1 }),
+    ]));
+    renderTab(make({
+      category: 'cyber-hygiene', isMultiStage: false, stages: [],
+      validatorDescriptions: { 'Credential & Password Policy (10 controls)': 'Password checks' },
+    } as Partial<TestDetails>));
+    expect(await screen.findByText('CH-CRD-001')).toBeInTheDocument();
+    expect(screen.getAllByRole('button', { name: /Credential & Password Policy/ })).toHaveLength(1);
+    expect(screen.queryByText(/\(10 controls\)/)).toBeNull();
+    expect(screen.getByText('Password checks')).toBeInTheDocument();
+    expect(screen.getByText('1 / 1 host')).toBeInTheDocument();
+  });
+  it('heads flat control rows "Controls"', async () => {
+    getTestFleet.mockResolvedValue(resp({}, [fs({ controlId: 'CH-X-001' })]));
+    renderTab(make({ category: 'cyber-hygiene', isMultiStage: false, stages: [] } as Partial<TestDetails>));
+    expect(await screen.findByText('CH-X-001')).toBeInTheDocument();
+    expect(screen.getByRole('heading', { name: 'Controls' })).toBeInTheDocument();
+    expect(screen.queryByRole('heading', { name: 'Validators' })).toBeNull();
   });
   it('capability false: no request, no panel', async () => {
     caps.testFleet = false;

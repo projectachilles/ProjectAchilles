@@ -1,10 +1,12 @@
 import { describe, it, expect, vi } from 'vitest';
-import { render, screen } from '@testing-library/react';
+import { render, screen, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import type { TestDetails, TestOverview } from '@/types/test';
 import type { BuildInfoState } from '../useBuildInfo';
 
 vi.mock('../overview/DeployPanel', () => ({ default: () => <div>deploy-panel</div> }));
+// No fleet support: keeps the suite off the network (useTestFleet never fetches).
+vi.mock('@/hooks/useCapabilities', () => ({ useCapabilities: () => ({ loaded: true, testFleet: false }) }));
 
 const { default: OverviewTab } = await import('../overview/OverviewTab');
 
@@ -133,6 +135,46 @@ describe('OverviewTab panels', () => {
     renderTab(make({ isMultiStage: false, stages: [], overview: {} }));
     expect(screen.getByRole('heading', { name: 'What it does' })).toBeInTheDocument();
     expect(screen.getByText('T1486')).toBeInTheDocument();
+  });
+
+  it('shows test techniques no stage card shows in a Techniques row', () => {
+    renderTab(make({ techniques: ['T1486', 'T1003.001'] }));
+    const row = screen.getByRole('region', { name: 'Techniques' });
+    expect(within(row).getByText('T1003.001')).toBeInTheDocument();
+    expect(within(row).queryByText('T1486')).not.toBeInTheDocument();
+    expect(screen.getAllByText('T1486')).toHaveLength(1);
+  });
+
+  it('hides the Techniques row when every technique is on a stage card', () => {
+    renderTab(make({ techniques: ['T1486', 'T1059'] }));
+    expect(screen.queryByRole('region', { name: 'Techniques' })).not.toBeInTheDocument();
+  });
+
+  it('shows all test techniques for a cyber-hygiene ControlGrid', () => {
+    renderTab(make({
+      category: 'cyber-hygiene', isMultiStage: false, stages: [], techniques: ['T1110', 'T1562.001'],
+      validatorDescriptions: { Defender: 'Checks Defender settings' },
+    }));
+    const row = screen.getByRole('region', { name: 'Techniques' });
+    expect(within(row).getByText('T1110')).toBeInTheDocument();
+    expect(within(row).getByText('T1562.001')).toBeInTheDocument();
+  });
+
+  it('does not add a Techniques row next to the What it does card', () => {
+    renderTab(make({ isMultiStage: false, stages: [], overview: {} }));
+    expect(screen.queryByRole('region', { name: 'Techniques' })).not.toBeInTheDocument();
+  });
+
+  it('gives a lone Outcomes or Safety panel the full width', () => {
+    renderTab(make({ overview: { safety: ['Only safety'] } }));
+    const grid = screen.getByRole('heading', { name: 'Safety' }).closest('section')!.parentElement!;
+    expect(grid.className).not.toContain('md:grid-cols-2');
+  });
+
+  it('puts Outcomes and Safety side by side when both render', () => {
+    renderTab(make());
+    const grid = screen.getByRole('heading', { name: 'Safety' }).closest('section')!.parentElement!;
+    expect(grid.className).toContain('md:grid-cols-2');
   });
 
   it('does not link a javascript: primary source', () => {

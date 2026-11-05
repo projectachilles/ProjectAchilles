@@ -28,6 +28,17 @@ describe('StageChain', () => {
     expect(list.className).toContain('@xl:grid-cols-5');
   });
 
+  it('keeps a single stage card full width', () => {
+    render(<StageChain stages={stages(1)} />);
+    const list = screen.getByRole('list', { name: 'Stages' });
+    expect(list.className).not.toContain('@sm:grid-cols-2');
+  });
+
+  it('uses two columns on small containers for several stages', () => {
+    render(<StageChain stages={stages(3)} />);
+    expect(screen.getByRole('list', { name: 'Stages' }).className).toContain('@sm:grid-cols-2');
+  });
+
   it('falls back to the single technique when techniques is absent', () => {
     render(<StageChain stages={[{ stageId: 1, technique: 'T1055', name: 'Inject', fileName: 'stage-T1055.go' }]} />);
     expect(screen.getByText('T1055')).toBeInTheDocument();
