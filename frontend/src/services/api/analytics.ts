@@ -352,7 +352,22 @@ export interface ExtendedFilterParams {
   scoringMode?: 'all-stages' | 'any-stage';
 }
 
+/** Verdict filter for the executions table (latest-basis outcome breakdown rows). */
+export type ExecutionVerdict = 'protected' | 'prevented' | 'detected' | 'silent';
+
+export interface OutcomeBreakdown {
+  pairCount: number;
+  protected: number;
+  prevented: number;
+  detected: number;
+  silent: number;
+  noConclusive: number;
+  riskAccepted: number;
+  windowLabel: string;
+}
+
 export interface PaginatedExecutionsParams extends ExtendedFilterParams {
+  verdict?: ExecutionVerdict;
   page?: number;
   pageSize?: number;
   sortField?: string;
@@ -697,6 +712,13 @@ export const analyticsApi = {
   /** Always latest-result posture; takes every filter-bar param. */
   async getChainDepth(params?: ExtendedFilterParams & { basis?: 'latest' | 'executions' }): Promise<ChainDepthResponse> {
     const response = await apiClient.get('/analytics/chain-depth', { params });
+    return response.data;
+  },
+
+  async getOutcomeBreakdown(
+    params?: ExtendedFilterParams & { scoringMode?: 'all-stages' | 'any-stage'; basis?: 'latest' },
+  ): Promise<OutcomeBreakdown> {
+    const response = await apiClient.get('/analytics/outcome-breakdown', { params });
     return response.data;
   },
 

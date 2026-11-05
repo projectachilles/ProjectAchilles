@@ -20,6 +20,8 @@ export interface Capabilities {
   alerting: boolean;
   /** Random timing for one-off ("Once") schedules (backend-only; backend-serverless runs them at the fixed time) */
   randomizedOnce: boolean;
+  /** Latest-basis outcome breakdown (/api/analytics/outcome-breakdown; backend-only; backend-serverless has none) */
+  outcomeBreakdown: boolean;
   platform: string;
   /** false until /api/capabilities has resolved (or failed); values are defaults before then */
   loaded?: boolean;
@@ -42,6 +44,7 @@ const DEFAULT_CAPABILITIES: Capabilities = {
   // the flag still has it.
   alerting: true,
   randomizedOnce: false,
+  outcomeBreakdown: false,
   platform: 'docker',
 };
 

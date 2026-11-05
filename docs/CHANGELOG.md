@@ -11,6 +11,9 @@ This project uses two version streams:
 
 ## [Unreleased]
 
+### Changed
+- **The Analytics dashboard's "Results by error type" card is now "Outcome breakdown".** It splits the latest result of each test and host into Protected, Prevented (the EDR stopped it), Detected only and Silent, so you see how deep detection goes rather than which errors occurred. Clicking an outcome in the legend opens the Executions tab filtered to that outcome, with a chip to remove the filter. Cyber-hygiene bundles are left out. Backends that don't offer the endpoint keep the old card.
+
 ### Fixed
 - **A failed test or agent build now says why, even when the build script wrote its error to standard output.** The build error only showed standard error, so a `build_all.sh` that printed its failure to standard output (often bash: an error printed inside `$(...)` just before `set -e` exits) showed only `Command failed: bash …/build_all.sh`, printed twice. The error now names the exit code (or the signal, for a build that ran into its time limit), shows the last 40 lines of standard error, or of standard output when standard error is empty, and drops terminal colour codes.
 
