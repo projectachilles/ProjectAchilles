@@ -79,13 +79,13 @@ The agent sends failure context for all error types: binary download failures, S
 
 ## The Tasks Page
 
-The header shows a one-line summary of the last 7 days: the number of runs, how many were **protected**, how many are **unprotected**, how many had **no verdict**, and so on. The numbers use the same outcome rules as the task rows.
+The header shows a one-line summary of the last 7 days: for example `last 7 days · 38 protected · 36 unprotected · 16 no verdict · 0 in progress`. The numbers use the same outcome rules as the task rows.
 
 ### Outcome breakdown
 
-**Protected** and **No verdict** open a menu that lists the exit codes behind the number, for example `126 Quarantined` or `259 Execution timeout`, with a bar and a count for each. No verdict is split into groups (the test did not run, the run failed, the test reported an error, inconclusive).
+**Protected** and **No verdict** open a menu that lists the exit codes behind the number, for example `126 ExecutionPrevented` or `259 StillActive` (names come from the exit-code table), with a bar and a count for each. Runs that failed without an exit code get their own rows, such as **Agent offline** and **Execution timeout**. No verdict is split into groups (the test did not run, the run failed, the test reported an error, inconclusive).
 
-Choosing a row filters the task list to that outcome. A chip next to the search box names the filter and its **x** clears it. Press **Esc** to close the menu without choosing. The filter covers security-test tasks from the last 7 days, the same window as the numbers, so the list count matches the number you clicked.
+Choosing a row filters the task list to that outcome. A chip next to the search box names the filter and its **x** clears it. Press **Esc** to close the menu without choosing. The filter covers security-test tasks from the last 7 days, the same window as the numbers, so the list shows exactly the tasks counted in that row. The pager counts batches, so its total can be lower than the number you clicked.
 
 ### Schedules pill
 

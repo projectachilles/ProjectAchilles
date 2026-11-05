@@ -123,13 +123,13 @@ Breakdown keys:
 `<code>` is an integer of up to 10 digits and may be negative (`exit:-1`).
 
 The metrics response (`GET /api/agent/admin/metrics`) carries the same keys in
-`task_outcomes_7d.breakdown`, one row per outcome:
+`task_outcomes_7d.breakdown`, one row per breakdown key (several rows can share an outcome):
 
 ```json
-{ "key": "exit:126", "outcome": "protected", "code": 126, "name": "Quarantined", "count": 12 }
+{ "key": "exit:126", "outcome": "protected", "code": 126, "name": "ExecutionPrevented", "count": 12 }
 ```
 
-Pass a row's `key` back as `breakdown` to list the tasks behind its `count`.
+Pass a row's `key` back as `breakdown` to list the tasks behind its `count`. The type-pill counts (`type_counts`) ignore `breakdown`.
 
 ### Retry a Task
 
