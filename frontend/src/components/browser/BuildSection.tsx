@@ -3,7 +3,7 @@ import { put } from '@vercel/blob/client';
 import { testsApi } from '@/services/api/tests';
 import { useCapabilities } from '@/hooks/useCapabilities';
 import type { EmbedDependency } from '@/types/test';
-import { useBuildInfo } from '@/components/browser/detail/useBuildInfo';
+import { useBuildInfo, type BuildInfoState } from '@/components/browser/detail/useBuildInfo';
 import { embedDisplayName } from '@/components/browser/detail/testTabs';
 import { Badge } from '@/components/shared/ui/Badge';
 import { Button } from '@/components/shared/ui/Button';
@@ -11,6 +11,8 @@ import { Loader2, Download, RotateCw, Trash2, Upload, Check, X, Wrench } from 'l
 
 interface BuildSectionProps {
   uuid: string;
+  /** Build state owned by the page; omit to let the section fetch its own. */
+  build?: BuildInfoState;
 }
 
 function formatBytes(bytes: number): string {
@@ -27,8 +29,10 @@ function formatDate(iso: string): string {
   });
 }
 
-export default function BuildSection({ uuid }: BuildSectionProps) {
-  const { buildInfo, setBuildInfo, loading: infoLoading, download: handleDownload } = useBuildInfo(uuid);
+export default function BuildSection({ uuid, build }: BuildSectionProps) {
+  // Hooks stay unconditional: the own instance is inert when state is shared.
+  const own = useBuildInfo(build ? null : uuid);
+  const { buildInfo, setBuildInfo, loading: infoLoading, download: handleDownload } = build ?? own;
   const [deps, setDeps] = useState<EmbedDependency[]>([]);
   const [depsLoadedFor, setDepsLoadedFor] = useState<string | null>(null);
   const loading = infoLoading || depsLoadedFor !== uuid;
