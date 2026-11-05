@@ -8,10 +8,9 @@ import {
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
 import { breakdownGroups } from '@/pages/endpoints/utils/taskTiles';
-import type { TaskTiles } from '@/pages/endpoints/utils/taskTiles';
+import type { BreakdownTile, TaskTiles } from '@/pages/endpoints/utils/taskTiles';
 import type { TaskBreakdownRow, TaskOutcomes7d } from '@/types/agent';
 
-type BreakdownTile = 'protected' | 'no-verdict';
 
 interface TaskStatLineProps {
   tiles: TaskTiles;
@@ -19,7 +18,7 @@ interface TaskStatLineProps {
   onSelectBreakdown?: (row: TaskBreakdownRow, tile: BreakdownTile) => void;
 }
 
-/** One-line 7-day summary for the Tasks page header; Protected / No verdict open the exit-code breakdown. */
+/** One-line 7-day summary for the Tasks page header; Protected / Unprotected / No verdict open the exit-code breakdown. */
 export function TaskStatLine({ tiles, outcomes, onSelectBreakdown }: TaskStatLineProps) {
   return (
     <span className="inline-flex flex-wrap items-center gap-x-2 gap-y-1">
@@ -30,7 +29,7 @@ export function TaskStatLine({ tiles, outcomes, onSelectBreakdown }: TaskStatLin
           <span className={`font-mono ${tile.cls}`} title={tile.sub}>{tile.value}</span>
         );
         const kind: BreakdownTile | null =
-          tile.id === 'protected' ? 'protected' : tile.id === 'no-verdict' ? 'no-verdict' : null;
+          tile.id === 'protected' || tile.id === 'unprotected' || tile.id === 'no-verdict' ? tile.id : null;
         const groups = kind && outcomes ? breakdownGroups(outcomes, kind) : null;
         const n = Number(tile.value);
         const interactive = kind && groups && n > 0;
@@ -63,7 +62,7 @@ export function TaskStatLine({ tiles, outcomes, onSelectBreakdown }: TaskStatLin
                           <span className="flex-1 truncate">{r.name}</span>
                           <span className="h-1.5 w-16 rounded-full bg-border" aria-hidden>
                             <span
-                              className={`block h-full rounded-full ${tile.id === 'protected' ? 'bg-accent' : r.outcome === 'inconclusive' ? 'bg-faint' : 'bg-warning'}`}
+                              className={`block h-full rounded-full ${barClass(kind, r.outcome)}`}
                               style={{ width: `${(r.count / max) * 100}%` }}
                             />
                           </span>
@@ -86,4 +85,10 @@ export function TaskStatLine({ tiles, outcomes, onSelectBreakdown }: TaskStatLin
       })}
     </span>
   );
+}
+
+function barClass(tile: BreakdownTile, outcome: TaskBreakdownRow['outcome']): string {
+  if (tile === 'protected') return 'bg-accent';
+  if (tile === 'unprotected') return 'bg-danger';
+  return outcome === 'inconclusive' ? 'bg-faint' : 'bg-warning';
 }

@@ -19,7 +19,8 @@ import { Toast } from '@/components/shared/ui/Alert';
 import { useHasPermission } from '@/hooks/useAppRole';
 import { fieldControlClass } from '@/components/shared/ui/formStyles';
 import { cn } from '@/lib/utils';
-import { taskTiles } from './utils/taskTiles';
+import { taskTiles, BREAKDOWN_TILE_LABEL } from './utils/taskTiles';
+import type { BreakdownTile } from './utils/taskTiles';
 import { DEFAULT_TASK_KIND, TASK_KINDS, kindCount, typesForKind, type TaskKind } from './utils/taskKinds';
 import { pillClass } from '@/components/shared/ui/pillStyles';
 
@@ -209,12 +210,13 @@ export default function TasksPage() {
     setPage(1);
   }
 
-  function handleSelectBreakdown(row: TaskBreakdownRow, tile: 'protected' | 'no-verdict'): void {
+  function handleSelectBreakdown(row: TaskBreakdownRow, tile: BreakdownTile): void {
     if (view !== 'tasks') navigate(TASKS_SECTION_PATHS.runs);
     setTaskKind('tests');
     setBreakdownFilter({
       key: row.key,
-      label: `${tile === 'protected' ? 'Protected' : 'No verdict'} › ${row.name} · last 7 days`,
+      // Exit-101 rows are already named "Unprotected…"; don't repeat the tile.
+      label: `${row.name.startsWith(BREAKDOWN_TILE_LABEL[tile]) ? row.name : `${BREAKDOWN_TILE_LABEL[tile]} › ${row.name}`} · last 7 days`,
     });
     setPage(1);
   }
