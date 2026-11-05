@@ -16,9 +16,11 @@ import {
   summarizePairs,
 } from './posture.js';
 import type { OutcomeFilters, PairRun, PostureWindow } from './posture.js';
+import type { OutcomeRun } from './outcomeBreakdown.js';
+import { countPairOutcomes } from './outcomeBreakdown.js';
 import { TtlPromiseCache } from './postureCache.js';
 import type { TtlCacheOptions } from './postureCache.js';
-import { EDR_VENDOR_KEYS, edrDetectedTerms, edrFlagField, edrFlagSourceFields } from '../outcomes/vendors.js';
+import { EDR_VENDOR_KEYS, edrDetectedTerms, edrFlagField, edrFlagSourceFields, edrPreventedTerms } from '../outcomes/vendors.js';
 import type { EdrGroupRollup, EdrResultFlags } from '../outcomes/vendors.js';
 import type {
   ExecutionActivityResponse,
@@ -48,6 +50,7 @@ import type {
   TestResultItem,
   ChainDepthBucket,
   ChainDepthResponse,
+  OutcomeBreakdownResponse,
   DefenseScoreByHostItem,
   CanonicalTestCountResponse,
   ErrorRateResponse,
@@ -56,6 +59,7 @@ import type {
   CategoryType,
   ExecutionGroup,
   GroupedPaginatedResponse,
+  ExecutionVerdict,
 } from '../../types/analytics.js';
 import { orgName, orgShortName } from './orgNames.js';
 import { createAchillesIndex } from '../shared/esIndexCreate.js';
@@ -182,12 +186,17 @@ interface PostureShapeSpec extends PairFetchOptions {
   withRaw: boolean;
 }
 
-type PostureShape = 'series' | 'metadata';
+type PostureShape = 'series' | 'metadata' | 'breakdown';
 
-/** The two snapshot shapes: tile + trend share 'series'; the four breakdowns share 'metadata'. */
+/**
+ * The snapshot shapes: tile + trend share 'series'; the four breakdowns share
+ * 'metadata'; the outcome breakdown card uses 'breakdown' (latest run per pair,
+ * no lookback, no metadata, with rawRuns for risk-accepted pairs).
+ */
 const POSTURE_SHAPES: Record<PostureShape, PostureShapeSpec> = {
   series: { lookback: true, withMetadata: false, withRaw: true, latestOnly: false },
   metadata: { lookback: false, withMetadata: true, withRaw: false, latestOnly: true },
+  breakdown: { lookback: false, withMetadata: false, withRaw: true, latestOnly: true },
 };
 
 /**
@@ -274,6 +283,8 @@ export const TEST_KEY_SCRIPT = {
 interface TechniqueScopeOption {
   /** Leave out stageless EDR docs (killed agent or launch block); the name predates launch blocks. */
   excludeEdrTerminated?: boolean;
+  /** Leave out cyber-hygiene docs (outcome breakdown: a configuration check is not an attack outcome). */
+  excludeCyberHygiene?: boolean;
 }
 
 /** Exit code for a test binary blocked before it ran (an EDR/AV, or an app-control rule such as an ASR prevalence rule). */
@@ -1250,7 +1261,7 @@ export class ElasticsearchService {
 
   /** Per-doc pairs: the latest doc per (oid, test_uuid, hostname[, UTC day]). */
   private async fetchDocPairRuns(filters: any[], opts: PairFetchOptions): Promise<PairRun[]> {
-    const runs: PairRun[] = [];
+    const runs: OutcomeRun[] = [];
     const uuidOf: string[] = []; // test_uuid of runs[i], for the metadata join
     await this.paginateComposite(
       filters,
@@ -1268,7 +1279,7 @@ export class ElasticsearchService {
             metrics: [
               'routing.event_time',
               'f0rtika.is_protected',
-              ...edrFlagSourceFields(['detected']),
+              ...edrFlagSourceFields(['detected', 'prevented']),
               'event.ERROR',
               'f0rtika.error_name',
             ].map(field => ({ field })),
@@ -1293,6 +1304,7 @@ export class ElasticsearchService {
           ts,
           protected: isProtected || edrFlagSourceFields(['detected']).some((f) => esBool(m[f])),
           strictProtected: isProtected,
+          edrPrevented: edrFlagSourceFields(['prevented']).some((f) => esBool(m[f])),
           errorCodes: codes,
           errorNames: errorNamesFor(codes, typeof m['f0rtika.error_name'] === 'string' ? [m['f0rtika.error_name']] : []),
           hostname,
@@ -1390,6 +1402,18 @@ export class ElasticsearchService {
           },
           aggs: { stages: { terms: { field: 'f0rtika.control_validator', size: this.CHAIN_STAGE_TERMS } } },
         },
+        // Outcome breakdown: an EDR prevention flag on any stage of the run.
+        // Detected-any AND prevented-any on the same doc, like the per-doc verdict rule.
+        prevented: {
+          filter: {
+            bool: {
+              filter: [
+                { bool: { should: edrDetectedTerms(), minimum_should_match: 1 } },
+                { bool: { should: edrPreventedTerms(), minimum_should_match: 1 } },
+              ],
+            },
+          },
+        },
         codes: { terms: { field: 'event.ERROR', size: 10 } },
         names: { terms: { field: 'f0rtika.error_name', size: 20 } },
         // Chain depth: a kill run has no stage to bucket at.
@@ -1405,11 +1429,12 @@ export class ElasticsearchService {
           .filter(n => Number.isFinite(n))
           .sort((x, y) => x - y);
         const storedNames = ((b.names?.buckets ?? []) as any[]).map(n => String(n.key));
-        const run: ChainRun = {
+        const run: ChainRun & OutcomeRun = {
           pairKey: bundlePairKey(b.key.oid, bundleId, hostname),
           ts,
           protected: (b.combined?.doc_count ?? 0) > 0,
           strictProtected: (b.strict?.doc_count ?? 0) > 0,
+          edrPrevented: (b.prevented?.doc_count ?? 0) > 0,
           errorCodes: codes,
           errorNames: errorNamesFor(codes, storedNames),
           hostname,
@@ -1554,6 +1579,8 @@ export class ElasticsearchService {
     const outcome = this.parseOutcomeFilters(params);
     const isAnyStage = params.scoringMode === 'any-stage';
     const clauses = this.buildFilterBarClauses(params, { excludeOutcome: true });
+    // Attack tests only (outcome breakdown card).
+    if (params.excludeCyberHygiene) clauses.push({ bool: { must_not: [{ term: { 'f0rtika.category': 'cyber-hygiene' } }] } });
     // Technique views: an EDR-killed run has unknown stages and an EDR
     // launch-blocked run ran none, so no technique is credited.
     if (params.excludeEdrTerminated) clauses.push(NOT_STAGELESS);
@@ -1578,6 +1605,7 @@ export class ElasticsearchService {
         exclusion: exclusionFilter,
         // Only when set, so the tile's cache key is unchanged; the clause alone would differ too, this keeps it explicit.
         ...(params.excludeEdrTerminated ? { excludeEdrTerminated: true } : {}),
+        ...(params.excludeCyberHygiene ? { excludeCyberHygiene: true } : {}),
       },
     };
   }
@@ -1693,6 +1721,39 @@ export class ElasticsearchService {
   async getLatestPairs(params: AnalyticsQueryParams & Partial<ExtendedAnalyticsQueryParams> & TechniqueScopeOption): Promise<PairRun[]> {
     const { window, runs, outcome } = await this.getLatestPosture(params, 'metadata');
     return applyOutcomeFilters(latestPairsAsOf(runs, window.toMs, window.freshnessMs), outcome);
+  }
+
+  /**
+   * Outcome breakdown of the latest-basis pairs (non-cyber-hygiene): protected
+   * / prevented / detected / silent, plus pairs with no conclusive result in
+   * the window and pairs hidden by risk acceptance. Outcome filters are ignored
+   * (the card shows the whole split); basis is always latest.
+   */
+  async getOutcomeBreakdown(params: AnalyticsQueryParams & Partial<ExtendedAnalyticsQueryParams>): Promise<OutcomeBreakdownResponse> {
+    const stripped = { ...params, result: undefined, errorCodes: undefined, errorNames: undefined, excludeCyberHygiene: true };
+    const scope = await this.resolvePostureScope(stripped);
+    const { window, runs, rawRuns } = await this.latestPostureFor(scope, 'breakdown');
+    const pairs = latestPairsAsOf(runs, window.toMs, window.freshnessMs) as OutcomeRun[];
+    const counts = countPairOutcomes(pairs);
+    const riskAccepted = rawRuns ? Math.max(0, latestPairsAsOf(rawRuns, window.toMs, window.freshnessMs).length - pairs.length) : 0;
+    const noConclusive = await this.countNoConclusivePairs(scope, new Set(pairs.map((p) => p.pairKey)));
+    return { ...counts, noConclusive, riskAccepted, windowLabel: window.label };
+  }
+
+  /** Pairs with docs in the window but no conclusive result (not cached). */
+  private async countNoConclusivePairs(scope: PostureScope, conclusiveKeys: Set<string>): Promise<number> {
+    const filters = this.buildPostureFilters(
+      scope.window.fromMs,
+      scope.window.toMs,
+      { bool: { must_not: [this.buildConclusiveResultsFilter()] } },
+      scope.org,
+      scope.clauses,
+    );
+    if (scope.exclusionFilter) filters.push(scope.exclusionFilter);
+    const runs = await this.fetchPairRuns(filters, scope.isAnyStage, { withMetadata: false, latestOnly: true });
+    const missing = new Set<string>();
+    for (const r of runs) if (!conclusiveKeys.has(r.pairKey)) missing.add(r.pairKey);
+    return missing.size;
   }
 
   /** Defense Score, basis=latest. Same snapshot and calculation as the trend's last point. */
@@ -2426,7 +2487,7 @@ export class ElasticsearchService {
    * Build all extended filters (base + filter-bar clauses). Public: the
    * execution report reuses it so its scope is exactly the tab's.
    */
-  buildExtendedFilters(params: Partial<ExtendedAnalyticsQueryParams>): any[] {
+  buildExtendedFilters(params: Partial<ExtendedAnalyticsQueryParams> & { verdict?: ExecutionVerdict }): any[] {
     const filters: any[] = [
       this.buildTestDataFilter(),
       this.buildDateFilter(params.from, params.to)
@@ -2437,7 +2498,36 @@ export class ElasticsearchService {
 
     filters.push(...this.buildFilterBarClauses(params));
 
+    if (params.verdict) {
+      // Same population as the Outcome breakdown card: attack tests only.
+      filters.push(
+        this.buildConclusiveResultsFilter(),
+        { bool: { must_not: [{ term: { 'f0rtika.category': 'cyber-hygiene' } }] } },
+        ...this.buildVerdictClauses(params.verdict),
+      );
+    }
+
     return filters;
+  }
+
+  /**
+   * Per-document clauses for the executions `verdict` filter (the Outcome
+   * breakdown card's slices). Callers also require the conclusive codes.
+   */
+  private buildVerdictClauses(verdict: ExecutionVerdict): any[] {
+    const isProtected = { term: { 'f0rtika.is_protected': true } };
+    const notProtected = { bool: { must_not: [isProtected] } };
+    const detected = { bool: { should: edrDetectedTerms(), minimum_should_match: 1 } };
+    switch (verdict) {
+      case 'protected':
+        return [isProtected];
+      case 'prevented':
+        return [notProtected, detected, { bool: { should: edrPreventedTerms(), minimum_should_match: 1 } }];
+      case 'detected':
+        return [notProtected, detected, { bool: { must_not: edrPreventedTerms() } }];
+      case 'silent':
+        return [notProtected, { bool: { must_not: edrDetectedTerms() } }];
+    }
   }
 
   // ============================================

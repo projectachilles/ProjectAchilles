@@ -12,6 +12,7 @@ This project uses two version streams:
 ## [Unreleased]
 
 ### Changed
+- **The Analytics dashboard's "Results by error type" card is now "Outcome breakdown".** It splits the latest result of each test and host into Protected, Prevented (the EDR stopped it), Detected only and Silent, so you see how deep detection goes rather than which errors occurred. Clicking an outcome in the legend opens the Executions tab filtered to that outcome, with a chip to remove the filter. Cyber-hygiene bundles are left out. Backends that don't offer the endpoint keep the old card.
 - **The Tasks page shows the 7-day numbers as one line, lets you see what is behind them, and gives the list and detail the whole window.** The tiles became a line of text. **Protected** and **No verdict** open a menu of the exit codes behind the number, and choosing a row filters the task list to it (`breakdown` on `GET /api/agent/admin/tasks/grouped`; the metrics response gains `task_outcomes_7d.breakdown`). Schedules moved from a block above the filter bar into a **Schedules** pill. On a large screen the task list and the selected task's detail now fill the rest of the window and scroll independently, with pagination pinned under the list.
 
 ### Fixed

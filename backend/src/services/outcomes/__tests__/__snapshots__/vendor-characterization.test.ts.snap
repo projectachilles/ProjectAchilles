@@ -1212,6 +1212,68 @@ exports[`EDR vendor characterization (pre-registry refactor) > fetchBundlePairRu
               "size": 20,
             },
           },
+          "prevented": {
+            "filter": {
+              "bool": {
+                "filter": [
+                  {
+                    "bool": {
+                      "minimum_should_match": 1,
+                      "should": [
+                        {
+                          "term": {
+                            "f0rtika.crowdstrike_detected": true,
+                          },
+                        },
+                        {
+                          "term": {
+                            "f0rtika.defender_detected": true,
+                          },
+                        },
+                        {
+                          "term": {
+                            "f0rtika.sentinelone_detected": true,
+                          },
+                        },
+                        {
+                          "term": {
+                            "f0rtika.sophos_detected": true,
+                          },
+                        },
+                      ],
+                    },
+                  },
+                  {
+                    "bool": {
+                      "minimum_should_match": 1,
+                      "should": [
+                        {
+                          "term": {
+                            "f0rtika.crowdstrike_prevented": true,
+                          },
+                        },
+                        {
+                          "term": {
+                            "f0rtika.defender_prevented": true,
+                          },
+                        },
+                        {
+                          "term": {
+                            "f0rtika.sentinelone_prevented": true,
+                          },
+                        },
+                        {
+                          "term": {
+                            "f0rtika.sophos_prevented": true,
+                          },
+                        },
+                      ],
+                    },
+                  },
+                ],
+              },
+            },
+          },
           "strict": {
             "aggs": {
               "stages": {
@@ -1294,13 +1356,25 @@ exports[`EDR vendor characterization (pre-registry refactor) > fetchDocPairRuns 
                   "field": "f0rtika.defender_detected",
                 },
                 {
+                  "field": "f0rtika.defender_prevented",
+                },
+                {
                   "field": "f0rtika.crowdstrike_detected",
+                },
+                {
+                  "field": "f0rtika.crowdstrike_prevented",
                 },
                 {
                   "field": "f0rtika.sentinelone_detected",
                 },
                 {
+                  "field": "f0rtika.sentinelone_prevented",
+                },
+                {
                   "field": "f0rtika.sophos_detected",
+                },
+                {
+                  "field": "f0rtika.sophos_prevented",
                 },
                 {
                   "field": "event.ERROR",

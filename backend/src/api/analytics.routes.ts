@@ -11,7 +11,8 @@ import { resetClient as resetResultsClient } from '../services/agent/results.ser
 import { resolvePostureWindow } from '../services/analytics/posture.js';
 import { validate } from '../middleware/validation.js';
 import { AnalyticsSettingsSchema, AnalyticsTestSchema, CreateIndexSchema, ArchiveByGroupKeysSchema, ArchiveByDateSchema } from '../schemas/analytics.schemas.js';
-import type { AnalyticsQueryParams, ExtendedAnalyticsQueryParams, PaginatedExecutionsParams } from '../types/analytics.js';
+import type { AnalyticsQueryParams, ExtendedAnalyticsQueryParams, PaginatedExecutionsParams, ExecutionVerdict } from '../types/analytics.js';
+import { EXECUTION_VERDICTS } from '../types/analytics.js';
 
 const router = Router();
 
@@ -418,8 +419,12 @@ router.get('/executions/paginated', asyncHandler(async (req, res) => {
     org, from, to, tests, techniques,
     hostnames, categories, severities, threatActors, tags,
     errorNames, errorCodes, bundleNames, result,
-    page, pageSize, sortField, sortOrder, grouped
+    page, pageSize, sortField, sortOrder, grouped, verdict
   } = req.query;
+
+  if (verdict !== undefined && !EXECUTION_VERDICTS.includes(verdict as ExecutionVerdict)) {
+    throw new AppError('Invalid verdict', 400);
+  }
 
   const params: PaginatedExecutionsParams = {
     org: org as string,
@@ -441,6 +446,7 @@ router.get('/executions/paginated', asyncHandler(async (req, res) => {
     sortField: sortField as string,
     sortOrder: sortOrder as 'asc' | 'desc',
     grouped: grouped === 'true',
+    verdict: verdict as ExecutionVerdict | undefined,
   };
 
   if (params.grouped) {
@@ -636,6 +642,15 @@ router.get('/chain-depth', asyncHandler(async (req, res) => {
   const es = await getEsService();
   const { basis: _basis, ...query } = req.query;
   const result = await es.getChainDepth(extractFilterParams(query));
+  res.json(result);
+}));
+
+// GET /api/analytics/outcome-breakdown - Protected / prevented / detected / silent
+// split of the latest-basis pairs. Basis is ignored; outcome filters are ignored by the service.
+router.get('/outcome-breakdown', asyncHandler(async (req, res) => {
+  const es = await getEsService();
+  const { basis: _basis, ...query } = req.query;
+  const result = await es.getOutcomeBreakdown(extractFilterParams(query));
   res.json(result);
 }));
 
