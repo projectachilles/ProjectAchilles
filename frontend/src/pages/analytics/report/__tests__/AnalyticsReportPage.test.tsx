@@ -49,10 +49,10 @@ describe('AnalyticsReportPage', () => {
 
   it('sends multi-value filters as comma-joined strings, never repeated or array params', async () => {
     getReportMock.mockResolvedValue(makeReport());
-    renderAt('/analytics/report?hostnames=WS-1,WS-2&tests=a,b&severities=high,critical&org=org_1');
+    renderAt('/analytics/report?hostnames=WS-1,WS-2&tests=a,b&org=org_1');
     await screen.findByRole('heading', { name: 'Executive summary' });
     const params = getReportMock.mock.calls[0][0];
-    expect(params).toMatchObject({ org: 'org_1', hostnames: 'WS-1,WS-2', tests: 'a,b', severities: 'high,critical' });
+    expect(params).toMatchObject({ org: 'org_1', hostnames: 'WS-1,WS-2', tests: 'a,b' });
     for (const value of Object.values(params)) expect(Array.isArray(value)).toBe(false);
   });
 

@@ -61,7 +61,6 @@ export interface Agent {
 export interface TaskTestMetadata {
   category: string;
   subcategory: string;
-  severity: string;
   techniques: string[];
   tactics: string[];
   threat_actor: string;

@@ -14,7 +14,6 @@ export const browserApi = {
     search?: string;
     technique?: string;
     category?: string;
-    severity?: string;
   }): Promise<TestMetadata[]> {
     const response = await apiClient.get('/browser/tests', { params });
     // Backend returns: { success: true, count: number, tests: array }

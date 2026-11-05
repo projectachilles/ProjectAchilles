@@ -131,7 +131,6 @@ export interface OrganizationInfo {
 // New Types for Enhanced Analytics
 // ============================================
 
-export type SeverityLevel = 'critical' | 'high' | 'medium' | 'low' | 'info';
 export type CategoryType = 'intel-driven' | 'mitre-top10' | 'cyber-hygiene' | 'phase-aligned';
 
 /**
@@ -147,7 +146,6 @@ export type CategoryType = 'intel-driven' | 'mitre-top10' | 'cyber-hygiene' | 'p
 export interface EnrichedTestExecution extends TestExecution, EdrResultFlags {
   category?: CategoryType;
   subcategory?: string;
-  severity?: SeverityLevel;
   techniques?: string[];
   tactics?: string[];
   target?: string;
@@ -205,20 +203,11 @@ export interface FilterOptionsResponse {
   techniques: string[];
   hostnames: FilterOption[];
   categories: FilterOption[];
-  severities: FilterOption[];
   threatActors: FilterOption[];
   tags: FilterOption[];
   errorNames: FilterOption[];
   errorCodes: FilterOption[];
   bundleNames: FilterOption[];
-}
-
-export interface SeverityBreakdownItem {
-  severity: SeverityLevel;
-  score: number;
-  count: number;
-  protected: number;
-  unprotected: number;
 }
 
 export interface CategoryBreakdownItem {
@@ -342,7 +331,6 @@ export interface ExtendedFilterParams {
   techniques?: string;
   hostnames?: string;
   categories?: string;
-  severities?: string;
   threatActors?: string;
   tags?: string;
   errorNames?: string;
@@ -659,11 +647,6 @@ export const analyticsApi = {
     return response.data;
   },
 
-  async getAvailableSeverities(params?: { org?: string; from?: string; to?: string }): Promise<FilterOption[]> {
-    const response = await apiClient.get('/analytics/available-severities', { params });
-    return response.data;
-  },
-
   async getAvailableThreatActors(params?: { org?: string; from?: string; to?: string }): Promise<FilterOption[]> {
     const response = await apiClient.get('/analytics/available-threat-actors', { params });
     return response.data;
@@ -691,11 +674,6 @@ export const analyticsApi = {
 
   async getAvailableBundleNames(params?: { org?: string; from?: string; to?: string }): Promise<FilterOption[]> {
     const response = await apiClient.get('/analytics/available-bundle-names', { params });
-    return response.data;
-  },
-
-  async getDefenseScoreBySeverity(params?: { org?: string; from?: string; to?: string }): Promise<SeverityBreakdownItem[]> {
-    const response = await apiClient.get('/analytics/defense-score/by-severity', { params });
     return response.data;
   },
 

@@ -4,7 +4,6 @@ import type {
   CategoryType,
   EnrichedTestExecution,
   ExecutionGroup,
-  SeverityLevel,
 } from '@/services/api/analytics';
 import { EDR_VENDOR_KEYS, PREVENTION_ACTION_PRECEDENCE, type EdrGroupRollup, type EdrVendorKey } from '@/lib/edrVendors';
 import {
@@ -94,15 +93,7 @@ export function alertRunTimeAnnotation(runTimestamp: string, alert: AlertTimingF
   return relativeToRun(runMs, createdMs);
 }
 
-// ── Severity / error-code semantics ────────────────────────────────
-
-export const SEVERITY_VARIANTS: Record<SeverityLevel, string> = {
-  critical: 'bg-danger-dim text-danger border-danger/30',
-  high: 'bg-warning-dim text-warning border-warning/30',
-  medium: 'bg-warning-dim text-warning border-warning/30',
-  low: 'bg-info-dim text-info border-info/30',
-  info: 'bg-raised text-muted border-border',
-};
+// ── Error-code semantics ────────────────────────────────
 
 export const ALERT_SEVERITY_CLASSES: Record<string, string> = {
   critical: 'bg-danger-dim text-danger border-danger/30',
@@ -382,7 +373,6 @@ export const EXPORT_COLUMNS: Array<{ key: string; label: string }> = [
   { key: 'test_name', label: 'Test Name' },
   { key: 'hostname', label: 'Hostname' },
   { key: 'result', label: 'Result' },
-  { key: 'severity', label: 'Severity' },
   { key: 'category', label: 'Category' },
   { key: 'subcategory', label: 'Subcategory' },
   { key: 'threat_actor', label: 'Threat Actor' },
@@ -405,7 +395,6 @@ export function getCellValue(exec: EnrichedTestExecution, key: string): string |
       const r = getResultFromErrorCode(exec.error_code);
       return r === 'protected' ? 'Protected' : r === 'unprotected' ? 'Unprotected' : 'Inconclusive';
     }
-    case 'severity': return exec.severity;
     case 'category': return exec.category;
     case 'subcategory': return exec.subcategory;
     case 'threat_actor': return exec.threat_actor;
@@ -432,7 +421,6 @@ export const SORT_FIELDS: Array<{ field: string; label: string }> = [
   { field: 'f0rtika.test_name', label: 'Test name' },
   { field: 'routing.hostname', label: 'Hostname' },
   { field: 'f0rtika.is_protected', label: 'Result' },
-  { field: 'f0rtika.severity', label: 'Severity' },
   { field: 'f0rtika.category', label: 'Category' },
   { field: 'f0rtika.score', label: 'Score' },
 ];

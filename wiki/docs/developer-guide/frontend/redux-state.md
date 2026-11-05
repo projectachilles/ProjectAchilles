@@ -162,7 +162,7 @@ Manages 11+ filter types for analytics dashboards with bidirectional URL synchro
 
 **Filter categories:**
 - **Basic** -- Organization, date range, result status
-- **Advanced** -- Hostnames, tests, techniques, categories, severities, threat actors, tags, errors, bundles
+- **Advanced** -- Hostnames, tests, techniques, categories, threat actors, tags, errors, bundles
 
 ```typescript
 const {

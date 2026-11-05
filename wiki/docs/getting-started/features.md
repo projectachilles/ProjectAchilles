@@ -54,7 +54,7 @@ Threat Intelligence Article
 | Test binary | Go (Windows, Linux, macOS) | Executes the simulated technique on the endpoint |
 | Detection rules | KQL, YARA, Sigma, Elastic EQL, LimaCharlie | Import directly into your SIEM/EDR |
 | Hardening scripts | PowerShell, Bash (Linux + macOS) | Remediate gaps found by the test |
-| Documentation | Markdown (README + info card) | MITRE mapping, severity, threat actor context |
+| Documentation | Markdown (README + info card) | MITRE mapping, threat actor context |
 | Kill chain diagram | Interactive HTML | Visualizes multi-stage attack flow |
 
 ![Test detail view — multi-stage kill chain diagram with stage progression, source files, and build artifacts](/img/screenshots/test-detail-killchain.png)
@@ -75,7 +75,7 @@ The test development pipeline lives in a companion repository. Tests are synced 
 
 Browse the full test library with rich metadata and execute tests directly from the UI.
 
-- **Filter and search** by MITRE ATT&CK technique, platform, category, and severity
+- **Filter and search** by MITRE ATT&CK technique, platform, and category
 - **View details** including source code, detection rules, hardening scripts, and attack flow diagrams
 - **Build, sign, and download** test binaries directly from test detail pages
 - **MITRE ATT&CK coverage chart** with per-tactic bar visualization

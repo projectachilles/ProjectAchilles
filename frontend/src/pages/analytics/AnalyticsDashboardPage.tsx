@@ -196,7 +196,6 @@ export default function AnalyticsDashboardPage() {
   const [availableTests, setAvailableTests] = useState<string[]>([]);
   const [availableTechniques, setAvailableTechniques] = useState<string[]>([]);
   const [availableCategories, setAvailableCategories] = useState<FilterOption[]>([]);
-  const [availableSeverities, setAvailableSeverities] = useState<FilterOption[]>([]);
   const [availableThreatActors, setAvailableThreatActors] = useState<FilterOption[]>([]);
   const [availableTags, setAvailableTags] = useState<FilterOption[]>([]);
   const [availableErrorNames, setAvailableErrorNames] = useState<FilterOption[]>([]);
@@ -308,14 +307,13 @@ export default function AnalyticsDashboardPage() {
     setLoadingFilters(true);
     try {
       // One request and one ES query for all ten lists (was ten of each).
-      const { tests, techniques, hostnames, categories, severities, threatActors, tags, errorNames, errorCodes, bundleNames } =
+      const { tests, techniques, hostnames, categories, threatActors, tags, errorNames, errorCodes, bundleNames } =
         await analyticsApi.getFilterOptions();
 
       setAvailableTests(tests);
       setAvailableTechniques(techniques);
       setAvailableHostnames(hostnames);
       setAvailableCategories(categories);
-      setAvailableSeverities(severities);
       setAvailableThreatActors(threatActors);
       setAvailableTags(tags);
       setAvailableErrorNames(errorNames);
@@ -830,7 +828,6 @@ export default function AnalyticsDashboardPage() {
             availableTests={availableTests}
             availableTechniques={availableTechniques}
             availableCategories={availableCategories}
-            availableSeverities={availableSeverities}
             availableThreatActors={availableThreatActors}
             availableTags={availableTags}
             availableErrorNames={availableErrorNames}

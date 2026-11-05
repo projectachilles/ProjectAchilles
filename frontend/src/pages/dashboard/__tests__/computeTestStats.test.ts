@@ -16,21 +16,19 @@ function makeTest(overrides: Partial<TestMetadata>): TestMetadata {
 describe('computeTestStats', () => {
   const tests: TestMetadata[] = [
     makeTest({
-      severity: 'critical',
       category: 'cyber-hygiene',
       score: 9,
       techniques: ['T1562.001', 'T1003'],
       tactics: ['defense-evasion', 'credential-access'],
     }),
     makeTest({
-      severity: 'high',
       category: 'cyber-hygiene',
       score: 8,
       techniques: ['T1562.001'],
       tactics: ['defense-evasion'],
     }),
-    makeTest({ severity: 'medium', category: 'intel-driven', techniques: ['T1078'], tactics: ['initial-access'] }),
-    makeTest({ severity: 'low', category: 'intel-driven' }),
+    makeTest({ category: 'intel-driven', techniques: ['T1078'], tactics: ['initial-access'] }),
+    makeTest({ category: 'intel-driven' }),
     makeTest({}), // untagged → info, unmapped
   ];
 

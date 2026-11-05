@@ -11,7 +11,6 @@ vi.mock('@/components/layout/ConsoleIdentity', () => ({
 }));
 
 const { default: TestDetailHeader } = await import('../TestDetailHeader');
-const { severityPillClass } = await import('../severity');
 
 const UUID = '7659eeba-f315-440e-9882-4aa015d68b27';
 
@@ -21,7 +20,6 @@ function makeTest(over: Partial<TestDetails> = {}): TestDetails {
     name: 'Credential Dump Test',
     category: 'intel-driven',
     subcategory: 'apt',
-    severity: 'critical',
     techniques: [],
     stages: [],
     isMultiStage: false,
@@ -47,22 +45,11 @@ function renderHeader(props: Partial<Parameters<typeof TestDetailHeader>[0]> = {
   );
 }
 
-describe('severityPillClass', () => {
-  it('maps severities to tokens', () => {
-    expect(severityPillClass('critical')).toContain('text-danger');
-    expect(severityPillClass('high')).toContain('text-warning');
-    expect(severityPillClass('medium')).toContain('text-info');
-    expect(severityPillClass('low')).toContain('text-muted');
-    expect(severityPillClass(undefined)).toContain('text-muted');
-  });
-});
-
 describe('TestDetailHeader', () => {
-  it('renders one h1 with the name and a critical pill', () => {
+  it('renders one h1 with the name', () => {
     renderHeader();
     expect(screen.getAllByRole('heading', { level: 1 })).toHaveLength(1);
     expect(screen.getByRole('heading', { level: 1 })).toHaveTextContent('Credential Dump Test');
-    expect(screen.getByText('critical').className).toContain('text-danger');
   });
 
   it('hides Run when canRun is false and calls onRun otherwise', () => {

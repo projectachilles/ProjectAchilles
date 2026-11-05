@@ -28,8 +28,6 @@ const badgeVariants = cva(
   }
 )
 
-/** Severity badges add mono + uppercase per the design recipe. */
-const severityBadgeClass = "font-mono uppercase"
 
 function Badge({
   className,
@@ -50,4 +48,4 @@ function Badge({
   )
 }
 
-export { Badge, badgeVariants, severityBadgeClass }
+export { Badge, badgeVariants }
