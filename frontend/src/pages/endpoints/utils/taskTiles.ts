@@ -1,6 +1,7 @@
-import type { AgentMetrics } from '@/types/agent';
+import type { AgentMetrics, TaskBreakdownRow, TaskOutcomes7d } from '@/types/agent';
 
 export interface TaskTile {
+  id: 'protected' | 'unprotected' | 'no-verdict' | 'in-progress' | 'completed' | 'failed' | 'success-rate';
   label: string;
   value: string;
   /** Tailwind text colour for the value. */
@@ -30,10 +31,10 @@ export function taskTiles(metrics: AgentMetrics): TaskTiles {
     return {
       window: 'last 24 hours',
       tiles: [
-        { label: 'Completed', value: String(a.completed), cls: 'text-accent' },
-        { label: 'Failed', value: String(a.failed), cls: a.failed > 0 ? 'text-danger' : '' },
-        { label: 'In progress', value: String(inProgress), cls: '' },
-        { label: 'Success rate', value: a.total > 0 ? `${Math.round(a.success_rate)}%` : '—', cls: a.total > 0 ? '' : 'text-muted' },
+        { id: 'completed', label: 'Completed', value: String(a.completed), cls: 'text-accent' },
+        { id: 'failed', label: 'Failed', value: String(a.failed), cls: a.failed > 0 ? 'text-danger' : '' },
+        { id: 'in-progress', label: 'In progress', value: String(inProgress), cls: '' },
+        { id: 'success-rate', label: 'Success rate', value: a.total > 0 ? `${Math.round(a.success_rate)}%` : '—', cls: a.total > 0 ? '' : 'text-muted' },
       ],
     };
   }
@@ -53,13 +54,15 @@ export function taskTiles(metrics: AgentMetrics): TaskTiles {
     window: 'last 7 days',
     tiles: [
       {
+        id: 'protected',
         label: 'Protected',
         ...count(t.protected, 'text-accent'),
         sub: !ran ? 'no test runs in 7 days' : t.edr_stopped > 0 ? `incl. ${t.edr_stopped} stopped by EDR` : undefined,
       },
-      { label: 'Unprotected', ...count(t.unprotected, 'text-danger'), sub: ran && t.unprotected > 0 ? 'ran without being blocked' : undefined },
-      { label: 'No verdict', ...count(noVerdict, 'text-warning'), sub: breakdown || undefined },
+      { id: 'unprotected', label: 'Unprotected', ...count(t.unprotected, 'text-danger'), sub: ran && t.unprotected > 0 ? 'ran without being blocked' : undefined },
+      { id: 'no-verdict', label: 'No verdict', ...count(noVerdict, 'text-warning'), sub: breakdown || undefined },
       {
+        id: 'in-progress',
         label: 'In progress',
         value: String(inProgress),
         cls: '',
@@ -69,4 +72,24 @@ export function taskTiles(metrics: AgentMetrics): TaskTiles {
       },
     ],
   };
+}
+
+export interface BreakdownGroup { title: string | null; total: number; rows: TaskBreakdownRow[] }
+
+const NO_VERDICT_GROUPS: Array<[string, TaskBreakdownRow['outcome']]> = [
+  ['Not run', 'not-run'],
+  ['Run failed', 'run-failed'],
+  ['Test error', 'test-error'],
+  ['Inconclusive', 'inconclusive'],
+];
+
+/** Exit codes / reasons behind a tile; null when the backend sent no breakdown. */
+export function breakdownGroups(o: TaskOutcomes7d, tile: 'protected' | 'no-verdict'): BreakdownGroup[] | null {
+  if (!o.breakdown) return null;
+  const group = (title: string | null, outcome: TaskBreakdownRow['outcome']): BreakdownGroup => {
+    const rows = o.breakdown!.filter((r) => r.outcome === outcome);
+    return { title, total: rows.reduce((n, r) => n + r.count, 0), rows };
+  };
+  if (tile === 'protected') return [group(null, 'protected')];
+  return NO_VERDICT_GROUPS.map(([title, outcome]) => group(title, outcome)).filter((g) => g.rows.length > 0);
 }
