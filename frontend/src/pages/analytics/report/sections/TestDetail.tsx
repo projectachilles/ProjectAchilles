@@ -122,7 +122,6 @@ export function TestDetail({ report, test, head }: { report: ExecutionReport; te
         <h2 className="rp-h2">{test.name}</h2>
         <div className="rp-chips">
           {[test.category, test.subcategory].filter((c): c is string => !!c).map((c) => <span key={c} className="rp-chip">{c}</span>)}
-          {test.severity && <span className={`rp-chip${test.severity === 'critical' || test.severity === 'high' ? ' rp-chip-strong' : ''}`}>{test.severity}</span>}
           {test.score !== null && <span className="rp-chip">score {test.score}/10</span>}
           {test.target.map((t) => <span key={t} className="rp-chip">{t}</span>)}
           {test.complexity && <span className="rp-chip">complexity {test.complexity}</span>}

@@ -21,7 +21,6 @@ import {
   ALERT_SEVERITY_CLASSES,
   BundleResultLabel,
   ExecResultLabel,
-  SEVERITY_VARIANTS,
   formatTimestamp,
   isSkippedStage,
   type BundleGroup,
@@ -299,14 +298,6 @@ export function RunDetailPanel(props: RunDetailPanelProps) {
           </div>
           <div className="mt-2 flex flex-wrap items-center gap-1.5">
             {category && <Badge variant="low">{category}</Badge>}
-            {headerExec?.severity && (
-              <Badge
-                variant="outline"
-                className={cn('font-mono uppercase', SEVERITY_VARIANTS[headerExec.severity])}
-              >
-                {headerExec.severity}
-              </Badge>
-            )}
             {techniques.slice(0, 4).map((t) => (
               <Badge key={t} variant="default" className="font-mono">
                 {t}

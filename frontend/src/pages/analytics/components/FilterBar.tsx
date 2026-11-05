@@ -1,6 +1,5 @@
 import { X } from 'lucide-react';
 import MultiSelectFilter from './MultiSelectFilter';
-import SeverityFilter from './SeverityFilter';
 import type { UseAnalyticsFiltersReturn } from '@/hooks/useAnalyticsFilters';
 import type { FilterOption } from '@/services/api/analytics';
 
@@ -10,7 +9,6 @@ interface FilterBarProps {
   availableTests: string[];
   availableTechniques: string[];
   availableCategories: FilterOption[];
-  availableSeverities: FilterOption[];
   availableThreatActors: FilterOption[];
   availableTags: FilterOption[];
   availableErrorNames: FilterOption[];
@@ -25,7 +23,6 @@ export default function FilterBar({
   availableTests,
   availableTechniques,
   availableCategories,
-  availableSeverities,
   availableThreatActors,
   availableTags,
   availableErrorNames,
@@ -41,7 +38,6 @@ export default function FilterBar({
     setTests,
     setTechniques,
     setCategories,
-    setSeverities,
     setThreatActors,
     setTags,
     setErrorNames,
@@ -57,12 +53,6 @@ export default function FilterBar({
     activeFilterTags.push({
       label: `Result: ${filters.result === 'protected' ? 'Protected' : filters.result === 'unprotected' ? 'Unprotected' : 'Inconclusive'}`,
       onClear: () => setResult('all'),
-    });
-  }
-  if (filters.severities.length > 0) {
-    activeFilterTags.push({
-      label: `Severity: ${filters.severities.join(', ')}`,
-      onClear: () => setSeverities([]),
     });
   }
   if (filters.categories.length > 0) {
@@ -156,14 +146,6 @@ export default function FilterBar({
           onChange={setCategories}
           loading={loading}
           placeholder="All Categories"
-        />
-
-        {/* Severity Filter */}
-        <SeverityFilter
-          options={availableSeverities}
-          selected={filters.severities}
-          onChange={setSeverities}
-          loading={loading}
         />
 
         {/* Threat Actor Filter */}

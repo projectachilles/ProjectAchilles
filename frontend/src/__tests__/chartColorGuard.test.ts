@@ -10,7 +10,6 @@ const CHART_FILES = [
   'pages/analytics/components/DefenseScoreByHostChart.tsx',
   'pages/analytics/components/ChainDepthCard.tsx',
   'pages/analytics/components/CoverageTreemap.tsx',
-  'pages/analytics/components/SeverityBreakdownChart.tsx',
   'pages/analytics/components/integrations/IntegrationHeroTiles.tsx',
   'components/endpoints/agents/detail/AgentHeartbeatTab.tsx',
   'pages/analytics/components/TechniqueDistributionCard.tsx',

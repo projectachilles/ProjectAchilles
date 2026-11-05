@@ -207,7 +207,6 @@ export interface ReportTest {
   isBundle: boolean;
   category: string | null;
   subcategory: string | null;
-  severity: string | null;
   score: number | null;
   target: string[];
   complexity: string | null;

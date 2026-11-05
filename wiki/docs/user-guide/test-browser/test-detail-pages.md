@@ -17,7 +17,6 @@ The header stays on screen whichever tab you open. It shows:
 
 - **Breadcrumb**: `Tests / <category> / <subcategory>`. **Tests** returns to the
   list with the filters you had set.
-- **Title** with a **severity** pill (critical, high, medium, low).
 - **One metadata line**: threat actor, platforms, stage count, complexity,
   author, when the test was last modified (hover for the full date and last
   commit message), and the short test ID with a copy button.
@@ -25,7 +24,7 @@ The header stays on screen whichever tab you open. It shows:
   can build tests) and **Run on agents**, which opens the
   [execution drawer](#execution-drawer).
 
-![Test detail — header with severity, stages and test score above the tab row and the Overview](/img/screenshots/test-detail.png)
+![Test detail — header with stages and test score above the tab row and the Overview](/img/screenshots/test-detail.png)
 
 ### Tabs
 

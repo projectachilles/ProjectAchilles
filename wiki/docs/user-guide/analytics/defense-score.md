@@ -57,7 +57,6 @@ The Defense Score can be broken down by:
 - **Technique** — Score per MITRE ATT&CK technique
 - **Category** — Score per test category
 - **Hostname** — Score per endpoint
-- **Severity** — Score per severity level
 
 ## Trend Analysis
 

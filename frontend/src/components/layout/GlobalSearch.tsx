@@ -92,7 +92,6 @@ function useGlobalSearch(query: string, isOpen: boolean) {
           path: `/tests/${t.uuid}`,
           icon: Shield,
           badges: [
-            t.severity?.toUpperCase(),
             ...(t.techniques?.slice(0, 3) || []),
           ].filter(Boolean) as string[],
         }));

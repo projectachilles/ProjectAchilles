@@ -5,7 +5,6 @@ export interface TestMetadata {
   name: string;
   category?: string;           // Category folder: cyber-hygiene, intel-driven, etc.
   subcategory?: string;        // More specific classification
-  severity?: string;           // critical, high, medium, low
   techniques: string[];        // MITRE ATT&CK techniques (T1xxx)
   tactics?: string[];          // MITRE ATT&CK tactics (TA00xx)
   target?: string[];            // Target platforms: windows-endpoint, linux-server, entra-id, etc.

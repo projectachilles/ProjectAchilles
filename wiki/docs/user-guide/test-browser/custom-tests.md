@@ -28,7 +28,7 @@ custom_tests/
 └── my-custom-test/
     ├── main.go           # Test source code
     ├── README.md         # Test documentation
-    ├── metadata.json     # Test metadata (technique, severity, etc.)
+    ├── metadata.json     # Test metadata (technique, tactics, etc.)
     └── detection/        # Optional detection rules
         ├── rule.kql      # KQL detection rule
         └── rule.yara     # YARA detection rule
@@ -41,7 +41,6 @@ custom_tests/
   "name": "My Custom Test",
   "description": "Description of what this test does",
   "category": "defense-evasion",
-  "severity": "high",
   "platforms": ["windows", "linux"],
   "techniques": ["T1059.001"],
   "tactics": ["execution", "defense-evasion"],

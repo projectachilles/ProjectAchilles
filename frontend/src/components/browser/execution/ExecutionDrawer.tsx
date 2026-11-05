@@ -26,7 +26,6 @@ const MAX_BATCH = 50;
 const EMPTY_METADATA: TaskTestMetadata = {
   category: '',
   subcategory: '',
-  severity: '',
   techniques: [],
   tactics: [],
   threat_actor: '',
@@ -263,9 +262,6 @@ export default function ExecutionDrawer({ open, onClose, tests, onTasksCreated }
               <>
                 <h2 className="text-lg font-semibold truncate">{tests[0]?.name}</h2>
                 <div className="flex items-center gap-2 mt-1 text-xs text-muted-foreground">
-                  {tests[0]?.severity && (
-                    <span className="font-medium uppercase">{tests[0].severity}</span>
-                  )}
                   {tests[0]?.techniques.slice(0, 2).map((t) => (
                     <span key={t} className="bg-raised rounded px-1.5 py-0.5 font-mono">{t}</span>
                   ))}

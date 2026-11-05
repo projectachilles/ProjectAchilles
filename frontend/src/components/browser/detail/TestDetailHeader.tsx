@@ -7,7 +7,6 @@ import { IdentityPill } from '@/components/layout/ConsoleIdentity';
 import { useTestPreferences } from '@/hooks/useTestPreferences';
 import { formatRelativeDate, formatFullDate } from '@/utils/dateFormatters';
 import { targetLabel } from '@/utils/platformLabels';
-import { severityPillClass } from './severity';
 
 interface TestDetailHeaderProps {
   test: TestDetails;
@@ -89,11 +88,6 @@ export default function TestDetailHeader({
           <div className="min-w-0 flex-1">
             <div className="flex flex-wrap items-center gap-2">
               <h1 className="break-words text-xl font-semibold tracking-tight text-foreground">{test.name}</h1>
-              {test.severity && (
-                <span className={`rounded border px-1.5 py-0.5 text-[11px] font-semibold uppercase tracking-[0.04em] ${severityPillClass(test.severity)}`}>
-                  {test.severity}
-                </span>
-              )}
             </div>
             <div className="mt-1.5 flex flex-wrap items-center gap-x-2 gap-y-1 text-[13px] text-muted">
               {meta.map((item, i) => (

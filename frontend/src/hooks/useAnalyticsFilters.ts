@@ -25,7 +25,6 @@ export interface AnalyticsFilterState {
   tests: string[];
   techniques: string[];
   categories: string[];
-  severities: string[];
   threatActors: string[];
   tags: string[];
   errorNames: string[];
@@ -48,7 +47,6 @@ export interface UseAnalyticsFiltersReturn {
   setTests: (tests: string[]) => void;
   setTechniques: (techniques: string[]) => void;
   setCategories: (categories: string[]) => void;
-  setSeverities: (severities: string[]) => void;
   setThreatActors: (threatActors: string[]) => void;
   setTags: (tags: string[]) => void;
   setErrorNames: (errorNames: string[]) => void;
@@ -70,7 +68,6 @@ const defaultFilters: AnalyticsFilterState = {
   tests: [],
   techniques: [],
   categories: [],
-  severities: [],
   threatActors: [],
   tags: [],
   errorNames: [],
@@ -105,9 +102,6 @@ export function parseUrlParams(searchParams: URLSearchParams): Partial<Analytics
   const categories = searchParams.get('categories');
   if (categories) result.categories = categories.split(',');
 
-  const severities = searchParams.get('severities');
-  if (severities) result.severities = severities.split(',');
-
   const threatActors = searchParams.get('threatActors');
   if (threatActors) result.threatActors = threatActors.split(',');
 
@@ -140,7 +134,6 @@ export function serializeToUrlParams(filters: AnalyticsFilterState): Record<stri
   if (filters.tests.length > 0) params.tests = filters.tests.join(',');
   if (filters.techniques.length > 0) params.techniques = filters.techniques.join(',');
   if (filters.categories.length > 0) params.categories = filters.categories.join(',');
-  if (filters.severities.length > 0) params.severities = filters.severities.join(',');
   if (filters.threatActors.length > 0) params.threatActors = filters.threatActors.join(',');
   if (filters.tags.length > 0) params.tags = filters.tags.join(',');
   if (filters.errorNames.length > 0) params.errorNames = filters.errorNames.join(',');
@@ -166,7 +159,6 @@ export function toApiParams(filters: AnalyticsFilterState): ExtendedFilterParams
   if (filters.tests.length > 0) params.tests = filters.tests.join(',');
   if (filters.techniques.length > 0) params.techniques = filters.techniques.join(',');
   if (filters.categories.length > 0) params.categories = filters.categories.join(',');
-  if (filters.severities.length > 0) params.severities = filters.severities.join(',');
   if (filters.threatActors.length > 0) params.threatActors = filters.threatActors.join(',');
   if (filters.tags.length > 0) params.tags = filters.tags.join(',');
   if (filters.errorNames.length > 0) params.errorNames = filters.errorNames.join(',');
@@ -201,6 +193,7 @@ export function useAnalyticsFilters(syncWithUrl = true): UseAnalyticsFiltersRetu
         // Start with existing params to preserve non-filter params like 'tab'
         const newParams = new URLSearchParams(prev);
         // Clear all filter-related params first
+        // 'severities' is a removed filter; still cleared so a legacy link's param doesn't linger
         const filterKeys = ['org', 'date', 'from', 'to', 'result', 'hostnames', 'tests', 'techniques', 'categories', 'severities', 'threatActors', 'tags', 'errorNames', 'errorCodes', 'bundleNames'];
         filterKeys.forEach(key => newParams.delete(key));
         // Add back the current filter params
@@ -220,7 +213,6 @@ export function useAnalyticsFilters(syncWithUrl = true): UseAnalyticsFiltersRetu
     if (filters.tests.length > 0) count++;
     if (filters.techniques.length > 0) count++;
     if (filters.categories.length > 0) count++;
-    if (filters.severities.length > 0) count++;
     if (filters.threatActors.length > 0) count++;
     if (filters.tags.length > 0) count++;
     if (filters.errorNames.length > 0) count++;
@@ -262,10 +254,6 @@ export function useAnalyticsFilters(syncWithUrl = true): UseAnalyticsFiltersRetu
     setFilters(prev => ({ ...prev, categories }));
   }, []);
 
-  const setSeverities = useCallback((severities: string[]) => {
-    setFilters(prev => ({ ...prev, severities }));
-  }, []);
-
   const setThreatActors = useCallback((threatActors: string[]) => {
     setFilters(prev => ({ ...prev, threatActors }));
   }, []);
@@ -302,7 +290,6 @@ export function useAnalyticsFilters(syncWithUrl = true): UseAnalyticsFiltersRetu
       tests: [],
       techniques: [],
       categories: [],
-      severities: [],
       threatActors: [],
       tags: [],
       errorNames: [],
@@ -326,7 +313,6 @@ export function useAnalyticsFilters(syncWithUrl = true): UseAnalyticsFiltersRetu
     setTests,
     setTechniques,
     setCategories,
-    setSeverities,
     setThreatActors,
     setTags,
     setErrorNames,
