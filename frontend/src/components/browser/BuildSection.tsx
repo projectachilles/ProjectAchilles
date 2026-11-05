@@ -3,6 +3,7 @@ import { put } from '@vercel/blob/client';
 import { testsApi } from '@/services/api/tests';
 import { useCapabilities } from '@/hooks/useCapabilities';
 import type { BuildInfo, EmbedDependency } from '@/types/test';
+import { embedDisplayName } from '@/components/browser/detail/testTabs';
 import { Badge } from '@/components/shared/ui/Badge';
 import { Button } from '@/components/shared/ui/Button';
 import { Loader2, Download, RotateCw, Trash2, Upload, Check, X, Wrench } from 'lucide-react';
@@ -233,7 +234,7 @@ export default function BuildSection({ uuid }: BuildSectionProps) {
         <div className="mb-2 space-y-1">
           {deps.map(dep => (
             <div key={dep.filename} className="flex items-center justify-between text-xs">
-              <span className="flex items-center gap-1.5 font-mono truncate">
+              <span className="flex items-center gap-1.5 font-mono truncate" title={dep.filename}>
                 {dep.exists ? (
                   <Check className="w-3 h-3 text-green-500 flex-shrink-0" />
                 ) : dep.sourceBuilt ? (
@@ -241,7 +242,7 @@ export default function BuildSection({ uuid }: BuildSectionProps) {
                 ) : (
                   <X className="w-3 h-3 text-red-500 flex-shrink-0" />
                 )}
-                {dep.filename}
+                {embedDisplayName(dep.filename, uuid)}
                 {!dep.exists && dep.sourceBuilt && (
                   <span className="text-muted-foreground ml-1">Auto-built</span>
                 )}
