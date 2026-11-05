@@ -1,4 +1,5 @@
 import type { NoticeSummary } from '../services/notices/types.js';
+import type { TaskOutcomeKind } from '../services/outcomes/taskOutcome.js';
 import type { EdrTermination } from '../services/edr/agent-kill-evidence.js';
 /**
  * TypeScript type definitions for the custom agent management system.
@@ -427,6 +428,8 @@ export interface ListTasksRequest {
   /** Several types at once (grouped list: "Maintenance" = update_agent + uninstall). */
   types?: TaskType[];
   search?: string;
+  /** Grouped list only: a 7-day outcome breakdown key (execute_test tasks finished in the window). */
+  breakdown?: string;
   limit?: number;
   offset?: number;
 }
@@ -576,4 +579,13 @@ declare global {
       agent?: AuthenticatedAgent;
     }
   }
+}
+
+/** One exit code / failure reason behind the 7-day outcome counts. */
+export interface TaskBreakdownRow {
+  key: string;
+  outcome: TaskOutcomeKind;
+  code: number | null;
+  name: string;
+  count: number;
 }

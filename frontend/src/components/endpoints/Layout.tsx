@@ -18,7 +18,7 @@ export function PageContainer({ children, className = '' }: PageContainerProps) 
 // Page header with title and optional actions
 interface PageHeaderProps {
   title: string;
-  description?: string;
+  description?: ReactNode;
   actions?: ReactNode;
 }
 

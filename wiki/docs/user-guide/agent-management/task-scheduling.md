@@ -8,8 +8,8 @@ description: "Automate recurring test execution with flexible scheduling options
 
 ## Creating a Schedule
 
-1. Navigate to **Scheduling**
-2. Click **Create Schedule**
+1. Navigate to **Tasks** and click **Create Task**
+2. Choose the **Schedule** tab, configure the schedule (below), and click **Create Schedule**
 3. Configure:
    - **Test** to execute
    - **Target agents** (specific agents or all)
@@ -70,6 +70,8 @@ When a schedule or Run Now targets many agents, the backend paces how fast test 
 Higher-priority tasks are assigned before lower-priority ones when multiple tasks are pending for the same agent.
 
 ## Managing Schedules
+
+Existing schedules are listed under the **Schedules** pill on the Tasks page (it appears once a schedule exists). New schedules are created from **Create Task**, not from that view.
 
 - **Pause/Resume** — Temporarily disable a schedule without deleting it
 - **Edit** — Modify any schedule parameter

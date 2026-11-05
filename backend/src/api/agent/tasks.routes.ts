@@ -32,6 +32,7 @@ import { alertsService } from '../integrations.routes.js';
 import { validate } from '../../middleware/validation.js';
 import { UpdateTaskStatusSchema, TaskResultSchema } from '../../schemas/agent.schemas.js';
 import { resolveRequesterLabels, withoutEmail } from '../../services/agent/requesterLabel.js';
+import { TASK_BREAKDOWN_KEY_RE } from '../../services/outcomes/taskOutcome.js';
 import {
   CreateTaskSchema,
   CreateTaskBatchSchema,
@@ -376,11 +377,15 @@ adminTasksRouter.get(
       : [];
     if (types.some((t) => !GROUPED_TASK_TYPES.has(t))) throw new AppError('Invalid task type', 400);
 
+    const breakdown = typeof req.query.breakdown === 'string' && req.query.breakdown ? req.query.breakdown : undefined;
+    if (breakdown !== undefined && !TASK_BREAKDOWN_KEY_RE.test(breakdown)) throw new AppError('Invalid breakdown', 400);
+
     const filters: ListTasksRequest = {
       agent_id: req.query.agent_id as string | undefined,
       org_id: listOrgScope(req),
       status: req.query.status as TaskStatus | undefined,
       types: types as TaskType[],
+      breakdown,
       search: req.query.search as string | undefined,
       limit: req.query.limit ? parseInt(req.query.limit as string, 10) : undefined,
       offset: req.query.offset ? parseInt(req.query.offset as string, 10) : undefined,

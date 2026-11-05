@@ -212,6 +212,8 @@ export interface ListTasksRequest {
   /** Several types at once (sent as a comma list in `type`). */
   types?: TaskType[];
   search?: string;
+  /** 7-day outcome breakdown key (e.g. `exit:260`); implies execute_test. */
+  breakdown?: string;
   limit?: number;
   offset?: number;
 }
@@ -228,6 +230,16 @@ export interface TaskOutcomes7d {
     inconclusive: number;
   };
   other: { total: number; failed: number };
+  /** Exit codes / failure reasons behind `tests`; absent on older backends. */
+  breakdown?: TaskBreakdownRow[];
+}
+
+export interface TaskBreakdownRow {
+  key: string;
+  outcome: 'protected' | 'unprotected' | 'not-run' | 'run-failed' | 'test-error' | 'inconclusive';
+  code: number | null;
+  name: string;
+  count: number;
 }
 
 export interface AgentMetrics {

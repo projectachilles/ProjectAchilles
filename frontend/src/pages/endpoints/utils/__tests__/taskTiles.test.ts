@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { taskTiles } from '../taskTiles';
+import { taskTiles, breakdownGroups } from '../taskTiles';
 import type { AgentMetrics } from '@/types/agent';
 
 const base: AgentMetrics = {
@@ -49,5 +49,37 @@ describe('taskTiles', () => {
     expect(window).toBe('last 24 hours');
     expect(tiles.map((t) => t.value)).toEqual(['3', '1', '0', '75%']);
     expect(taskTiles(base).tiles[3].value).toBe('—');
+  });
+});
+
+describe('breakdownGroups', () => {
+  const rows = [
+    { key: 'a', outcome: 'protected' as const, code: 126, name: 'Quarantined', count: 30 },
+    { key: 'b', outcome: 'protected' as const, code: 105, name: 'Blocked', count: 8 },
+    { key: 'c', outcome: 'inconclusive' as const, code: null, name: 'Unclear', count: 2 },
+    { key: 'd', outcome: 'not-run' as const, code: null, name: 'Agent offline', count: 6 },
+    { key: 'e', outcome: 'test-error' as const, code: 999, name: 'Test error', count: 8 },
+  ];
+  const o = { ...withOutcomes({ protected: 38, not_run: 6, test_error: 8, inconclusive: 2 }).task_outcomes_7d!, breakdown: rows };
+
+  it('protected is one untitled group', () => {
+    const g = breakdownGroups(o, 'protected')!;
+    expect(g).toHaveLength(1);
+    expect(g[0]).toMatchObject({ title: null, total: 38 });
+    expect(g[0].rows.map((r) => r.key)).toEqual(['a', 'b']);
+  });
+
+  it('no verdict is ordered, drops empty groups, totals match', () => {
+    const g = breakdownGroups(o, 'no-verdict')!;
+    expect(g.map((x) => [x.title, x.total])).toEqual([['Not run', 6], ['Test error', 8], ['Inconclusive', 2]]);
+  });
+
+  it('is null without a breakdown', () => {
+    expect(breakdownGroups({ ...o, breakdown: undefined }, 'protected')).toBeNull();
+  });
+
+  it('gives tiles ids', () => {
+    expect(taskTiles(withOutcomes({})).tiles.map((t) => t.id)).toEqual(['protected', 'unprotected', 'no-verdict', 'in-progress']);
+    expect(taskTiles(base).tiles.map((t) => t.id)).toEqual(['completed', 'failed', 'in-progress', 'success-rate']);
   });
 });

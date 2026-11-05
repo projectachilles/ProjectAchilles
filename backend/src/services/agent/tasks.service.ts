@@ -20,6 +20,7 @@ import { withCatalogMetadata } from './testMetadata.js';
 import { readBuildMeta, resolveTestArtifact } from './testArtifacts.js';
 import { IntegrationsSettingsService } from '../integrations/settings.js';
 import { recordEvent } from './events.service.js';
+import { taskBreakdown, outcomeWindowSql, outcomeResultSql, parseOutcomeResult } from '../outcomes/taskOutcome.js';
 import { getNoticeSummaries } from '../notices/notices.repo.js';
 import type { NoticeScope } from '../notices/types.js';
 import { AGENT_KILL_WATCHDOG_ERRORS, parseSqliteUtc } from '../edr/agent-kill-evidence.js';
@@ -965,6 +966,28 @@ export function listTasksGrouped(
     conditions.push(`t.type IN (${types.map(() => '?').join(', ')})`);
     params.push(...types);
   }
+
+  // Breakdown: the key is derived from the result JSON, so find the matching
+  // task ids first (same org/agent/status/search/type conditions, plus the
+  // 7-day window the metrics use) and pass them as ONE json param, which has
+  // no SQLite variable-limit.
+  let breakdownIds: Set<string> | null = null;
+  if (filters.breakdown) {
+    const rows = db.prepare(`
+      SELECT t.id, t.type, t.status, ${outcomeResultSql('t')} AS result
+      FROM tasks t LEFT JOIN agents a ON t.agent_id = a.id
+      WHERE ${[...conditions, `t.type = 'execute_test'`, outcomeWindowSql('t')].join(' AND ')}
+    `).all(...params) as { id: string; type: TaskType; status: TaskStatus; result: string | null }[];
+    const ids: string[] = [];
+    for (const row of rows) {
+      const result = parseOutcomeResult(row.result);
+      if (taskBreakdown({ type: row.type, status: row.status, result })?.key === filters.breakdown) ids.push(row.id);
+    }
+    if (ids.length === 0) return { groups: [], total: 0, type_counts };
+    breakdownIds = new Set(ids);
+    conditions.push('t.id IN (SELECT value FROM json_each(?))');
+    params.push(JSON.stringify(ids));
+  }
   const whereClause = conditions.length > 0 ? `WHERE ${conditions.join(' AND ')}` : '';
   const limit = filters.limit ?? 50;
   const offset = filters.offset ?? 0;
@@ -1017,11 +1040,13 @@ export function listTasksGrouped(
 
   // Build TaskGroup objects in the order returned by the batch query
   const groups: TaskGroup[] = batchRows.map((batchRow) => {
-    const tasks = tasksByBatch.get(batchRow.batch_id) ?? [];
-    const first = tasks[0];
+    const allTasks = tasksByBatch.get(batchRow.batch_id) ?? [];
+    const first = allTasks[0];
+    // status_counts / agent_count describe the whole batch; only the listed tasks are filtered.
+    const tasks = breakdownIds ? allTasks.filter((t) => breakdownIds.has(t.id)) : allTasks;
 
     const statusCounts: Partial<Record<TaskStatus, number>> = {};
-    for (const t of tasks) {
+    for (const t of allTasks) {
       statusCounts[t.status] = (statusCounts[t.status] ?? 0) + 1;
     }
 
@@ -1032,7 +1057,7 @@ export function listTasksGrouped(
       payload: first?.payload ?? ({} as TaskPayload),
       created_at: first?.created_at ?? batchRow.latest_created,
       created_by: first?.created_by ?? null,
-      agent_count: tasks.length,
+      agent_count: allTasks.length,
       status_counts: statusCounts,
       tasks,
     };
