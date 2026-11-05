@@ -50,7 +50,7 @@ An annual penetration test describes the environment on the day it ran. Everythi
 Achilles has three parts:
 
 - **A test library** of about 80 tests mapped to ATT&CK, synced from Git. Most of them (49) are multi-stage chains built from published threat intelligence, such as Akira's BYOVD chain, SafePay's UAC bypass, EDRSilencer and a macOS infostealer. Another 11 cover the techniques seen most often in real intrusions. The other 20 are configuration bundles that check CIS and identity baselines control by control.
-- **A small Go agent** for Windows, Linux and macOS. It never listens on a port, so it works behind NAT and strict firewalls. It only runs binaries signed with your own certificate, and only after checking their SHA-256.
+- **A small Go agent** for Windows, Linux and macOS. It never listens on a port, so it works behind NAT and strict firewalls. Before running a test it checks the binary's SHA-256 and size against the console's record; Windows builds are also Authenticode-signed with your certificate when one is configured.
 - **A console** that schedules runs, stores every result in Elasticsearch, and pulls alerts from your EDR.
 
 Each test performs the technique for real, in a contained way, and exits with a code. 101 means it ran to completion; 105, 126 and 127 mean something quarantined or blocked it. Multi-stage tests report every stage separately, so you see how far an attack gets, not just whether it was noticed.
@@ -71,9 +71,9 @@ Errors, such as a timeout or a missing prerequisite, are reported but never scor
 
 ## Matching an Alert to the Test That Caused It
 
-![A process tree: the Achilles agent starts the test binary, which starts cmd.exe, which starts rundll32.exe. The EDR alert fires on rundll32.exe and is traced back to the test.](/how-it-works/edr.png)
+![A process tree: the Achilles agent starts the test binary, which starts cmd.exe, which starts rundll32.exe. The EDR alert fires on rundll32.exe, and the test's UUID-named binary in its evidence links it to the test.](/how-it-works/edr.png)
 
-EDR alerts rarely fire on the test binary itself. They fire on the Windows program it started: `cmd.exe`, `rundll32.exe`, `powershell.exe`. So Achilles reads the process lineage inside the EDR's own alert and walks up through the parent and grandparent until it finds the test. An alert is linked only when it is on the same host, inside the run's time window, and descends from the test. A matching file name alone is not enough.
+EDR alerts rarely fire on the test binary itself. They fire on the Windows program it started: `cmd.exe`, `rundll32.exe`, `powershell.exe`. Test binaries are named after the test's UUID, so Achilles looks for that name in the evidence the EDR attaches to the alert: the triggering process, its parent and grandparent where the EDR reports them, and file paths. An alert is linked when it is on the same host, inside the run's time window, and that UUID shows up in its evidence.
 
 Once an alert is linked, three things happen:
 
@@ -115,7 +115,7 @@ When the business decides to accept a gap, you can exclude it from the headline 
 
 ## Running Attacks in Production, Safely
 
-Running offensive techniques on real endpoints only works if the platform is safe to operate. With pre-execution notices on, tests are held on the server until the security team's email has been accepted, plus a lead time you choose. Test binaries are signed and hash-checked, and run from a work folder locked to SYSTEM and Administrators. Organizations are isolated from one another, roles separate viewers from operators, and API keys come in scopes that can never create users or more keys.
+Running offensive techniques on real endpoints only works if the platform is safe to operate. With pre-execution notices on, tests are held on the server until the security team's email has been accepted, plus a lead time you choose. Test binaries are hash-checked against the console's record before they run, from a work folder locked to SYSTEM and Administrators. Organizations are isolated from one another, roles separate viewers from operators, and API keys come in scopes that can never create users or more keys.
 
 ## See It in Motion
 

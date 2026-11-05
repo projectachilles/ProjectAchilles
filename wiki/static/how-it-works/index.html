@@ -563,7 +563,7 @@ footer .wrap { display: flex; flex-wrap: wrap; gap: 12px 32px; justify-content: 
     <div class="two">
       <div class="agent-points">
         <div><h3>Enroll once, then poll</h3><p>An installer uses a one-time enrollment token. After that the agent sends heartbeats and asks for tasks over HTTPS with its own hashed API key, so it works behind NAT and strict firewalls.</p></div>
-        <div><h3>Runs only signed, verified tests</h3><p>Test binaries are Authenticode-signed on Windows and ad-hoc signed on macOS. The agent checks the SHA-256 before it runs anything, inside a work folder locked to SYSTEM and Administrators.</p></div>
+        <div><h3>Runs only the binary it was sent</h3><p>Before running a test, the agent checks the binary's SHA-256 and size against the console's record, and runs it from a work folder locked to SYSTEM and Administrators. Windows builds are also Authenticode-signed with your certificate when one is configured.</p></div>
         <div><h3>Updates without bricking the fleet</h3><p>A new version must report the version it was registered as. After swapping the binary the agent launches it once to check, and rolls back to the old one if that check fails.</p></div>
         <div><h3>Watched by the console</h3><p>Missed heartbeats mark an agent offline. A task that never reports back is timed out, and if an EDR killed the agent mid-test, the console can prove that from the EDR's own alert.</p></div>
         <div class="platforms">
@@ -686,7 +686,7 @@ footer .wrap { display: flex; flex-wrap: wrap; gap: 12px 32px; justify-content: 
     <div class="chapter-head">
       <span class="chapter-num">Chapter 7</span>
       <h2>Matching EDR alerts to the test that caused them</h2>
-      <p class="lede">Alerts rarely fire on the test binary itself. They fire on the Windows program it started. Achilles walks up the process tree in the EDR's own alert until it finds the test, then links the two.</p>
+      <p class="lede">Alerts rarely fire on the test binary itself. They fire on the Windows program it started. Test binaries are named after the test's UUID, so Achilles looks for that name in the evidence the EDR attaches to the alert, then links the two.</p>
     </div>
     <div class="two">
       <div class="panel tree" aria-label="Animated process tree showing an alert matched to a test">
@@ -702,7 +702,7 @@ footer .wrap { display: flex; flex-wrap: wrap; gap: 12px 32px; justify-content: 
       </div>
       <div class="edr-list">
         <div class="vendors"><span class="tag">Microsoft Defender</span><span class="tag">CrowdStrike Falcon</span><span class="tag">SentinelOne</span><span class="tag">Sophos Central</span></div>
-        <div><h3>Same host, same window, same lineage</h3><p>An alert is linked when it is on the test's host, inside the run's time window, and its parent or grandparent process is the test. Loose matches on file names are not enough.</p></div>
+        <div><h3>Same host, same window, the test in the evidence</h3><p>An alert is linked when it is on the test's host, inside the run's time window, and the test's UUID-named binary appears in its evidence: the triggering process, its parent or grandparent where the EDR reports them, or a file path.</p></div>
         <div><h3>The SOC queue stays clean</h3><p>Once an alert is proven to be a test, Achilles can close it in the EDR console with a note naming the run. Dry-run mode shows what it would close before you let it write anything. The test results themselves are never edited.</p></div>
         <div><h3>The EDR's own posture, scored alongside</h3><p>Microsoft Secure Score, CrowdStrike Zero Trust, and Achilles-computed scores for SentinelOne and Sophos are trended next to the Defense Score. Posture checks also flag exclusions that would quietly whitelist every test.</p></div>
       </div>
@@ -770,7 +770,7 @@ footer .wrap { display: flex; flex-wrap: wrap; gap: 12px 32px; justify-content: 
     </div>
     <div class="guards">
       <div><svg width="28" height="28" viewBox="0 0 28 28" aria-hidden="true"><rect x="3" y="6" width="22" height="16" rx="3" fill="none" stroke="#3ef08a" stroke-width="1.8"/><path d="M3 8l11 8 11-8" fill="none" stroke="#3ef08a" stroke-width="1.8"/></svg><h3>Announced before it runs</h3><p>With pre-execution notices on, tests are held on the server until the email is accepted for every recipient, plus a lead time you choose. A broken mail server holds the tests rather than letting them run unannounced.</p></div>
-      <div><svg width="28" height="28" viewBox="0 0 28 28" aria-hidden="true"><path d="M14 3l9 4v6c0 5.5-3.8 10-9 12-5.2-2-9-6.5-9-12V7l9-4z" fill="none" stroke="#3ef08a" stroke-width="1.8"/><path d="M10 14l3 3 5-6" fill="none" stroke="#3ef08a" stroke-width="1.8"/></svg><h3>Signed and hash-checked</h3><p>Every binary is signed with your own certificate and verified by SHA-256 before it runs. Posture checks warn if an EDR trusts that certificate, which would whitelist every test.</p></div>
+      <div><svg width="28" height="28" viewBox="0 0 28 28" aria-hidden="true"><path d="M14 3l9 4v6c0 5.5-3.8 10-9 12-5.2-2-9-6.5-9-12V7l9-4z" fill="none" stroke="#3ef08a" stroke-width="1.8"/><path d="M10 14l3 3 5-6" fill="none" stroke="#3ef08a" stroke-width="1.8"/></svg><h3>Hash-checked before it runs</h3><p>A test binary runs only if its SHA-256 and size match the console's record. Windows builds are Authenticode-signed with your certificate when one is configured, and the Sophos posture checks flag an allow-list entry for that certificate, which would whitelist every test.</p></div>
       <div><svg width="28" height="28" viewBox="0 0 28 28" aria-hidden="true"><circle cx="9" cy="10" r="4" fill="none" stroke="#3ef08a" stroke-width="1.8"/><circle cx="19" cy="10" r="4" fill="none" stroke="#3ef08a" stroke-width="1.8"/><path d="M3 23c0-4 3-6 6-6s6 2 6 6M13 23c0-4 3-6 6-6s6 2 6 6" fill="none" stroke="#3ef08a" stroke-width="1.8"/></svg><h3>Roles and organizations</h3><p>Viewers, operators and admins get different permissions. Organizations are isolated from one another, and shared EDR settings become read-only in multi-tenant installs.</p></div>
       <div><svg width="28" height="28" viewBox="0 0 28 28" aria-hidden="true"><circle cx="10" cy="14" r="5" fill="none" stroke="#3ef08a" stroke-width="1.8"/><path d="M15 14h10M21 14v4M25 14v3" fill="none" stroke="#3ef08a" stroke-width="1.8"/></svg><h3>Scoped API keys</h3><p>Automation keys come in read, read-write and admin scopes. No key can create users or more keys, so revoking a leaked key contains the incident.</p></div>
       <div><svg width="28" height="28" viewBox="0 0 28 28" aria-hidden="true"><path d="M4 14a10 10 0 0 1 17-7l3-3v8h-8l3-3a7 7 0 1 0 1.5 7" fill="none" stroke="#3ef08a" stroke-width="1.8"/></svg><h3>Safe self-updates</h3><p>Version checks, a launch test at the final path, automatic rollback and a repeat-install guard keep a bad build from knocking the fleet offline.</p></div>
@@ -885,7 +885,7 @@ footer .wrap { display: flex; flex-wrap: wrap; gap: 12px 32px; justify-content: 
       if (v === "error" || v === "none") return;
       conclusive++;
       if (v !== "unprotected") ok++;
-      if (v === "protected" || v === "prevented") strict++;
+      if (v === "protected") strict++; // realScore: exit-code blocks only
     }); });
     var pct = conclusive ? Math.round(ok / conclusive * 100) : 0;
     var sp = conclusive ? Math.round(strict / conclusive * 100) : 0;
@@ -950,11 +950,14 @@ footer .wrap { display: flex; flex-wrap: wrap; gap: 12px 32px; justify-content: 
     hEl.stamp.setAttribute("fill", COLORS[v]);
     await sleep(350);
     await travel(hEl.path, COLORS[v], 800, true);
-    matrix[ti][hi] = v;
-    paintCell(ti, hi);
-    cells[ti][hi].classList.add("flash");
-    setTimeout(function () { cells[ti][hi].classList.remove("flash"); }, 700);
-    updateScore();
+    // latest-basis: an error never displaces the pair's last conclusive result
+    if (v !== "error") {
+      matrix[ti][hi] = v;
+      paintCell(ti, hi);
+      cells[ti][hi].classList.add("flash");
+      setTimeout(function () { cells[ti][hi].classList.remove("flash"); }, 700);
+      updateScore();
+    }
     log(tests[ti].t + " on " + hosts[hi].id + ": " + labels[v]);
   }
 
@@ -985,9 +988,9 @@ footer .wrap { display: flex; flex-wrap: wrap; gap: 12px 32px; justify-content: 
   var steps = [
     { k: "Pick", t: "Choose what to test", d: "Pick tests from the ATT&CK-mapped library, or save a campaign of tests × hosts. Run it now, once at a set time, or on a recurring schedule." },
     { k: "Announce", t: "Tell the SOC first", d: "With pre-execution notices on, the security team gets an email naming the tests, hosts and time window. Tasks stay held on the server until the email is accepted." },
-    { k: "Dispatch", t: "Agents pick up the work", d: "Each agent's next poll returns its task. It downloads the signed test binary for its own OS and checks the SHA-256 before running anything." },
+    { k: "Dispatch", t: "Agents pick up the work", d: "Each agent's next poll returns its task. It downloads the test binary for its own OS and checks its SHA-256 and size against the console's record before running anything." },
     { k: "Execute", t: "The technique runs for real", d: "The test performs the technique on the endpoint, stage by stage, and each stage exits with a code: 101 if it ran clean, 105, 126 or 127 if something stopped it." },
-    { k: "Correlate", t: "Line results up with EDR alerts", d: "Results are indexed in Elasticsearch. Alerts pulled from Defender, CrowdStrike, SentinelOne or Sophos are matched to the run by host, time and process lineage." },
+    { k: "Correlate", t: "Line results up with EDR alerts", d: "Results are indexed in Elasticsearch. Alerts pulled from Defender, CrowdStrike, SentinelOne or Sophos are matched to the run by host, time and the test's binary in the alert's evidence." },
     { k: "Score & fix", t: "Score it, fix it, run it again", d: "The Defense Score, heatmaps and chain-depth views show the gaps. Tune a policy or add a detection, then let the next scheduled run confirm the fix." }
   ];
   var ringNodes = document.getElementById("ring-nodes");
@@ -1108,7 +1111,7 @@ footer .wrap { display: flex; flex-wrap: wrap; gap: 12px 32px; justify-content: 
     ['k', '→ POST /api/agent/heartbeat'], ['w', '  200 ok  cpu 4%  mem 31 MB  v0.7.2'],
     ['k', '→ GET  /api/agent/tasks'], ['w', '  200 task 4f2c9e1a  execute_test  7659eeba (windows/amd64)'],
     ['k', '→ PATCH /api/agent/tasks/4f2c9e1a/status'], ['w', '  executing'],
-    ['s', '  download 7659eeba.exe  sha256 ok  signature ok'],
+    ['s', '  download 7659eeba.exe  sha256 ok  size ok'],
     ['w', '  run C:\\F0\\tasks\\task-4f2c9e1a\\7659eeba.exe'],
     ['r', '  stage 1  T1204.002  exit 101  ran'],
     ['p', '  stage 2  T1562.001  exit 126  blocked by EDR'],

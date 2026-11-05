@@ -50,7 +50,7 @@ Una prueba de penetración anual describe el entorno el día en que se hizo. Tod
 Achilles tiene tres partes:
 
 - **Una biblioteca de pruebas** de unas 80 pruebas mapeadas a ATT&CK, sincronizada desde Git. La mayoría (49) son cadenas de varias etapas construidas a partir de inteligencia de amenazas publicada, como la cadena BYOVD de Akira, el bypass de UAC de SafePay, EDRSilencer y un infostealer para macOS. Otras 11 cubren las técnicas más vistas en intrusiones reales. Las 20 restantes son paquetes de configuración que verifican líneas base de CIS e identidad, control por control.
-- **Un agente pequeño en Go** para Windows, Linux y macOS. Nunca escucha en un puerto, así que funciona detrás de NAT y de firewalls estrictos. Solo ejecuta binarios firmados con tu propio certificado, y solo después de comprobar su SHA-256.
+- **Un agente pequeño en Go** para Windows, Linux y macOS. Nunca escucha en un puerto, así que funciona detrás de NAT y de firewalls estrictos. Antes de ejecutar una prueba, comprueba el SHA-256 y el tamaño del binario contra el registro de la consola; en Windows, además, los binarios se firman con Authenticode usando tu certificado cuando hay uno configurado.
 - **Una consola** que programa las ejecuciones, guarda cada resultado en Elasticsearch y obtiene las alertas de tu EDR.
 
 Cada prueba ejecuta la técnica de verdad, de forma controlada, y termina con un código. 101 significa que se ejecutó por completo; 105, 126 y 127 significan que algo la puso en cuarentena o la bloqueó. Las pruebas de varias etapas reportan cada etapa por separado, así que ves hasta dónde llega un ataque, no solo si alguien lo notó.
@@ -71,9 +71,9 @@ Los errores, como un tiempo de espera agotado o un requisito previo que falta, s
 
 ## Vincular una alerta con la prueba que la causó
 
-![Un árbol de procesos: el agente de Achilles inicia el binario de la prueba, que inicia cmd.exe, que inicia rundll32.exe. La alerta del EDR se dispara en rundll32.exe y se rastrea hasta la prueba.](/how-it-works/edr.png)
+![Un árbol de procesos: el agente de Achilles inicia el binario de la prueba, que inicia cmd.exe, que inicia rundll32.exe. La alerta del EDR se dispara en rundll32.exe, y el binario de la prueba, con su UUID en el nombre, aparece en su evidencia y la vincula con la prueba.](/how-it-works/edr.png)
 
-Las alertas del EDR rara vez se disparan sobre el binario de la prueba. Se disparan sobre el programa de Windows que este inició: `cmd.exe`, `rundll32.exe`, `powershell.exe`. Por eso Achilles lee el linaje de procesos dentro de la propia alerta del EDR y sube por el proceso padre y el abuelo hasta encontrar la prueba. Una alerta se vincula solo cuando está en el mismo equipo, dentro de la ventana de tiempo de la ejecución, y desciende de la prueba. Que coincida el nombre de un archivo no basta.
+Las alertas del EDR rara vez se disparan sobre el binario de la prueba. Se disparan sobre el programa de Windows que este inició: `cmd.exe`, `rundll32.exe`, `powershell.exe`. Los binarios de prueba llevan el UUID de la prueba en su nombre, así que Achilles busca ese nombre en la evidencia que el EDR adjunta a la alerta: el proceso que la disparó, su padre y su abuelo cuando el EDR los reporta, y las rutas de archivo. Una alerta se vincula cuando está en el mismo equipo, dentro de la ventana de tiempo de la ejecución, y ese UUID aparece en su evidencia.
 
 Una vez vinculada la alerta, pasan tres cosas:
 
@@ -115,7 +115,7 @@ Cuando el negocio decide aceptar una brecha, puedes excluirla de la puntuación 
 
 ## Ejecutar ataques en producción, de forma segura
 
-Ejecutar técnicas ofensivas en endpoints reales solo funciona si la plataforma es segura de operar. Con los avisos previos a la ejecución activados, las pruebas se retienen en el servidor hasta que el correo al equipo de seguridad ha sido aceptado, más un margen que tú eliges. Los binarios de prueba están firmados y su hash se verifica, y se ejecutan desde una carpeta de trabajo restringida a SYSTEM y Administradores. Las organizaciones están aisladas entre sí, los roles separan a quienes consultan de quienes operan, y las API keys vienen con alcances que nunca pueden crear usuarios ni más claves.
+Ejecutar técnicas ofensivas en endpoints reales solo funciona si la plataforma es segura de operar. Con los avisos previos a la ejecución activados, las pruebas se retienen en el servidor hasta que el correo al equipo de seguridad ha sido aceptado, más un margen que tú eliges. El hash de cada binario de prueba se verifica contra el registro de la consola antes de ejecutarlo, desde una carpeta de trabajo restringida a SYSTEM y Administradores. Las organizaciones están aisladas entre sí, los roles separan a quienes consultan de quienes operan, y las API keys vienen con alcances que nunca pueden crear usuarios ni más claves.
 
 ## Míralo en movimiento
 
