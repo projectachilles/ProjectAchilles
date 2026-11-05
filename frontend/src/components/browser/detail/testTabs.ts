@@ -44,7 +44,7 @@ export function buildTestTabs(test: TestDetails): TestTab[] {
     if (list.length > 0) tabs.push(tab(id, label, list));
   };
   add('readme', 'README', readme);
-  add('info', 'Info', info);
+  add('info', 'Info card', info);
   add('detection', 'Detection', detection);
   add('defense', 'Defense', defense);
   add('references', 'References', references);

@@ -15,6 +15,8 @@ import OverviewTab from '@/components/browser/detail/overview/OverviewTab';
 import { useBuildInfo } from '@/components/browser/detail/useBuildInfo';
 import { buildTestTabs, resolveTabSelection, type TestTabId } from '@/components/browser/detail/testTabs';
 
+const TAB_PANEL_ID = 'test-detail-tabpanel';
+
 export default function TestDetailPage() {
   const { uuid } = useParams<{ uuid: string }>();
   if (!uuid) return null;
@@ -44,7 +46,10 @@ function TestDetailView({ uuid }: { uuid: string }) {
   const canCreateTasks = useHasPermission('endpoints:tasks:create');
   const [executionDrawerOpen, setExecutionDrawerOpen] = useState(false);
   // The page's only build state: the header's Download and the Deploy panel share it.
-  const build = useBuildInfo(uuid);
+  // Fetched only for builders of a test with source (the build route needs
+  // tests:builds:read, which read-only roles lack); otherwise inert.
+  const hasSource = !!test?.files?.some(f => f.category === 'source');
+  const build = useBuildInfo(canBuild && hasSource ? uuid : null);
 
   const tabs = useMemo(() => (test ? buildTestTabs(test) : []), [test]);
   const selection = resolveTabSelection(tabs, searchParams.get('tab'), searchParams.get('file'));
@@ -52,12 +57,14 @@ function TestDetailView({ uuid }: { uuid: string }) {
 
   // A tab or file click is a real history entry (browser Back works). The
   // router state rides along so the breadcrumb keeps the list's `backTo`.
+  // Re-clicking the active tab (or the open file) adds no entry.
   const openTab = useCallback((tab: TestTabId, file?: string | null) => {
+    if (tab === selection.tab && (!file || file === selection.file)) return;
     const next = new URLSearchParams();
     if (tab !== 'overview') next.set('tab', tab);
     if (file) next.set('file', file);
     setSearchParams(next, { replace: false, state: location.state });
-  }, [setSearchParams, location.state]);
+  }, [setSearchParams, location.state, selection.tab, selection.file]);
 
   // Sync theme to visualization iframes via postMessage
   const syncThemeToIframe = useCallback(() => {
@@ -240,22 +247,34 @@ function TestDetailView({ uuid }: { uuid: string }) {
           return (
             <button
               key={tab.id}
+              id={`test-tab-${tab.id}`}
               type="button"
               role="tab"
               aria-selected={active}
+              aria-controls={active ? TAB_PANEL_ID : undefined}
               onClick={() => openTab(tab.id)}
               className={pillClass(active, 'shrink-0')}
             >
               {tab.label}
               {tab.count !== undefined && (
-                <span className="rounded bg-overlay px-1 font-mono text-[10px] leading-4 text-faint">{tab.count}</span>
+                <>
+                  <span aria-hidden="true" className="rounded bg-overlay px-1 font-mono text-[10px] leading-4 text-faint">{tab.count}</span>
+                  <span className="sr-only">{`, ${tab.count} files`}</span>
+                </>
               )}
             </button>
           );
         })}
       </div>
 
-      <div role="tabpanel" className="px-4 py-5">{content}</div>
+      <div
+        role="tabpanel"
+        id={TAB_PANEL_ID}
+        aria-labelledby={`test-tab-${selection.tab}`}
+        className="px-4 py-5"
+      >
+        {content}
+      </div>
 
       <ExecutionDrawer
         open={executionDrawerOpen}

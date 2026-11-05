@@ -36,7 +36,7 @@ for it:
 |-----|----------|
 | **Overview** | Default tab; see [Overview](#overview) |
 | **README** | `README.md`, plus `SAFETY.md` when present |
-| **Info** | The test's info card |
+| **Info card** | The test's info card |
 | **Detection** | Detection rules (Defender KQL, YARA, Sigma, Elastic EQL, LimaCharlie D&R) |
 | **Defense** | Defense guide, D&R rules and hardening scripts |
 | **References** | External references and sources |

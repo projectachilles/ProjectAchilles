@@ -28,7 +28,9 @@ vi.mock('@/components/browser/execution', () => ({
   ExecutionDrawer: ({ open }: { open: boolean }) => (open ? <div data-testid="execution-drawer" /> : null),
 }));
 vi.mock('@/components/browser/BuildSection', () => ({
-  default: ({ uuid }: { uuid: string }) => <div data-testid="build-section">{uuid}</div>,
+  default: ({ uuid, build }: { uuid: string; build?: unknown }) => (
+    <div data-testid="build-section" data-has-build={build ? 'yes' : 'no'}>{uuid}</div>
+  ),
 }));
 vi.mock('@/components/browser/FileViewer', () => ({
   default: ({ file, hideTitle }: { file: { name: string; content: string }; hideTitle?: string }) => (
@@ -57,6 +59,7 @@ function makeTest(over: Partial<TestDetails> = {}): TestDetails {
     })),
     files: [
       f('README.md', 'documentation'),
+      f(`${UUID}_info.md`, 'documentation'),
       f(`${UUID}.go`, 'source', 'go'),
       f(`${UUID}_detections.kql`, 'detection', 'kql'),
       f(`${UUID}_rules.yar`, 'detection', 'yara'),
@@ -80,6 +83,7 @@ function Probe() {
   return (
     <>
       <div data-testid="search">{loc.search}</div>
+      <div data-testid="key">{loc.key}</div>
       <div data-testid="state">{JSON.stringify(loc.state ?? null)}</div>
     </>
   );
@@ -195,14 +199,68 @@ describe('TestDetailPage', () => {
   it('shows the Deploy panel only with build permission and source files', async () => {
     browser.getTestDetails.mockResolvedValue(makeTest());
     const { unmount } = renderPage();
-    expect(await screen.findByTestId('build-section')).toHaveTextContent(UUID);
+    const section = await screen.findByTestId('build-section');
+    expect(section).toHaveTextContent(UUID);
+    // The page's own build state is handed down, so the section never fetches its own.
+    expect(section).toHaveAttribute('data-has-build', 'yes');
+    expect(tests.getBuildInfo).toHaveBeenCalledTimes(1);
+    expect(tests.getBuildInfo).toHaveBeenCalledWith(UUID);
     unmount();
+    tests.getBuildInfo.mockClear();
 
     perms.granted = new Set(['endpoints:tasks:create']);
     renderPage();
     await screen.findByRole('heading', { level: 1, name: 'Credential Dump Chain' });
     expect(screen.queryByTestId('build-section')).not.toBeInTheDocument();
     expect(screen.queryByText('Deploy')).not.toBeInTheDocument();
+    // Read-only roles lack tests:builds:read, so the build route is never called.
+    expect(tests.getBuildInfo).not.toHaveBeenCalled();
+  });
+
+  it('does not fetch build info for a test without source, even for builders', async () => {
+    browser.getTestDetails.mockResolvedValue(makeTest({ files: [f('README.md', 'documentation')] }));
+    renderPage();
+    await screen.findByRole('heading', { level: 1, name: 'Credential Dump Chain' });
+    expect(screen.queryByTestId('build-section')).not.toBeInTheDocument();
+    expect(tests.getBuildInfo).not.toHaveBeenCalled();
+  });
+
+  it('does not add a history entry when the active tab or file is clicked again', async () => {
+    browser.getTestDetails.mockResolvedValue(makeTest());
+    renderPage();
+    await screen.findByRole('heading', { level: 1, name: 'Credential Dump Chain' });
+    const key0 = screen.getByTestId('key').textContent;
+    fireEvent.click(screen.getByRole('tab', { name: 'Overview' }));
+    expect(screen.getByTestId('key').textContent).toBe(key0);
+
+    fireEvent.click(screen.getByRole('tab', { name: 'Defense, 2 files' }));
+    await screen.findByTestId('file-viewer');
+    const key1 = screen.getByTestId('key').textContent;
+    expect(key1).not.toBe(key0);
+    fireEvent.click(screen.getByRole('tab', { name: 'Defense, 2 files' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Defense Guide' }));
+    expect(screen.getByTestId('key').textContent).toBe(key1);
+    expect(screen.getByTestId('search').textContent).toBe('?tab=defense');
+
+    fireEvent.click(screen.getByRole('button', { name: 'Hardening (Windows)' }));
+    const key2 = screen.getByTestId('key').textContent;
+    expect(key2).not.toBe(key1);
+    fireEvent.click(screen.getByRole('button', { name: 'Hardening (Windows)' }));
+    expect(screen.getByTestId('key').textContent).toBe(key2);
+  });
+
+  it('names tabs without the count glyph and labels the panel with the active tab', async () => {
+    browser.getTestDetails.mockResolvedValue(makeTest());
+    renderPage('?tab=detection');
+    await screen.findByTestId('file-viewer');
+    const detection = screen.getByRole('tab', { name: 'Detection, 2 files' });
+    expect(detection).toHaveAttribute('aria-selected', 'true');
+    expect(screen.getByRole('tab', { name: 'Info card' })).toBeInTheDocument();
+    expect(screen.getByRole('tab', { name: 'README' })).toBeInTheDocument();
+    const panel = screen.getByRole('tabpanel');
+    expect(panel).toHaveAttribute('aria-labelledby', detection.id);
+    expect(screen.getByRole('tabpanel', { name: 'Detection, 2 files' })).toBe(panel);
+    expect(detection).toHaveAttribute('aria-controls', panel.id);
   });
 
   it('shows Download in the header once the shared build state has a build', async () => {

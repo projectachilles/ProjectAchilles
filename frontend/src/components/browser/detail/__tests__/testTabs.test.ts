@@ -55,6 +55,9 @@ describe('buildTestTabs', () => {
     expect(tabs.map(t => t.id)).toEqual([
       'overview', 'readme', 'info', 'detection', 'defense', 'references', 'source', 'kill-chain',
     ]);
+    expect(tabs.map(t => t.label)).toEqual([
+      'Overview', 'README', 'Info card', 'Detection', 'Defense', 'References', 'Source', 'Kill chain',
+    ]);
     const counts = Object.fromEntries(tabs.filter(t => t.count).map(t => [t.id, t.count]));
     expect(counts).toEqual({ readme: 2, detection: 5, defense: 3, source: 11 });
     expect(tabs.find(t => t.id === 'readme')!.files.map(x => x.name)).toEqual(['README.md', 'SAFETY.md']);
