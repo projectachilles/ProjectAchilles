@@ -2,7 +2,8 @@ import { useState, useEffect, useRef, useCallback } from 'react';
 import { put } from '@vercel/blob/client';
 import { testsApi } from '@/services/api/tests';
 import { useCapabilities } from '@/hooks/useCapabilities';
-import type { BuildInfo, EmbedDependency } from '@/types/test';
+import type { EmbedDependency } from '@/types/test';
+import { useBuildInfo } from '@/components/browser/detail/useBuildInfo';
 import { embedDisplayName } from '@/components/browser/detail/testTabs';
 import { Badge } from '@/components/shared/ui/Badge';
 import { Button } from '@/components/shared/ui/Button';
@@ -27,9 +28,10 @@ function formatDate(iso: string): string {
 }
 
 export default function BuildSection({ uuid }: BuildSectionProps) {
-  const [buildInfo, setBuildInfo] = useState<BuildInfo | null>(null);
+  const { buildInfo, setBuildInfo, loading: infoLoading, download: handleDownload } = useBuildInfo(uuid);
   const [deps, setDeps] = useState<EmbedDependency[]>([]);
-  const [loading, setLoading] = useState(true);
+  const [depsLoadedFor, setDepsLoadedFor] = useState<string | null>(null);
+  const loading = infoLoading || depsLoadedFor !== uuid;
   const [building, setBuilding] = useState(false);
   const [uploading, setUploading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -79,36 +81,34 @@ export default function BuildSection({ uuid }: BuildSectionProps) {
     setError(null);
   }, [uuid]);
 
-  const fetchData = useCallback(async () => {
-    try {
-      setLoading(true);
-      const promises: [Promise<BuildInfo>, Promise<EmbedDependency[]>] = [
-        testsApi.getBuildInfo(uuid),
-        // Only fetch deps if build system is available (needs Go source analysis)
-        capabilities.build
-          ? testsApi.getEmbedDependencies(uuid)
-          : Promise.resolve([]),
-      ];
-      const [info, embedDeps] = await Promise.all(promises);
-      setBuildInfo(info);
-      setDeps(embedDeps);
-      // The build survives page refreshes on the server: pick it back up, or
-      // show why the last attempt failed.
-      if (info.job?.status === 'running') {
-        void followBuild(false);
-      } else if (info.job?.status === 'failed' && !info.exists) {
-        setError(info.job.error || 'Build failed');
-      }
-    } catch {
-      // Non-critical — just show empty state
-    } finally {
-      setLoading(false);
-    }
-  }, [uuid, capabilities.build, followBuild]);
-
+  // Once the build info for this test has loaded, load its embed
+  // dependencies and resume / explain the last build attempt.
   useEffect(() => {
-    fetchData();
-  }, [fetchData]);
+    if (infoLoading) return;
+    let stale = false;
+    (async () => {
+      try {
+        // Only fetch deps if build system is available (needs Go source analysis)
+        const embedDeps = capabilities.build ? await testsApi.getEmbedDependencies(uuid) : [];
+        if (stale) return;
+        setDeps(embedDeps);
+        // The build survives page refreshes on the server: pick it back up, or
+        // show why the last attempt failed.
+        if (buildInfo?.job?.status === 'running') {
+          void followBuild(false);
+        } else if (buildInfo?.job?.status === 'failed' && !buildInfo.exists) {
+          setError(buildInfo.job.error || 'Build failed');
+        }
+      } catch {
+        // Non-critical — just show empty state
+      } finally {
+        if (!stale) setDepsLoadedFor(uuid);
+      }
+    })();
+    return () => { stale = true; };
+    // buildInfo intentionally omitted: react only to the load finishing
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [uuid, infoLoading, capabilities.build, followBuild]);
 
   async function handleBuild() {
     await followBuild(true);
@@ -118,14 +118,6 @@ export default function BuildSection({ uuid }: BuildSectionProps) {
     try {
       await testsApi.deleteBuild(uuid);
       setBuildInfo({ exists: false });
-    } catch {
-      // ignore
-    }
-  }
-
-  async function handleDownload() {
-    try {
-      await testsApi.downloadBuild(uuid);
     } catch {
       // ignore
     }
