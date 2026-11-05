@@ -73,7 +73,7 @@ When a task fails, the failure reason is displayed in the Tasks page:
 
 - **Expanded view** — A red error banner shows the specific failure reason (e.g., "SHA256 mismatch: expected abc, got def", "download binary: connection timeout", "Agent went offline during execution")
 - **Collapsed view** — A truncated failure reason appears below the task name in the task list row
-- **Exit code** — Failed tasks show exit code `-1` for pre-execution failures (download errors, verification failures) and `259` for execution timeouts
+- **Exit code** — Failed tasks show exit code `-1` for pre-execution failures (download errors, verification failures) and `259` when the agent stopped a test that ran past its time limit
 
 The agent sends failure context for all error types: binary download failures, SHA256/size mismatches, execution errors, update failures, and uninstall failures. For tasks that fail because the agent went offline, the backend generates a structured error result automatically.
 
@@ -83,9 +83,11 @@ The header shows a one-line summary of the last 7 days: for example `last 7 days
 
 ### Outcome breakdown
 
-**Protected** and **No verdict** open a menu that lists the exit codes behind the number, for example `126 ExecutionPrevented` or `259 StillActive` (names come from the exit-code table), with a bar and a count for each. Runs that failed without an exit code get their own rows, such as **Agent offline** and **Execution timeout**. No verdict is split into groups (the test did not run, the run failed, the test reported an error, inconclusive).
+**Protected** and **No verdict** open a menu that lists the exit codes behind the number, for example `126 ExecutionPrevented` or `259 StillActive` (names come from the exit-code table), with a bar and a count for each. Runs that failed without an exit code get their own rows: **Agent offline**, **Timeout** and **Other failure**. **Timeout** means the server gave up waiting for a result (the task exceeded its execution timeout and the agent never reported back); a test the agent itself stopped at its time limit shows as `259 StillActive` instead. No verdict is split into groups (the test did not run, the run failed, the test reported an error, inconclusive).
 
-Choosing a row filters the task list to that outcome. A chip next to the search box names the filter and its **x** clears it. Press **Esc** to close the menu without choosing. The filter covers security-test tasks from the last 7 days, the same window as the numbers, so the list shows exactly the tasks counted in that row. The pager counts batches, so its total can be lower than the number you clicked.
+Choosing a row filters the task list to that outcome. A chip next to the search box names the filter and its **x** clears it. Press **Esc** to close the menu without choosing. The filter covers security-test tasks from the last 7 days, the same window as the numbers, so the list shows exactly the tasks counted in that row. The pager counts batches, so its total can be lower than the number you clicked. A batch shows only its matching tasks, and its header says how many of the batch's agents are listed, for example `1 of 5 agents`.
+
+If the list can't load while a filter is on (a network error, or the server is restarting), the filter stays and the list retries on its next refresh; rows fetched without the filter are never shown under its chip. Only if the server rejects the filter itself is it cleared, with a "Couldn't filter the task list." message.
 
 ### Schedules pill
 
