@@ -71,7 +71,7 @@ Higher-priority tasks are assigned before lower-priority ones when multiple task
 
 ## Managing Schedules
 
-Existing schedules are listed under the **Schedules** pill on the Tasks page (it appears once a schedule exists). New schedules are created from **Create Task**, not from that view.
+Existing schedules are listed in the **Schedules** section of the Tasks page (`/tasks/schedules`). New schedules are created from **Create Task**, not from that view.
 
 - **Pause/Resume** — Temporarily disable a schedule without deleting it
 - **Edit** — Modify any schedule parameter

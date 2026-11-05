@@ -1,7 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
-import { MemoryRouter } from 'react-router-dom';
+import { MemoryRouter, Route, Routes } from 'react-router-dom';
 import type { AgentMetrics, Schedule } from '@/types/agent';
 
 vi.mock('@/services/api/agent', () => ({
@@ -13,6 +13,7 @@ vi.mock('@/services/api/agent', () => ({
 }));
 vi.mock('@/hooks/useAppRole', () => ({ useHasPermission: () => false }));
 vi.mock('@/hooks/usePolling', () => ({ usePolling: () => {} }));
+vi.mock('@/hooks/useCapabilities', () => ({ useCapabilities: () => ({ campaigns: true }) }));
 vi.mock('@/components/endpoints/tasks/TaskStream', () => ({
   default: ({ footer, groups }: { footer?: React.ReactNode; groups: unknown[] }) => (
     <div data-testid="task-stream" data-groups={groups.length}>{footer}</div>
@@ -42,11 +43,18 @@ const schedule = { id: 's1' } as Schedule;
 const group = (id: string) => ({ batch_id: id, tasks: [], status_counts: {}, agent_count: 1 }) as never;
 const list = vi.mocked(agentApi.listTasksGrouped);
 
-function setup(schedules: Schedule[] = [schedule]) {
+function setup(schedules: Schedule[] = [schedule], path = '/tasks') {
   list.mockResolvedValue({ groups: [], total: 0, typeCounts: {} });
   vi.mocked(agentApi.listSchedules).mockResolvedValue(schedules);
   vi.mocked(agentApi.getMetrics).mockResolvedValue(metrics);
-  return render(<MemoryRouter><TasksPage /></MemoryRouter>);
+  return render(
+    <MemoryRouter initialEntries={[path]}>
+      <Routes>
+        <Route path="/tasks" element={<TasksPage />} />
+        <Route path="/tasks/schedules" element={<TasksPage />} />
+      </Routes>
+    </MemoryRouter>,
+  );
 }
 
 async function chooseOffline(user: ReturnType<typeof userEvent.setup>) {
@@ -95,20 +103,39 @@ describe('TasksPage', () => {
     expect(screen.queryByText('No verdict › Agent offline · last 7 days')).toBeNull();
   });
 
-  it('Schedules pill swaps in the schedule list and hides search', async () => {
+  it('Schedules section swaps in the schedule list and hides the run filters', async () => {
     const user = userEvent.setup();
     setup();
     expect(await screen.findByPlaceholderText('Search tasks...')).toBeInTheDocument();
-    await user.click(await screen.findByRole('tab', { name: /Schedules/ }));
+    await user.click(await screen.findByRole('link', { name: /Schedules/ }));
     expect(screen.getByTestId('schedule-list')).toBeInTheDocument();
     expect(screen.queryByTestId('task-stream')).toBeNull();
     expect(screen.queryByPlaceholderText('Search tasks...')).toBeNull();
+    expect(screen.queryByRole('tablist', { name: 'Task type' })).toBeNull();
+    expect(screen.getByRole('link', { name: /Schedules/ })).toHaveAttribute('aria-current', 'page');
   });
 
-  it('has no Schedules pill without schedules', async () => {
+  it('section tabs sit in the header: Runs, Schedules (even with none), Campaigns', async () => {
     setup([]);
     await screen.findByText('16');
+    const nav = screen.getByRole('navigation', { name: 'Tasks sections' });
+    expect(nav).toHaveTextContent(/^RunsSchedulesCampaigns$/);
     expect(screen.queryByRole('tab', { name: /Schedules/ })).toBeNull();
+  });
+
+  it('opens on /tasks/schedules directly', async () => {
+    setup([schedule], '/tasks/schedules');
+    expect(await screen.findByTestId('schedule-list')).toBeInTheDocument();
+  });
+
+  it('a breakdown pick from Schedules returns to Runs with the filter applied', async () => {
+    const user = userEvent.setup();
+    setup([schedule], '/tasks/schedules');
+    await screen.findByTestId('schedule-list');
+    await chooseOffline(user);
+    expect(await screen.findByTestId('task-stream')).toBeInTheDocument();
+    expect(screen.getByText('No verdict › Agent offline · last 7 days')).toBeInTheDocument();
+    await waitFor(() => expect(list).toHaveBeenLastCalledWith(expect.objectContaining({ breakdown: 'failed:offline' })));
   });
 
   it('falls back to the last page when the total shrinks under the current page', async () => {

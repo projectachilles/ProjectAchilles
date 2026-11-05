@@ -35,8 +35,8 @@ function matrix(states: CellState[], pct: number | null = 50, notice: RunNotice 
 
 function setup() {
   return render(
-    <MemoryRouter initialEntries={['/campaigns/runs/r1']}>
-      <Routes><Route path="/campaigns/runs/:runId" element={<CampaignRunPage />} /></Routes>
+    <MemoryRouter initialEntries={['/tasks/campaigns/runs/r1']}>
+      <Routes><Route path="/tasks/campaigns/runs/:runId" element={<CampaignRunPage />} /></Routes>
     </MemoryRouter>,
   );
 }

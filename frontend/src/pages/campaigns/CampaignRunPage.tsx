@@ -347,7 +347,7 @@ export default function CampaignRunPage() {
         )}
 
         <p className="mt-4 text-sm print:hidden">
-          <Link to="/campaigns" className="text-accent hover:underline">Back to campaigns</Link>
+          <Link to="/tasks/campaigns" className="text-accent hover:underline">Back to campaigns</Link>
         </p>
       </div>
     </PageContainer>

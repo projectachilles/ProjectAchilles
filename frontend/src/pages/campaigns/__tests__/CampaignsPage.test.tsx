@@ -44,10 +44,10 @@ import { campaignsApi } from '@/services/api/campaigns';
 
 function setup() {
   return render(
-    <MemoryRouter initialEntries={['/campaigns']}>
+    <MemoryRouter initialEntries={['/tasks/campaigns']}>
       <Routes>
-        <Route path="/campaigns" element={<CampaignsPage />} />
-        <Route path="/campaigns/runs/:runId" element={<p>Run page</p>} />
+        <Route path="/tasks/campaigns" element={<CampaignsPage />} />
+        <Route path="/tasks/campaigns/runs/:runId" element={<p>Run page</p>} />
       </Routes>
     </MemoryRouter>,
   );
@@ -73,7 +73,7 @@ describe('CampaignsPage', () => {
     const list = await screen.findByRole('list', { name: 'Runs of CIS Baseline' });
     expect(campaignsApi.listRuns).toHaveBeenCalledWith('c1', { limit: 25, offset: 0 });
     const links = within(list).getAllByRole('link');
-    expect(links.map((a) => a.getAttribute('href'))).toEqual(['/campaigns/runs/r2', '/campaigns/runs/r1']);
+    expect(links.map((a) => a.getAttribute('href'))).toEqual(['/tasks/campaigns/runs/r2', '/tasks/campaigns/runs/r1']);
     const first = links[0].closest('li')!;
     expect(first).toHaveTextContent(new Date('2026-10-21T10:00:00.000Z').toLocaleString());
     expect(first).toHaveTextContent('Jane Doe');
