@@ -445,6 +445,23 @@ export interface AcceptRiskRequest {
   justification: string;
 }
 
+export interface TestFleetStage {
+  controlId: string;
+  validator?: string;
+  description?: string;
+  blocked: number;
+  detected: number;
+  through: number;
+  hosts: number;
+  lastRunAt: string;
+}
+
+export interface TestFleetResponse {
+  headline: { hostCount: number; pairCount: number; stoppedCount: number; lastRunAt: string | null };
+  stages: TestFleetStage[];
+  stoppedBeforeStage: number;
+}
+
 export const analyticsApi = {
   // Settings
   async getSettings(): Promise<AnalyticsSettings> {
@@ -701,6 +718,12 @@ export const analyticsApi = {
   /** Per-test fleet results (last 90 days, latest pair per host) for the test library. */
   async getTestResults(params?: ExtendedFilterParams): Promise<TestResultItem[]> {
     const response = await apiClient.get('/analytics/test-results', { params });
+    return response.data;
+  },
+
+  /** Per-stage fleet split for one test (latest pair per host, 90 days). */
+  async getTestFleet(uuid: string): Promise<TestFleetResponse> {
+    const response = await apiClient.get(`/analytics/test-results/${encodeURIComponent(uuid)}/stages`);
     return response.data;
   },
 
