@@ -66,6 +66,9 @@ export default function TasksPage() {
   const [schedules, setSchedules] = useState<Schedule[]>([]);
   const [view, setView] = useState<'tasks' | 'schedules'>('tasks');
   const [breakdownFilter, setBreakdownFilter] = useState<BreakdownFilter | null>(null);
+  // Which breakdown key the rows on screen were fetched with, so a failed
+  // fetch never leaves unfiltered rows under the chip.
+  const listBreakdown = useRef<string | null>(null);
   const [wide, setWide] = useState(() => window.matchMedia?.('(min-width: 1024px)').matches ?? false);
   const { ref: fillRef, height: fillHeight } = useViewportFill<HTMLDivElement>(wide);
   const [page, setPage] = useState(1);
@@ -103,17 +106,30 @@ export default function TasksPage() {
     setLoading(true);
     setSelectedTasks([]);
     try {
-      const result = await agentApi.listTasksGrouped(buildFilters());
+      const filters = buildFilters();
+      const result = await agentApi.listTasksGrouped(filters);
       setGroups(result.groups);
       setTotalGroups(result.total);
       setTypeCounts(result.typeCounts);
+      listBreakdown.current = filters.breakdown ?? null;
     } catch (err) {
       console.error('Failed to fetch tasks:', err);
-      // Never leave the breakdown chip over an unfiltered list.
       if (breakdownFilter) {
-        setBreakdownFilter(null);
-        setPage(1);
-        showToast("Couldn't filter the task list.", 'destructive');
+        const status = (err as { response?: { status?: number } } | null)?.response?.status;
+        if (status === 400) {
+          // The backend rejected the key itself: the filter can never work.
+          setBreakdownFilter(null);
+          setPage(1);
+          showToast("Couldn't filter the task list.", 'destructive');
+        } else {
+          // Transient (network, 5xx): keep the filter, the poll retries. Rows
+          // fetched without this key must not sit under its chip.
+          if (listBreakdown.current !== breakdownFilter.key) {
+            setGroups([]);
+            setTotalGroups(0);
+          }
+          showToast("Couldn't load the task list. It will retry.", 'destructive');
+        }
       }
     } finally {
       setLoading(false);
@@ -148,6 +164,7 @@ export default function TasksPage() {
       setGroups(taskResult.groups);
       setTotalGroups(taskResult.total);
       setTypeCounts(taskResult.typeCounts);
+      listBreakdown.current = filters.breakdown ?? null;
       setSchedules(scheduleResult);
       if (metricsResult) setMetrics(metricsResult);
     } catch {
@@ -542,7 +559,7 @@ export default function TasksPage() {
               onDelete={canDeleteTask ? handleDelete : undefined}
               onOpenNotes={setNotesTask}
             />
-            </div>
+          </div>
         )}
 
         {canCreateTask && (

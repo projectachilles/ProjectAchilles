@@ -13,7 +13,11 @@ vi.mock('@/services/api/agent', () => ({
 }));
 vi.mock('@/hooks/useAppRole', () => ({ useHasPermission: () => false }));
 vi.mock('@/hooks/usePolling', () => ({ usePolling: () => {} }));
-vi.mock('@/components/endpoints/tasks/TaskStream', () => ({ default: ({ footer }: { footer?: React.ReactNode }) => <div data-testid="task-stream">{footer}</div> }));
+vi.mock('@/components/endpoints/tasks/TaskStream', () => ({
+  default: ({ footer, groups }: { footer?: React.ReactNode; groups: unknown[] }) => (
+    <div data-testid="task-stream" data-groups={groups.length}>{footer}</div>
+  ),
+}));
 vi.mock('@/components/endpoints/tasks/ScheduleList', () => ({ default: () => <div data-testid="schedule-list" /> }));
 
 import { agentApi } from '@/services/api/agent';
@@ -35,6 +39,7 @@ const metrics = {
 } as unknown as AgentMetrics;
 
 const schedule = { id: 's1' } as Schedule;
+const group = (id: string) => ({ batch_id: id, tasks: [], status_counts: {}, agent_count: 1 }) as never;
 const list = vi.mocked(agentApi.listTasksGrouped);
 
 function setup(schedules: Schedule[] = [schedule]) {
@@ -119,17 +124,43 @@ describe('TasksPage', () => {
     expect(await screen.findByText('1 / 1')).toBeInTheDocument();
   });
 
-  it('drops the breakdown filter and says so when the filtered fetch fails', async () => {
+  it('drops the breakdown filter and says so when the backend rejects it (400)', async () => {
     const user = userEvent.setup();
     setup();
     await waitFor(() => expect(list).toHaveBeenCalled());
     list.mockImplementation(async (f) => {
-      if (f && 'breakdown' in f) throw new Error('boom');
+      if (f && 'breakdown' in f) throw Object.assign(new Error('Request failed'), { response: { status: 400 } });
       return { groups: [], total: 0, typeCounts: {} };
     });
     await chooseOffline(user);
     expect(await screen.findByText("Couldn't filter the task list.")).toBeInTheDocument();
     expect(screen.queryByText('No verdict › Agent offline · last 7 days')).toBeNull();
     await waitFor(() => expect(list.mock.lastCall?.[0]).not.toHaveProperty('breakdown'));
+  });
+
+  it('keeps the filter on a network failure but never leaves unfiltered rows under the chip', async () => {
+    const user = userEvent.setup();
+    setup();
+    list.mockResolvedValue({ groups: [group('b1'), group('b2')], total: 2, typeCounts: {} });
+    await user.click(await screen.findByRole('button', { name: /Refresh/ }));
+    await waitFor(() => expect(screen.getByTestId('task-stream')).toHaveAttribute('data-groups', '2'));
+    list.mockRejectedValue(new Error('Network Error'));
+    await chooseOffline(user);
+    expect(await screen.findByText("Couldn't load the task list. It will retry.")).toBeInTheDocument();
+    expect(screen.getByText('No verdict › Agent offline · last 7 days')).toBeInTheDocument();
+    expect(screen.getByTestId('task-stream')).toHaveAttribute('data-groups', '0');
+  });
+
+  it('keeps the filtered rows when a later refresh fails', async () => {
+    const user = userEvent.setup();
+    setup();
+    list.mockResolvedValue({ groups: [group('b1')], total: 1, typeCounts: {} });
+    await chooseOffline(user);
+    await waitFor(() => expect(screen.getByTestId('task-stream')).toHaveAttribute('data-groups', '1'));
+    list.mockRejectedValue(new Error('Network Error'));
+    await user.click(screen.getByRole('button', { name: /Refresh/ }));
+    expect(await screen.findByText("Couldn't load the task list. It will retry.")).toBeInTheDocument();
+    expect(screen.getByText('No verdict › Agent offline · last 7 days')).toBeInTheDocument();
+    expect(screen.getByTestId('task-stream')).toHaveAttribute('data-groups', '1');
   });
 });
