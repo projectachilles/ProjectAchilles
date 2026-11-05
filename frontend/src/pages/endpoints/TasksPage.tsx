@@ -1,11 +1,12 @@
 import { useEffect, useState, useCallback, useRef } from 'react';
 import { usePolling } from '@/hooks/usePolling';
 import { useSearchParams } from 'react-router-dom';
-import { Plus, RefreshCw, Search, X, Trash2, ChevronsLeft, ChevronLeft, ChevronRight, ChevronsRight, ChevronDown } from 'lucide-react';
+import { Plus, RefreshCw, Search, X, Trash2, ChevronsLeft, ChevronLeft, ChevronRight, ChevronsRight } from 'lucide-react';
 import { agentApi } from '@/services/api/agent';
-import type { AgentMetrics, AgentTask, TaskGroup, TaskStatus, TaskType, Schedule } from '@/types/agent';
+import type { AgentMetrics, AgentTask, TaskBreakdownRow, TaskGroup, TaskStatus, TaskType, Schedule } from '@/types/agent';
 import { PageContainer, PageHeader } from '@/components/endpoints/Layout';
 import TaskStream from '@/components/endpoints/tasks/TaskStream';
+import { TaskStatLine } from '@/components/endpoints/tasks/TaskStatLine';
 import ScheduleList from '@/components/endpoints/tasks/ScheduleList';
 import TaskCreatorDialog from '@/components/endpoints/tasks/TaskCreatorDialog';
 import TaskNotesDialog from '@/components/endpoints/tasks/TaskNotesDialog';
@@ -23,6 +24,12 @@ import { pillClass } from '@/components/shared/ui/pillStyles';
 const TOAST_DURATION_MS = 4000;
 const PAGE_SIZE_OPTIONS = [25, 50, 100];
 const SEARCH_DEBOUNCE_MS = 300;
+
+interface BreakdownFilter {
+  key: string;
+  label: string;
+  tile: 'protected' | 'no-verdict';
+}
 
 export default function TasksPage() {
   const [searchParams, setSearchParams] = useSearchParams();
@@ -47,8 +54,8 @@ export default function TasksPage() {
   const [typeCounts, setTypeCounts] = useState<Partial<Record<TaskType, number>> | undefined>(undefined);
   const [successMessage, setSuccessMessage] = useState<string | null>(null);
   const [schedules, setSchedules] = useState<Schedule[]>([]);
-  // Collapsed by default — schedules are configuration, the stream is the page
-  const [schedulesCollapsed, setSchedulesCollapsed] = useState(true);
+  const [view, setView] = useState<'tasks' | 'schedules'>('tasks');
+  const [breakdownFilter, setBreakdownFilter] = useState<BreakdownFilter | null>(null);
   const [page, setPage] = useState(1);
   const [pageSize, setPageSize] = useState(25);
   const [searchTerm, setSearchTerm] = useState(initialSearch);
@@ -69,6 +76,7 @@ export default function TasksPage() {
       ...(statusFilter ? { status: statusFilter } : {}),
       ...(typesForKind(taskKind).length ? { types: typesForKind(taskKind) } : {}),
       ...(debouncedSearch ? { search: debouncedSearch } : {}),
+      ...(breakdownFilter ? { breakdown: breakdownFilter.key } : {}),
       limit: pageSize,
       offset: (page - 1) * pageSize,
     };
@@ -88,7 +96,7 @@ export default function TasksPage() {
       setLoading(false);
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [statusFilter, taskKind, debouncedSearch, page, pageSize]);
+  }, [statusFilter, taskKind, breakdownFilter, debouncedSearch, page, pageSize]);
 
   const fetchSchedules = useCallback(async () => {
     try {
@@ -123,7 +131,7 @@ export default function TasksPage() {
       // Silent — don't surface transient poll failures
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [statusFilter, taskKind, debouncedSearch, page, pageSize]);
+  }, [statusFilter, taskKind, breakdownFilter, debouncedSearch, page, pageSize]);
 
   usePolling(poll, 10_000);
 
@@ -151,7 +159,25 @@ export default function TasksPage() {
   }
 
   function handleTaskKindChange(kind: TaskKind): void {
+    setView('tasks');
     setTaskKind(kind);
+    if (kind !== 'tests') setBreakdownFilter(null);
+    setPage(1);
+  }
+
+  function handleSelectBreakdown(row: TaskBreakdownRow, tile: 'protected' | 'no-verdict'): void {
+    setView('tasks');
+    setTaskKind('tests');
+    setBreakdownFilter({
+      key: row.key,
+      label: `${tile === 'protected' ? 'Protected' : 'No verdict'} › ${row.name} · last 7 days`,
+      tile,
+    });
+    setPage(1);
+  }
+
+  function clearBreakdownFilter(): void {
+    setBreakdownFilter(null);
     setPage(1);
   }
 
@@ -309,7 +335,9 @@ export default function TasksPage() {
       <PageContainer>
         <PageHeader
           title="Tasks"
-          description={`Task activity across the fleet — ${tiles?.window ?? 'last 7 days'}`}
+          description={tiles
+            ? <TaskStatLine tiles={tiles} outcomes={metrics?.task_outcomes_7d} onSelectBreakdown={handleSelectBreakdown} />
+            : 'Task activity across the fleet — last 7 days'}
           actions={canCreateTask ? (
             <Button onClick={() => setDialogOpen(true)}>
               <Plus className="w-4 h-4 mr-2" />
@@ -317,40 +345,6 @@ export default function TasksPage() {
             </Button>
           ) : undefined}
         />
-
-        {/* KPI tiles: 7-day test outcomes (falls back to 24h lifecycle counts) */}
-        {tiles && (
-          <div className="mb-6 grid grid-cols-2 gap-4 md:grid-cols-4">
-            {tiles.tiles.map((kpi) => (
-              <div key={kpi.label} className="rounded-lg border border-border bg-surface p-4">
-                <div className="text-[11px] uppercase tracking-wider text-faint">{kpi.label}</div>
-                <div className={`mt-2 text-2xl font-semibold tracking-tight ${kpi.cls}`}>{kpi.value}</div>
-                {kpi.sub && <div className="mt-1 truncate text-xs text-muted" title={kpi.sub}>{kpi.sub}</div>}
-              </div>
-            ))}
-          </div>
-        )}
-
-        {/* Schedules section (collapsible) */}
-        {schedules.length > 0 && (
-          <div className="mb-6">
-            <button
-              type="button"
-              onClick={() => setSchedulesCollapsed(prev => !prev)}
-              className="flex items-center gap-1.5 text-sm font-medium text-muted-foreground mb-2 hover:text-foreground transition-colors"
-            >
-              <ChevronDown className={`w-4 h-4 transition-transform ${schedulesCollapsed ? '-rotate-90' : ''}`} />
-              Scheduled Tasks ({schedules.length})
-            </button>
-            {!schedulesCollapsed && (
-              <ScheduleList
-                schedules={schedules}
-                onTogglePause={canWriteSchedule ? handleTogglePause : undefined}
-                onDelete={canDeleteSchedule ? handleDeleteSchedule : undefined}
-              />
-            )}
-          </div>
-        )}
 
         {/* Filter bar */}
         <div className="border border-border rounded-lg bg-card p-4 mb-4">
@@ -364,18 +358,31 @@ export default function TasksPage() {
                     key={k.id}
                     type="button"
                     role="tab"
-                    aria-selected={taskKind === k.id}
+                    aria-selected={view === 'tasks' && taskKind === k.id}
                     onClick={() => handleTaskKindChange(k.id)}
-                    className={pillClass(taskKind === k.id)}
+                    className={pillClass(view === 'tasks' && taskKind === k.id)}
                   >
                     {k.label}
                     {count !== null && (
-                      <span className={cn('font-mono text-[11px]', taskKind === k.id ? 'text-accent' : 'text-faint')}>{count}</span>
+                      <span className={cn('font-mono text-[11px]', view === 'tasks' && taskKind === k.id ? 'text-accent' : 'text-faint')}>{count}</span>
                     )}
                   </button>
                 );
               })}
+              {schedules.length > 0 && (
+                <button
+                  type="button"
+                  role="tab"
+                  aria-selected={view === 'schedules'}
+                  onClick={() => setView('schedules')}
+                  className={pillClass(view === 'schedules')}
+                >
+                  Schedules
+                  <span className={cn('font-mono text-[11px]', view === 'schedules' ? 'text-accent' : 'text-faint')}>{schedules.length}</span>
+                </button>
+              )}
             </div>
+            {view === 'tasks' && (<>
             <div className="min-w-40 max-lg:min-w-0 max-lg:flex-1 max-lg:basis-40">
               <select
                 className={fieldControlClass}
@@ -400,6 +407,15 @@ export default function TasksPage() {
                 leftIcon={<Search className="w-4 h-4" />}
               />
             </div>
+            {breakdownFilter && (
+              <span className="inline-flex items-center gap-1.5 rounded-full border border-accent/25 bg-accent-dim px-3 py-1 text-xs text-accent">
+                {breakdownFilter.label}
+                <button type="button" aria-label="Clear breakdown filter" onClick={clearBreakdownFilter} className="rounded-sm hover:text-foreground">
+                  <X className="h-3 w-3" />
+                </button>
+              </span>
+            )}
+            </>)}
             <div className="flex-grow" />
             <Button variant="outline" onClick={() => { fetchTasks(); fetchSchedules(); }}>
               <RefreshCw className="w-4 h-4 mr-2" />
@@ -409,7 +425,7 @@ export default function TasksPage() {
         </div>
 
         {/* Bulk actions bar */}
-        {canSelectTasks && selectedTasks.length > 0 && (
+        {view === 'tasks' && canSelectTasks && selectedTasks.length > 0 && (
           <div className="mb-4 flex items-center justify-between rounded-md border border-accent/25 bg-accent-dim px-4 py-3">
             <span className="text-sm font-medium">
               <span className="text-accent">{selectedTasks.length} selected</span>
@@ -441,7 +457,13 @@ export default function TasksPage() {
           </div>
         )}
 
-        {loading ? (
+        {view === 'schedules' ? (
+          <ScheduleList
+            schedules={schedules}
+            onTogglePause={canWriteSchedule ? handleTogglePause : undefined}
+            onDelete={canDeleteSchedule ? handleDeleteSchedule : undefined}
+          />
+        ) : loading ? (
           <Loading message="Loading tasks..." />
         ) : (
           <TaskStream
@@ -459,7 +481,7 @@ export default function TasksPage() {
         )}
 
         {/* Pagination controls */}
-        {!loading && totalGroups > 0 && (
+        {view === 'tasks' && !loading && totalGroups > 0 && (
           <div className="flex flex-wrap gap-y-2 items-center justify-between mt-4 text-sm text-muted-foreground">
             <div className="flex items-center gap-3">
               <span>Showing {rangeStart}&ndash;{rangeEnd} of {totalGroups}</span>

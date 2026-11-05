@@ -212,6 +212,8 @@ export interface ListTasksRequest {
   /** Several types at once (sent as a comma list in `type`). */
   types?: TaskType[];
   search?: string;
+  /** 7-day outcome breakdown key (e.g. `exit:260`); implies execute_test. */
+  breakdown?: string;
   limit?: number;
   offset?: number;
 }
