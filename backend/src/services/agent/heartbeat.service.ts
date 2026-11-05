@@ -7,7 +7,7 @@ import { cancelPendingKey, decryptPendingKey, ROTATION_GRACE_PERIOD_SECONDS } fr
 import { recordEvent } from './events.service.js';
 import { invalidateAgentCache } from './agentAuthCache.js';
 import { computeAgentHealthScore, computeAgentHealthScores } from './health.service.js';
-import { classifyTaskOutcome } from '../outcomes/taskOutcome.js';
+import { taskBreakdown, breakdownLabel, outcomeWindowSql } from '../outcomes/taskOutcome.js';
 import type {
   HeartbeatPayload,
   TaskResult,
@@ -23,6 +23,7 @@ import type {
   ListAgentsRequest,
   HeartbeatHistoryPoint,
   FleetHealthMetrics,
+  TaskBreakdownRow,
 } from '../../types/agent.js';
 
 const HEARTBEAT_TIMEOUT_SECONDS = 180; // 3x the 60s heartbeat interval
@@ -247,16 +248,19 @@ interface TaskOutcomes7d {
   };
   /** Commands, agent updates, uninstalls: failed = status failed or a non-zero exit. */
   other: { total: number; failed: number };
+  /** The exit codes / failure reasons behind `tests`, most frequent first. */
+  breakdown: TaskBreakdownRow[];
 }
 
 function taskOutcomes7d(db: ReturnType<typeof getDatabase>, taskOrgCondition: string, orgParams: string[]): TaskOutcomes7d {
   const rows = db.prepare(
-    `SELECT type, status, result FROM tasks WHERE status IN ('completed', 'failed') AND completed_at > datetime('now', '-7 days')${taskOrgCondition}`
+    `SELECT type, status, result FROM tasks WHERE ${outcomeWindowSql()}${taskOrgCondition}`
   ).all(...orgParams) as { type: TaskType; status: TaskStatus; result: string | null }[];
 
   const tests = { protected: 0, edr_stopped: 0, unprotected: 0, not_run: 0, run_failed: 0, test_error: 0, inconclusive: 0 };
   const other = { total: 0, failed: 0 };
   const key = { protected: 'protected', unprotected: 'unprotected', 'not-run': 'not_run', 'run-failed': 'run_failed', 'test-error': 'test_error', inconclusive: 'inconclusive' } as const;
+  const counts = new Map<string, TaskBreakdownRow>();
   for (const row of rows) {
     let result: TaskResult | null = null;
     try {
@@ -264,16 +268,21 @@ function taskOutcomes7d(db: ReturnType<typeof getDatabase>, taskOrgCondition: st
     } catch {
       result = null;
     }
-    const kind = classifyTaskOutcome({ type: row.type, status: row.status, result });
-    if (kind) {
+    const bd = taskBreakdown({ type: row.type, status: row.status, result });
+    if (bd) {
+      const kind = bd.outcome;
       tests[key[kind]] += 1;
+      const existing = counts.get(bd.key);
+      if (existing) existing.count += 1;
+      else counts.set(bd.key, { key: bd.key, outcome: kind, ...breakdownLabel(bd.key), count: 1 });
       if (kind === 'protected' && result?.edr_terminated) tests.edr_stopped += 1;
     } else {
       other.total += 1;
       if (row.status === 'failed' || (result != null && result.exit_code !== 0)) other.failed += 1;
     }
   }
-  return { tests, other };
+  const breakdown = [...counts.values()].sort((a, b) => b.count - a.count || a.key.localeCompare(b.key));
+  return { tests, other, breakdown };
 }
 
 export function getAgentMetrics(orgId?: string): AgentMetrics {

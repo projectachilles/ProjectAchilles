@@ -228,6 +228,16 @@ export interface TaskOutcomes7d {
     inconclusive: number;
   };
   other: { total: number; failed: number };
+  /** Exit codes / failure reasons behind `tests`; absent on older backends. */
+  breakdown?: TaskBreakdownRow[];
+}
+
+export interface TaskBreakdownRow {
+  key: string;
+  outcome: 'protected' | 'unprotected' | 'not-run' | 'run-failed' | 'test-error' | 'inconclusive';
+  code: number | null;
+  name: string;
+  count: number;
 }
 
 export interface AgentMetrics {
