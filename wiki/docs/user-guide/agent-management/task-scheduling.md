@@ -8,7 +8,7 @@ description: "Automate recurring test execution with flexible scheduling options
 
 ## Creating a Schedule
 
-1. Navigate to **Scheduling**
+1. Navigate to **Tasks** and select the **Schedules** pill (it appears once a schedule exists; until then, create one from **Create Task**)
 2. Click **Create Schedule**
 3. Configure:
    - **Test** to execute

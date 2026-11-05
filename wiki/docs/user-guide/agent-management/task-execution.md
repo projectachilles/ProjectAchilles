@@ -77,6 +77,24 @@ When a task fails, the failure reason is displayed in the Tasks page:
 
 The agent sends failure context for all error types: binary download failures, SHA256/size mismatches, execution errors, update failures, and uninstall failures. For tasks that fail because the agent went offline, the backend generates a structured error result automatically.
 
+## The Tasks Page
+
+The header shows a one-line summary of the last 7 days: the number of runs, how many were **protected**, how many are **unprotected**, how many had **no verdict**, and so on. The numbers use the same outcome rules as the task rows.
+
+### Outcome breakdown
+
+**Protected** and **No verdict** open a menu that lists the exit codes behind the number, for example `126 Quarantined` or `259 Execution timeout`, with a bar and a count for each. No verdict is split into groups (the test did not run, the run failed, the test reported an error, inconclusive).
+
+Choosing a row filters the task list to that outcome. A chip next to the search box names the filter and its **x** clears it. Press **Esc** to close the menu without choosing. The filter covers security-test tasks from the last 7 days, the same window as the numbers, so the list count matches the number you clicked.
+
+### Schedules pill
+
+Schedules live next to the task-type pills as a **Schedules** pill, with the number of schedules. It appears when at least one schedule exists. Select it to replace the task list with the schedule list; select a task-type pill to go back.
+
+### List and detail layout
+
+On a large screen the task list and the detail of the selected task fill the rest of the window and scroll independently, so the detail never scrolls out of view while you move down the list. Pagination sits at the bottom of the list pane. On a small screen the page scrolls as a whole.
+
 ## Task Results
 
 Results include:
