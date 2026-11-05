@@ -69,7 +69,7 @@ describe('parseQuality', () => {
   it('parses a v2.1 card with the validation status', () => {
     const q = parseQuality(v21Info);
     expect(q).toMatchObject({ rubric: 'v2.1', realism: 5.7, structure: 3 });
-    expect(q?.validation).toContain('Lab validated 2026-11-02');
+    expect(q?.validation).toBe('Lab validated 2026-11-02 on lab-host-01; all five stages reached');
   });
   it('parses a legacy card', () => {
     const q = parseQuality(legacyInfo);
@@ -109,6 +109,12 @@ describe('parseLabStageOutcomes', () => {
     expect(out[2].detail).toContain('svchost');
     expect(out[2].detail).not.toContain('**');
   });
+  it('does not read "not blocked" as blocked', () => {
+    const md = '## Lab Evidence\n\n| Stage | Outcome | Evidence |\n|---|---|---|\n| 1 — X | Not blocked (0) | ran through |\n| 2 — Y | Unblocked | ? |\n| 3 — Z | Blocked (126) | stopped |\n| 4 — W | Exit 105 | gone |\n';
+    expect(parseLabStageOutcomes(md)?.map(o => [o.stage, o.outcome])).toEqual([
+      [1, 'ran'], [2, 'error'], [3, 'blocked'], [4, 'blocked'],
+    ]);
+  });
   it('classifies other results as error', () => {
     const md = '## Lab Evidence\n\n| Stage | Outcome | Evidence |\n|---|---|---|\n| 1 — X | Timeout (102) | slow |\n';
     expect(parseLabStageOutcomes(md)).toEqual([{ stage: 1, outcome: 'error', detail: 'slow' }]);
@@ -133,6 +139,11 @@ describe('parseExpectedOutcomes', () => {
     expect(o).toContainEqual(expect.objectContaining({ label: 'Protected', code: 126 }));
     expect(o).toContainEqual(expect.objectContaining({ label: 'Unprotected', code: 101 }));
     expect(o.find(e => e.label === 'Protected')!.text).not.toContain('**');
+  });
+  it('skips "Observed" bullets (a lab result, not an expected outcome)', () => {
+    const labels = parseExpectedOutcomes(v21Readme)!.map(e => e.label);
+    expect(labels.some(l => /^observed/i.test(l))).toBe(false);
+    expect(labels).toContain('Watchdog timeout');
   });
   it('accepts the Expected Results heading', () => {
     const o = parseExpectedOutcomes(legacyReadme)!;
@@ -160,6 +171,18 @@ describe('parseSafety', () => {
     expect(s).toHaveLength(5);
     expect(s[0]).toContain('confined to');
     expect(s.join('')).not.toMatch(/\*\*|`/);
+  });
+  it('skips indented sub-bullets', () => {
+    const md = '## Safety\n\n- One\n  - one detail\n    - deeper\n- Two\n1. Three\n   1. three detail\n';
+    expect(parseSafety(md)).toEqual(['One', 'Two', 'Three']);
+  });
+  it('flattens <br>, images and italics but keeps code text intact', () => {
+    const md = '## Safety\n\n- Line one<br>line two<br/>end<br />x\n- ![diagram](a.png) shows *only* the _sandbox_ path\n- Uses `qilin_rwdrv_f0` and `*.qilin` in `C:\\F0`\n';
+    expect(parseSafety(md)).toEqual([
+      'Line one line two end x',
+      'diagram shows only the sandbox path',
+      'Uses qilin_rwdrv_f0 and *.qilin in C:\\F0',
+    ]);
   });
   it('returns undefined without a safety heading', () => {
     expect(parseSafety(badReadme)).toBeUndefined();
@@ -211,10 +234,17 @@ describe('extractOverview', () => {
     expect(bare).toEqual({});
   });
 
-  it('prefers SAFETY.md bullets and names it as the source when README has none', () => {
+  it('falls back to SAFETY.md bullets and names it as the source when README has none', () => {
     const c: Record<string, string> = { 'README.md': badReadme, 'SAFETY.md': '# S\n\n- One thing\n- **Two** things\n' };
     const o = extractOverview([file('README.md'), file('SAFETY.md')], f => c[f.path], uuid);
     expect(o.safety).toEqual(['One thing', 'Two things']);
+    expect(o.safetySource).toBe('SAFETY.md');
+  });
+
+  it('takes bullets from README but links SAFETY.md as the full safety doc when both exist', () => {
+    const c: Record<string, string> = { 'README.md': v21Readme, 'SAFETY.md': '# S\n\n- From safety doc\n' };
+    const o = extractOverview([file('README.md'), file('SAFETY.md')], f => c[f.path], uuid);
+    expect(o.safety?.[0]).toContain('confined to');
     expect(o.safetySource).toBe('SAFETY.md');
   });
 

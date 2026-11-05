@@ -288,7 +288,9 @@ export class MetadataExtractor {
     const validatorPattern = /###\s*\d+\.\s*(.+)\n([\s\S]*?)(?=\n###\s*\d+\.|$)/g;
     let match;
     while ((match = validatorPattern.exec(section)) !== null) {
-      const name = match[1].trim();
+      // Headings may carry a count ("Credential & Password Policy (10 controls)");
+      // results name the validator without it, so key by the bare name.
+      const name = match[1].trim().replace(/\s*\(\d+\s+controls?\)$/i, '');
       const body = match[2].trim();
       // First non-empty line is the description
       const firstLine = body.split('\n').find(l => l.trim().length > 0);

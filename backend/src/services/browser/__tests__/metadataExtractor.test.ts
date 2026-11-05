@@ -464,6 +464,32 @@ A simple test.
     });
   });
 
+  describe('extractValidatorDescriptions', () => {
+    it('keys validators by name without the "(N controls)" count suffix', () => {
+      const filePath = writeInfoCard('bundle-uuid', `
+# Bundle
+
+## Bundled Validators
+
+### 1. Credential & Password Policy (10 controls)
+Checks password and lockout policy.
+
+### 2. Firewall Profiles (1 control)
+Checks every firewall profile is on.
+
+### 3. Defender Status
+Checks real-time protection.
+
+## Next
+`);
+      expect(MetadataExtractor.extractValidatorDescriptions(filePath)).toEqual({
+        'Credential & Password Policy': 'Checks password and lockout policy.',
+        'Firewall Profiles': 'Checks every firewall profile is on.',
+        'Defender Status': 'Checks real-time protection.',
+      });
+    });
+  });
+
   // ── Group 4: extractStageInfo ──────────────────────────────
 
   describe('extractStageInfo', () => {

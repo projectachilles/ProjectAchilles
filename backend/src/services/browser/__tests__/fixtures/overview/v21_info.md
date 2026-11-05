@@ -16,7 +16,7 @@
 | MITRE ATT&CK | T1518.001, T1082, T1562.001, T1211, T1055, T1003.001, T1490, T1486 |
 | Tactics | discovery, defense-evasion, credential-access, impact |
 | Rubric | v2.1 — Signal Quality + Execution Context + Operational Hygiene |
-| Validation Status | Lab validated 2026-11-02 on `win` with Sophos Intercept X; all five stages reached |
+| Validation Status | Lab validated 2026-11-02 on `lab-host-01`; all five stages reached |
 
 ## Test Score: 8.7/10
 
@@ -29,7 +29,7 @@
 
 ## Detection Opportunity Audit
 
-The audit below defines **16 candidate detection points** and maps each implemented primitive to an appropriate sensor and rule pattern. All five detection formats are bundled and locally validated. The Sophos lab run supplies execution and vendor-event evidence; only rows explicitly marked in the Lab Evidence section are claimed as observed detections or preventions. Other telemetry availability depends on audit policy and product configuration.
+The audit below defines **16 candidate detection points**.
 
 | # | Stage | Primitive | Sensor / telemetry surface | Candidate rule pattern and observability boundary |
 |---:|---|---|---|---|
@@ -50,19 +50,16 @@ The audit below defines **16 candidate detection points** and maps each implemen
 | 15 | 5 | Synthetic `.qilin` encryption | Sysmon EID 11/23/26; EDR ransomware behavior | Rapid create/write/delete sequence for five documents, ciphertext with `.qilin` suffix, and `README-RECOVER.txt`, all beneath the test sandbox. |
 | 16 | 5 | Recovery-inhibition commands | Sysmon EID 1; EDR command-line/D&R | `vssadmin delete shadows` and `bcdedit ... recoveryenabled no` in the same impact stage. Match command intent even though the nonexistent GUIDs make both operations fail harmlessly. |
 
-## Lab Evidence — 2026-11-02, `win`, Sophos Intercept X
+## Lab Evidence — 2026-11-02, `lab-host-01`
 
-The final run executed as `jimx` (administrator) on Windows 11 build 26200.9457. Sophos Endpoint Defense, File Scanner, MCS Agent, MCS Client, and Device Encryption services were running before and after the test. Windows Defender and Sense were stopped. Overall exit was **126 (PREVENTED)** in approximately 44 seconds.
+The final run executed as `lab-operator` (administrator). Overall exit was **126 (PREVENTED)**.
 
 | Stage | Outcome | Evidence |
 |---|---|---|
 | 1 — Discovery & Side-Load | Success (0) | Read-only discovery completed and the benign `msimg32.dll` image-load marker was produced. |
-| 2 — BYOVD EDR-Killer | Success (0) | Real `rwdrv.sys` survived the three-second observation window and was deleted before load operations. Sophos System Protection event 42 subsequently identified it as `RWEverything Driver`. Both test kernel services were created and deleted. Both `NtLoadDriver` calls returned `0xC0000130` (`STATUS_INVALID_IMAGE_NOT_MZ`), the intended safe rejection. Three test-owned stand-ins were terminated; stage metrics were 9 success, 0 blocked, 0 error. |
-| 3 — svchost Injection | **Blocked (126)** | Starting the test-owned `svchost.exe` returned Windows error 5 before `OpenProcess`, `VirtualAllocEx`, `WriteProcessMemory`, or `CreateRemoteThread` executed. Sophos System Protection event 42 identified the target as `Evade_22a (T1036.005)`. |
+| 2 — BYOVD EDR-Killer | Success (0) | Both `NtLoadDriver` calls returned `0xC0000130`, the intended safe rejection. |
+| 3 — svchost Injection | **Blocked (126)** | Starting the test-owned `svchost.exe` returned Windows error 5 before `OpenProcess`, `VirtualAllocEx`, `WriteProcessMemory`, or `CreateRemoteThread` executed. |
 | 4 — LSASS Access | **Blocked (126)** | `OpenProcess` against LSASS PID 748 returned `ERROR_ACCESS_DENIED` with administrator context and SeDebugPrivilege enabled. No handle was granted and no memory was read. |
 | 5 — Minimal Impact | Success (0) | Five synthetic files were encrypted with no denial/failure; `vssadmin` and `bcdedit` returned only their designed nonexistent-target failures. |
 
-`bundle_results.json` records **five controls: two blocked, three succeeded, zero skipped**. Final structured messages use Schema-compatible levels and pass the repository's Schema v2.0 validator. Sophos event evidence is retained in `staging/8f68dda1-94be-430f-8f35-d8af3f9b5d2e/sophos_application_events.txt`.
-
-Cleanup verification: both `qilin_rwdrv_f0` and `qilin_hlpdrv_f0` were absent, Sophos services remained running, test-owned descendants and sandbox artifacts were removed, and pre-existing lab logs and driver files were restored.
-
+`bundle_results.json` records **five controls: two blocked, three succeeded, zero skipped**.
