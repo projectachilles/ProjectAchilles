@@ -1,7 +1,7 @@
-import { Fragment } from 'react';
+import { Fragment, useEffect, useState } from 'react';
 import type { ReactNode } from 'react';
 import { Link } from 'react-router-dom';
-import { Copy, Download, Heart, Play } from 'lucide-react';
+import { Check, Copy, Download, Heart, Play } from 'lucide-react';
 import type { TestDetails } from '@/types/test';
 import { IdentityPill } from '@/components/layout/ConsoleIdentity';
 import { useTestPreferences } from '@/hooks/useTestPreferences';
@@ -24,6 +24,21 @@ export default function TestDetailHeader({
 }: TestDetailHeaderProps) {
   const { isFavorite, toggleFavorite } = useTestPreferences();
   const favorite = isFavorite(test.uuid);
+  const [copied, setCopied] = useState(false);
+
+  useEffect(() => {
+    if (!copied) return;
+    const t = setTimeout(() => setCopied(false), 1500);
+    return () => clearTimeout(t);
+  }, [copied]);
+
+  // The Clipboard API is missing on insecure origins and can reject (denied
+  // permission); either way nothing is announced and nothing throws.
+  const copyId = () => {
+    const clipboard = typeof navigator !== 'undefined' ? navigator.clipboard : undefined;
+    if (!clipboard?.writeText) return;
+    clipboard.writeText(test.uuid).then(() => setCopied(true), () => {});
+  };
 
   const meta: ReactNode[] = [];
   if (test.threatActor) meta.push(<span key="actor">{test.threatActor}</span>);
@@ -52,11 +67,12 @@ export default function TestDetailHeader({
         type="button"
         aria-label="Copy test ID"
         title="Copy test ID"
-        onClick={() => { void navigator.clipboard.writeText(test.uuid); }}
+        onClick={copyId}
         className="rounded p-0.5 text-faint hover:bg-raised hover:text-foreground transition-colors"
       >
-        <Copy className="h-3 w-3" />
+        {copied ? <Check className="h-3 w-3 text-accent" /> : <Copy className="h-3 w-3" />}
       </button>
+      <span role="status" aria-live="polite" className="text-[11px] text-accent">{copied ? 'Copied' : ''}</span>
     </span>,
   );
 

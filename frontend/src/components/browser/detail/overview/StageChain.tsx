@@ -34,13 +34,26 @@ export function stageColumns(count: number): number {
   return Math.min(Math.ceil(count / 2), 6);
 }
 
+function FleetBar({ data }: { data: { blocked: number; detected: number; through: number } }) {
+  const total = data.blocked + data.detected + data.through;
+  if (total <= 0) return null;
+  return (
+    <div aria-hidden className="flex h-1 w-full overflow-hidden rounded-full bg-raised">
+      <span style={{ width: `${(data.blocked / total) * 100}%`, background: 'var(--chart-protected)' }} />
+      <span style={{ width: `${(data.detected / total) * 100}%`, background: 'var(--chart-series-alert)' }} />
+      <span style={{ width: `${(data.through / total) * 100}%`, background: 'var(--chart-bypassed)' }} />
+    </div>
+  );
+}
+
 function Pill({ data }: { data: StagePillData }) {
   if ('lab' in data) {
     const tone = data.lab.startsWith('blocked') ? 'text-accent' : 'text-muted';
     return <p className={`mt-2 text-[11px] ${tone}`}>{data.lab}</p>;
   }
   return (
-    <div className="mt-2 space-y-0.5 text-[11px] text-muted">
+    <div className="mt-2 space-y-1 text-[11px] text-muted">
+      <FleetBar data={data} />
       <p>{`${data.blocked} blocked · ${data.detected} detected · ${data.through} through`}</p>
       {data.sharedWith && data.sharedWith.length > 0 && (
         <p className="text-faint">{`shared with stage ${data.sharedWith.join(', ')}`}</p>
@@ -52,10 +65,12 @@ function Pill({ data }: { data: StagePillData }) {
 export default function StageChain({ stages, pills, budgetsSec }: StageChainProps) {
   const ordered = [...stages].sort((a, b) => a.stageId - b.stageId);
   const cols = COLS[stageColumns(ordered.length)];
+  // A lone stage keeps its card full width at every container size.
+  const small = ordered.length > 1 ? '@sm:grid-cols-2' : '';
 
   return (
     <div className="@container">
-      <ol aria-label="Stages" className={`grid grid-cols-1 gap-2 @sm:grid-cols-2 ${cols}`}>
+      <ol aria-label="Stages" className={`grid grid-cols-1 gap-2 ${small} ${cols}`}>
         {ordered.map((stage) => {
           const techniques = stage.techniques?.length ? stage.techniques : [stage.technique];
           const pill = pills?.[stage.stageId];

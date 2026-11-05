@@ -1,5 +1,5 @@
 import { describe, it, expect, vi } from 'vitest';
-import { render, screen, fireEvent } from '@testing-library/react';
+import { render, screen, fireEvent, waitFor } from '@testing-library/react';
 import { MemoryRouter } from 'react-router-dom';
 import type { TestDetails } from '@/types/test';
 
@@ -87,13 +87,41 @@ describe('TestDetailHeader', () => {
     expect(onDownload).toHaveBeenCalled();
   });
 
-  it('copies the full UUID', () => {
+  const setClipboard = (value: unknown) =>
+    Object.defineProperty(navigator, 'clipboard', { value, configurable: true, writable: true });
+
+  it('copies the full UUID and briefly announces "Copied"', async () => {
     const writeText = vi.fn().mockResolvedValue(undefined);
-    Object.assign(navigator, { clipboard: { writeText } });
+    setClipboard({ writeText });
     renderHeader();
     expect(screen.getByText(UUID.slice(0, 8))).toBeInTheDocument();
     fireEvent.click(screen.getByRole('button', { name: 'Copy test ID' }));
     expect(writeText).toHaveBeenCalledWith(UUID);
+    const status = screen.getByRole('status');
+    expect(status).toHaveAttribute('aria-live', 'polite');
+    await waitFor(() => expect(status).toHaveTextContent('Copied'));
+    const shownAt = Date.now();
+    // Real timers: the label clears itself after about 1.5 s.
+    await waitFor(() => expect(status).toBeEmptyDOMElement(), { timeout: 4000 });
+    expect(Date.now() - shownAt).toBeGreaterThanOrEqual(1000);
+  });
+
+  it('does not throw or claim success without a clipboard', async () => {
+    setClipboard(undefined);
+    renderHeader();
+    expect(() => fireEvent.click(screen.getByRole('button', { name: 'Copy test ID' }))).not.toThrow();
+    await new Promise((r) => setTimeout(r, 10));
+    expect(screen.getByRole('status')).toBeEmptyDOMElement();
+  });
+
+  it('swallows a rejected clipboard write', async () => {
+    const writeText = vi.fn().mockRejectedValue(new Error('denied'));
+    setClipboard({ writeText });
+    renderHeader();
+    fireEvent.click(screen.getByRole('button', { name: 'Copy test ID' }));
+    await waitFor(() => expect(writeText).toHaveBeenCalled());
+    await new Promise((r) => setTimeout(r, 10));
+    expect(screen.getByRole('status')).toBeEmptyDOMElement();
   });
 
   it('omits complexity when undefined and shows the score chip when present', () => {

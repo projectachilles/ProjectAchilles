@@ -270,6 +270,29 @@ GET /api/analytics/test-results
 
 Accepts the shared filter parameters, except that the date range, `basis` and `scoringMode` are fixed. For each test (or bundle) it takes the latest result on each host over the last 90 days and scores it like the Defense Score tile in any-stage mode (blocked or detected counts as protected). Returns an array of `{ testUuid, pairCount, protectedCount, hostCount, lastRunAt }`. `pairCount` is the number of test x host pairs, `protectedCount` how many of them are protected, and `hostCount` the distinct hosts. Cyber-hygiene control results are folded into their bundle's `testUuid`. It feeds the Fleet result column of the test library.
 
+### Test Results by Stage
+
+```
+GET /api/analytics/test-results/:uuid/stages
+```
+
+One test's fleet results, for the test detail page. `:uuid` is the test (or bundle) UUID; a malformed one returns 400. Accepts the shared filter parameters with the same fixed window as `test-results`: the latest result on each host over the last 90 days. Returns:
+
+```json
+{
+  "headline": { "hostCount": 12, "pairCount": 12, "stoppedCount": 10, "lastRunAt": "2026-11-03T09:00:00.000Z" },
+  "stages": [
+    { "controlId": "T1055", "validator": "Stage 1", "description": "…",
+      "blocked": 9, "detected": 2, "through": 1, "hosts": 12, "lastRunAt": "2026-11-03T09:00:00.000Z" }
+  ],
+  "stoppedBeforeStage": 2
+}
+```
+
+- `headline` is scored like `test-results` and the Defense Score tile in any-stage mode: `hostCount` is the distinct hosts, `pairCount` the test x host pairs, `stoppedCount` how many of those pairs are protected (blocked or detected), and `lastRunAt` the newest result (`null` with no results). A multi-stage chain or standalone test has one pair per host, so `pairCount` equals `hostCount`; a cyber-hygiene bundle has one pair per control on each host, so compare `stoppedCount` with `pairCount`, not `hostCount`. Runs where an EDR killed the agent or blocked the test at launch count as protected here.
+- `stages` has one entry per control or stage ID (`f0rtika.control_id`; intel-driven chains use the stage's technique), scored like `technique-outcomes`: each host's latest result for that stage is `blocked` (`is_protected`), `detected` (an EDR detected it but did not block it) or `through` (neither). Runs with no stages (EDR-killed agent, launch block) are left out, as in the technique views. `validator` and `description` come from the newest control document and are omitted when empty. A standalone single-binary test has no stages (`[]`).
+- `stoppedBeforeStage` is the number of hosts whose latest result is such a stageless run, so they appear in the headline but in no stage.
+
 ### Execution Activity
 
 ```

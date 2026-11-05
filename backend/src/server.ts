@@ -332,6 +332,7 @@ async function startServer() {
       sophos: true,
       alerting: true,
       randomizedOnce: true,
+      testFleet: true,
       platform: 'docker',
     });
   });

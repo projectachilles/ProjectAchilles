@@ -93,6 +93,9 @@ vi.mock('../../services/analytics/elasticsearch.js', () => ({
   },
 }));
 
+const mockTestFleet = vi.fn();
+vi.mock('../../services/analytics/testFleet.js', () => ({ getTestFleet: mockTestFleet }));
+
 // Mock index management
 vi.mock('../../services/analytics/index-management.service.js', () => ({
   createResultsIndex: vi.fn().mockResolvedValue({ created: true }),
@@ -487,6 +490,30 @@ describe('analytics routes', () => {
       expect(res.status).toBe(200);
       expect(res.body).toEqual(body);
       expect(mockTestResults).toHaveBeenCalledWith(expect.objectContaining({ org: 'o1' }));
+    });
+
+    it('/test-results/:uuid/stages rejects a malformed test id', async () => {
+      const res = await request(createApp()).get('/api/analytics/test-results/not-a-uuid/stages');
+      expect(res.status).toBe(400);
+      expect(res.body.success).toBe(false);
+      expect(mockTestFleet).not.toHaveBeenCalled();
+    });
+
+    it('/test-results/:uuid/stages returns the per-stage fleet results for the org', async () => {
+      const uuid = 'a1b2c3d4-0000-4000-8000-000000000001';
+      const body = { headline: { hostCount: 1, pairCount: 1, stoppedCount: 1, lastRunAt: '2025-01-12T00:00:00.000Z' }, stages: [], stoppedBeforeStage: 0 };
+      mockTestFleet.mockResolvedValue(body);
+      const res = await request(createApp()).get(`/api/analytics/test-results/${uuid}/stages?org=o1&threatActors=APT29`);
+      expect(res.status).toBe(200);
+      expect(res.body).toEqual(body);
+      expect(mockTestFleet).toHaveBeenCalledWith(expect.anything(), uuid, expect.objectContaining({ org: 'o1', threatActors: 'APT29' }));
+    });
+
+    it('/test-results/:uuid/stages forwards an upper-case test id lower-cased', async () => {
+      mockTestFleet.mockResolvedValue({ headline: { hostCount: 0, pairCount: 0, stoppedCount: 0, lastRunAt: null }, stages: [], stoppedBeforeStage: 0 });
+      const res = await request(createApp()).get('/api/analytics/test-results/A1B2C3D4-0000-4000-8000-00000000000F/stages');
+      expect(res.status).toBe(200);
+      expect(mockTestFleet).toHaveBeenCalledWith(expect.anything(), 'a1b2c3d4-0000-4000-8000-00000000000f', expect.anything());
     });
 
     it('/chain-depth always uses the latest chain-depth method and ignores basis', async () => {

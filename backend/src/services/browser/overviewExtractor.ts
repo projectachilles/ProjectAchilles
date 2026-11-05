@@ -8,11 +8,27 @@ import { parseLegacyScoreBreakdown } from './metadataExtractor.js';
 
 // ── Markdown helpers ─────────────────────────────────────────────────
 
-/** Strip bold/code/link markup, keeping the readable text. */
+/** Strip emphasis outside code spans; code text is kept verbatim. */
+function stripEmphasis(s: string): string {
+  return s
+    .replace(/\*\*/g, '')
+    .replace(/(^|[^\w*])\*(?!\s)([^*\n]+?)(?<!\s)\*(?![\w*])/g, '$1$2')
+    .replace(/(^|[^\w])_(?!\s)([^_\n]+?)(?<!\s)_(?!\w)/g, '$1$2');
+}
+
+/**
+ * Plain readable text from inline markdown: `<br>` becomes a space, images keep
+ * their alt text, links their text, and bold/italic/code markers are dropped
+ * (identifiers inside code spans are left alone).
+ */
 function flatten(s: string): string {
   return s
+    .replace(/<br\s*\/?>/gi, ' ')
+    .replace(/!\[([^\]]*)\]\([^)]*\)/g, '$1')
     .replace(/\[([^\]]*)\]\([^)]*\)/g, '$1')
-    .replace(/\*\*/g, '')
+    .split(/(`[^`\n]*`)/)
+    .map(part => (/^`[^`]*`$/.test(part) ? part.slice(1, -1) : stripEmphasis(part)))
+    .join('')
     .replace(/`/g, '')
     .replace(/\s+/g, ' ')
     .trim();
@@ -87,14 +103,15 @@ function firstTable(body: string): Table | undefined {
 
 const colIndex = (t: Table, pred: (h: string) => boolean): number => t.headers.findIndex(pred);
 
-function listItems(body: string): string[] {
+/** List item texts; with `topLevelOnly`, indented sub-items are skipped. */
+function listItems(body: string, topLevelOnly = false): string[] {
   const items: string[] = [];
   let fence = false;
   for (const line of body.split(/\r?\n/)) {
     if (/^\s*(```|~~~)/.test(line)) { fence = !fence; continue; }
     if (fence) continue;
-    const m = line.match(/^\s*(?:[-*+]|\d+[.)])\s+(.*\S)\s*$/);
-    if (m) items.push(m[1]);
+    const m = line.match(/^(\s*)(?:[-*+]|\d+[.)])\s+(.*\S)\s*$/);
+    if (m && !(topLevelOnly && (m[1].length > 1 || m[1].includes('\t')))) items.push(m[2]);
   }
   return items;
 }
@@ -107,6 +124,8 @@ const clean = <T extends object>(o: T): T => {
 // ── Parsers ──────────────────────────────────────────────────────────
 
 const OUTCOMES_HEADING = /^Expected (Outcomes|Results)\b/i;
+/** "Observed outcome" bullets report a lab run, not an expected outcome. */
+const OBSERVED = /^observed\b/i;
 
 function codeFrom(raw: string): number | undefined {
   const m = raw.match(/exit(?:\s+code)?\W{0,6}(\d{2,3})\b/i) ?? raw.match(/\*\*(\d{2,3})\*\*/);
@@ -130,6 +149,7 @@ export function parseExpectedOutcomes(md: string): TestOverview['expectedOutcome
     const lead = raw.match(/^\*\*([^*]+?)\*\*\s*[:\-–—]?\s*(.*)$/) ?? raw.match(/^([^:]{1,40}):\s*(.*)$/);
     if (!lead) continue;
     const label = outcomeLabel(lead[1]);
+    if (OBSERVED.test(label)) continue;
     const text = flatten(lead[2]);
     if (!label || !text) continue;
     const code = codeFrom(raw);
@@ -142,6 +162,7 @@ export function parseExpectedOutcomes(md: string): TestOverview['expectedOutcome
   for (let i = 0; i < lines.length; i++) {
     if (headingLevel(lines[i]) !== sec.level + 1) continue;
     const label = outcomeLabel(lines[i].replace(/^#+\s+/, ''));
+    if (OBSERVED.test(label)) continue;
     const block: string[] = [];
     for (let j = i + 1; j < lines.length && headingLevel(lines[j]) === 0; j++) block.push(lines[j]);
     const items = listItems(block.join('\n'));
@@ -156,9 +177,9 @@ export function parseExpectedOutcomes(md: string): TestOverview['expectedOutcome
   return out.length > 0 ? out : undefined;
 }
 
-/** First contiguous bullet run in a document, flattened, max 5. */
+/** The first five top-level list items in the given markdown (sub-items skipped), flattened. */
 function firstBulletRun(md: string): string[] | undefined {
-  const items = listItems(md).map(flatten).filter(Boolean).slice(0, 5);
+  const items = listItems(md, true).map(flatten).filter(Boolean).slice(0, 5);
   return items.length > 0 ? items : undefined;
 }
 
@@ -226,6 +247,9 @@ export function parseDetectionAudit(infoMd: string): TestOverview['detectionAudi
   return rows.length > 0 ? rows : undefined;
 }
 
+/** A whole-word "Blocked" not negated ("Not blocked"), or a protected exit code. */
+const BLOCKED = /(?<!\bnot\s)\bblocked\b|\b(?:105|126|127)\b/i;
+
 export function parseLabStageOutcomes(infoMd: string): TestOverview['labStageOutcomes'] {
   const sec = section(infoMd, /^Lab Evidence\b/i);
   const table = sec && firstTable(sec.body);
@@ -242,7 +266,7 @@ export function parseLabStageOutcomes(infoMd: string): TestOverview['labStageOut
     const stage = parseInt((flatten(r[iStage] ?? '').match(/\d+/) ?? [''])[0], 10);
     if (Number.isNaN(stage)) continue;
     const cell = flatten(r[iOutcome] ?? '');
-    const outcome = /blocked|\b(126|105|127)\b/i.test(cell) ? 'blocked' : /success/i.test(cell) ? 'ran' : 'error';
+    const outcome = BLOCKED.test(cell) ? 'blocked' : /success|\bnot blocked\b/i.test(cell) ? 'ran' : 'error';
     out.push({ stage, outcome, detail: flatten(r[iDetail] ?? '') });
   }
   return out.length > 0 ? out : undefined;
@@ -372,6 +396,8 @@ export function extractOverview(
     primarySource: firstOf('primarySource', [refs], parsePrimarySource),
     stageBudgetsSec: firstOf('stageBudgetsSec', [readme, info], parseStageBudgets),
   };
+  // SAFETY.md is the fuller document, so it is the "Full safety" link target
+  // whenever it exists, even when the bullets themselves came from README.
   if (overview.safety) overview.safetySource = (safetyDoc ?? readme)?.name;
   return clean(overview);
 }

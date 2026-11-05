@@ -153,6 +153,26 @@ describe('technique views and EDR-killed runs', () => {
       expect(tile.clauses).not.toContainEqual(NOT_STAGELESS);
     });
 
+    it('testUuid scopes the query to the test and gets its own cache key', async () => {
+      const svc = createService() as any;
+      const clause = {
+        bool: {
+          should: [{ term: { 'f0rtika.test_uuid': LOCKBIT } }, { term: { 'f0rtika.bundle_id': LOCKBIT } }],
+          minimum_should_match: 1,
+        },
+      };
+      const all = await svc.resolvePostureScope({ ...LATEST, scoringMode: 'all-stages' });
+      const one = await svc.resolvePostureScope({ ...LATEST, scoringMode: 'all-stages', testUuid: LOCKBIT });
+      const other = await svc.resolvePostureScope({ ...LATEST, scoringMode: 'all-stages', testUuid: STANDALONE });
+      expect(one.keyBase.testUuid).toBe(LOCKBIT);
+      expect(all.keyBase).not.toHaveProperty('testUuid');
+      expect(JSON.stringify(one.keyBase)).not.toBe(JSON.stringify(other.keyBase));
+      expect(JSON.stringify(one.keyBase)).not.toBe(JSON.stringify(all.keyBase));
+
+      await createService().getLatestPairs({ ...LATEST, scoringMode: 'all-stages', testUuid: LOCKBIT });
+      expect(mockSearch.mock.calls[0][0].query.bool.filter).toContainEqual(clause);
+    });
+
     it('a technique read does not reuse a test-level breakdown snapshot, and leaves it intact', async () => {
       // getDefenseScoreByHostnameLatest reads the same metadata/all-stages scope as the technique views.
       useIndex([standaloneKill(T1)]);

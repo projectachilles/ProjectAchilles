@@ -22,6 +22,8 @@ export interface Capabilities {
   randomizedOnce: boolean;
   /** Latest-basis outcome breakdown (/api/analytics/outcome-breakdown; backend-only; backend-serverless has none) */
   outcomeBreakdown: boolean;
+  /** Per-test fleet results (/api/analytics/test-results/:uuid/stages; backend-only) */
+  testFleet: boolean;
   platform: string;
   /** false until /api/capabilities has resolved (or failed); values are defaults before then */
   loaded?: boolean;
@@ -45,6 +47,7 @@ const DEFAULT_CAPABILITIES: Capabilities = {
   alerting: true,
   randomizedOnce: false,
   outcomeBreakdown: false,
+  testFleet: false,
   platform: 'docker',
 };
 

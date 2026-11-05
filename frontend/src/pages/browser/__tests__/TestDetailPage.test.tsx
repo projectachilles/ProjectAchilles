@@ -1,6 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { render, screen, fireEvent, waitFor, within } from '@testing-library/react';
-import { MemoryRouter, Routes, Route, useLocation } from 'react-router-dom';
+import { MemoryRouter, Routes, Route, useLocation, useNavigationType } from 'react-router-dom';
 import type { TestDetails, TestFile } from '@/types/test';
 
 const { browser, tests, perms } = vi.hoisted(() => ({
@@ -15,6 +15,9 @@ const { browser, tests, perms } = vi.hoisted(() => ({
 }));
 
 vi.mock('@/services/api/browser', () => ({ browserApi: browser }));
+// Keep the suite off the network: no /capabilities call, no fleet fetch.
+vi.mock('@/hooks/useCapabilities', () => ({ useCapabilities: () => ({ loaded: true, testFleet: false }) }));
+vi.mock('@/services/api/analytics', () => ({ analyticsApi: { getTestFleet: vi.fn().mockResolvedValue(null) } }));
 vi.mock('@/services/api/tests', () => ({ testsApi: tests }));
 vi.mock('@/hooks/useAppRole', () => ({
   useHasPermission: (...p: string[]) => p.every((x) => perms.granted.has(x)),
@@ -80,8 +83,10 @@ function makeTest(over: Partial<TestDetails> = {}): TestDetails {
 
 function Probe() {
   const loc = useLocation();
+  const nav = useNavigationType();
   return (
     <>
+      <div data-testid="nav">{nav}</div>
       <div data-testid="search">{loc.search}</div>
       <div data-testid="key">{loc.key}</div>
       <div data-testid="state">{JSON.stringify(loc.state ?? null)}</div>
@@ -137,6 +142,21 @@ describe('TestDetailPage', () => {
     const viewer = await screen.findByTestId('file-viewer');
     expect(viewer).toHaveAttribute('data-file', `${UUID}_DEFENSE_GUIDANCE.md`);
     expect(browser.getFileContent).not.toHaveBeenCalledWith(UUID, 'nope.md');
+  });
+
+  it('rewrites an unknown ?file= to the resolved file without a new history entry', async () => {
+    browser.getTestDetails.mockResolvedValue(makeTest());
+    renderPage('?tab=defense&file=nope.md');
+    await screen.findByTestId('file-viewer');
+    await waitFor(() =>
+      expect(screen.getByTestId('search').textContent).toBe(`?tab=defense&file=${UUID}_DEFENSE_GUIDANCE.md`),
+    );
+    // Replaced, not pushed; router state (Back target) kept.
+    expect(screen.getByTestId('nav').textContent).toBe('REPLACE');
+    expect(screen.getByTestId('state').textContent).toContain('/tests?category=intel-driven');
+    const key = screen.getByTestId('key').textContent;
+    fireEvent.click(screen.getByRole('button', { name: 'Defense Guide' }));
+    expect(screen.getByTestId('key').textContent).toBe(key);
   });
 
   it('picks another file of a multi-file tab through the URL', async () => {
@@ -261,6 +281,16 @@ describe('TestDetailPage', () => {
     expect(panel).toHaveAttribute('aria-labelledby', detection.id);
     expect(screen.getByRole('tabpanel', { name: 'Detection, 2 files' })).toBe(panel);
     expect(detection).toHaveAttribute('aria-controls', panel.id);
+  });
+
+  it('aligns the header, tab row and tab panel in one container', async () => {
+    browser.getTestDetails.mockResolvedValue(makeTest());
+    renderPage();
+    const h1 = await screen.findByRole('heading', { level: 1, name: 'Credential Dump Chain' });
+    const box = ['container', 'mx-auto', 'px-4'];
+    expect(h1.closest('.container')).toHaveClass(...box);
+    expect(screen.getByRole('tablist')).toHaveClass(...box);
+    expect(screen.getByRole('tabpanel')).toHaveClass(...box);
   });
 
   it('shows Download in the header once the shared build state has a build', async () => {

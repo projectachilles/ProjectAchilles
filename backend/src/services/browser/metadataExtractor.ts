@@ -25,6 +25,31 @@ export function parseLegacyScoreBreakdown(content: string): ScoreBreakdown {
   return breakdown;
 }
 
+const TECHNIQUE_ID = /\bT\d{4}(?:\.\d{3})?\b/g;
+
+/** A `Stage N` heading of an info card: the techniques it names and its title. */
+interface StageHeading {
+  techniques: string[];
+  title?: string;
+}
+
+/**
+ * A stage title from a heading or comment, without the technique IDs the card
+ * already shows as chips: "— Credential Access (T1003.001, T1003.002)" →
+ * "Credential Access"; "T1572 Protocol Tunneling + T1021.004 SSH" →
+ * "Protocol Tunneling + SSH". Undefined when nothing but IDs is left.
+ */
+function stageTitle(raw: string): string | undefined {
+  const title = raw
+    .replace(/\s*\([^)]*\bT\d{4}[^)]*\)/g, '')
+    .replace(TECHNIQUE_ID, '\u0000')
+    // A run of IDs and the separators between them is one gap.
+    .replace(/[\s+/,&]*\u0000(?:[\s+/,&]*\u0000)*[\s+/,&]*/g, ' + ')
+    .replace(/^[\s+/,&—–-]+|[\s+/,&—–-]+$/g, '')
+    .replace(/\s+/g, ' ');
+  return title || undefined;
+}
+
 export class MetadataExtractor {
   /**
    * Extract metadata from a Go source file header
@@ -288,7 +313,9 @@ export class MetadataExtractor {
     const validatorPattern = /###\s*\d+\.\s*(.+)\n([\s\S]*?)(?=\n###\s*\d+\.|$)/g;
     let match;
     while ((match = validatorPattern.exec(section)) !== null) {
-      const name = match[1].trim();
+      // Headings may carry a count ("Credential & Password Policy (10 controls)");
+      // results name the validator without it, so key by the bare name.
+      const name = match[1].trim().replace(/\s*\(\d+\s+controls?\)$/i, '');
       const body = match[2].trim();
       // First non-empty line is the description
       const firstLine = body.split('\n').find(l => l.trim().length > 0);
@@ -307,8 +334,8 @@ export class MetadataExtractor {
     const stages: StageInfo[] = [];
     const files = fs.readdirSync(testDir);
     const declared = uuid
-      ? this.extractStageTechniques(path.join(testDir, `${uuid}_info.md`))
-      : new Map<number, string[]>();
+      ? this.extractStageHeadings(path.join(testDir, `${uuid}_info.md`))
+      : new Map<number, StageHeading>();
 
     // Look for stage-T*.go files
     const stageFiles = files.filter(f => f.match(/^stage-T[\d.]+\.go$/i));
@@ -322,20 +349,27 @@ export class MetadataExtractor {
         try {
           const content = fs.readFileSync(filePath, 'utf-8');
 
-          // Extract stage name from header comment
-          const nameMatch = content.match(/STAGE \d+:\s*(.+)/i);
-          const stageName = nameMatch ? nameMatch[1].trim() : `Stage ${index + 1}`;
-
           // Extract stage ID
           const stageIdMatch = content.match(/STAGE_ID\s*=\s*(\d+)/);
           const stageId = stageIdMatch ? parseInt(stageIdMatch[1]) : index + 1;
 
           // A heading that doesn't name the stage's own technique belongs to
           // another stage (numbering mismatch), so it is ignored.
-          const listed = declared.get(stageId);
-          const techniques = listed?.includes(technique)
-            ? [technique, ...listed.filter((t) => t !== technique)]
+          const heading = declared.get(stageId);
+          const ownHeading = heading?.techniques.includes(technique) ? heading : undefined;
+          const techniques = ownHeading
+            ? [technique, ...ownHeading.techniques.filter((t) => t !== technique)]
             : [technique];
+
+          // Name: the file's "STAGE N: name" header (optionally "STAGE N (v2):"),
+          // else the info card heading's title, else a "// Stage N — …" comment,
+          // else the stage number. Never the file's position in the directory.
+          const headerMatch = content.match(/STAGE \d+\s*(?:\([^)\n]*\))?:\s*(.+)/i);
+          const commentMatch = content.match(/^\s*\/\/\s*Stage\s+\d+\s*[—–-]\s*(.+)$/im);
+          const stageName = headerMatch?.[1].trim()
+            || ownHeading?.title
+            || (commentMatch ? stageTitle(commentMatch[1]) : undefined)
+            || `Stage ${stageId}`;
 
           stages.push({
             stageId,
@@ -355,13 +389,14 @@ export class MetadataExtractor {
   }
 
   /**
-   * ATT&CK techniques named in each `Stage N` heading of an info card, keyed by
-   * stage number: "### Stage 1 — Execution (T1059.001, T1562.001, T1112)" or
-   * "### Stage 2 — T1572 Protocol Tunneling + T1021.004 SSH". Only the heading
-   * line counts; body text often mentions techniques the stage doesn't perform.
+   * ATT&CK techniques and title of each `Stage N` heading of an info card,
+   * keyed by stage number: "### Stage 1 — Execution (T1059.001, T1562.001, T1112)"
+   * or "### Stage 2 — T1572 Protocol Tunneling + T1021.004 SSH". Only the
+   * heading line counts; body text often mentions techniques the stage doesn't
+   * perform.
    */
-  static extractStageTechniques(infoCardPath: string): Map<number, string[]> {
-    const byStage = new Map<number, string[]>();
+  static extractStageHeadings(infoCardPath: string): Map<number, StageHeading> {
+    const byStage = new Map<number, StageHeading>();
     let content: string;
     try {
       content = fs.readFileSync(infoCardPath, 'utf-8');
@@ -372,8 +407,10 @@ export class MetadataExtractor {
       const heading = line.match(/^#{2,4}\s+Stage\s+(\d+)\b(.*)$/i);
       if (!heading) continue;
       const stageId = parseInt(heading[1], 10);
-      const ids = [...new Set(heading[2].match(/\bT\d{4}(?:\.\d{3})?\b/g) ?? [])];
-      if (ids.length > 0 && !byStage.has(stageId)) byStage.set(stageId, ids);
+      const ids = [...new Set(heading[2].match(TECHNIQUE_ID) ?? [])];
+      if (ids.length > 0 && !byStage.has(stageId)) {
+        byStage.set(stageId, { techniques: ids, title: stageTitle(heading[2]) });
+      }
     }
     return byStage;
   }
