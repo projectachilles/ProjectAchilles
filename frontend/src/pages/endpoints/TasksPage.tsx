@@ -1,5 +1,6 @@
 import { useEffect, useState, useCallback, useRef } from 'react';
 import { usePolling } from '@/hooks/usePolling';
+import { useViewportFill } from '@/hooks/useViewportFill';
 import { useSearchParams } from 'react-router-dom';
 import { Plus, RefreshCw, Search, X, Trash2, ChevronsLeft, ChevronLeft, ChevronRight, ChevronsRight } from 'lucide-react';
 import { agentApi } from '@/services/api/agent';
@@ -43,6 +44,15 @@ export default function TasksPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
+  useEffect(() => {
+    const mq = window.matchMedia?.('(min-width: 1024px)');
+    if (!mq) return;
+    const onChange = () => setWide(mq.matches);
+    onChange();
+    mq.addEventListener('change', onChange);
+    return () => mq.removeEventListener('change', onChange);
+  }, []);
+
   const [groups, setGroups] = useState<TaskGroup[]>([]);
   const [metrics, setMetrics] = useState<AgentMetrics | null>(null);
   const [totalGroups, setTotalGroups] = useState(0);
@@ -56,6 +66,8 @@ export default function TasksPage() {
   const [schedules, setSchedules] = useState<Schedule[]>([]);
   const [view, setView] = useState<'tasks' | 'schedules'>('tasks');
   const [breakdownFilter, setBreakdownFilter] = useState<BreakdownFilter | null>(null);
+  const [wide, setWide] = useState(() => window.matchMedia?.('(min-width: 1024px)').matches ?? false);
+  const { ref: fillRef, height: fillHeight } = useViewportFill<HTMLDivElement>(wide);
   const [page, setPage] = useState(1);
   const [pageSize, setPageSize] = useState(25);
   const [searchTerm, setSearchTerm] = useState(initialSearch);
@@ -330,6 +342,44 @@ export default function TasksPage() {
 
   const tiles = metrics ? taskTiles(metrics) : null;
 
+  const pagination = view === 'tasks' && !loading && totalGroups > 0 ? (
+          <div className="flex flex-wrap gap-y-2 items-center justify-between text-sm text-muted-foreground">
+            <div className="flex items-center gap-3">
+              <span>Showing {rangeStart}&ndash;{rangeEnd} of {totalGroups}</span>
+              <select
+                className={cn(fieldControlClass, 'h-8 w-auto px-2')}
+                value={pageSize}
+                onChange={(e) => handlePageSizeChange(Number(e.target.value))}
+              >
+                {PAGE_SIZE_OPTIONS.map((size) => (
+                  <option key={size} value={size}>{size} / page</option>
+                ))}
+              </select>
+            </div>
+            <div className="flex flex-wrap items-center gap-1">
+              <Button variant="outline" size="sm" disabled={page <= 1} onClick={() => setPage(1)}>
+                <ChevronsLeft className="w-4 h-4 mr-1" />
+                Newest
+              </Button>
+              <Button variant="outline" size="sm" disabled={page <= 1} onClick={() => setPage(page - 1)}>
+                <ChevronLeft className="w-4 h-4 mr-1" />
+                Newer
+              </Button>
+              <span className="px-3 font-mono text-xs text-faint">
+                {page} / {totalPages}
+              </span>
+              <Button variant="outline" size="sm" disabled={page >= totalPages} onClick={() => setPage(page + 1)}>
+                Older
+                <ChevronRight className="w-4 h-4 ml-1" />
+              </Button>
+              <Button variant="outline" size="sm" disabled={page >= totalPages} onClick={() => setPage(totalPages)}>
+                Oldest
+                <ChevronsRight className="w-4 h-4 ml-1" />
+              </Button>
+            </div>
+          </div>
+  ) : null;
+
   return (
     <>
       <PageContainer>
@@ -466,7 +516,10 @@ export default function TasksPage() {
         ) : loading ? (
           <Loading message="Loading tasks..." />
         ) : (
+          <div ref={fillRef} style={fillHeight ? { height: fillHeight } : undefined}>
           <TaskStream
+            fill={wide}
+            footer={pagination}
             groups={groups}
             loading={loading}
             selectedTasks={canSelectTasks ? selectedTasks : []}
@@ -478,44 +531,6 @@ export default function TasksPage() {
             onDelete={canDeleteTask ? handleDelete : undefined}
             onOpenNotes={setNotesTask}
           />
-        )}
-
-        {/* Pagination controls */}
-        {view === 'tasks' && !loading && totalGroups > 0 && (
-          <div className="flex flex-wrap gap-y-2 items-center justify-between mt-4 text-sm text-muted-foreground">
-            <div className="flex items-center gap-3">
-              <span>Showing {rangeStart}&ndash;{rangeEnd} of {totalGroups}</span>
-              <select
-                className={cn(fieldControlClass, 'h-8 w-auto px-2')}
-                value={pageSize}
-                onChange={(e) => handlePageSizeChange(Number(e.target.value))}
-              >
-                {PAGE_SIZE_OPTIONS.map((size) => (
-                  <option key={size} value={size}>{size} / page</option>
-                ))}
-              </select>
-            </div>
-            <div className="flex flex-wrap items-center gap-1">
-              <Button variant="outline" size="sm" disabled={page <= 1} onClick={() => setPage(1)}>
-                <ChevronsLeft className="w-4 h-4 mr-1" />
-                Newest
-              </Button>
-              <Button variant="outline" size="sm" disabled={page <= 1} onClick={() => setPage(page - 1)}>
-                <ChevronLeft className="w-4 h-4 mr-1" />
-                Newer
-              </Button>
-              <span className="px-3 font-mono text-xs text-faint">
-                {page} / {totalPages}
-              </span>
-              <Button variant="outline" size="sm" disabled={page >= totalPages} onClick={() => setPage(page + 1)}>
-                Older
-                <ChevronRight className="w-4 h-4 ml-1" />
-              </Button>
-              <Button variant="outline" size="sm" disabled={page >= totalPages} onClick={() => setPage(totalPages)}>
-                Oldest
-                <ChevronsRight className="w-4 h-4 ml-1" />
-              </Button>
-            </div>
           </div>
         )}
 

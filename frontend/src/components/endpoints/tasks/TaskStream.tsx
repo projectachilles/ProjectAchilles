@@ -7,6 +7,7 @@
  */
 
 import { Fragment, useMemo, useState } from 'react';
+import type { ReactNode } from 'react';
 import { ChevronDown, ChevronRight, FileText, Maximize2, RotateCcw, Trash2, XCircle } from 'lucide-react';
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import type { AgentTask, TaskGroup } from '@/types/agent';
@@ -31,6 +32,10 @@ interface TaskStreamProps {
   onRetry?: (taskId: string) => void;
   onDelete?: (taskId: string) => void;
   onOpenNotes?: (task: AgentTask) => void;
+  /** Pinned at the bottom of the list pane (pagination). */
+  footer?: ReactNode;
+  /** Fill the parent's height: the list and the detail scroll independently (large screens). */
+  fill?: boolean;
 }
 
 const ACTIVE_STATUSES = new Set(['pending', 'assigned', 'downloading', 'executing']);
@@ -137,6 +142,8 @@ export default function TaskStream({
   onRetry,
   onDelete,
   onOpenNotes,
+  footer,
+  fill = false,
 }: TaskStreamProps) {
   const [selectedTaskId, setSelectedTaskId] = useState<string | null>(null);
   const [collapsedBatches, setCollapsedBatches] = useState<Set<string>>(new Set());
@@ -255,9 +262,21 @@ export default function TaskStream({
   let lastDay: string | null = null;
 
   return (
-    <div className="grid items-start gap-4 lg:grid-cols-[minmax(0,5fr)_minmax(0,4fr)]">
+    <div
+      className={cn(
+        'grid gap-4 lg:grid-cols-[minmax(0,5fr)_minmax(0,4fr)]',
+        fill ? 'lg:h-full lg:min-h-0 lg:grid-rows-[minmax(0,1fr)]' : 'items-start',
+      )}
+    >
       {/* Stream */}
-      <div className="overflow-hidden rounded-lg border border-border bg-surface py-1">
+      <div
+        data-testid="task-list-pane"
+        className={cn(
+          'overflow-hidden rounded-lg border border-border bg-surface',
+          fill && 'flex min-h-0 flex-col',
+        )}
+      >
+        <div data-testid="task-list-scroll" className={cn('py-1', fill && 'min-h-0 flex-1 overflow-auto')}>
         {selectable && onToggleSelectAll && (
           <div className="flex items-center gap-2.5 border-b border-border px-4 py-1.5">
             <Checkbox
@@ -370,11 +389,13 @@ export default function TaskStream({
             </Fragment>
           );
         })}
+        </div>
+        {footer && <div className="shrink-0 border-t border-border px-4 py-2.5">{footer}</div>}
       </div>
 
       {/* Detail panel */}
       {selectedTask ? (
-        <div className="overflow-hidden rounded-lg border border-border bg-surface">
+        <div className={cn('rounded-lg border border-border bg-surface', fill ? 'lg:min-h-0 lg:overflow-auto' : 'overflow-hidden')}>
           <div className="border-b border-border p-4">
             <div className="flex items-start justify-between gap-3">
               <h3 className="text-[15px] font-semibold leading-snug">{taskName(selectedTask)}</h3>
