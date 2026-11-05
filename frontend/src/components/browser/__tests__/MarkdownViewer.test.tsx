@@ -97,6 +97,38 @@ describe('MarkdownViewer', () => {
   it('handles empty content', () => {
     const { container } = render(<MarkdownViewer content="" />);
 
-    expect(container.querySelector('.prose')).toBeInTheDocument();
+    expect(container.querySelector('.prose')).not.toBeInTheDocument();
+  });
+
+  it('renders body text at text-sm with relaxed leading', () => {
+    render(<MarkdownViewer content="Hello world" />);
+    const p = screen.getByText('Hello world');
+    expect(p).toHaveClass('text-sm', 'leading-[1.7]');
+  });
+
+  it('renders h2 at 16px semibold', () => {
+    render(<MarkdownViewer content={'# One\n\n## Two'} />);
+    expect(screen.getByRole('heading', { level: 2 })).toHaveClass('text-base', 'font-semibold');
+    expect(screen.getByRole('heading', { level: 1 })).toHaveClass('text-lg', 'font-semibold');
+  });
+
+  it('drops the first h1 when it repeats hideTitle', () => {
+    render(<MarkdownViewer content={'# Qilin Chain\n\n## Overview'} hideTitle="qilin chain" />);
+    expect(screen.queryByRole('heading', { level: 1 })).not.toBeInTheDocument();
+    expect(screen.getAllByRole('heading', { level: 2 })).toHaveLength(1);
+  });
+
+  it('keeps an h1 that differs from hideTitle', () => {
+    render(<MarkdownViewer content="# Defense Guidance: Qilin" hideTitle="Qilin Chain" />);
+    expect(screen.getByRole('heading', { level: 1 })).toBeInTheDocument();
+  });
+
+  it('renders tables compactly', () => {
+    render(<MarkdownViewer content={'| A | B |\n|---|---|\n| 1 | 2 |'} />);
+    const th = screen.getByRole('columnheader', { name: 'A' });
+    expect(th).toHaveClass('text-[11px]', 'uppercase');
+    const td = screen.getByRole('cell', { name: '1' });
+    expect(td).toHaveClass('text-[13px]', 'border-b');
+    expect(td.className.split(/\s+/)).not.toContain('border');
   });
 });
