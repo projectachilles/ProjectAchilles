@@ -631,8 +631,9 @@ router.get('/test-results', asyncHandler(async (req, res) => {
 // GET /api/analytics/test-results/:uuid/stages - One test's fleet results: the
 // any-stage headline plus the per-stage split (same fixed window as above).
 router.get('/test-results/:uuid/stages', asyncHandler(async (req, res) => {
-  const uuid = String(req.params.uuid);
-  if (!/^[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}$/i.test(uuid)) {
+  // Lower-cased: library UUIDs are, and the ES term match is case-sensitive.
+  const uuid = String(req.params.uuid).toLowerCase();
+  if (!/^[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}$/.test(uuid)) {
     throw new AppError('Invalid test UUID format', 400);
   }
   const es = await getEsService();

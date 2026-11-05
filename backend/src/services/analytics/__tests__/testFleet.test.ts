@@ -19,7 +19,7 @@ vi.mock('../../risk-acceptance/risk-acceptance.service.js', () => ({
   }),
 }));
 
-const { ElasticsearchService } = await import('../elasticsearch.js');
+const { ElasticsearchService, pairControlId } = await import('../elasticsearch.js');
 const { getTestFleet } = await import('../testFleet.js');
 
 const CHAIN = 'a1b2c3d4-0000-4000-8000-000000000001';
@@ -76,7 +76,7 @@ describe('getTestFleet', () => {
         lastRunAt: new Date(300).toISOString(),
       },
     ]);
-    expect(res.headline).toEqual({ hostCount: 3, stoppedCount: 3, lastRunAt: new Date(300).toISOString() });
+    expect(res.headline).toEqual({ hostCount: 3, pairCount: 3, stoppedCount: 3, lastRunAt: new Date(300).toISOString() });
     expect(res.stoppedBeforeStage).toBe(0);
 
     // Every read is scoped to the test, with the fixed window and latest basis.
@@ -102,7 +102,7 @@ describe('getTestFleet', () => {
     const res = await getTestFleet(es, CHAIN, {});
 
     expect(res.stoppedBeforeStage).toBe(2);
-    expect(res.headline).toEqual({ hostCount: 3, stoppedCount: 2, lastRunAt: new Date(600).toISOString() });
+    expect(res.headline).toEqual({ hostCount: 3, pairCount: 3, stoppedCount: 2, lastRunAt: new Date(600).toISOString() });
     // Stage counts follow the per-stage rule: the stageless runs add nothing.
     expect(res.stages).toEqual([
       { controlId: 'T1055', blocked: 0, detected: 0, through: 2, hosts: 2, lastRunAt: new Date(100).toISOString() },
@@ -118,16 +118,34 @@ describe('getTestFleet', () => {
     });
     const res = await getTestFleet(es, SOLO, {});
     expect(res.stages).toEqual([]);
-    expect(res.headline).toEqual({ hostCount: 1, stoppedCount: 1, lastRunAt: new Date(100).toISOString() });
+    expect(res.headline).toEqual({ hostCount: 1, pairCount: 1, stoppedCount: 1, lastRunAt: new Date(100).toISOString() });
+  });
+
+  it('a cyber-hygiene bundle (one pair per control) reports pairs apart from hosts', async () => {
+    const control = (c: string) => `o1|${CHAIN}::${c}|h1`;
+    const runs = [run(control('CH-001'), 100, 'blocked'), run(control('CH-002'), 100, 'detected'), run(control('CH-003'), 100, 'through')];
+    const { es } = fakeEs({ anyStage: runs, anyStageNoStageless: runs, allStages: runs });
+    const res = await getTestFleet(es, CHAIN, {});
+    expect(res.headline).toEqual({ hostCount: 1, pairCount: 3, stoppedCount: 2, lastRunAt: new Date(100).toISOString() });
+    expect(res.stoppedBeforeStage).toBe(0);
+    expect(res.stages.map(s => s.controlId)).toEqual(['CH-001', 'CH-002', 'CH-003']);
   });
 
   it('no results: empty headline', async () => {
     const { es } = fakeEs({ anyStage: [], anyStageNoStageless: [], allStages: [] });
     expect(await getTestFleet(es, SOLO, {})).toEqual({
-      headline: { hostCount: 0, stoppedCount: 0, lastRunAt: null },
+      headline: { hostCount: 0, pairCount: 0, stoppedCount: 0, lastRunAt: null },
       stages: [],
       stoppedBeforeStage: 0,
     });
+  });
+});
+
+describe('pairControlId', () => {
+  it('gives the control id of a per-stage pair only', () => {
+    expect(pairControlId(`o1|${CHAIN}::T1055|h1`)).toBe('T1055');
+    expect(pairControlId(`o1|${SOLO}|h1`)).toBeUndefined();
+    expect(pairControlId(`o1|bundle:${CHAIN}|h1`)).toBeUndefined();
   });
 });
 
@@ -200,7 +218,7 @@ describe('getTestFleet with the posture pipeline', () => {
     ]);
     const res = await getTestFleet(new ElasticsearchService(settings), CHAIN, {});
 
-    expect(res.headline).toEqual({ hostCount: 4, stoppedCount: 3, lastRunAt: T1 });
+    expect(res.headline).toEqual({ hostCount: 4, pairCount: 4, stoppedCount: 3, lastRunAt: T1 });
     expect(res.stoppedBeforeStage).toBe(1);
     expect(res.stages).toEqual([
       {

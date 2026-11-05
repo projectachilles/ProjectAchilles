@@ -5,6 +5,7 @@
  * from ElasticsearchService.getLatestPairs, so the posture pair rules
  * (latest run per host, freshness, exclusions) are never re-implemented here.
  */
+import { pairControlId } from './elasticsearch.js';
 import type { ElasticsearchService } from './elasticsearch.js';
 import type { PairRun } from './posture.js';
 import type { AnalyticsQueryParams, ExtendedAnalyticsQueryParams } from '../../types/analytics.js';
@@ -21,15 +22,14 @@ export interface TestFleetStage {
 }
 
 export interface TestFleetResponse {
-  headline: { hostCount: number; stoppedCount: number; lastRunAt: string | null };
+  /**
+   * Any-stage, like test-results: `pairCount` test x host pairs (a cyber-hygiene
+   * bundle has one per control), `stoppedCount` of them protected, on `hostCount` hosts.
+   */
+  headline: { hostCount: number; pairCount: number; stoppedCount: number; lastRunAt: string | null };
   stages: TestFleetStage[];
   /** Hosts whose latest run stopped before any stage ran (EDR killed the agent / blocked it at launch). */
   stoppedBeforeStage: number;
-}
-
-/** Control id of a per-stage pair (`oid|<bundle>::<control>|host`); undefined for a standalone test's pair. */
-function controlIdOf(pairKey: string): string | undefined {
-  return (pairKey.split('|')[1] ?? '').split('::')[1];
 }
 
 /**
@@ -68,6 +68,7 @@ export async function getTestFleet(
   return {
     headline: {
       hostCount: hosts.size,
+      pairCount: chains.length,
       stoppedCount: chains.filter((p) => p.protected).length,
       lastRunAt: chains.length > 0 ? new Date(lastTs).toISOString() : null,
     },
@@ -83,7 +84,7 @@ function groupStages(
 ): TestFleetStage[] {
   const byControl = new Map<string, { blocked: number; detected: number; through: number; hosts: Set<string>; lastTs: number }>();
   for (const p of pairs) {
-    const controlId = controlIdOf(p.pairKey);
+    const controlId = pairControlId(p.pairKey);
     if (!controlId) continue;
     let s = byControl.get(controlId);
     if (!s) {
