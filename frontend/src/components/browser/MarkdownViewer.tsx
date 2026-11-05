@@ -1,8 +1,7 @@
-import { useRef } from 'react';
-import type { ReactNode } from 'react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import type { Components } from 'react-markdown';
+import type { PluggableList } from 'unified';
 
 interface MarkdownViewerProps {
   content: string;
@@ -10,34 +9,34 @@ interface MarkdownViewerProps {
   hideTitle?: string;
 }
 
-function nodeText(node: ReactNode): string {
-  if (node == null || typeof node === 'boolean') return '';
-  if (typeof node === 'string' || typeof node === 'number') return String(node);
-  if (Array.isArray(node)) return node.map(nodeText).join('');
-  if (typeof node === 'object' && 'props' in node) {
-    return nodeText((node.props as { children?: ReactNode }).children);
-  }
-  return '';
+interface MdNode {
+  type: string;
+  depth?: number;
+  value?: string;
+  children?: MdNode[];
+}
+
+function mdText(node: MdNode): string {
+  if (typeof node.value === 'string') return node.value;
+  return (node.children ?? []).map(mdText).join('');
+}
+
+/** Pure AST transform: removes the first depth-1 heading when its text equals `title`. */
+function remarkDropTitle(title: string) {
+  const wanted = title.trim().toLowerCase();
+  return () => (tree: MdNode) => {
+    const first = (tree.children ?? []).findIndex(n => n.type === 'heading' && n.depth === 1);
+    if (first >= 0 && mdText(tree.children![first]).trim().toLowerCase() === wanted) {
+      tree.children!.splice(first, 1);
+    }
+  };
 }
 
 export default function MarkdownViewer({ content, hideTitle }: MarkdownViewerProps) {
-  // Reset on every render so only the document's first h1 is considered.
-  const firstH1Seen = useRef(false);
-  firstH1Seen.current = false;
+  const remarkPlugins: PluggableList = hideTitle ? [remarkGfm, remarkDropTitle(hideTitle)] : [remarkGfm];
 
   const components: Components = {
-    h1: ({ children }) => {
-      const isFirst = !firstH1Seen.current;
-      firstH1Seen.current = true;
-      if (
-        isFirst &&
-        hideTitle &&
-        nodeText(children).trim().toLowerCase() === hideTitle.trim().toLowerCase()
-      ) {
-        return null;
-      }
-      return <h1 className="text-lg font-semibold mt-6 mb-3 text-foreground">{children}</h1>;
-    },
+    h1: ({ children }) => <h1 className="text-lg font-semibold mt-6 mb-3 text-foreground">{children}</h1>,
     h2: ({ children }) => (
       <h2 className="text-base font-semibold mt-6 mb-2 pb-1.5 border-b border-border text-foreground">{children}</h2>
     ),
@@ -116,7 +115,7 @@ export default function MarkdownViewer({ content, hideTitle }: MarkdownViewerPro
   return (
     <div className="h-full overflow-auto">
       <div className="max-w-[72ch] px-8 py-6">
-        <ReactMarkdown remarkPlugins={[remarkGfm]} components={components}>
+        <ReactMarkdown remarkPlugins={remarkPlugins} components={components}>
           {content}
         </ReactMarkdown>
       </div>

@@ -1,4 +1,5 @@
 import { describe, it, expect } from 'vitest';
+import { StrictMode } from 'react';
 import { render, screen } from '@testing-library/react';
 import MarkdownViewer from '../MarkdownViewer';
 
@@ -130,5 +131,20 @@ describe('MarkdownViewer', () => {
     const td = screen.getByRole('cell', { name: '1' });
     expect(td).toHaveClass('text-[13px]', 'border-b');
     expect(td.className.split(/\s+/)).not.toContain('border');
+  });
+
+  it('hides the repeated title under StrictMode', () => {
+    render(<StrictMode><MarkdownViewer content={'# Qilin Chain\n\n## Overview'} hideTitle="Qilin Chain" /></StrictMode>);
+    expect(screen.queryByRole('heading', { level: 1 })).not.toBeInTheDocument();
+  });
+
+  it('matches the title ignoring case and surrounding whitespace', () => {
+    render(<MarkdownViewer content={'#  QILIN chain \n\n## Overview'} hideTitle="qilin chain" />);
+    expect(screen.queryByRole('heading', { level: 1 })).not.toBeInTheDocument();
+  });
+
+  it('removes only the first of two identical h1s', () => {
+    render(<MarkdownViewer content={'# Qilin Chain\n\ntext\n\n# Qilin Chain'} hideTitle="Qilin Chain" />);
+    expect(screen.getAllByRole('heading', { level: 1 })).toHaveLength(1);
   });
 });
