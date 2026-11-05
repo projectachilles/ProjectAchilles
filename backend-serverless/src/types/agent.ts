@@ -186,7 +186,8 @@ export interface TaskPayload {
 export interface TaskTestMetadata {
   category: string;
   subcategory: string;
-  severity: string;
+  /** Deprecated; absent from current frontends. */
+  severity?: string;
   techniques: string[];
   tactics: string[];
   threat_actor: string;

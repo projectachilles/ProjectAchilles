@@ -12,7 +12,9 @@ import { AgentOSSchema, AgentArchSchema } from './agent.schemas.js';
 const TaskTestMetadataSchema = z.object({
   category: z.string(),
   subcategory: z.string(),
-  severity: z.string(),
+  // Deprecated: the frontend stopped sending it when test severity left the UI.
+  // Accepted from older clients, never required.
+  severity: z.string().optional(),
   techniques: z.array(z.string()),
   tactics: z.array(z.string()),
   threat_actor: z.string(),
