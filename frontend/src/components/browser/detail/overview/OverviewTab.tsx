@@ -50,7 +50,7 @@ export default function OverviewTab({ test, canBuild, build, onOpenFile }: Overv
     chain = <WhatItDoesCard techniques={techniques} />;
   }
 
-  const infoFile = files.find((f) => f.name.endsWith('_info.md'))?.name ?? '';
+  const infoFile = files.find((f) => f.name.endsWith('_info.md'))?.name;
   const hasTwoCol = (ov.expectedOutcomes?.length ?? 0) > 0 || (ov.safety?.length ?? 0) > 0;
 
   const main = (
@@ -72,7 +72,7 @@ export default function OverviewTab({ test, canBuild, build, onOpenFile }: Overv
           />
         </div>
       )}
-      <DetectionPanel audit={ov.detectionAudit} onOpenAll={() => onOpenFile('info', infoFile)} />
+      <DetectionPanel audit={ov.detectionAudit} onOpenAll={infoFile ? () => onOpenFile('info', infoFile) : undefined} />
     </div>
   );
 

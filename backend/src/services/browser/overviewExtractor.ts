@@ -265,6 +265,17 @@ function keyValueFields(body: string): Record<string, string> {
   return fields;
 }
 
+/** Keep a URL only when it parses and is http(s); anything else is dropped. */
+function safeHttpUrl(raw: string | undefined): string | undefined {
+  if (!raw) return undefined;
+  try {
+    const u = new URL(raw);
+    return u.protocol === 'http:' || u.protocol === 'https:' ? raw : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
 export function parsePrimarySource(referencesMd: string): TestOverview['primarySource'] {
   const sec = section(referencesMd, /^Primary Source\b/i);
   const fields = sec ? keyValueFields(sec.body) : {};
@@ -276,7 +287,7 @@ export function parsePrimarySource(referencesMd: string): TestOverview['primaryS
   if (title && !NO_VALUE.test(title)) {
     const urlRaw = get(k => k === 'url') ?? '';
     const link = urlRaw.match(/\]\((https?:[^)\s]+)\)/);
-    const url = link?.[1] ?? (/^https?:\/\//.test(flatten(urlRaw)) ? flatten(urlRaw) : undefined);
+    const url = safeHttpUrl(link?.[1] ?? (/^https?:\/\//.test(flatten(urlRaw)) ? flatten(urlRaw) : undefined));
     const publisher = flatten(get(k => k.includes('author') || k.includes('organization') || k.includes('publisher')) ?? '');
     const date = flatten(get(k => /^(date( published)?|publication date|published)$/.test(k)) ?? '');
     return clean({
@@ -287,7 +298,8 @@ export function parsePrimarySource(referencesMd: string): TestOverview['primaryS
     });
   }
   const link = referencesMd.match(/\[([^\]]+)\]\((https?:\/\/[^)\s]+)\)/);
-  return link ? { title: flatten(link[1]), url: link[2] } : undefined;
+  const fallbackUrl = safeHttpUrl(link?.[2]);
+  return link ? clean({ title: flatten(link[1]), url: fallbackUrl }) : undefined;
 }
 
 export function parseStageBudgets(md: string): TestOverview['stageBudgetsSec'] {

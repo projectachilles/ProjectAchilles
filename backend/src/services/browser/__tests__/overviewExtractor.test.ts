@@ -178,6 +178,12 @@ describe('parsePrimarySource', () => {
   it('falls back to the first markdown link', () => {
     expect(parsePrimarySource(badRefs)).toEqual({ title: 'Vendor write-up', url: 'https://example.com/write-up' });
   });
+  it('omits a non-http(s) url but keeps the title', () => {
+    const md = '## Primary Source\n\n| Field | Value |\n|---|---|\n| Title | Bad link |\n| URL | javascript:alert(1) |\n';
+    const r = parsePrimarySource(md);
+    expect(r).toEqual({ title: 'Bad link' });
+    expect(r).not.toHaveProperty('url');
+  });
   it('returns undefined with nothing usable', () => {
     expect(parsePrimarySource('# nothing')).toBeUndefined();
   });

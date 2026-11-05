@@ -134,4 +134,30 @@ describe('OverviewTab panels', () => {
     expect(screen.getByRole('heading', { name: 'What it does' })).toBeInTheDocument();
     expect(screen.getByText('T1486')).toBeInTheDocument();
   });
+
+  it('does not link a javascript: primary source', () => {
+    renderTab(make({ overview: { primarySource: { title: 'Evil', url: 'javascript:alert(1)' } } }));
+    expect(screen.getByText('Evil')).toBeInTheDocument();
+    expect(screen.queryByRole('link', { name: 'Evil' })).not.toBeInTheDocument();
+  });
+
+  it('links an https primary source', () => {
+    renderTab(make());
+    expect(screen.getByRole('link', { name: 'Qilin report' })).toHaveAttribute('href', 'https://example.com/r');
+  });
+
+  it('omits quality bars with non-finite values without throwing', () => {
+    renderTab(make({ overview: { quality: { rubric: 'v2.1', realism: 5.7, structure: NaN } } }));
+    expect(screen.getByText('5.7 / 7')).toBeInTheDocument();
+    expect(screen.queryByText(/NaN/)).not.toBeInTheDocument();
+    expect(screen.queryByText('Structure')).not.toBeInTheDocument();
+  });
+
+  it('hides All n when there is no info card file', () => {
+    const t = make();
+    t.files = t.files.filter((f) => !f.name.endsWith('_info.md'));
+    renderTab(t);
+    expect(screen.getByRole('heading', { level: 2, name: 'Detection' })).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: /All 16/ })).not.toBeInTheDocument();
+  });
 });

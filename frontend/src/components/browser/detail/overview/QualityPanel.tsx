@@ -29,6 +29,7 @@ export default function QualityPanel({ quality }: { quality?: TestOverview['qual
   const legacyRows = quality.rubric === 'legacy'
     ? LEGACY_LABELS.filter(([k]) => quality.breakdown[k] !== undefined && quality.breakdown[k] !== null)
     : [];
+  if (quality.rubric === 'v2.1' && !Number.isFinite(quality.realism) && !Number.isFinite(quality.structure) && !quality.validation) return null;
   if (quality.rubric === 'legacy' && legacyRows.length === 0 && !quality.validation) return null;
 
   return (
@@ -36,8 +37,12 @@ export default function QualityPanel({ quality }: { quality?: TestOverview['qual
       <div className="space-y-3">
         {quality.rubric === 'v2.1' ? (
           <>
-            <Bar label="Realism" value={quality.realism} max={7} text={`${quality.realism} / 7`} />
-            <Bar label="Structure" value={quality.structure} max={3} text={`${quality.structure.toFixed(1)} / 3`} />
+            {Number.isFinite(quality.realism) && (
+              <Bar label="Realism" value={quality.realism} max={7} text={`${quality.realism} / 7`} />
+            )}
+            {Number.isFinite(quality.structure) && (
+              <Bar label="Structure" value={quality.structure} max={3} text={`${quality.structure.toFixed(1)} / 3`} />
+            )}
           </>
         ) : (
           <dl className="space-y-1">

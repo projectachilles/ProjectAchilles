@@ -5,7 +5,8 @@ const TOP = 4;
 
 interface DetectionPanelProps {
   audit?: TestOverview['detectionAudit'];
-  onOpenAll: () => void;
+  /** Omit when there is no info card to open; the "All n" action is then hidden. */
+  onOpenAll?: () => void;
 }
 
 export default function DetectionPanel({ audit, onOpenAll }: DetectionPanelProps) {
@@ -14,11 +15,11 @@ export default function DetectionPanel({ audit, onOpenAll }: DetectionPanelProps
     <Panel
       title="Detection"
       hidden={rows.length === 0}
-      action={
+      action={onOpenAll ? (
         <button type="button" onClick={onOpenAll} className="text-xs text-accent hover:underline">
           {`All ${rows.length} →`}
         </button>
-      }
+      ) : undefined}
     >
       <ul className="divide-y divide-border">
         {rows.slice(0, TOP).map((r, i) => (
