@@ -7,6 +7,8 @@ import type { AgentMetrics, TaskOutcomes7d } from '@/types/agent';
 
 const breakdown = [
   { key: 'p1', outcome: 'protected' as const, code: 126, name: 'Quarantined', count: 38 },
+  { key: 'stage:101', outcome: 'unprotected' as const, code: 101, name: 'Unprotected · stage ran', count: 20 },
+  { key: 'exit:101', outcome: 'unprotected' as const, code: 101, name: 'Unprotected', count: 16 },
   { key: 'n1', outcome: 'not-run' as const, code: null, name: 'Agent offline', count: 6 },
   { key: 'r1', outcome: 'run-failed' as const, code: 1, name: 'Run failed', count: 10 },
   { key: 'i1', outcome: 'inconclusive' as const, code: null, name: 'Unclear', count: 2 },
@@ -39,7 +41,7 @@ describe('TaskStatLine', () => {
     await user.click(screen.getByRole('button', { name: 'Show breakdown of 18 no verdict' }));
     expect(screen.getByText('Click a row to filter the list · Esc to close')).toBeInTheDocument();
     await user.click(await screen.findByText('Agent offline'));
-    expect(onSelect).toHaveBeenCalledWith(breakdown[1], 'no-verdict');
+    expect(onSelect).toHaveBeenCalledWith(breakdown[3], 'no-verdict');
   });
 
   it('groups the menu and colours inconclusive bars faint, others warning', async () => {
@@ -54,9 +56,33 @@ describe('TaskStatLine', () => {
     expect(bar('Agent offline').className).toContain('bg-warning');
   });
 
-  it('only Protected and No verdict are triggers', () => {
+  it('opens the unprotected menu with danger bars and reports the chosen row', async () => {
+    const user = userEvent.setup();
+    const onSelect = vi.fn();
+    render(<TaskStatLine tiles={taskTiles(metrics(outcomes))} outcomes={outcomes} onSelectBreakdown={onSelect} />);
+    await user.click(screen.getByRole('button', { name: 'Show breakdown of 36 unprotected' }));
+    const menu = await screen.findByRole('menu');
+    // One untitled group, like Protected.
+    expect(menu.querySelectorAll('[data-slot="dropdown-menu-group"]')).toHaveLength(1);
+    const item = screen.getByText('Unprotected · stage ran').closest('[role="menuitem"]')!;
+    expect(item.querySelector('span[aria-hidden] > span')!.className).toContain('bg-danger');
+    expect(screen.queryByText('Agent offline')).toBeNull();
+    await user.click(item);
+    expect(onSelect).toHaveBeenCalledWith(breakdown[1], 'unprotected');
+  });
+
+  it('Protected, Unprotected and No verdict are triggers; In progress is not', () => {
     render(<TaskStatLine tiles={taskTiles(metrics(outcomes))} outcomes={outcomes} />);
-    expect(screen.getAllByRole('button')).toHaveLength(2);
+    expect(screen.getAllByRole('button').map((b) => b.getAttribute('aria-label'))).toEqual([
+      'Show breakdown of 38 protected',
+      'Show breakdown of 36 unprotected',
+      'Show breakdown of 18 no verdict',
+    ]);
+  });
+
+  it('a zero count is not a trigger', () => {
+    const o = { ...outcomes, tests: { ...outcomes.tests, unprotected: 0 }, breakdown: breakdown.filter((r) => r.outcome !== 'unprotected') };
+    render(<TaskStatLine tiles={taskTiles(metrics(o))} outcomes={o} />);
     expect(screen.queryByRole('button', { name: /unprotected/ })).toBeNull();
   });
 

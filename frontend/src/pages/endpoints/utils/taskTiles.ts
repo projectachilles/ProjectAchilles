@@ -83,13 +83,24 @@ const NO_VERDICT_GROUPS: Array<[string, TaskBreakdownRow['outcome']]> = [
   ['Inconclusive', 'inconclusive'],
 ];
 
+/** The 7-day counts that open an exit-code menu and filter the task list. */
+export type BreakdownTile = 'protected' | 'unprotected' | 'no-verdict';
+
+export const BREAKDOWN_TILE_LABEL: Record<BreakdownTile, string> = {
+  protected: 'Protected',
+  unprotected: 'Unprotected',
+  'no-verdict': 'No verdict',
+};
+
 /** Exit codes / reasons behind a tile; null when the backend sent no breakdown. */
-export function breakdownGroups(o: TaskOutcomes7d, tile: 'protected' | 'no-verdict'): BreakdownGroup[] | null {
+export function breakdownGroups(o: TaskOutcomes7d, tile: BreakdownTile): BreakdownGroup[] | null {
   if (!o.breakdown) return null;
   const group = (title: string | null, outcome: TaskBreakdownRow['outcome']): BreakdownGroup => {
     const rows = o.breakdown!.filter((r) => r.outcome === outcome);
     return { title, total: rows.reduce((n, r) => n + r.count, 0), rows };
   };
-  if (tile === 'protected') return [group(null, 'protected')];
+  // Protected and Unprotected are one untitled list each (Unprotected is always
+  // exit 101: a single-binary run, or a multi-stage run where a stage ran).
+  if (tile !== 'no-verdict') return [group(null, tile)];
   return NO_VERDICT_GROUPS.map(([title, outcome]) => group(title, outcome)).filter((g) => g.rows.length > 0);
 }

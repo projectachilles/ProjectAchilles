@@ -33,6 +33,7 @@ const metrics = {
     other: { total: 0, failed: 0 },
     breakdown: [
       { key: 'exit:126', outcome: 'protected', code: 126, name: 'Quarantined', count: 38 },
+      { key: 'stage:101', outcome: 'unprotected', code: 101, name: 'Unprotected · stage ran', count: 36 },
       { key: 'failed:offline', outcome: 'not-run', code: null, name: 'Agent offline', count: 6 },
       { key: 'exit:1', outcome: 'run-failed', code: 1, name: 'Run failed', count: 10 },
     ],
@@ -82,6 +83,19 @@ describe('TasksPage', () => {
       ),
     );
     expect(await screen.findByText('No verdict › Agent offline · last 7 days')).toBeInTheDocument();
+  });
+
+  it('filters by an unprotected row', async () => {
+    const user = userEvent.setup();
+    setup();
+    await user.click(await screen.findByRole('button', { name: 'Show breakdown of 36 unprotected' }));
+    await user.click(await screen.findByText('Unprotected · stage ran'));
+    await waitFor(() =>
+      expect(list).toHaveBeenLastCalledWith(
+        expect.objectContaining({ breakdown: 'stage:101', types: ['execute_test'], offset: 0 }),
+      ),
+    );
+    expect(await screen.findByText('Unprotected · stage ran · last 7 days')).toBeInTheDocument();
   });
 
   it('clears the filter with the chip x', async () => {

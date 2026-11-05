@@ -57,6 +57,8 @@ describe('breakdownGroups', () => {
     { key: 'a', outcome: 'protected' as const, code: 126, name: 'Quarantined', count: 30 },
     { key: 'b', outcome: 'protected' as const, code: 105, name: 'Blocked', count: 8 },
     { key: 'c', outcome: 'inconclusive' as const, code: null, name: 'Unclear', count: 2 },
+    { key: 'stage:101', outcome: 'unprotected' as const, code: 101, name: 'Unprotected · stage ran', count: 5 },
+    { key: 'exit:101', outcome: 'unprotected' as const, code: 101, name: 'Unprotected', count: 3 },
     { key: 'd', outcome: 'not-run' as const, code: null, name: 'Agent offline', count: 6 },
     { key: 'e', outcome: 'test-error' as const, code: 999, name: 'Test error', count: 8 },
   ];
@@ -72,6 +74,13 @@ describe('breakdownGroups', () => {
   it('no verdict is ordered, drops empty groups, totals match', () => {
     const g = breakdownGroups(o, 'no-verdict')!;
     expect(g.map((x) => [x.title, x.total])).toEqual([['Not run', 6], ['Test error', 8], ['Inconclusive', 2]]);
+  });
+
+  it('unprotected is one untitled group of the 101 rows', () => {
+    const g = breakdownGroups(o, 'unprotected')!;
+    expect(g).toHaveLength(1);
+    expect(g[0]).toMatchObject({ title: null, total: 8 });
+    expect(g[0].rows.map((r) => r.key)).toEqual(['stage:101', 'exit:101']);
   });
 
   it('is null without a breakdown', () => {
