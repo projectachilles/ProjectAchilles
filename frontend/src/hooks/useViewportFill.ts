@@ -21,9 +21,10 @@ export function useViewportFill<T extends HTMLElement>(
       setHeight(null);
       return;
     }
+    // Document-relative top: window scroll can't ratchet the height.
     const next = Math.max(
       MIN_HEIGHT_PX,
-      Math.round(window.innerHeight - el.getBoundingClientRect().top - bottomGapPx),
+      Math.round(window.innerHeight - (el.getBoundingClientRect().top + window.scrollY) - bottomGapPx),
     );
     setHeight((prev) => (prev === next ? prev : next));
   }, [enabled, bottomGapPx]);

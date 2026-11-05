@@ -34,4 +34,10 @@ describe('TaskStream footer and fill', () => {
     render(<TaskStream groups={[group()]} loading={false} />);
     expect(screen.getByTestId('task-list-scroll').className).not.toContain('overflow-auto');
   });
+
+  it('keeps the footer when the page is empty', () => {
+    render(<TaskStream groups={[]} loading={false} footer={<div data-testid="foot">pager</div>} />);
+    expect(screen.getByText('No tasks found')).toBeInTheDocument();
+    expect(screen.getByTestId('task-list-pane').contains(screen.getByTestId('foot'))).toBe(true);
+  });
 });

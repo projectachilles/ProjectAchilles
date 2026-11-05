@@ -2,6 +2,7 @@ import { ChevronDown } from 'lucide-react';
 import {
   DropdownMenu,
   DropdownMenuContent,
+  DropdownMenuGroup,
   DropdownMenuItem,
   DropdownMenuLabel,
   DropdownMenuTrigger,
@@ -50,7 +51,7 @@ export function TaskStatLine({ tiles, outcomes, onSelectBreakdown }: TaskStatLin
                 </DropdownMenuTrigger>
                 <DropdownMenuContent align="start" className="min-w-72">
                   {groups.map((g) => (
-                    <div key={g.title ?? 'all'}>
+                    <DropdownMenuGroup key={g.title ?? 'all'}>
                       {g.title && (
                         <DropdownMenuLabel className="text-xs font-normal text-muted">
                           {g.title} · {g.total}
@@ -62,16 +63,16 @@ export function TaskStatLine({ tiles, outcomes, onSelectBreakdown }: TaskStatLin
                           <span className="flex-1 truncate">{r.name}</span>
                           <span className="h-1.5 w-16 rounded-full bg-border" aria-hidden>
                             <span
-                              className={`block h-full rounded-full ${tile.id === 'protected' ? 'bg-accent' : 'bg-warning'}`}
+                              className={`block h-full rounded-full ${tile.id === 'protected' ? 'bg-accent' : r.outcome === 'inconclusive' ? 'bg-faint' : 'bg-warning'}`}
                               style={{ width: `${(r.count / max) * 100}%` }}
                             />
                           </span>
                           <span className="w-8 text-right font-mono text-xs">{r.count}</span>
                         </DropdownMenuItem>
                       ))}
-                    </div>
+                    </DropdownMenuGroup>
                   ))}
-                  <div className="px-2 py-1.5 text-xs text-muted">Click a row to filter the list</div>
+                  <div className="px-2 py-1.5 text-xs text-muted">Click a row to filter the list · Esc to close</div>
                 </DropdownMenuContent>
               </DropdownMenu>
             ) : (

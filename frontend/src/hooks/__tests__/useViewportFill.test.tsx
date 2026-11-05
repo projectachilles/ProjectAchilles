@@ -51,4 +51,16 @@ describe('useViewportFill', () => {
     render(<Probe enabled />);
     expect(screen.getByTestId('probe').textContent).toBe('320');
   });
+
+  it('measures document-relative so window scroll cannot ratchet the height', () => {
+    setInnerHeight(1000);
+    Object.defineProperty(window, 'scrollY', { configurable: true, writable: true, value: 200 });
+    try {
+      render(<Probe enabled />);
+      // viewport top 300 + scroll 200 = document top 500
+      expect(screen.getByTestId('probe').textContent).toBe('476');
+    } finally {
+      Object.defineProperty(window, 'scrollY', { configurable: true, writable: true, value: 0 });
+    }
+  });
 });

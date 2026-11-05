@@ -13,7 +13,7 @@ vi.mock('@/services/api/agent', () => ({
 }));
 vi.mock('@/hooks/useAppRole', () => ({ useHasPermission: () => false }));
 vi.mock('@/hooks/usePolling', () => ({ usePolling: () => {} }));
-vi.mock('@/components/endpoints/tasks/TaskStream', () => ({ default: () => <div data-testid="task-stream" /> }));
+vi.mock('@/components/endpoints/tasks/TaskStream', () => ({ default: ({ footer }: { footer?: React.ReactNode }) => <div data-testid="task-stream">{footer}</div> }));
 vi.mock('@/components/endpoints/tasks/ScheduleList', () => ({ default: () => <div data-testid="schedule-list" /> }));
 
 import { agentApi } from '@/services/api/agent';
@@ -104,5 +104,32 @@ describe('TasksPage', () => {
     setup([]);
     await screen.findByText('16');
     expect(screen.queryByRole('tab', { name: /Schedules/ })).toBeNull();
+  });
+
+  it('falls back to the last page when the total shrinks under the current page', async () => {
+    const user = userEvent.setup();
+    setup();
+    list.mockResolvedValue({ groups: [], total: 60, typeCounts: {} });
+    await user.click(await screen.findByRole('button', { name: /Refresh/ }));
+    await user.click(await screen.findByRole('button', { name: /Older/ }));
+    await waitFor(() => expect(list).toHaveBeenLastCalledWith(expect.objectContaining({ offset: 25 })));
+    list.mockResolvedValue({ groups: [], total: 20, typeCounts: {} });
+    await user.click(screen.getByRole('button', { name: /Refresh/ }));
+    await waitFor(() => expect(list).toHaveBeenLastCalledWith(expect.objectContaining({ offset: 0 })));
+    expect(await screen.findByText('1 / 1')).toBeInTheDocument();
+  });
+
+  it('drops the breakdown filter and says so when the filtered fetch fails', async () => {
+    const user = userEvent.setup();
+    setup();
+    await waitFor(() => expect(list).toHaveBeenCalled());
+    list.mockImplementation(async (f) => {
+      if (f && 'breakdown' in f) throw new Error('boom');
+      return { groups: [], total: 0, typeCounts: {} };
+    });
+    await chooseOffline(user);
+    expect(await screen.findByText("Couldn't filter the task list.")).toBeInTheDocument();
+    expect(screen.queryByText('No verdict › Agent offline · last 7 days')).toBeNull();
+    await waitFor(() => expect(list.mock.lastCall?.[0]).not.toHaveProperty('breakdown'));
   });
 });

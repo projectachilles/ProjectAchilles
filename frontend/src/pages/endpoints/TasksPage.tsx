@@ -29,7 +29,6 @@ const SEARCH_DEBOUNCE_MS = 300;
 interface BreakdownFilter {
   key: string;
   label: string;
-  tile: 'protected' | 'no-verdict';
 }
 
 export default function TasksPage() {
@@ -63,6 +62,7 @@ export default function TasksPage() {
   const [taskKind, setTaskKind] = useState<TaskKind>(DEFAULT_TASK_KIND);
   const [typeCounts, setTypeCounts] = useState<Partial<Record<TaskType, number>> | undefined>(undefined);
   const [successMessage, setSuccessMessage] = useState<string | null>(null);
+  const [toastVariant, setToastVariant] = useState<'success' | 'destructive'>('success');
   const [schedules, setSchedules] = useState<Schedule[]>([]);
   const [view, setView] = useState<'tasks' | 'schedules'>('tasks');
   const [breakdownFilter, setBreakdownFilter] = useState<BreakdownFilter | null>(null);
@@ -82,6 +82,11 @@ export default function TasksPage() {
   const canSelectTasks = canCancelTask || canDeleteTask;
 
   const totalPages = Math.max(1, Math.ceil(totalGroups / pageSize));
+
+  // The total can shrink under the current page (bulk delete, a poll): fall back to the last page.
+  useEffect(() => {
+    if (page > totalPages) setPage(totalPages);
+  }, [page, totalPages]);
 
   function buildFilters() {
     return {
@@ -104,6 +109,12 @@ export default function TasksPage() {
       setTypeCounts(result.typeCounts);
     } catch (err) {
       console.error('Failed to fetch tasks:', err);
+      // Never leave the breakdown chip over an unfiltered list.
+      if (breakdownFilter) {
+        setBreakdownFilter(null);
+        setPage(1);
+        showToast("Couldn't filter the task list.", 'destructive');
+      }
     } finally {
       setLoading(false);
     }
@@ -183,7 +194,6 @@ export default function TasksPage() {
     setBreakdownFilter({
       key: row.key,
       label: `${tile === 'protected' ? 'Protected' : 'No verdict'} › ${row.name} · last 7 days`,
-      tile,
     });
     setPage(1);
   }
@@ -232,7 +242,8 @@ export default function TasksPage() {
 
   // --- Toasts ---
 
-  function showToast(message: string): void {
+  function showToast(message: string, variant: 'success' | 'destructive' = 'success'): void {
+    setToastVariant(variant);
     setSuccessMessage(message);
     globalThis.setTimeout(() => setSuccessMessage(null), TOAST_DURATION_MS);
   }
@@ -343,41 +354,41 @@ export default function TasksPage() {
   const tiles = metrics ? taskTiles(metrics) : null;
 
   const pagination = view === 'tasks' && !loading && totalGroups > 0 ? (
-          <div className="flex flex-wrap gap-y-2 items-center justify-between text-sm text-muted-foreground">
-            <div className="flex items-center gap-3">
-              <span>Showing {rangeStart}&ndash;{rangeEnd} of {totalGroups}</span>
-              <select
-                className={cn(fieldControlClass, 'h-8 w-auto px-2')}
-                value={pageSize}
-                onChange={(e) => handlePageSizeChange(Number(e.target.value))}
-              >
-                {PAGE_SIZE_OPTIONS.map((size) => (
-                  <option key={size} value={size}>{size} / page</option>
-                ))}
-              </select>
-            </div>
-            <div className="flex flex-wrap items-center gap-1">
-              <Button variant="outline" size="sm" disabled={page <= 1} onClick={() => setPage(1)}>
-                <ChevronsLeft className="w-4 h-4 mr-1" />
-                Newest
-              </Button>
-              <Button variant="outline" size="sm" disabled={page <= 1} onClick={() => setPage(page - 1)}>
-                <ChevronLeft className="w-4 h-4 mr-1" />
-                Newer
-              </Button>
-              <span className="px-3 font-mono text-xs text-faint">
-                {page} / {totalPages}
-              </span>
-              <Button variant="outline" size="sm" disabled={page >= totalPages} onClick={() => setPage(page + 1)}>
-                Older
-                <ChevronRight className="w-4 h-4 ml-1" />
-              </Button>
-              <Button variant="outline" size="sm" disabled={page >= totalPages} onClick={() => setPage(totalPages)}>
-                Oldest
-                <ChevronsRight className="w-4 h-4 ml-1" />
-              </Button>
-            </div>
-          </div>
+    <div className="flex flex-wrap gap-y-2 items-center justify-between text-sm text-muted-foreground">
+      <div className="flex items-center gap-3">
+        <span>Showing {rangeStart}&ndash;{rangeEnd} of {totalGroups}</span>
+        <select
+          className={cn(fieldControlClass, 'h-8 w-auto px-2')}
+          value={pageSize}
+          onChange={(e) => handlePageSizeChange(Number(e.target.value))}
+        >
+          {PAGE_SIZE_OPTIONS.map((size) => (
+            <option key={size} value={size}>{size} / page</option>
+          ))}
+        </select>
+      </div>
+      <div className="flex flex-wrap items-center gap-1">
+        <Button variant="outline" size="sm" disabled={page <= 1} onClick={() => setPage(1)}>
+          <ChevronsLeft className="w-4 h-4 mr-1" />
+          Newest
+        </Button>
+        <Button variant="outline" size="sm" disabled={page <= 1} onClick={() => setPage(page - 1)}>
+          <ChevronLeft className="w-4 h-4 mr-1" />
+          Newer
+        </Button>
+        <span className="px-3 font-mono text-xs text-faint">
+          {page} / {totalPages}
+        </span>
+        <Button variant="outline" size="sm" disabled={page >= totalPages} onClick={() => setPage(page + 1)}>
+          Older
+          <ChevronRight className="w-4 h-4 ml-1" />
+        </Button>
+        <Button variant="outline" size="sm" disabled={page >= totalPages} onClick={() => setPage(totalPages)}>
+          Oldest
+          <ChevronsRight className="w-4 h-4 ml-1" />
+        </Button>
+      </div>
+    </div>
   ) : null;
 
   return (
@@ -449,7 +460,7 @@ export default function TasksPage() {
                 <option value="expired">Expired</option>
               </select>
             </div>
-            <div className="flex-grow max-w-sm max-lg:min-w-0 max-lg:basis-48">
+            <div className="min-w-32 max-w-sm flex-1 basis-32 max-lg:min-w-0 max-lg:basis-48">
               <Input
                 placeholder="Search tasks..."
                 value={searchTerm}
@@ -458,7 +469,7 @@ export default function TasksPage() {
               />
             </div>
             {breakdownFilter && (
-              <span className="inline-flex items-center gap-1.5 rounded-full border border-accent/25 bg-accent-dim px-3 py-1 text-xs text-accent">
+              <span className="inline-flex shrink-0 items-center gap-1.5 rounded-full border border-accent/25 bg-accent-dim px-3 py-1 text-xs text-accent">
                 {breakdownFilter.label}
                 <button type="button" aria-label="Clear breakdown filter" onClick={clearBreakdownFilter} className="rounded-sm hover:text-foreground">
                   <X className="h-3 w-3" />
@@ -467,7 +478,7 @@ export default function TasksPage() {
             )}
             </>)}
             <div className="flex-grow" />
-            <Button variant="outline" onClick={() => { fetchTasks(); fetchSchedules(); }}>
+            <Button variant="outline" className="shrink-0" onClick={() => { fetchTasks(); fetchSchedules(); }}>
               <RefreshCw className="w-4 h-4 mr-2" />
               Refresh
             </Button>
@@ -517,21 +528,21 @@ export default function TasksPage() {
           <Loading message="Loading tasks..." />
         ) : (
           <div ref={fillRef} style={fillHeight ? { height: fillHeight } : undefined}>
-          <TaskStream
-            fill={wide}
-            footer={pagination}
-            groups={groups}
-            loading={loading}
-            selectedTasks={canSelectTasks ? selectedTasks : []}
-            onToggleSelect={canSelectTasks ? handleToggleSelect : undefined}
-            onToggleSelectAll={canSelectTasks ? handleToggleSelectAll : undefined}
-            onToggleGroupSelect={canSelectTasks ? handleToggleGroupSelect : undefined}
-            onCancel={canCancelTask ? handleCancel : undefined}
-            onRetry={canCreateTask ? handleRetry : undefined}
-            onDelete={canDeleteTask ? handleDelete : undefined}
-            onOpenNotes={setNotesTask}
-          />
-          </div>
+            <TaskStream
+              fill={wide}
+              footer={pagination}
+              groups={groups}
+              loading={loading}
+              selectedTasks={canSelectTasks ? selectedTasks : []}
+              onToggleSelect={canSelectTasks ? handleToggleSelect : undefined}
+              onToggleSelectAll={canSelectTasks ? handleToggleSelectAll : undefined}
+              onToggleGroupSelect={canSelectTasks ? handleToggleGroupSelect : undefined}
+              onCancel={canCancelTask ? handleCancel : undefined}
+              onRetry={canCreateTask ? handleRetry : undefined}
+              onDelete={canDeleteTask ? handleDelete : undefined}
+              onOpenNotes={setNotesTask}
+            />
+            </div>
         )}
 
         {canCreateTask && (
@@ -551,7 +562,7 @@ export default function TasksPage() {
 
         {successMessage && (
           <div className="fixed bottom-4 right-4 z-50">
-            <Toast variant="success" message={successMessage} onClose={() => setSuccessMessage(null)} />
+            <Toast variant={toastVariant} message={successMessage} onClose={() => setSuccessMessage(null)} />
           </div>
         )}
       </PageContainer>

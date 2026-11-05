@@ -180,8 +180,9 @@ export default function TaskStream({
 
   if (groups.length === 0) {
     return (
-      <div className="flex h-32 items-center justify-center rounded-lg border border-border bg-surface text-sm text-faint">
-        No tasks found
+      <div data-testid="task-list-pane" className="overflow-hidden rounded-lg border border-border bg-surface">
+        <div className="flex h-32 items-center justify-center text-sm text-faint">No tasks found</div>
+        {footer && <div className="border-t border-border px-4 py-2.5">{footer}</div>}
       </div>
     );
   }
@@ -277,118 +278,118 @@ export default function TaskStream({
         )}
       >
         <div data-testid="task-list-scroll" className={cn('py-1', fill && 'min-h-0 flex-1 overflow-auto')}>
-        {selectable && onToggleSelectAll && (
-          <div className="flex items-center gap-2.5 border-b border-border px-4 py-1.5">
-            <Checkbox
-              checked={allTasks.length > 0 && allTasks.every((t) => selectedTasks.includes(t.id))}
-              onChange={onToggleSelectAll}
-            />
-            <span className="text-[11px] uppercase tracking-wider text-faint">select all on page</span>
-          </div>
-        )}
-        {groups.map((group) => {
-          const day = dayKey(group.created_at);
-          const marker =
-            day !== lastDay ? (
-              <div key={`marker-${day}`} className="px-4 py-1 font-mono text-[11px] text-faint">
-                ── {dayLabel(group.created_at)} {'─'.repeat(24)}
-              </div>
-            ) : null;
-          lastDay = day;
+          {selectable && onToggleSelectAll && (
+            <div className="flex items-center gap-2.5 border-b border-border px-4 py-1.5">
+              <Checkbox
+                checked={allTasks.length > 0 && allTasks.every((t) => selectedTasks.includes(t.id))}
+                onChange={onToggleSelectAll}
+              />
+              <span className="text-[11px] uppercase tracking-wider text-faint">select all on page</span>
+            </div>
+          )}
+          {groups.map((group) => {
+            const day = dayKey(group.created_at);
+            const marker =
+              day !== lastDay ? (
+                <div key={`marker-${day}`} className="px-4 py-1 font-mono text-[11px] text-faint">
+                  ── {dayLabel(group.created_at)} {'─'.repeat(24)}
+                </div>
+              ) : null;
+            lastDay = day;
 
-          if (group.tasks.length <= 1 && group.agent_count <= 1) {
-            const task = group.tasks[0];
+            if (group.tasks.length <= 1 && group.agent_count <= 1) {
+              const task = group.tasks[0];
+              return (
+                <Fragment key={group.batch_id}>
+                  {marker}
+                  {task ? renderTaskRow(task, false, group.notices) : null}
+                </Fragment>
+              );
+            }
+
+            const collapsed = collapsedBatches.has(group.batch_id);
+            const completed = group.status_counts.completed ?? 0;
+            const failedCount = (group.status_counts.failed ?? 0) + (group.status_counts.expired ?? 0);
+            const hasActive = group.tasks.some((t) => ACTIVE_STATUSES.has(t.status));
+            // Test batches count outcomes (126 is a win, not a failure); others count lifecycle.
+            const toneCounts = new Map<TestOutcomeTone, number>();
+            for (const t of group.tasks) {
+              const o = testOutcome(t);
+              if (o) toneCounts.set(o.tone, (toneCounts.get(o.tone) ?? 0) + 1);
+            }
+            const isTestBatch = toneCounts.size > 0;
+            const batchBorder = hasActive
+              ? 'border-info/40'
+              : isTestBatch
+                ? toneCounts.has('danger') ? 'border-danger/35' : toneCounts.has('warning') ? 'border-warning/35' : 'border-accent/35'
+                : failedCount > 0 ? 'border-danger/35' : 'border-accent/35';
+
             return (
               <Fragment key={group.batch_id}>
                 {marker}
-                {task ? renderTaskRow(task, false, group.notices) : null}
+                <div
+                  className={cn(
+                    'ml-4 border-l-2 pl-0',
+                    batchBorder,
+                  )}
+                >
+                  <div className="flex items-center gap-2.5 px-3 py-[5px] font-mono text-xs">
+                    {selectable && onToggleGroupSelect && (
+                      <Checkbox
+                        checked={group.tasks.every((t) => selectedTasks.includes(t.id)) && group.tasks.length > 0}
+                        onChange={() => onToggleGroupSelect(group.batch_id)}
+                      />
+                    )}
+                    <StreamRow
+                      as="button"
+                      type="button"
+                      onClick={() => toggleBatch(group.batch_id)}
+                      className="min-w-0 flex-1 text-left"
+                      leading={
+                        <>
+                          {collapsed ? (
+                            <ChevronRight className="h-3 w-3 shrink-0 text-faint" />
+                          ) : (
+                            <ChevronDown className="h-3 w-3 shrink-0 text-faint" />
+                          )}
+                          <span className="shrink-0 text-faint">{clockTime(group.created_at)}</span>
+                        </>
+                      }
+                      name={`batch · ${group.payload?.test_name || group.type.replace(/_/g, ' ')}`}
+                      nameClassName="font-sans text-[13px]"
+                      meta={
+                        <span className="text-faint">
+                          · {group.agent_count} agents
+                          {runTagsFor(group) && <span className="ml-1.5 text-muted">· {runTagsFor(group)}</span>}
+                        </span>
+                      }
+                      trailing={
+                        <>
+                          {isTestBatch ? (
+                            (['accent', 'danger', 'warning', 'muted'] as const).map((tone) =>
+                              toneCounts.has(tone) ? (
+                                <span key={tone} className={cn('inline-flex items-center gap-1', TONE_TEXT[tone])}>
+                                  <span className={cn('h-1.5 w-1.5 rounded-full', TONE_DOT[tone])} aria-hidden="true" />
+                                  {toneCounts.get(tone)}
+                                </span>
+                              ) : null,
+                            )
+                          ) : (
+                            <>
+                              {completed > 0 && <span className="text-accent">{completed}✓</span>}
+                              {failedCount > 0 && <span className="text-danger">{failedCount}✕</span>}
+                            </>
+                          )}
+                          {hasActive && <span className="text-info">▶&#xFE0E;</span>}
+                        </>
+                      }
+                    />
+                  </div>
+                  {!collapsed && group.tasks.map((task) => renderTaskRow(task, true, group.notices))}
+                </div>
               </Fragment>
             );
-          }
-
-          const collapsed = collapsedBatches.has(group.batch_id);
-          const completed = group.status_counts.completed ?? 0;
-          const failedCount = (group.status_counts.failed ?? 0) + (group.status_counts.expired ?? 0);
-          const hasActive = group.tasks.some((t) => ACTIVE_STATUSES.has(t.status));
-          // Test batches count outcomes (126 is a win, not a failure); others count lifecycle.
-          const toneCounts = new Map<TestOutcomeTone, number>();
-          for (const t of group.tasks) {
-            const o = testOutcome(t);
-            if (o) toneCounts.set(o.tone, (toneCounts.get(o.tone) ?? 0) + 1);
-          }
-          const isTestBatch = toneCounts.size > 0;
-          const batchBorder = hasActive
-            ? 'border-info/40'
-            : isTestBatch
-              ? toneCounts.has('danger') ? 'border-danger/35' : toneCounts.has('warning') ? 'border-warning/35' : 'border-accent/35'
-              : failedCount > 0 ? 'border-danger/35' : 'border-accent/35';
-
-          return (
-            <Fragment key={group.batch_id}>
-              {marker}
-              <div
-                className={cn(
-                  'ml-4 border-l-2 pl-0',
-                  batchBorder,
-                )}
-              >
-                <div className="flex items-center gap-2.5 px-3 py-[5px] font-mono text-xs">
-                  {selectable && onToggleGroupSelect && (
-                    <Checkbox
-                      checked={group.tasks.every((t) => selectedTasks.includes(t.id)) && group.tasks.length > 0}
-                      onChange={() => onToggleGroupSelect(group.batch_id)}
-                    />
-                  )}
-                  <StreamRow
-                    as="button"
-                    type="button"
-                    onClick={() => toggleBatch(group.batch_id)}
-                    className="min-w-0 flex-1 text-left"
-                    leading={
-                      <>
-                        {collapsed ? (
-                          <ChevronRight className="h-3 w-3 shrink-0 text-faint" />
-                        ) : (
-                          <ChevronDown className="h-3 w-3 shrink-0 text-faint" />
-                        )}
-                        <span className="shrink-0 text-faint">{clockTime(group.created_at)}</span>
-                      </>
-                    }
-                    name={`batch · ${group.payload?.test_name || group.type.replace(/_/g, ' ')}`}
-                    nameClassName="font-sans text-[13px]"
-                    meta={
-                      <span className="text-faint">
-                        · {group.agent_count} agents
-                        {runTagsFor(group) && <span className="ml-1.5 text-muted">· {runTagsFor(group)}</span>}
-                      </span>
-                    }
-                    trailing={
-                      <>
-                        {isTestBatch ? (
-                          (['accent', 'danger', 'warning', 'muted'] as const).map((tone) =>
-                            toneCounts.has(tone) ? (
-                              <span key={tone} className={cn('inline-flex items-center gap-1', TONE_TEXT[tone])}>
-                                <span className={cn('h-1.5 w-1.5 rounded-full', TONE_DOT[tone])} aria-hidden="true" />
-                                {toneCounts.get(tone)}
-                              </span>
-                            ) : null,
-                          )
-                        ) : (
-                          <>
-                            {completed > 0 && <span className="text-accent">{completed}✓</span>}
-                            {failedCount > 0 && <span className="text-danger">{failedCount}✕</span>}
-                          </>
-                        )}
-                        {hasActive && <span className="text-info">▶&#xFE0E;</span>}
-                      </>
-                    }
-                  />
-                </div>
-                {!collapsed && group.tasks.map((task) => renderTaskRow(task, true, group.notices))}
-              </div>
-            </Fragment>
-          );
-        })}
+          })}
         </div>
         {footer && <div className="shrink-0 border-t border-border px-4 py-2.5">{footer}</div>}
       </div>
