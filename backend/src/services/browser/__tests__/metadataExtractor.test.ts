@@ -648,6 +648,60 @@ const STAGE_ID = 1
         expect(MetadataExtractor.extractStageInfo(tempDir)[0].techniques).toEqual(['T1059.001']);
       });
     });
+
+    describe('stage name', () => {
+      const UUID = '298cc137-ea39-4cf0-9b2d-b1c59a3cbacb';
+
+      it('keeps the "STAGE N: name" header over the info card heading', () => {
+        writeStageFile('T1055', 'package main\n// STAGE 1: Process Injection\nconst STAGE_ID = 1\n');
+        writeInfoCard(UUID, '### Stage 1 — Something Else (T1055)\n');
+
+        expect(MetadataExtractor.extractStageInfo(tempDir, UUID)[0].name).toBe('Process Injection');
+      });
+
+      it('reads a "STAGE N (v2): name" header', () => {
+        writeStageFile('T1071.001', 'package main\n/*\nSTAGE 1 (v2): LLM API Fetch — GitHub-Raw GET\n*/\nconst STAGE_ID = 1\n');
+
+        expect(MetadataExtractor.extractStageInfo(tempDir)[0].name).toBe('LLM API Fetch — GitHub-Raw GET');
+      });
+
+      it('uses the info card heading title, without technique IDs, for a "// Stage N —" file', () => {
+        writeStageFile('T1003.001', 'package main\n// Stage 2 — T1003.001 LSASS Memory + T1003.002 Security Account Manager\nconst STAGE_ID = 2\n');
+        writeInfoCard(UUID, '### Stage 2 — Privileged Credential Access (T1003.001, T1003.002)\n');
+
+        expect(MetadataExtractor.extractStageInfo(tempDir, UUID)[0].name).toBe('Privileged Credential Access');
+      });
+
+      it('strips technique IDs from a "Stage N — T… name + T… name" heading', () => {
+        writeStageFile('T1572', 'package main\nconst STAGE_ID = 2\n');
+        writeInfoCard(UUID, '### Stage 2 — T1572 Protocol Tunneling + T1021.004 SSH over tailcat\n');
+
+        expect(MetadataExtractor.extractStageInfo(tempDir, UUID)[0].name).toBe('Protocol Tunneling + SSH over tailcat');
+      });
+
+      it('falls back to the "// Stage N —" comment when the card has no heading for the stage', () => {
+        writeStageFile('T1003.001', 'package main\n// Stage 2 — T1003.001 LSASS Memory + T1003.002 Security Account Manager\nconst STAGE_ID = 2\n');
+
+        expect(MetadataExtractor.extractStageInfo(tempDir, UUID)[0].name).toBe('LSASS Memory + Security Account Manager');
+      });
+
+      it('ignores a card heading that does not name the stage\'s own technique', () => {
+        writeStageFile('T1059.001', 'package main\n// Stage 1 — T1059.001 PowerShell\nconst STAGE_ID = 1\n');
+        writeInfoCard(UUID, '### Stage 1 — Credentials (T1003.001)\n');
+
+        expect(MetadataExtractor.extractStageInfo(tempDir, UUID)[0].name).toBe('PowerShell');
+      });
+
+      it('numbers an unnamed stage by its STAGE_ID, not its file order', () => {
+        // Alphabetically T1486 sorts first, but it is stage 5.
+        writeStageFile('T1486', 'package main\nconst STAGE_ID = 5\n');
+        writeStageFile('T1567.002', 'package main\nconst STAGE_ID = 4\n');
+
+        const stages = MetadataExtractor.extractStageInfo(tempDir);
+
+        expect(stages.map((s) => [s.stageId, s.name])).toEqual([[4, 'Stage 4'], [5, 'Stage 5']]);
+      });
+    });
   });
 
   // ── Group 5: extractTestMetadata — orchestration ───────────
