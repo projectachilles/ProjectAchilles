@@ -323,6 +323,9 @@ export function initializeTables(database: Database.Database): void {
   database.exec(
     'CREATE INDEX IF NOT EXISTS idx_tasks_compactable ON tasks(completed_at) WHERE result_compacted_at IS NULL',
   );
+  // Tasks page 7-day scans (outcomeWindowSql: status IN (...) AND completed_at > ...),
+  // run on every metrics poll and by the grouped-list breakdown filter.
+  database.exec('CREATE INDEX IF NOT EXISTS idx_tasks_outcome_window ON tasks(status, completed_at)');
 
   // Migration: add api_key_rotated_at column to agents table
   const agentCols = database.prepare(`PRAGMA table_info(agents)`).all() as { name: string }[];
@@ -652,6 +655,7 @@ function migrateExecuteCommandType(database: Database.Database): void {
     CREATE INDEX IF NOT EXISTS idx_tasks_status ON tasks(status);
     CREATE INDEX IF NOT EXISTS idx_tasks_org ON tasks(org_id);
     CREATE INDEX IF NOT EXISTS idx_tasks_batch ON tasks(batch_id);
+    CREATE INDEX IF NOT EXISTS idx_tasks_outcome_window ON tasks(status, completed_at);
     ${colSet.has('notice_id') ? 'CREATE INDEX IF NOT EXISTS idx_tasks_notice ON tasks(notice_id);' : ''}
     ${colSet.has('campaign_run_id') ? 'CREATE INDEX IF NOT EXISTS idx_tasks_campaign_run ON tasks(campaign_run_id);' : ''}
     ${colSet.has('result_compacted_at') ? 'CREATE INDEX IF NOT EXISTS idx_tasks_compactable ON tasks(completed_at) WHERE result_compacted_at IS NULL;' : ''}

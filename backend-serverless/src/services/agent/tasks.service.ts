@@ -895,7 +895,8 @@ export async function listTasksGrouped(
       payload: first?.payload ?? ({} as TaskPayload),
       created_at: first?.created_at ?? batchRow.latest_created,
       created_by: first?.created_by ?? null,
-      agent_count: tasks.length,
+      // Distinct agents: offline retries join the batch as extra tasks for the same agent.
+      agent_count: new Set(tasks.map((t) => t.agent_id)).size,
       status_counts: statusCounts,
       tasks,
     };

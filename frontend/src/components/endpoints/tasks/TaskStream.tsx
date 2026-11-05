@@ -39,6 +39,15 @@ interface TaskStreamProps {
 }
 
 const ACTIVE_STATUSES = new Set(['pending', 'assigned', 'downloading', 'executing']);
+
+/**
+ * "5 agents", or "1 of 5 agents" when a filter (the Tasks page breakdown)
+ * lists only part of the batch; agent_count always describes the whole batch.
+ */
+function agentCountLabel(group: TaskGroup): string {
+  const listed = new Set(group.tasks.map((t) => t.agent_id)).size;
+  return listed < group.agent_count ? `${listed} of ${group.agent_count} agents` : `${group.agent_count} agents`;
+}
 const TERMINAL_STATUSES = new Set(['completed', 'failed', 'expired']);
 
 /** Mirror of the backend gate: only terminal execute_test tasks can be retried. */
@@ -359,7 +368,7 @@ export default function TaskStream({
                       nameClassName="font-sans text-[13px]"
                       meta={
                         <span className="text-faint">
-                          · {group.agent_count} agents
+                          · {agentCountLabel(group)}
                           {runTagsFor(group) && <span className="ml-1.5 text-muted">· {runTagsFor(group)}</span>}
                         </span>
                       }
