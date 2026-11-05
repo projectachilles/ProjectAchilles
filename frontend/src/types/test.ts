@@ -17,6 +17,7 @@ export interface TestMetadata {
   unit?: string;               // Test unit identifier
   score?: number;
   scoreBreakdown?: ScoreBreakdown;
+  validatorDescriptions?: Record<string, string>; // bundle tests: validator name → description
   isMultiStage: boolean;
   stages: StageInfo[];
   description?: string;
@@ -71,6 +72,19 @@ export interface TestFile {
   category: 'source' | 'documentation' | 'diagram' | 'config' | 'detection' | 'defense' | 'references' | 'other';
 }
 
+export interface TestOverview {
+  expectedOutcomes?: { label: string; code?: number; text: string }[];
+  safety?: string[];                    // ≤ 5 plain-text bullets
+  safetySource?: string;                // file name to open for "Full safety →"
+  quality?:
+    | { rubric: 'v2.1'; realism: number; structure: number; validation?: string }
+    | { rubric: 'legacy'; breakdown: ScoreBreakdown; validation?: string };
+  detectionAudit?: { stage?: number; primitive: string; sensor: string; pattern: string }[];
+  labStageOutcomes?: { stage: number; outcome: 'blocked' | 'ran' | 'error'; detail: string }[];
+  primarySource?: { title: string; url?: string; publisher?: string; date?: string };
+  stageBudgetsSec?: Record<number, number>;
+}
+
 export interface TestDetails extends TestMetadata {
   files: TestFile[];
   hasAttackFlow: boolean;
@@ -83,6 +97,7 @@ export interface TestDetails extends TestMetadata {
   hasDetectionFiles: boolean;
   hasDefenseGuidance: boolean;
   hasReferences: boolean;
+  overview?: TestOverview;
 }
 
 export interface FileContent {

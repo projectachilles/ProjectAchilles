@@ -13,6 +13,8 @@ interface StageChainProps {
   stages: StageInfo[];
   /** Keyed by `stageId`; a stage without an entry shows no pill. */
   pills?: Record<number, StagePillData>;
+  /** Per-stage time budget in seconds, keyed by `stageId`. */
+  budgetsSec?: Record<number, number>;
 }
 
 // Static class names so Tailwind generates them. Columns follow the width of
@@ -34,7 +36,8 @@ export function stageColumns(count: number): number {
 
 function Pill({ data }: { data: StagePillData }) {
   if ('lab' in data) {
-    return <p className="mt-2 text-[11px] text-muted">{data.lab}</p>;
+    const tone = data.lab.startsWith('blocked') ? 'text-accent' : 'text-muted';
+    return <p className={`mt-2 text-[11px] ${tone}`}>{data.lab}</p>;
   }
   return (
     <div className="mt-2 space-y-0.5 text-[11px] text-muted">
@@ -46,7 +49,7 @@ function Pill({ data }: { data: StagePillData }) {
   );
 }
 
-export default function StageChain({ stages, pills }: StageChainProps) {
+export default function StageChain({ stages, pills, budgetsSec }: StageChainProps) {
   const ordered = [...stages].sort((a, b) => a.stageId - b.stageId);
   const cols = COLS[stageColumns(ordered.length)];
 
@@ -56,6 +59,7 @@ export default function StageChain({ stages, pills }: StageChainProps) {
         {ordered.map((stage) => {
           const techniques = stage.techniques?.length ? stage.techniques : [stage.technique];
           const pill = pills?.[stage.stageId];
+          const budget = budgetsSec?.[stage.stageId];
           return (
             <li key={stage.stageId} className="flex min-w-0 flex-col rounded-lg border border-border bg-surface p-3">
               <span className="font-mono text-xs text-faint">{String(stage.stageId).padStart(2, '0')}</span>
@@ -64,6 +68,7 @@ export default function StageChain({ stages, pills }: StageChainProps) {
                 {techniques.map((t) => <TechniqueBadge key={t} technique={t} size="sm" />)}
               </div>
               {pill && <Pill data={pill} />}
+              {budget !== undefined && <p className="mt-1 text-[11px] text-faint">{`${budget} s budget`}</p>}
             </li>
           );
         })}

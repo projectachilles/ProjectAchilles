@@ -2,7 +2,28 @@
 
 import * as fs from 'fs';
 import * as path from 'path';
-import { TestMetadata, StageInfo } from '../../types/test.js';
+import { TestMetadata, StageInfo, ScoreBreakdown } from '../../types/test.js';
+
+/**
+ * Parse the legacy five-row score breakdown table from info-card markdown.
+ * Returns an empty object when no row matches.
+ */
+export function parseLegacyScoreBreakdown(content: string): ScoreBreakdown {
+  const breakdown: ScoreBreakdown = {};
+  const rows: [keyof ScoreBreakdown, string][] = [
+    ['realWorldAccuracy', 'Real-World Accuracy'],
+    ['technicalSophistication', 'Technical Sophistication'],
+    ['safetyMechanisms', 'Safety Mechanisms'],
+    ['detectionOpportunities', 'Detection Opportunities'],
+    ['loggingObservability', 'Logging & Observability'],
+  ];
+  for (const [key, label] of rows) {
+    // Bold markers are optional: some cards use plain `| Real-World Accuracy | 2.8/3.0 |` rows.
+    const m = content.match(new RegExp(`\\|\\s*(?:\\*\\*)?${label}(?:\\*\\*)?\\s*\\|\\s*(?:\\*\\*)?(\\d+(?:\\.\\d+)?)\\/(\\d+(?:\\.\\d+)?)`, 'i'));
+    if (m) breakdown[key] = parseFloat(m[1]);
+  }
+  return breakdown;
+}
 
 export class MetadataExtractor {
   /**
@@ -244,30 +265,7 @@ export class MetadataExtractor {
     }
 
     // Extract score breakdown from table
-    const scoreTable = content.match(/\|\s*\*\*Real-World Accuracy\*\*\s*\|\s*\*\*(\d+(?:\.\d+)?)\/(\d+(?:\.\d+)?)\*\*/i);
-    if (scoreTable) {
-      metadata.scoreBreakdown!.realWorldAccuracy = parseFloat(scoreTable[1]);
-    }
-
-    const techSophMatch = content.match(/\|\s*\*\*Technical Sophistication\*\*\s*\|\s*\*\*(\d+(?:\.\d+)?)\/(\d+(?:\.\d+)?)\*\*/i);
-    if (techSophMatch) {
-      metadata.scoreBreakdown!.technicalSophistication = parseFloat(techSophMatch[1]);
-    }
-
-    const safetyMatch = content.match(/\|\s*\*\*Safety Mechanisms\*\*\s*\|\s*\*\*(\d+(?:\.\d+)?)\/(\d+(?:\.\d+)?)\*\*/i);
-    if (safetyMatch) {
-      metadata.scoreBreakdown!.safetyMechanisms = parseFloat(safetyMatch[1]);
-    }
-
-    const detectionMatch = content.match(/\|\s*\*\*Detection Opportunities\*\*\s*\|\s*\*\*(\d+(?:\.\d+)?)\/(\d+(?:\.\d+)?)\*\*/i);
-    if (detectionMatch) {
-      metadata.scoreBreakdown!.detectionOpportunities = parseFloat(detectionMatch[1]);
-    }
-
-    const loggingMatch = content.match(/\|\s*\*\*Logging & Observability\*\*\s*\|\s*\*\*(\d+(?:\.\d+)?)\/(\d+(?:\.\d+)?)\*\*/i);
-    if (loggingMatch) {
-      metadata.scoreBreakdown!.loggingObservability = parseFloat(loggingMatch[1]);
-    }
+    metadata.scoreBreakdown = parseLegacyScoreBreakdown(content);
 
     return metadata;
   }

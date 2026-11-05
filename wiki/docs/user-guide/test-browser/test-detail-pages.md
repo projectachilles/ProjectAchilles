@@ -62,12 +62,25 @@ under the main column on narrow screens):
 - **Summary**: the test's description.
 - **Stages** (multi-stage tests): one card per stage, in order, with its stage
   number, name and ATT&CK technique chips. Chains longer than six stages wrap
-  onto a second row. Single-stage tests show their technique chips instead.
+  onto a second row. When the test info card records a lab result for a stage
+  it shows under the card ("blocked in lab", "ran in lab"), along with the
+  stage's time budget. Cyber-hygiene bundles show one collapsible group per
+  validator instead, and single-binary tests show a **What it does** card with
+  their technique chips.
+- **Expected outcomes**: what each result means for this test, with its exit
+  code (126, 105 and 127 protected; 101 unprotected; 999 error).
+- **Safety**: the safeguards the test runs under. **Full safety** opens the
+  document they come from.
+- **Detection**: the first four rows of the detection audit. **All n** opens
+  the Info card tab.
 - **Deploy**: the build panel (platform, signing, size, embedded files, build,
   download, rebuild and delete). Shown only if you can build tests and the test
   has source code. See [Building & Signing](./building-signing).
+- **Quality**: the test's quality score (realism out of 7 and structure out of
+  3, or the older five-part breakdown) and how it was validated.
 - **Ships with**: the detection rules and defense files that come with the
   test. Click one to open it in its tab.
+- **Source**: the primary report the test is based on.
 
 Panels without data are not shown.
 
