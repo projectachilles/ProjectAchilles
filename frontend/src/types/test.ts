@@ -17,6 +17,7 @@ export interface TestMetadata {
   unit?: string;               // Test unit identifier
   score?: number;
   scoreBreakdown?: ScoreBreakdown;
+  validatorDescriptions?: Record<string, string>; // bundle tests: validator name → description
   isMultiStage: boolean;
   stages: StageInfo[];
   description?: string;
