@@ -1373,6 +1373,19 @@ describe('tasks.service', () => {
       expect(result.groups[0].tasks).toHaveLength(3);
     });
 
+    it('counts distinct agents, not tasks, when a batch holds a retry', () => {
+      insertTestAgent(testDb, { id: 'agent-002', hostname: 'host-2' });
+      const batchId = 'batch-retry';
+      insertTestTask(testDb, { id: 'r1', agent_id: 'agent-001', batch_id: batchId, created_at: '2026-02-01 10:00:00' });
+      insertTestTask(testDb, { id: 'r2', agent_id: 'agent-002', batch_id: batchId, created_at: '2026-02-01 10:00:00' });
+      insertTestTask(testDb, { id: 'r1-retry', agent_id: 'agent-001', batch_id: batchId, created_at: '2026-02-01 10:05:00' });
+
+      const result = listTasksGrouped({}, { kind: 'all' });
+
+      expect(result.groups[0].tasks).toHaveLength(3);
+      expect(result.groups[0].agent_count).toBe(2);
+    });
+
     it('returns single-agent tasks as groups of 1', () => {
       insertTestTask(testDb, { id: 't1', created_at: '2026-02-01 10:00:01' });
       insertTestTask(testDb, { id: 't2', created_at: '2026-02-01 10:00:02' });

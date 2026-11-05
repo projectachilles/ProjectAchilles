@@ -1043,6 +1043,7 @@ export function listTasksGrouped(
     const allTasks = tasksByBatch.get(batchRow.batch_id) ?? [];
     const first = allTasks[0];
     // status_counts / agent_count describe the whole batch; only the listed tasks are filtered.
+    // agent_count is distinct agents: offline retries join the batch as extra tasks for the same agent.
     const tasks = breakdownIds ? allTasks.filter((t) => breakdownIds.has(t.id)) : allTasks;
 
     const statusCounts: Partial<Record<TaskStatus, number>> = {};
@@ -1057,7 +1058,7 @@ export function listTasksGrouped(
       payload: first?.payload ?? ({} as TaskPayload),
       created_at: first?.created_at ?? batchRow.latest_created,
       created_by: first?.created_by ?? null,
-      agent_count: allTasks.length,
+      agent_count: new Set(allTasks.map((t) => t.agent_id)).size,
       status_counts: statusCounts,
       tasks,
     };

@@ -5,7 +5,8 @@ import type { AgentTask, TaskGroup } from '@/types/agent';
 
 // With a breakdown filter the backend lists only a batch's matching tasks while
 // agent_count still describes the whole batch, so the header says how many of
-// the batch's agents are shown.
+// the batch's agents are shown. agent_count counts distinct agents, so an
+// offline retry (a second task for the same agent) never reads as a filter.
 
 function task(id: string, agent: string): AgentTask {
   return {
@@ -45,6 +46,14 @@ describe('TaskStream batch header agent count', () => {
 
   it('keeps "N agents" when the whole batch is listed', () => {
     render(<TaskStream groups={[group([task('t1', 'a1'), task('t2', 'a2')], 2)]} loading={false} />);
+    const header = screen.getByRole('button', { name: /batch · LockBit Chain/ });
+    expect(header.textContent).toContain('2 agents');
+    expect(header.textContent).not.toContain(' of ');
+  });
+
+  it('keeps "N agents" for a whole batch that holds a retry', () => {
+    const tasks = [task('t1', 'a1'), task('t2', 'a2'), task('t1-retry', 'a1')];
+    render(<TaskStream groups={[group(tasks, 2)]} loading={false} />);
     const header = screen.getByRole('button', { name: /batch · LockBit Chain/ });
     expect(header.textContent).toContain('2 agents');
     expect(header.textContent).not.toContain(' of ');
