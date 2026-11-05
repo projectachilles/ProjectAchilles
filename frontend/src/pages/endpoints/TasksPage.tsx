@@ -1,7 +1,7 @@
 import { useEffect, useState, useCallback, useRef } from 'react';
 import { usePolling } from '@/hooks/usePolling';
 import { useViewportFill } from '@/hooks/useViewportFill';
-import { useSearchParams } from 'react-router-dom';
+import { useLocation, useNavigate, useSearchParams } from 'react-router-dom';
 import { Plus, RefreshCw, Search, X, Trash2, ChevronsLeft, ChevronLeft, ChevronRight, ChevronsRight } from 'lucide-react';
 import { agentApi } from '@/services/api/agent';
 import type { AgentMetrics, AgentTask, TaskBreakdownRow, TaskGroup, TaskStatus, TaskType, Schedule } from '@/types/agent';
@@ -9,6 +9,7 @@ import { PageContainer, PageHeader } from '@/components/endpoints/Layout';
 import TaskStream from '@/components/endpoints/tasks/TaskStream';
 import { TaskStatLine } from '@/components/endpoints/tasks/TaskStatLine';
 import ScheduleList from '@/components/endpoints/tasks/ScheduleList';
+import { TASKS_SECTION_PATHS, TasksSectionTabs, tasksSectionFromPath } from '@/components/endpoints/tasks/TasksSectionTabs';
 import TaskCreatorDialog from '@/components/endpoints/tasks/TaskCreatorDialog';
 import TaskNotesDialog from '@/components/endpoints/tasks/TaskNotesDialog';
 import { Button } from '@/components/shared/ui/Button';
@@ -33,6 +34,11 @@ interface BreakdownFilter {
 
 export default function TasksPage() {
   const [searchParams, setSearchParams] = useSearchParams();
+  const { pathname } = useLocation();
+  const navigate = useNavigate();
+  // Runs and Schedules are two routes of this page (/tasks, /tasks/schedules);
+  // the section tabs beside the title switch between them.
+  const view: 'tasks' | 'schedules' = tasksSectionFromPath(pathname) === 'schedules' ? 'schedules' : 'tasks';
   const initialSearch = searchParams.get('search') || '';
 
   // Clear ?search= from URL after consuming it (keeps address bar clean)
@@ -64,7 +70,6 @@ export default function TasksPage() {
   const [successMessage, setSuccessMessage] = useState<string | null>(null);
   const [toastVariant, setToastVariant] = useState<'success' | 'destructive'>('success');
   const [schedules, setSchedules] = useState<Schedule[]>([]);
-  const [view, setView] = useState<'tasks' | 'schedules'>('tasks');
   const [breakdownFilter, setBreakdownFilter] = useState<BreakdownFilter | null>(null);
   // Which breakdown key the rows on screen were fetched with, so a failed
   // fetch never leaves unfiltered rows under the chip.
@@ -199,14 +204,13 @@ export default function TasksPage() {
   }
 
   function handleTaskKindChange(kind: TaskKind): void {
-    setView('tasks');
     setTaskKind(kind);
     if (kind !== 'tests') setBreakdownFilter(null);
     setPage(1);
   }
 
   function handleSelectBreakdown(row: TaskBreakdownRow, tile: 'protected' | 'no-verdict'): void {
-    setView('tasks');
+    if (view !== 'tasks') navigate(TASKS_SECTION_PATHS.runs);
     setTaskKind('tests');
     setBreakdownFilter({
       key: row.key,
@@ -413,6 +417,7 @@ export default function TasksPage() {
       <PageContainer>
         <PageHeader
           title="Tasks"
+          titleAside={<TasksSectionTabs />}
           description={tiles
             ? <TaskStatLine tiles={tiles} outcomes={metrics?.task_outcomes_7d} onSelectBreakdown={handleSelectBreakdown} />
             : 'Task activity across the fleet — last 7 days'}
@@ -424,7 +429,8 @@ export default function TasksPage() {
           ) : undefined}
         />
 
-        {/* Filter bar */}
+        {/* Filter bar (Runs only) */}
+        {view === 'tasks' && (
         <div className="border border-border rounded-lg bg-card p-4 mb-4">
           <div className="flex flex-wrap items-center gap-4">
             {/* Type pills: Security tests by default, so agent upkeep doesn't bury test runs */}
@@ -436,31 +442,18 @@ export default function TasksPage() {
                     key={k.id}
                     type="button"
                     role="tab"
-                    aria-selected={view === 'tasks' && taskKind === k.id}
+                    aria-selected={taskKind === k.id}
                     onClick={() => handleTaskKindChange(k.id)}
-                    className={pillClass(view === 'tasks' && taskKind === k.id)}
+                    className={pillClass(taskKind === k.id)}
                   >
                     {k.label}
                     {count !== null && (
-                      <span className={cn('font-mono text-[11px]', view === 'tasks' && taskKind === k.id ? 'text-accent' : 'text-faint')}>{count}</span>
+                      <span className={cn('font-mono text-[11px]', taskKind === k.id ? 'text-accent' : 'text-faint')}>{count}</span>
                     )}
                   </button>
                 );
               })}
-              {schedules.length > 0 && (
-                <button
-                  type="button"
-                  role="tab"
-                  aria-selected={view === 'schedules'}
-                  onClick={() => setView('schedules')}
-                  className={pillClass(view === 'schedules')}
-                >
-                  Schedules
-                  <span className={cn('font-mono text-[11px]', view === 'schedules' ? 'text-accent' : 'text-faint')}>{schedules.length}</span>
-                </button>
-              )}
             </div>
-            {view === 'tasks' && (<>
             <div className="min-w-40 max-lg:min-w-0 max-lg:flex-1 max-lg:basis-40">
               <select
                 className={fieldControlClass}
@@ -493,7 +486,6 @@ export default function TasksPage() {
                 </button>
               </span>
             )}
-            </>)}
             <div className="flex-grow" />
             <Button variant="outline" className="shrink-0" onClick={() => { fetchTasks(); fetchSchedules(); }}>
               <RefreshCw className="w-4 h-4 mr-2" />
@@ -501,6 +493,7 @@ export default function TasksPage() {
             </Button>
           </div>
         </div>
+        )}
 
         {/* Bulk actions bar */}
         {view === 'tasks' && canSelectTasks && selectedTasks.length > 0 && (

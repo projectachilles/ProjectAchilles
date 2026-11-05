@@ -65,7 +65,7 @@ export function RunHistoryList<T extends CampaignRunSummary>({ label, load, rend
         {items.map((r) => (
           <li key={r.id} className="flex flex-wrap items-center gap-x-3 gap-y-1 py-2 text-sm">
             {renderLead?.(r)}
-            <Link to={`/campaigns/runs/${r.id}`} className="text-accent hover:underline">
+            <Link to={`/tasks/campaigns/runs/${r.id}`} className="text-accent hover:underline">
               {new Date(r.started_at).toLocaleString()}
             </Link>
             <span className="text-muted">{`by ${r.started_by_name || r.started_by}`}</span>

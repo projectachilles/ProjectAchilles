@@ -15,17 +15,19 @@ vi.mock('@/hooks/useAppHotkeys', () => ({ useAppHotkeys: () => undefined }));
 
 import { AppShell } from '../AppShell';
 
+// Campaigns is a section of Tasks (TasksSectionTabs), not a sidebar entry.
 describe('AppShell campaigns nav', () => {
-  it('hides Campaigns when the capability is false', () => {
-    caps.campaigns = false;
+  it.each([false, true])('has no Campaigns sidebar entry (capability %s)', (enabled) => {
+    caps.campaigns = enabled;
     render(<MemoryRouter><AppShell><div /></AppShell></MemoryRouter>);
     expect(screen.queryByRole('link', { name: /campaigns/i })).toBeNull();
     expect(screen.getAllByRole('link', { name: /tasks/i }).length).toBeGreaterThan(0);
   });
 
-  it('shows Campaigns when the capability is true', () => {
+  it('keeps Tasks highlighted on a campaign run page', () => {
     caps.campaigns = true;
-    render(<MemoryRouter><AppShell><div /></AppShell></MemoryRouter>);
-    expect(screen.getAllByRole('link', { name: /campaigns/i }).length).toBeGreaterThan(0);
+    render(<MemoryRouter initialEntries={['/tasks/campaigns/runs/r1']}><AppShell><div /></AppShell></MemoryRouter>);
+    const tasks = screen.getAllByRole('link', { name: /tasks/i });
+    expect(tasks.some((a) => a.getAttribute('aria-current') === 'page')).toBe(true);
   });
 });

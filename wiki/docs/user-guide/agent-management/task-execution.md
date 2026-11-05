@@ -89,9 +89,15 @@ Choosing a row filters the task list to that outcome. A chip next to the search 
 
 If the list can't load while a filter is on (a network error, or the server is restarting), the filter stays and the list retries on its next refresh; rows fetched without the filter are never shown under its chip. Only if the server rejects the filter itself is it cleared, with a "Couldn't filter the task list." message.
 
-### Schedules pill
+### Sections: Runs, Schedules, Campaigns
 
-Schedules live next to the task-type pills as a **Schedules** pill, with the number of schedules. It appears when at least one schedule exists. Select it to replace the task list with the schedule list; select a task-type pill to go back.
+Next to the **Tasks** title are three sections, the three ways tests reach agents:
+
+- **Runs** (`/tasks`): the task list described on this page, with its type pills, status filter and search.
+- **Schedules** (`/tasks/schedules`): the recurring and one-off schedules. It is always shown, even with no schedules yet. See [Managing Schedules](./task-scheduling#managing-schedules).
+- **Campaigns** (`/tasks/campaigns`): saved tests × hosts plans and their evidence. Hidden on deployments without campaigns (Vercel). See [Campaigns](./campaigns).
+
+The sections sit on the title row, so they take no space from the list. The 7-day numbers under the title stay on Runs and Schedules; choosing a breakdown row from Schedules switches to Runs with that filter.
 
 ### List and detail layout
 
@@ -275,7 +281,7 @@ The task list polls every 10 seconds for status changes. Polling is silent -- it
 
 ## Schedule Management
 
-Below the task list, the **Schedules** section displays all recurring schedules:
+The **Schedules** section of the Tasks page displays all schedules:
 
 - Human-readable schedule descriptions (e.g., "Every weekday at 09:30 UTC")
 - Next and last run timestamps with relative formatting
