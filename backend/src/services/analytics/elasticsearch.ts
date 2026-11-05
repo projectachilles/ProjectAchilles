@@ -285,6 +285,8 @@ interface TechniqueScopeOption {
   excludeEdrTerminated?: boolean;
   /** Leave out cyber-hygiene docs (outcome breakdown: a configuration check is not an attack outcome). */
   excludeCyberHygiene?: boolean;
+  /** Only this test: its own docs (standalone) or its bundle's (stage / control docs). */
+  testUuid?: string;
 }
 
 /** Exit code for a test binary blocked before it ran (an EDR/AV, or an app-control rule such as an ASR prevalence rule). */
@@ -1588,6 +1590,14 @@ export class ElasticsearchService {
     // as its own `oid|<bundle>|host` pair no later real run would replace it.
     // Standalone kill docs stay: there the kill doc is the test's only doc.
     else if (!isAnyStage) clauses.push({ bool: { must_not: [this.STAGELESS_BUNDLE_DOC] } });
+    if (params.testUuid) {
+      clauses.push({
+        bool: {
+          should: [{ term: { 'f0rtika.test_uuid': params.testUuid } }, { term: { 'f0rtika.bundle_id': params.testUuid } }],
+          minimum_should_match: 1,
+        },
+      });
+    }
     const exclusionFilter: unknown = (await this.getRiskAcceptanceService().buildExclusionFilter(params.org)) ?? null;
     return {
       window,
@@ -1606,6 +1616,7 @@ export class ElasticsearchService {
         // Only when set, so the tile's cache key is unchanged; the clause alone would differ too, this keeps it explicit.
         ...(params.excludeEdrTerminated ? { excludeEdrTerminated: true } : {}),
         ...(params.excludeCyberHygiene ? { excludeCyberHygiene: true } : {}),
+        ...(params.testUuid ? { testUuid: params.testUuid } : {}),
       },
     };
   }
@@ -1754,6 +1765,41 @@ export class ElasticsearchService {
     const missing = new Set<string>();
     for (const r of runs) if (!conclusiveKeys.has(r.pairKey)) missing.add(r.pairKey);
     return missing.size;
+  }
+
+  /**
+   * Validator and description of each control of a bundle, from its newest
+   * control doc (controls are defined at run time in bundle_results.json).
+   */
+  async getControlLabels(testUuid: string, org?: string): Promise<Record<string, { validator?: string; description?: string }>> {
+    const response = await this.client.search({
+      index: this.settings.indexPattern,
+      size: 0,
+      query: { bool: { filter: this.withOrgFilter([this.buildTestDataFilter(), { term: { 'f0rtika.bundle_id': testUuid } }], org) } },
+      aggs: {
+        controls: {
+          terms: { field: 'f0rtika.control_id', size: 500 },
+          aggs: {
+            doc: {
+              top_hits: {
+                size: 1,
+                sort: [{ 'routing.event_time': { order: 'desc' } }],
+                _source: ['f0rtika.control_validator', 'f0rtika.control_description'],
+              },
+            },
+          },
+        },
+      },
+    });
+    const out: Record<string, { validator?: string; description?: string }> = {};
+    for (const b of (response.aggregations as any)?.controls?.buckets ?? []) {
+      const src = b.doc?.hits?.hits?.[0]?._source ?? {};
+      out[String(b.key)] = {
+        validator: optString(getField(src, 'f0rtika.control_validator')),
+        description: optString(getField(src, 'f0rtika.control_description')),
+      };
+    }
+    return out;
   }
 
   /** Defense Score, basis=latest. Same snapshot and calculation as the trend's last point. */

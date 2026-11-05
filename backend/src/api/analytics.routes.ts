@@ -9,6 +9,7 @@ import { ElasticsearchService } from '../services/analytics/elasticsearch.js';
 import { createResultsIndex, listResultsIndices } from '../services/analytics/index-management.service.js';
 import { resetClient as resetResultsClient } from '../services/agent/results.service.js';
 import { resolvePostureWindow } from '../services/analytics/posture.js';
+import { getTestFleet } from '../services/analytics/testFleet.js';
 import { validate } from '../middleware/validation.js';
 import { AnalyticsSettingsSchema, AnalyticsTestSchema, CreateIndexSchema, ArchiveByGroupKeysSchema, ArchiveByDateSchema } from '../schemas/analytics.schemas.js';
 import type { AnalyticsQueryParams, ExtendedAnalyticsQueryParams, PaginatedExecutionsParams, ExecutionVerdict } from '../types/analytics.js';
@@ -624,6 +625,18 @@ router.get('/threat-actor-coverage', asyncHandler(async (req, res) => {
 router.get('/test-results', asyncHandler(async (req, res) => {
   const es = await getEsService();
   const result = await es.getTestResults(extractFilterParams(req.query));
+  res.json(result);
+}));
+
+// GET /api/analytics/test-results/:uuid/stages - One test's fleet results: the
+// any-stage headline plus the per-stage split (same fixed window as above).
+router.get('/test-results/:uuid/stages', asyncHandler(async (req, res) => {
+  const uuid = String(req.params.uuid);
+  if (!/^[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}$/i.test(uuid)) {
+    throw new AppError('Invalid test UUID format', 400);
+  }
+  const es = await getEsService();
+  const result = await getTestFleet(es, uuid, extractFilterParams(req.query));
   res.json(result);
 }));
 
