@@ -5,9 +5,34 @@
 # fills it from the ROOT .env (or the shell), not backend/.env. Compose also
 # passes VITE_CLERK_PUBLISHABLE_KEY, the name used in frontend/.env, so accept
 # that as a fallback.
-# I3: Use jq to safely JSON-encode env vars, preventing string breakout.
-CLERK_KEY_JSON=$(printf '%s' "${CLERK_PUBLISHABLE_KEY:-${VITE_CLERK_PUBLISHABLE_KEY:-}}" | jq -Rs .)
-API_URL_JSON=$(printf '%s' "${VITE_API_URL:-}" | jq -Rs .)
+# I3: JSON-encode env vars so a value can't break out of its string literal.
+# Busybox awk, not jq: installing jq meant `apk add` at build time, which
+# fails on hosts whose egress firewall blocks dl-cdn.alpinelinux.org.
+# Output matches `jq -Rs .`: escapes \ and ", control characters as \b \t \n
+# \f \r or \u00XX (DEL as \u007f), keeps a trailing newline. The trailing "x" sentinel stops
+# awk from dropping a final newline; END strips it again.
+json_string() {
+  printf '%sx' "$1" | awk '
+    BEGIN {
+      for (i = 1; i < 32; i++) esc[sprintf("%c", i)] = sprintf("\\u%04x", i)
+      esc[sprintf("%c", 127)] = "\\u007f"
+      esc["\b"] = "\\b"; esc["\t"] = "\\t"; esc["\n"] = "\\n"
+      esc["\f"] = "\\f"; esc["\r"] = "\\r"
+      esc["\\"] = "\\\\"; esc["\""] = "\\\""
+    }
+    { s = s (NR > 1 ? "\n" : "") $0 }
+    END {
+      s = substr(s, 1, length(s) - 1)
+      out = ""
+      for (i = 1; i <= length(s); i++) {
+        c = substr(s, i, 1)
+        out = out ((c in esc) ? esc[c] : c)
+      }
+      printf "\"%s\"", out
+    }'
+}
+CLERK_KEY_JSON=$(json_string "${CLERK_PUBLISHABLE_KEY:-${VITE_CLERK_PUBLISHABLE_KEY:-}}")
+API_URL_JSON=$(json_string "${VITE_API_URL:-}")
 cat <<EOF > /usr/share/nginx/html/env-config.js
 window.__env__ = {
   VITE_CLERK_PUBLISHABLE_KEY: ${CLERK_KEY_JSON},
