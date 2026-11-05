@@ -1,61 +1,107 @@
 ---
 sidebar_position: 2
 title: "Test Detail Pages"
-description: "Explore test detail pages — source code, documentation, detection rules, references, and execution history."
+description: "Explore test detail pages — overview, stage chain, documentation, detection rules, defense guidance, source code, and diagrams."
 ---
 
 # Test Detail Pages
 
-Clicking any test in the browser opens its detail page with comprehensive metadata.
+Clicking any test in the browser opens its detail page. The page has a fixed
+header, a row of tabs, and the selected tab's content underneath.
 
 ## Page Layout
 
-A header strip carries severity, stage count, author, platform, threat actor,
-and test score; the MITRE technique chips sit beneath it. Below that, a file
-tree on the left drives a viewer on the right.
+### Header
+
+The header stays on screen whichever tab you open. It shows:
+
+- **Breadcrumb**: `Tests / <category> / <subcategory>`. **Tests** returns to the
+  list with the filters you had set.
+- **Title** with a **severity** pill (critical, high, medium, low).
+- **One metadata line**: threat actor, platforms, stage count, complexity,
+  author, when the test was last modified (hover for the full date and last
+  commit message), and the short test ID with a copy button.
+- **Actions**: test score, favourite, **Download** (when a build exists and you
+  can build tests) and **Run on agents**, which opens the
+  [execution drawer](#execution-drawer).
 
 ![Test detail — header with severity, stages and test score, the file tree, and the rendered README](/img/screenshots/test-detail.png)
 
-The tree groups a test's artifacts into **Documentation**, **Build**,
-**Visualization**, **Defense Guidance**, **References**, and **Source Code**.
-Selecting an entry renders it in place:
+### Tabs
+
+Tabs replace the old file sidebar. A tab is shown only when the test has files
+for it:
+
+| Tab | Contents |
+|-----|----------|
+| **Overview** | Default tab; see [Overview](#overview) |
+| **README** | `README.md`, plus `SAFETY.md` when present |
+| **Info** | The test's info card |
+| **Detection** | Detection rules (Defender KQL, YARA, Sigma, Elastic EQL, LimaCharlie D&R) |
+| **Defense** | Defense guide, D&R rules and hardening scripts |
+| **References** | External references and sources |
+| **Source** | Go source, configuration and other documentation files |
+| **Kill chain** / **Attack flow** | The test's diagram, when it has one |
+
+Tabs with several files show a count and list their files by a readable name
+above the viewer (for example **YARA** instead of `<uuid>_rules.yar`; hover a
+name to see the file name). The selected tab and file are part of the page
+URL (`?tab=defense&file=…`), so you can share a link to a specific document,
+and the browser's Back button returns to the previous tab.
+
+Documents render at the console's normal text size. A document's first heading
+is dropped when it only repeats the test name shown in the header.
+
+On narrow screens the tab row scrolls sideways.
+
+### Overview
+
+The Overview tab has a main column and a side column (the side column moves
+under the main column on narrow screens):
+
+- **Summary**: the test's description.
+- **Stages** (multi-stage tests): one card per stage, in order, with its stage
+  number, name and ATT&CK technique chips. Chains longer than six stages wrap
+  onto a second row. Single-stage tests show their technique chips instead.
+- **Deploy**: the build panel (platform, signing, size, embedded files, build,
+  download, rebuild and delete). Shown only if you can build tests and the test
+  has source code. See [Building & Signing](./building-signing).
+- **Ships with**: the detection rules and defense files that come with the
+  test. Click one to open it in its tab.
+
+Panels without data are not shown.
 
 ![Test detail page — kill chain diagram with stage progression, file tree, and build artifacts](/img/screenshots/test-detail-killchain.png)
 
-### Source Tab
-View the test's Go source code with syntax highlighting. Copy-to-clipboard available for the entire file.
+### Source tab
+Go source code with syntax highlighting. Copy-to-clipboard is available for the
+entire file.
 
 ![Source code viewer — Go source with syntax highlighting](/img/screenshots/test-detail-source.png)
 
-### Documentation Tab
-Rendered markdown documentation describing the test's purpose, behavior, and expected outcomes.
-
-### Detection Rules Tab
-KQL (Kusto Query Language) and YARA rules for detecting the test's activity. Copy individual rules to clipboard for use in your SIEM.
+### Detection tab
+Detection rules for the test's activity. Copy individual rules to the clipboard
+for use in your SIEM or EDR.
 
 ![Detection rules — LimaCharlie D&R YAML with syntax highlighting beside the test's file tree](/img/screenshots/test-detail-detection.png)
 
-### References Tab
-External references and documentation links related to the technique.
-
-## Metadata Sidebar
-
-The sidebar displays:
-- **MITRE ATT&CK mapping** — Techniques and tactics
-- **Severity** — Critical, High, Medium, or Low
-- **Platforms** — Windows, Linux, macOS
-- **Author** and **version history**
-- **Git modification date**
-- **Tags** for additional categorization
+### Kill chain and Attack flow tabs
+The test's diagrams, shown in a sandboxed frame. A diagram loads the first time
+you open its tab.
 
 ## Execution Drawer
 
-Click the **Run** button to open the execution drawer, which allows you to:
+Click **Run on agents** to open the execution drawer, which allows you to:
 1. Select target agent(s)
 2. Choose the target platform and architecture
 3. Build the test binary (if not cached)
 4. Create a task for execution
 
+**Run on agents** is shown only to users who can create agent tasks.
+
 ## Build & Download
 
-The **Build** button triggers Go cross-compilation for the selected platform. See [Building & Signing](./building-signing) for details.
+The **Deploy** panel on the Overview tab triggers Go cross-compilation for the
+selected platform; **Download** in the header fetches the latest build. Both
+need permission to build tests. See [Building & Signing](./building-signing)
+for details.
