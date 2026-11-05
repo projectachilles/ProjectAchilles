@@ -1,0 +1,124 @@
+---
+title: "Your Defenses Look Green. Are They Working?"
+description: "How Project Achilles runs real attack techniques on your own endpoints every day, and turns the results into evidence your SOC and your risk owners can both act on."
+date: "2026-11-05"
+tags:
+  - purple-team
+  - continuous-validation
+  - edr
+  - mitre-attack
+  - risk-management
+author: james
+lang: en
+translationKey: how-achilles-works
+---
+
+## TL;DR
+
+- Security dashboards report what is installed and enabled. They can't tell you whether a ransomware chain would be stopped on a given host today.
+- Project Achilles answers that by running real MITRE ATT&CK techniques on your own endpoints, on a schedule, and recording what happened: blocked, seen, or missed.
+- Every run lands on one of five verdicts. Each verdict combines the test's own exit code with alerts pulled from Microsoft Defender, CrowdStrike, SentinelOne and Sophos.
+- The Defense Score keeps only the latest result for each test and host, so a fix shows up as soon as the test runs again.
+- We built an interactive explainer that shows the whole loop in motion: **[docs.projectachilles.io/how-it-works](https://docs.projectachilles.io/how-it-works/)**.
+
+---
+
+## A Pattern We Keep Seeing
+
+It usually goes like this. An EDR is deployed on every endpoint, its console shows every agent healthy, and the quarterly report says coverage is fine. Then someone runs a credential-dumping test against a file server, and it completes without a single block.
+
+Nobody did anything wrong. Months earlier, during an outage, that server's policy was switched to detect-only "for a day" and never switched back. The console stayed green the whole time, because it reports that the sensor is installed and running. It doesn't report whether the sensor stops anything.
+
+That gap, between the coverage you assume and the coverage you have, is what Project Achilles measures.
+
+## Controls Drift, and Nothing Announces It
+
+![Assumed coverage stays flat near 95% all year while measured coverage drops after a policy change in March, a folder exclusion in June and new ransomware tradecraft in September. The annual pentest sees only January.](/how-it-works/drift.png)
+
+*Illustrative data.*
+
+Three kinds of change do most of the damage:
+
+- **Policy changes.** Block mode becomes detect-only during an incident or after a performance complaint.
+- **Exclusions.** A broad folder exclusion fixes a slow application, and every binary in that folder becomes invisible to the sensor.
+- **New tradecraft.** A ransomware group starts loading a vulnerable signed driver (BYOVD) to kill the sensor, a technique your policy was never tuned for.
+
+An annual penetration test describes the environment on the day it ran. Everything that changes afterwards goes unmeasured until the next one. Continuous validation re-runs the same techniques on a schedule, so drift shows up within a day instead of within a year.
+
+## Measure What Happens, Not What's Installed
+
+Achilles has three parts:
+
+- **A test library** of about 80 tests mapped to ATT&CK, synced from Git. Most of them (49) are multi-stage chains built from published threat intelligence, such as Akira's BYOVD chain, SafePay's UAC bypass, EDRSilencer and a macOS infostealer. Another 11 cover the techniques seen most often in real intrusions. The other 20 are configuration bundles that check CIS and identity baselines control by control.
+- **A small Go agent** for Windows, Linux and macOS. It never listens on a port, so it works behind NAT and strict firewalls. It only runs binaries signed with your own certificate, and only after checking their SHA-256.
+- **A console** that schedules runs, stores every result in Elasticsearch, and pulls alerts from your EDR.
+
+Each test performs the technique for real, in a contained way, and exits with a code. 101 means it ran to completion; 105, 126 and 127 mean something quarantined or blocked it. Multi-stage tests report every stage separately, so you see how far an attack gets, not just whether it was noticed.
+
+![A five-stage ransomware chain against an EDR in detect-only mode: every stage ran, three raised alerts, and the chain reached file encryption.](/how-it-works/chain.png)
+
+This is a five-stage ransomware chain against an EDR in detect-only mode. Every stage ran. Three raised alerts, so the SOC would have seen them, but nothing stopped the chain before it reached encryption. With the same EDR in block mode, the chain stops at stage 2. It's the same product and the same test; one setting is the only difference.
+
+## “Detected” Is Not “Blocked”
+
+![The five verdicts, strongest first: Protected, Prevented, Detected, Unprotected and Error.](/how-it-works/verdicts.png)
+
+The exit code says what happened on the endpoint. EDR alerts say what the SOC saw. Achilles combines both and keeps the strongest result, so every run lands on exactly one verdict.
+
+The line between Detected and Protected matters. A detection gives an analyst a chance to respond, which beats silence. But it depends on someone acting in time, on the right alert, possibly at 3 a.m. That's why the Defense Score, which counts both blocked and EDR-confirmed results, comes with a stricter blocked-only score next to it. When the two numbers are far apart, your defense depends on people more than on controls.
+
+Errors, such as a timeout or a missing prerequisite, are reported but never scored, so a broken test can't make you look better or worse than you are.
+
+## Matching an Alert to the Test That Caused It
+
+![A process tree: the Achilles agent starts the test binary, which starts cmd.exe, which starts rundll32.exe. The EDR alert fires on rundll32.exe and is traced back to the test.](/how-it-works/edr.png)
+
+EDR alerts rarely fire on the test binary itself. They fire on the Windows program it started: `cmd.exe`, `rundll32.exe`, `powershell.exe`. So Achilles reads the process lineage inside the EDR's own alert and walks up through the parent and grandparent until it finds the test. An alert is linked only when it is on the same host, inside the run's time window, and descends from the test. A matching file name alone is not enough.
+
+Once an alert is linked, three things happen:
+
+1. The stage's verdict is upgraded, for example from Unprotected to Detected.
+2. The technique the EDR labelled is compared with the one the test actually performed.
+3. If you turn it on, the alert is closed in the EDR console as authorized security testing, so a daily schedule doesn't flood the SOC queue. Auto-resolve has a dry-run mode, and it never edits test results.
+
+## Scored on Your Current State
+
+![The interactive explainer's opening simulation: one test dispatched to four hosts with different EDR settings, results feeding a Defense Score and a test-by-host grid.](/how-it-works/hero.png)
+
+The Defense Score keeps only the latest conclusive result for each test and host pair. Fix a gap and the score moves the next time that test runs, instead of being diluted by months of old failures. Around the score, Analytics breaks results down by ATT&CK tactic, by how far each attack chain got, by threat actor, and over time, next to Microsoft Secure Score or your EDR's own posture score.
+
+When the business decides to accept a gap, you can exclude it from the headline score. The unadjusted series stays alongside it, so an accepted risk is a decision on the record, not a gap that disappeared.
+
+## Red-Team Principles, Run Every Day
+
+| Principle | What Achilles does |
+|---|---|
+| Emulate the adversary | Intel-driven chains reproduce current groups' tradecraft stage by stage, including driver abuse and EDR tampering. |
+| Assume breach | Tests start from code already running on an endpoint, where the EDR is the last line of defense. |
+| Measure outcomes | Every run ends in one verdict, from exit codes plus matched EDR evidence. |
+| Repeat continuously | Schedules and campaigns re-run the library; the score reflects the latest result per host. |
+| Close the loop with blue | Pre-execution notices, alert correlation and auto-resolve put red activity and blue telemetry side by side. |
+
+## What Changes for the SOC and for Risk Owners
+
+**For security operations:**
+
+- Every Unprotected technique is a concrete detection gap, with the exact host, binary and time needed to reproduce it.
+- A fix is proven, not assumed: change the policy, re-run the test, watch the verdict change the same day.
+- Regressions from a sensor update, a new exclusion or a policy rollback show up as a score drop, with Slack or email alerts when it crosses a threshold.
+
+**For risk owners:**
+
+- Control effectiveness becomes a measured statement ("ransomware chains are stopped before encryption on 85% of hosts"), re-measured every week.
+- Threat-actor coverage shows which groups targeting your sector would get through today, based on their known techniques.
+- Campaigns produce a tests-by-hosts evidence matrix, CSV exports and print-ready execution reports for auditors and the board.
+
+## Running Attacks in Production, Safely
+
+Running offensive techniques on real endpoints only works if the platform is safe to operate. With pre-execution notices on, tests are held on the server until the security team's email has been accepted, plus a lead time you choose. Test binaries are signed and hash-checked, and run from a work folder locked to SYSTEM and Administrators. Organizations are isolated from one another, roles separate viewers from operators, and API keys come in scopes that can never create users or more keys.
+
+## See It in Motion
+
+The stills above are frames from an interactive explainer that walks through the whole loop: tests running against endpoints, a ransomware chain you can re-run against three EDR configurations, verdicts, posture analytics and alert matching. **[Open it on the docs site](https://docs.projectachilles.io/how-it-works/)**.
+
+When you're ready to measure your own environment, [Install Project Achilles in 30 Minutes](/posts/2026-07-07-install-project-achilles-in-30-minutes) walks you through it from zero.
