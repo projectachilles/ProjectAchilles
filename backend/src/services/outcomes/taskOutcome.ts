@@ -54,6 +54,26 @@ export function outcomeWindowSql(alias?: string): string {
   return `${p}status IN ('completed', 'failed') AND ${p}completed_at > datetime('now', '-7 days')`;
 }
 
+/**
+ * SELECT expression for a task's `result` without stdout/stderr (the classifier never reads them, and
+ * they stay uncompacted for 7 days). Invalid JSON selects NULL, so such a row has no outcome.
+ * Pass it as `${outcomeResultSql('t')} AS result` and read rows with `parseOutcomeResult`.
+ */
+export function outcomeResultSql(alias?: string): string {
+  const p = alias ? `${alias}.` : '';
+  return `CASE WHEN json_valid(${p}result) THEN json_remove(${p}result, '$.stdout', '$.stderr') END`;
+}
+
+/** A row's result column (from `outcomeResultSql`) as a TaskResult; null when absent or unparseable. */
+export function parseOutcomeResult(raw: string | null): TaskResult | null {
+  if (!raw) return null;
+  try {
+    return JSON.parse(raw) as TaskResult;
+  } catch {
+    return null;
+  }
+}
+
 /** The exit code / failure reason behind a finished task's outcome; null when it has none. */
 export function taskBreakdown(task: { type: TaskType; status: TaskStatus; result: TaskResult | null }): { key: TaskBreakdownKey; outcome: TaskOutcomeKind } | null {
   const outcome = classifyTaskOutcome(task);

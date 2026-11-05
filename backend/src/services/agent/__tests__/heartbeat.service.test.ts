@@ -193,6 +193,29 @@ describe('heartbeat.service', () => {
       expect(o.other).toEqual({ total: 3, failed: 2 });
     });
 
+    it('counts outcomes the same with huge stdout/stderr, and ignores a malformed result', () => {
+      insertTestAgent(testDb, { id: 'a1' });
+      const recent = new Date(Date.now() - 3 * 86400 * 1000).toISOString().replace('T', ' ').slice(0, 19);
+      const ins = testDb.prepare(`
+        INSERT INTO tasks (id, agent_id, org_id, type, status, payload, created_by, ttl, completed_at, result)
+        VALUES (?, 'a1', 'org-001', ?, ?, '{}', 'user', 604800, ?, ?)
+      `);
+      const big = 'x'.repeat(100_000);
+      const res = (exit_code: number, extra: Record<string, unknown> = {}) =>
+        JSON.stringify({ exit_code, stdout: big, stderr: big, execution_duration_ms: 1, ...extra });
+      ins.run('p1', 'execute_test', 'completed', recent, res(126));
+      ins.run('u1', 'execute_test', 'completed', recent, res(101));
+      ins.run('p2', 'execute_test', 'failed', recent, res(-1, { edr_terminated: { vendors: ['defender'], alert_ids: ['x'] } }));
+      ins.run('c1', 'execute_command', 'completed', recent, res(255));
+      ins.run('bad', 'execute_test', 'completed', recent, '{not json');
+
+      const { task_outcomes_7d: o } = getAgentMetrics();
+      expect(o.tests).toMatchObject({ protected: 2, edr_stopped: 1, unprotected: 1 });
+      expect(o.breakdown.map((r) => r.key).sort()).toEqual(['edr-stopped', 'exit:101', 'exit:126']);
+      // the malformed test row has no verdict and counts as an "other" task (not failed); only the exit-255 command failed
+      expect(o.other).toEqual({ total: 2, failed: 1 });
+    });
+
     it('breaks 7-day outcomes down by exit code / failure reason', () => {
       insertTestAgent(testDb, { id: 'a1' });
       const fmt = (ms: number) => new Date(Date.now() - ms).toISOString().replace('T', ' ').slice(0, 19);

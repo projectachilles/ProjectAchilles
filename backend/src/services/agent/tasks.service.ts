@@ -20,7 +20,7 @@ import { withCatalogMetadata } from './testMetadata.js';
 import { readBuildMeta, resolveTestArtifact } from './testArtifacts.js';
 import { IntegrationsSettingsService } from '../integrations/settings.js';
 import { recordEvent } from './events.service.js';
-import { taskBreakdown, outcomeWindowSql } from '../outcomes/taskOutcome.js';
+import { taskBreakdown, outcomeWindowSql, outcomeResultSql, parseOutcomeResult } from '../outcomes/taskOutcome.js';
 import { getNoticeSummaries } from '../notices/notices.repo.js';
 import type { NoticeScope } from '../notices/types.js';
 import { AGENT_KILL_WATCHDOG_ERRORS, parseSqliteUtc } from '../edr/agent-kill-evidence.js';
@@ -974,14 +974,13 @@ export function listTasksGrouped(
   let breakdownIds: Set<string> | null = null;
   if (filters.breakdown) {
     const rows = db.prepare(`
-      SELECT t.id, t.type, t.status, t.result
+      SELECT t.id, t.type, t.status, ${outcomeResultSql('t')} AS result
       FROM tasks t LEFT JOIN agents a ON t.agent_id = a.id
       WHERE ${[...conditions, `t.type = 'execute_test'`, outcomeWindowSql('t')].join(' AND ')}
     `).all(...params) as { id: string; type: TaskType; status: TaskStatus; result: string | null }[];
     const ids: string[] = [];
     for (const row of rows) {
-      let result: TaskResult | null = null;
-      try { result = row.result ? (JSON.parse(row.result) as TaskResult) : null; } catch { /* unparseable result has no breakdown */ }
+      const result = parseOutcomeResult(row.result);
       if (taskBreakdown({ type: row.type, status: row.status, result })?.key === filters.breakdown) ids.push(row.id);
     }
     if (ids.length === 0) return { groups: [], total: 0, type_counts };

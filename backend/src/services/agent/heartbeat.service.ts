@@ -7,10 +7,9 @@ import { cancelPendingKey, decryptPendingKey, ROTATION_GRACE_PERIOD_SECONDS } fr
 import { recordEvent } from './events.service.js';
 import { invalidateAgentCache } from './agentAuthCache.js';
 import { computeAgentHealthScore, computeAgentHealthScores } from './health.service.js';
-import { taskBreakdown, breakdownLabel, outcomeWindowSql } from '../outcomes/taskOutcome.js';
+import { taskBreakdown, breakdownLabel, outcomeWindowSql, outcomeResultSql, parseOutcomeResult } from '../outcomes/taskOutcome.js';
 import type {
   HeartbeatPayload,
-  TaskResult,
   TaskStatus,
   TaskType,
   AgentSummary,
@@ -254,7 +253,7 @@ interface TaskOutcomes7d {
 
 function taskOutcomes7d(db: ReturnType<typeof getDatabase>, taskOrgCondition: string, orgParams: string[]): TaskOutcomes7d {
   const rows = db.prepare(
-    `SELECT type, status, result FROM tasks WHERE ${outcomeWindowSql()}${taskOrgCondition}`
+    `SELECT type, status, ${outcomeResultSql()} AS result FROM tasks WHERE ${outcomeWindowSql()}${taskOrgCondition}`
   ).all(...orgParams) as { type: TaskType; status: TaskStatus; result: string | null }[];
 
   const tests = { protected: 0, edr_stopped: 0, unprotected: 0, not_run: 0, run_failed: 0, test_error: 0, inconclusive: 0 };
@@ -262,12 +261,7 @@ function taskOutcomes7d(db: ReturnType<typeof getDatabase>, taskOrgCondition: st
   const key = { protected: 'protected', unprotected: 'unprotected', 'not-run': 'not_run', 'run-failed': 'run_failed', 'test-error': 'test_error', inconclusive: 'inconclusive' } as const;
   const counts = new Map<string, TaskBreakdownRow>();
   for (const row of rows) {
-    let result: TaskResult | null = null;
-    try {
-      result = row.result ? (JSON.parse(row.result) as TaskResult) : null;
-    } catch {
-      result = null;
-    }
+    const result = parseOutcomeResult(row.result);
     const bd = taskBreakdown({ type: row.type, status: row.status, result });
     if (bd) {
       const kind = bd.outcome;

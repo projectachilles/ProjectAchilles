@@ -1277,6 +1277,17 @@ describe('tasks.service', () => {
       `).run(id, type, status, batch, completedAt, result);
     const offline = () => res(-1, { error: 'Agent went offline during execution' });
 
+    it('ignores stdout/stderr size and skips a malformed result', () => {
+      const big = 'x'.repeat(50_000);
+      seed('p1', 'b1', 'completed', res(126, { stdout: big, stderr: big }));
+      seed('bad', 'b2', 'completed', '{not json');
+      const out = listTasksGrouped({ breakdown: 'exit:126' }, { kind: 'all' });
+      expect(out.groups.flatMap((g) => g.tasks.map((t) => t.id))).toEqual(['p1']);
+      // the listed task still carries its full result
+      expect(out.groups[0].tasks[0].result?.stdout).toHaveLength(50_000);
+      expect(getAgentMetrics().task_outcomes_7d.breakdown.find((r) => r.key === 'exit:126')?.count).toBe(1);
+    });
+
     it('lists exactly the tasks the breakdown row counted', () => {
       seed('p1', 'b1', 'completed', res(126));
       seed('p2', 'b2', 'completed', res(126));
