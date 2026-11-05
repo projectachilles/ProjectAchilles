@@ -1,6 +1,7 @@
 // API routes for security tests
 
 import { Router, Request, Response } from 'express';
+import fs from 'fs';
 import path from 'path';
 import { fileURLToPath } from 'url';
 import { requireClerkAuth, requirePermission } from '../middleware/clerk.middleware.js';
@@ -10,7 +11,8 @@ import { FileService } from '../services/browser/fileService.js';
 import { GitSyncService, SyncStatus } from '../services/browser/gitSyncService.js';
 import { GitHubMetadataService } from '../services/browser/githubMetadataService.js';
 import { initCatalog } from '../services/agent/test-catalog.service.js';
-import type { TestSource } from '../types/test.js';
+import { extractOverview } from '../services/browser/overviewExtractor.js';
+import type { TestSource, TestOverview } from '../types/test.js';
 
 // Get __dirname equivalent in ES modules
 const __filename = fileURLToPath(import.meta.url);
@@ -33,6 +35,11 @@ export function createBrowserRouter(options: {
   githubMetadata?: GitHubMetadataService;
 }): Router {
   const router = Router();
+
+  // Per-router memo of computed overviews, keyed by uuid + last git change.
+  // Capped; cleared on sync/refresh so edited files are re-read.
+  const OVERVIEW_MEMO_MAX = 200;
+  const overviewMemo = new Map<string, TestOverview>();
 
   // Protect all browser routes with Clerk authentication + library read permission
   router.use(requireClerkAuth());
@@ -77,6 +84,7 @@ export function createBrowserRouter(options: {
     }
 
     console.log('Manual sync triggered...');
+    overviewMemo.clear();
 
     try {
       // Pull latest changes
@@ -84,6 +92,7 @@ export function createBrowserRouter(options: {
 
       // Re-scan tests after sync
       const tests = testIndexer?.refresh() || [];
+      overviewMemo.clear();
 
       // Reload agent test catalog so new tests are available for enrichment
       initCatalog(options.testSources);
@@ -246,9 +255,20 @@ export function createBrowserRouter(options: {
       ? { ...test, lastModifiedDate: gitInfo.lastModifiedDate, lastCommitMessage: gitInfo.lastCommitMessage }
       : test;
 
+    const memoKey = `${uuid}|${enrichedTest.lastModifiedDate ?? ''}`;
+    let overview = overviewMemo.get(memoKey);
+    if (!overview) {
+      overview = extractOverview(test.files, (f) => fs.readFileSync(f.path, 'utf-8'), uuid);
+      if (overviewMemo.size >= OVERVIEW_MEMO_MAX) {
+        const oldest = overviewMemo.keys().next().value;
+        if (oldest !== undefined) overviewMemo.delete(oldest);
+      }
+      overviewMemo.set(memoKey, overview);
+    }
+
     res.json({
       success: true,
-      test: enrichedTest,
+      test: { ...enrichedTest, overview },
     });
   }));
 
@@ -460,6 +480,7 @@ export function createBrowserRouter(options: {
 
     console.log('Refreshing test index...');
     const tests = testIndexer.refresh();
+    overviewMemo.clear();
 
     res.json({
       success: true,
