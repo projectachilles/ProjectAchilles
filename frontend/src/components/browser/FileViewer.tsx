@@ -39,7 +39,7 @@ export default function FileViewer({ file, hideTitle }: FileViewerProps) {
 
   // Render plain text
   return (
-    <div className="h-full overflow-auto p-6">
+    <div className="h-full overflow-auto p-1 sm:p-6">
       <div className="max-w-4xl mx-auto">
         <div className="flex items-center gap-2 mb-4 text-muted-foreground">
           <FileText className="w-4 h-4" />

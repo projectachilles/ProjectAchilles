@@ -36,24 +36,24 @@ export default function MarkdownViewer({ content, hideTitle }: MarkdownViewerPro
   const remarkPlugins: PluggableList = hideTitle ? [remarkGfm, remarkDropTitle(hideTitle)] : [remarkGfm];
 
   const components: Components = {
-    h1: ({ children }) => <h1 className="text-lg font-semibold mt-6 mb-3 text-foreground">{children}</h1>,
+    h1: ({ children }) => <h1 className="max-w-[72ch] text-lg font-semibold mt-6 mb-3 text-foreground">{children}</h1>,
     h2: ({ children }) => (
-      <h2 className="text-base font-semibold mt-6 mb-2 pb-1.5 border-b border-border text-foreground">{children}</h2>
+      <h2 className="max-w-[72ch] text-base font-semibold mt-6 mb-2 pb-1.5 border-b border-border text-foreground">{children}</h2>
     ),
     h3: ({ children }) => (
-      <h3 className="text-sm font-semibold mt-4 mb-1.5 text-foreground">{children}</h3>
+      <h3 className="max-w-[72ch] text-sm font-semibold mt-4 mb-1.5 text-foreground">{children}</h3>
     ),
     h4: ({ children }) => (
-      <h4 className="text-[13px] font-semibold mt-3 mb-1.5 text-muted">{children}</h4>
+      <h4 className="max-w-[72ch] text-[13px] font-semibold mt-3 mb-1.5 text-muted">{children}</h4>
     ),
     p: ({ children }) => (
-      <p className="text-sm leading-[1.7] mb-3 text-foreground">{children}</p>
+      <p className="max-w-[72ch] text-sm leading-[1.7] mb-3 text-foreground">{children}</p>
     ),
     ul: ({ children }) => (
-      <ul className="list-disc list-outside pl-5 mb-3 space-y-1">{children}</ul>
+      <ul className="max-w-[72ch] list-disc list-outside pl-5 mb-3 space-y-1">{children}</ul>
     ),
     ol: ({ children }) => (
-      <ol className="list-decimal list-outside pl-5 mb-3 space-y-1">{children}</ol>
+      <ol className="max-w-[72ch] list-decimal list-outside pl-5 mb-3 space-y-1">{children}</ol>
     ),
     li: ({ children }) => (
       <li className="text-sm leading-[1.65] text-foreground">{children}</li>
@@ -79,7 +79,7 @@ export default function MarkdownViewer({ content, hideTitle }: MarkdownViewerPro
       </pre>
     ),
     blockquote: ({ children }) => (
-      <blockquote className="border-l-2 border-accent/40 pl-4 text-muted not-italic mb-3">
+      <blockquote className="max-w-[72ch] border-l-2 border-accent/40 pl-4 text-muted not-italic mb-3">
         {children}
       </blockquote>
     ),
@@ -112,9 +112,11 @@ export default function MarkdownViewer({ content, hideTitle }: MarkdownViewerPro
     hr: () => <hr className="my-6 border-border" />,
   };
 
+  // Prose keeps a 72ch reading measure (set per element above); tables and
+  // code blocks use the full width and scroll sideways when wider.
   return (
     <div className="h-full overflow-auto">
-      <div className="max-w-[72ch] px-8 py-6">
+      <div className="px-1 py-2 sm:px-8 sm:py-6">
         <ReactMarkdown remarkPlugins={remarkPlugins} components={components}>
           {content}
         </ReactMarkdown>

@@ -66,6 +66,16 @@ function TestDetailView({ uuid }: { uuid: string }) {
     setSearchParams(next, { replace: false, state: location.state });
   }, [setSearchParams, location.state, selection.tab, selection.file]);
 
+  // A deep link to a file the tab doesn't have shows the tab's first file;
+  // rewrite the URL to match (replace, so Back still leaves the page).
+  const requestedFile = searchParams.get('file');
+  useEffect(() => {
+    if (!test || !selection.file || requestedFile === null || requestedFile === selection.file) return;
+    const next = new URLSearchParams(searchParams);
+    next.set('file', selection.file);
+    setSearchParams(next, { replace: true, state: location.state });
+  }, [test, selection.file, requestedFile, searchParams, setSearchParams, location.state]);
+
   // Sync theme to visualization iframes via postMessage
   const syncThemeToIframe = useCallback(() => {
     const message = { type: 'theme-change', theme };
@@ -240,38 +250,41 @@ function TestDetailView({ uuid }: { uuid: string }) {
         onDownload={() => { void build.download(); }}
       />
 
-      {/* Scrolls sideways on narrow screens instead of wrapping. */}
-      <div role="tablist" aria-label="Test sections" className="flex gap-2 overflow-x-auto border-b border-border px-4 py-3">
-        {tabs.map(tab => {
-          const active = tab.id === selection.tab;
-          return (
-            <button
-              key={tab.id}
-              id={`test-tab-${tab.id}`}
-              type="button"
-              role="tab"
-              aria-selected={active}
-              aria-controls={active ? TAB_PANEL_ID : undefined}
-              onClick={() => openTab(tab.id)}
-              className={pillClass(active, 'shrink-0')}
-            >
-              {tab.label}
-              {tab.count !== undefined && (
-                <>
-                  <span aria-hidden="true" className="rounded bg-overlay px-1 font-mono text-[10px] leading-4 text-faint">{tab.count}</span>
-                  <span className="sr-only">{`, ${tab.count} files`}</span>
-                </>
-              )}
-            </button>
-          );
-        })}
+      {/* Same container as the header, so the title, tabs and content line up. */}
+      <div className="border-b border-border">
+        {/* Scrolls sideways on narrow screens instead of wrapping. */}
+        <div role="tablist" aria-label="Test sections" className="container mx-auto flex gap-2 overflow-x-auto px-4 py-3">
+          {tabs.map(tab => {
+            const active = tab.id === selection.tab;
+            return (
+              <button
+                key={tab.id}
+                id={`test-tab-${tab.id}`}
+                type="button"
+                role="tab"
+                aria-selected={active}
+                aria-controls={active ? TAB_PANEL_ID : undefined}
+                onClick={() => openTab(tab.id)}
+                className={pillClass(active, 'shrink-0')}
+              >
+                {tab.label}
+                {tab.count !== undefined && (
+                  <>
+                    <span aria-hidden="true" className="rounded bg-overlay px-1 font-mono text-[10px] leading-4 text-faint">{tab.count}</span>
+                    <span className="sr-only">{`, ${tab.count} files`}</span>
+                  </>
+                )}
+              </button>
+            );
+          })}
+        </div>
       </div>
 
       <div
         role="tabpanel"
         id={TAB_PANEL_ID}
         aria-labelledby={`test-tab-${selection.tab}`}
-        className="px-4 py-5"
+        className="container mx-auto px-4 py-5"
       >
         {content}
       </div>

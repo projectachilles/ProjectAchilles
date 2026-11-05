@@ -147,4 +147,27 @@ describe('MarkdownViewer', () => {
     render(<MarkdownViewer content={'# Qilin Chain\n\ntext\n\n# Qilin Chain'} hideTitle="Qilin Chain" />);
     expect(screen.getAllByRole('heading', { level: 1 })).toHaveLength(1);
   });
+
+  it('keeps prose at a 72ch measure but lets tables and code use the full width', () => {
+    const md = '# H\n\nSome prose.\n\n- item\n\n> quote\n\n| A | B | C | D | E |\n|---|---|---|---|---|\n| 1 | 2 | 3 | 4 | 5 |\n\n```\ncode line\n```';
+    const { container } = render(<MarkdownViewer content={md} />);
+    for (const el of [
+      screen.getByRole('heading', { level: 1 }),
+      screen.getByText('Some prose.'),
+      screen.getByRole('list'),
+      screen.getByRole('blockquote'),
+    ]) {
+      expect(el).toHaveClass('max-w-[72ch]');
+    }
+    const tableWrap = screen.getByRole('table').parentElement!;
+    expect(tableWrap).toHaveClass('overflow-x-auto');
+    expect(tableWrap.className).not.toContain('max-w-');
+    expect(container.querySelector('pre')!.className).not.toContain('max-w-');
+    // No ancestor caps the width of the table.
+    let el: HTMLElement | null = tableWrap.parentElement;
+    while (el && el !== container) {
+      expect(el.className).not.toContain('max-w-[72ch]');
+      el = el.parentElement;
+    }
+  });
 });
