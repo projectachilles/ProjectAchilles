@@ -132,8 +132,15 @@ jobs:
           # or https://code.claude.com/docs/en/cli-reference for available options
 
       # A green job must mean the review ran. Posting nothing is normal for a
-      # trivial PR, but not when tool calls were denied: then the review most
-      # likely couldn't read the diff. Re-run the job when this fails.
+      # trivial PR, but not when tool calls were denied: then the review may
+      # not have been able to read the diff. Re-run the job when this fails.
+      #
+      # Exception: the plugin reviews a PR only once. Its step 1 stops when the
+      # PR "already has a code review from you from earlier", so every push
+      # after the first review posts nothing, and stray denials (most runs have
+      # a few, successful ones included) used to fail the job on every re-run.
+      # When claude[bot] reviewed an earlier push, pass with a warning that the
+      # newer commits went unreviewed.
       - name: Fail when denied tool calls left no review
         if: always() && steps.claude-review.outputs.execution_file != ''
         env:
@@ -151,6 +158,19 @@ jobs:
           inline=$(gh api "repos/$GITHUB_REPOSITORY/pulls/$PR/comments?since=$SINCE" \
             --jq '[.[] | select(.user.type == "Bot")] | length')
           if [ "$((summary + inline))" -eq 0 ]; then
+            # Reviewed on an earlier push? Then the plugin skipped by design.
+            prior=$( {
+              gh api --paginate "repos/$GITHUB_REPOSITORY/pulls/$PR/comments" \
+                --jq '.[] | select(.user.login == "claude[bot]" and .created_at < env.SINCE) | .id'
+              gh api --paginate "repos/$GITHUB_REPOSITORY/issues/$PR/comments" \
+                --jq '.[] | select(.user.type == "Bot" and .created_at < env.SINCE and (.body | test("(^|\n)(#+ |<h[1-6][^>]*>)Code review"))) | .id'
+            } | wc -l)
+            if [ "$prior" -gt 0 ]; then
+              msg="Claude reviewed an earlier push of this PR and the code-review plugin does not review a PR twice, so commits pushed after that review were not reviewed."
+              echo "::warning::$msg"
+              { echo "### Review skipped"; echo "$msg"; } >> "$GITHUB_STEP_SUMMARY"
+              exit 0
+            fi
             echo "::error::$denied tool call(s) were denied and the review posted nothing. Re-run this job."
             exit 1
           fi
