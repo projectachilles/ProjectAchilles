@@ -49,7 +49,7 @@ Una prueba de penetración anual describe el entorno el día en que se hizo. Tod
 
 Achilles tiene tres partes:
 
-- **Una biblioteca de pruebas** de unas 80 pruebas mapeadas a ATT&CK, sincronizada desde Git. La mayoría (49) son cadenas de varias etapas construidas a partir de inteligencia de amenazas publicada, como la cadena BYOVD de Akira, el bypass de UAC de SafePay, EDRSilencer y un infostealer para macOS. Otras 11 cubren las técnicas más vistas en intrusiones reales. Las 20 restantes son paquetes de configuración que verifican líneas base de CIS e identidad, control por control.
+- **Una biblioteca de pruebas** de unas 65 pruebas mapeadas a ATT&CK, sincronizada desde Git. La mayoría (44) son cadenas de varias etapas construidas a partir de inteligencia de amenazas publicada, como la cadena BYOVD de Akira, el bypass de UAC de SafePay, EDRSilencer y un infostealer para macOS. Otras 10 cubren las 10 técnicas de ransomware más comunes según MITRE, desde la ejecución con PowerShell y WMI hasta borrar copias de seguridad y cifrar archivos. Los 12 restantes son paquetes de configuración que verifican líneas base de CIS e identidad, control por control.
 - **Un agente pequeño en Go** para Windows, Linux y macOS. Nunca escucha en un puerto, así que funciona detrás de NAT y de firewalls estrictos. Antes de ejecutar una prueba, comprueba el SHA-256 y el tamaño del binario contra el registro de la consola; en Windows, además, los binarios se firman con Authenticode usando tu certificado cuando hay uno configurado.
 - **Una consola** que programa las ejecuciones, guarda cada resultado en Elasticsearch y obtiene las alertas de tu EDR.
 
@@ -57,7 +57,7 @@ Cada prueba ejecuta la técnica de verdad, de forma controlada, y termina con un
 
 ![Una cadena de ransomware de cinco etapas contra un EDR en modo solo detección: todas las etapas se ejecutaron, tres generaron alertas y la cadena llegó al cifrado de archivos.](/how-it-works/chain.png)
 
-Esta es una cadena de ransomware de cinco etapas contra un EDR en modo solo detección. Todas las etapas se ejecutaron. Tres generaron alertas, así que el SOC las habría visto, pero nada detuvo la cadena antes de llegar al cifrado. Con el mismo EDR en modo de bloqueo, la cadena se detiene en la etapa 2. Es el mismo producto y la misma prueba; la única diferencia es una configuración.
+Este ejemplo ilustrativo es una cadena de ransomware de cinco etapas contra un EDR en modo solo detección. Todas las etapas se ejecutaron. Tres generaron alertas, así que el SOC las habría visto, pero nada detuvo la cadena antes de llegar al cifrado. Con el mismo EDR en modo de bloqueo, esta cadena se detiene en la etapa 2. Es el mismo producto y la misma prueba; la única diferencia es una configuración.
 
 ## “Detectado” no es “bloqueado”
 
@@ -77,7 +77,7 @@ Las alertas del EDR rara vez se disparan sobre el binario de la prueba. Se dispa
 
 Una vez vinculada la alerta, pasan tres cosas:
 
-1. El veredicto de la etapa sube, por ejemplo de Unprotected a Detected.
+1. El veredicto de la ejecución sube, por ejemplo de Unprotected a Detected. Una etapa recibe su propia etiqueta Detected cuando la evidencia nombra el binario de esa etapa.
 2. La técnica que etiquetó el EDR se compara con la que la prueba realmente ejecutó.
 3. Si lo activas, la alerta se cierra en la consola del EDR como prueba de seguridad autorizada, para que un calendario diario no inunde la cola del SOC. El cierre automático tiene un modo de simulación y nunca modifica los resultados de las pruebas.
 
@@ -110,12 +110,12 @@ Cuando el negocio decide aceptar una brecha, puedes excluirla de la puntuación 
 **Para los responsables de riesgo:**
 
 - La efectividad de los controles se vuelve una afirmación medida ("las cadenas de ransomware se detienen antes del cifrado en el 85% de los equipos"), que se vuelve a medir cada semana.
-- La cobertura por actor de amenazas muestra qué grupos que atacan tu sector pasarían hoy, según sus técnicas conocidas.
+- La cobertura por actor de amenazas muestra, para cada grupo que emula tu biblioteca de pruebas, cuántas de sus pruebas pasaron hoy en tus equipos.
 - Las campañas producen una matriz de evidencia de pruebas por equipos, exportaciones CSV e informes de ejecución listos para imprimir, para auditores y la junta directiva.
 
 ## Ejecutar ataques en producción, de forma segura
 
-Ejecutar técnicas ofensivas en endpoints reales solo funciona si la plataforma es segura de operar. Con los avisos previos a la ejecución activados, las pruebas se retienen en el servidor hasta que el correo al equipo de seguridad ha sido aceptado, más un margen que tú eliges. El hash de cada binario de prueba se verifica contra el registro de la consola antes de ejecutarlo, desde una carpeta de trabajo restringida a SYSTEM y Administradores. Las organizaciones están aisladas entre sí, los roles separan a quienes consultan de quienes operan, y las API keys vienen con alcances que nunca pueden crear usuarios ni más claves.
+Ejecutar técnicas ofensivas en endpoints reales solo funciona si la plataforma es segura de operar. Con los avisos previos a la ejecución activados, las pruebas se retienen en el servidor hasta que el correo al equipo de seguridad ha sido aceptado, más un margen que tú eliges. El hash de cada binario de prueba se verifica contra el registro de la consola antes de ejecutarlo, desde una carpeta de trabajo restringida a SYSTEM y Administradores. Cuatro roles separan a quienes solo consultan de quienes operan y administran. Dentro de una instalación, los resultados se limitan a cada organización; para una separación completa, usa una instalación por organización. Ninguna API key puede crear usuarios ni más claves.
 
 ## Míralo en movimiento
 

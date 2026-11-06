@@ -49,7 +49,7 @@ An annual penetration test describes the environment on the day it ran. Everythi
 
 Achilles has three parts:
 
-- **A test library** of about 80 tests mapped to ATT&CK, synced from Git. Most of them (49) are multi-stage chains built from published threat intelligence, such as Akira's BYOVD chain, SafePay's UAC bypass, EDRSilencer and a macOS infostealer. Another 11 cover the techniques seen most often in real intrusions. The other 20 are configuration bundles that check CIS and identity baselines control by control.
+- **A test library** of about 65 tests mapped to ATT&CK, synced from Git. Most of them (44) are multi-stage chains built from published threat intelligence, such as Akira's BYOVD chain, SafePay's UAC bypass, EDRSilencer and a macOS infostealer. Another 10 cover MITRE's top 10 ransomware techniques, from PowerShell and WMI execution to deleting backups and encrypting files. The other 12 are configuration bundles that check CIS and identity baselines control by control.
 - **A small Go agent** for Windows, Linux and macOS. It never listens on a port, so it works behind NAT and strict firewalls. Before running a test it checks the binary's SHA-256 and size against the console's record; Windows builds are also Authenticode-signed with your certificate when one is configured.
 - **A console** that schedules runs, stores every result in Elasticsearch, and pulls alerts from your EDR.
 
@@ -57,7 +57,7 @@ Each test performs the technique for real, in a contained way, and exits with a 
 
 ![A five-stage ransomware chain against an EDR in detect-only mode: every stage ran, three raised alerts, and the chain reached file encryption.](/how-it-works/chain.png)
 
-This is a five-stage ransomware chain against an EDR in detect-only mode. Every stage ran. Three raised alerts, so the SOC would have seen them, but nothing stopped the chain before it reached encryption. With the same EDR in block mode, the chain stops at stage 2. It's the same product and the same test; one setting is the only difference.
+This illustrative example is a five-stage ransomware chain against an EDR in detect-only mode. Every stage ran. Three raised alerts, so the SOC would have seen them, but nothing stopped the chain before it reached encryption. With the same EDR in block mode, this chain is stopped at stage 2. It's the same product and the same test; one setting is the only difference.
 
 ## “Detected” Is Not “Blocked”
 
@@ -77,7 +77,7 @@ EDR alerts rarely fire on the test binary itself. They fire on the Windows progr
 
 Once an alert is linked, three things happen:
 
-1. The stage's verdict is upgraded, for example from Unprotected to Detected.
+1. The run's verdict is upgraded, for example from Unprotected to Detected. A stage gets its own Detected label when the evidence names that stage's binary.
 2. The technique the EDR labelled is compared with the one the test actually performed.
 3. If you turn it on, the alert is closed in the EDR console as authorized security testing, so a daily schedule doesn't flood the SOC queue. Auto-resolve has a dry-run mode, and it never edits test results.
 
@@ -110,12 +110,12 @@ When the business decides to accept a gap, you can exclude it from the headline 
 **For risk owners:**
 
 - Control effectiveness becomes a measured statement ("ransomware chains are stopped before encryption on 85% of hosts"), re-measured every week.
-- Threat-actor coverage shows which groups targeting your sector would get through today, based on their known techniques.
+- Threat-actor coverage shows, for each group your test library emulates, how many of its tests got through on your hosts today.
 - Campaigns produce a tests-by-hosts evidence matrix, CSV exports and print-ready execution reports for auditors and the board.
 
 ## Running Attacks in Production, Safely
 
-Running offensive techniques on real endpoints only works if the platform is safe to operate. With pre-execution notices on, tests are held on the server until the security team's email has been accepted, plus a lead time you choose. Test binaries are hash-checked against the console's record before they run, from a work folder locked to SYSTEM and Administrators. Organizations are isolated from one another, roles separate viewers from operators, and API keys come in scopes that can never create users or more keys.
+Running offensive techniques on real endpoints only works if the platform is safe to operate. With pre-execution notices on, tests are held on the server until the security team's email has been accepted, plus a lead time you choose. Test binaries are hash-checked against the console's record before they run, from a work folder locked to SYSTEM and Administrators. Four roles separate read-only users from operators and admins. Inside an install, results are scoped to each organization; for full separation, run one install per organization. No API key can create users or more keys.
 
 ## See It in Motion
 

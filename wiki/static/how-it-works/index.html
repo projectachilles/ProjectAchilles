@@ -358,7 +358,7 @@ footer .wrap { display: flex; flex-wrap: wrap; gap: 12px 32px; justify-content: 
       <h1>Find out which attacks your defenses actually stop</h1>
       <p class="lede">Project Achilles is a purple team platform for continuous security validation. It runs safe, real-world attack techniques on your own endpoints, every day, and shows which ones your EDR blocked, which it only saw, and which went through unnoticed.</p>
       <ul class="facts">
-        <li><svg width="12" height="12" aria-hidden="true"><rect width="12" height="12" rx="2" fill="#3ef08a"/></svg><span><strong>About 80 tests</strong> mapped to MITRE ATT&amp;CK: ransomware chains, credential theft, EDR tampering, CIS hardening checks</span></li>
+        <li><svg width="12" height="12" aria-hidden="true"><rect width="12" height="12" rx="2" fill="#3ef08a"/></svg><span><strong>About 65 tests</strong> mapped to MITRE ATT&amp;CK: ransomware chains, credential theft, EDR tampering, CIS hardening checks</span></li>
         <li><svg width="12" height="12" aria-hidden="true"><rect width="12" height="12" rx="2" fill="#2dd4bf"/></svg><span><strong>A small Go agent</strong> on Windows, Linux and macOS that only calls out over HTTPS</span></li>
         <li><svg width="12" height="12" aria-hidden="true"><rect width="12" height="12" rx="2" fill="#38bdf8"/></svg><span><strong>EDR evidence</strong> pulled from Microsoft Defender, CrowdStrike, SentinelOne and Sophos and matched to each test</span></li>
       </ul>
@@ -498,24 +498,24 @@ footer .wrap { display: flex; flex-wrap: wrap; gap: 12px 32px; justify-content: 
     <div class="chapter-head">
       <span class="chapter-num">Chapter 3</span>
       <h2>Tests behave like the adversary, then report what happened</h2>
-      <p class="lede">Each test is a signed binary built from a Git-synced library and mapped to ATT&amp;CK techniques. It performs the technique for real, in a contained way, and exits with a code that says whether it was stopped.</p>
+      <p class="lede">Each test is a binary built from a Git-synced library and mapped to ATT&amp;CK techniques. It performs the technique for real, in a contained way, and exits with a code that says whether it was stopped.</p>
     </div>
 
     <div class="cats">
       <div class="panel cat">
-        <span class="count num">49</span>
+        <span class="count num">44</span>
         <h3>Intel-driven attack chains</h3>
         <p>Multi-stage emulations of current threat actors, built from published threat intelligence. Each stage reports separately.</p>
         <span class="eg">Akira BYOVD chain, SafePay UAC bypass, EDRSilencer, AMOS macOS infostealer, LSASS dumping with PPL bypass</span>
       </div>
       <div class="panel cat">
-        <span class="count num">11</span>
-        <h3>MITRE top-10 techniques</h3>
-        <p>Focused tests for the techniques that show up most in real intrusions: process injection, credential stores, defense impairment, masquerading.</p>
-        <span class="eg">T1055, T1555, T1562.001, T1036, T1003</span>
+        <span class="count num">10</span>
+        <h3>MITRE top-10 ransomware techniques</h3>
+        <p>One test for each of the ten techniques MITRE ranks most common in ransomware attacks, from PowerShell and WMI execution to deleting backups and encrypting files.</p>
+        <span class="eg">T1059.001, T1047, T1490, T1486, T1489</span>
       </div>
       <div class="panel cat">
-        <span class="count num">20</span>
+        <span class="count num">12</span>
         <h3>Cyber-hygiene bundles</h3>
         <p>Configuration checks against CIS and identity baselines. One bundle fans out into dozens of controls, each scored on its own.</p>
         <span class="eg">CIS Windows L1, CIS Linux L1, Defender hardening, Entra ID tenant hygiene, AD identity</span>
@@ -562,7 +562,7 @@ footer .wrap { display: flex; flex-wrap: wrap; gap: 12px 32px; justify-content: 
     </div>
     <div class="two">
       <div class="agent-points">
-        <div><h3>Enroll once, then poll</h3><p>An installer uses a one-time enrollment token. After that the agent sends heartbeats and asks for tasks over HTTPS with its own hashed API key, so it works behind NAT and strict firewalls.</p></div>
+        <div><h3>Enroll once, then poll</h3><p>An installer uses a short-lived enrollment token, single-use by default. After that the agent sends heartbeats and asks for tasks over HTTPS with its own API key, stored only as a hash on the server, so it works behind NAT and strict firewalls.</p></div>
         <div><h3>Runs only the binary it was sent</h3><p>Before running a test, the agent checks the binary's SHA-256 and size against the console's record, and runs it from a work folder locked to SYSTEM and Administrators. Windows builds are also Authenticode-signed with your certificate when one is configured.</p></div>
         <div><h3>Updates without bricking the fleet</h3><p>A new version must report the version it was registered as. After swapping the binary the agent launches it once to check, and rolls back to the old one if that check fails.</p></div>
         <div><h3>Watched by the console</h3><p>Missed heartbeats mark an agent offline. A task that never reports back is timed out, and if an EDR killed the agent mid-test, the console can prove that from the EDR's own alert.</p></div>
@@ -590,7 +590,7 @@ footer .wrap { display: flex; flex-wrap: wrap; gap: 12px 32px; justify-content: 
       <div class="ladder">
         <div class="rung" style="--c:var(--v-protected); --d:0s"><span class="name">Protected</span><p>A stage was blocked on the endpoint (exit 105, 126 or 127). The attack did not finish.</p><span class="sweep"></span></div>
         <div class="rung" style="--c:var(--v-prevented); --d:.5s"><span class="name">Prevented</span><p>An EDR confirms it killed, quarantined or blocked the test itself, as part of its own immediate response.</p><span class="sweep"></span></div>
-        <div class="rung" style="--c:var(--v-detected); --d:1s"><span class="name">Detected</span><p>The technique ran, but an EDR raised an alert that matches this exact run. The SOC would have seen it.</p><span class="sweep"></span></div>
+        <div class="rung" style="--c:var(--v-detected); --d:1s"><span class="name">Detected</span><p>The technique ran, but an EDR raised an alert that matches this run: same host, the test's binary, within minutes of it. The SOC would have seen it.</p><span class="sweep"></span></div>
         <div class="rung" style="--c:var(--v-unprotected); --d:1.5s"><span class="name">Unprotected</span><p>A stage ran unblocked (exit 101) and no EDR alert matched. A real attacker would have succeeded quietly.</p><span class="sweep"></span></div>
         <div class="rung" style="--c:var(--v-error); --d:2s"><span class="name">Error</span><p>The test could not reach a conclusion: a timeout, a missing prerequisite, an agent that went offline. It is reported but never scored.</p><span class="sweep"></span></div>
       </div>
@@ -605,7 +605,7 @@ footer .wrap { display: flex; flex-wrap: wrap; gap: 12px 32px; justify-content: 
         </div>
         <div class="panel note">
           <h3>Blocked before launch still counts</h3>
-          <p>When an EDR's static or machine-learning engine blocks the test orchestrator before it starts, and the EDR's alert names that exact run, the result is rewritten from "not run" to Protected.</p>
+          <p>When CrowdStrike, SentinelOne or Sophos blocks the test before it starts, and its alert ties to that run, the result is rewritten from "not run" to Protected. Defender ASR blocks stay "not run".</p>
         </div>
       </div>
     </div>
@@ -691,11 +691,11 @@ footer .wrap { display: flex; flex-wrap: wrap; gap: 12px 32px; justify-content: 
     <div class="two">
       <div class="panel tree" aria-label="Animated process tree showing an alert matched to a test">
         <div class="proc p0"><span class="ind"></span><span class="who">achilles-agent.exe</span><span class="why">service</span></div>
-        <div class="proc p1"><span class="ind">└─ </span><span class="who">7659eeba-f315-…-4aa015d68b27.exe</span><span class="chip-match">test UUID matched</span></div>
+        <div class="proc p1"><span class="ind">└─ </span><span class="who">3f9c2d1a-6b7e-…-9e41c07d5a28.exe</span><span class="chip-match">test UUID matched</span></div>
         <div class="proc p2"><span class="ind">   └─ </span><span class="who">cmd.exe /c …</span><span class="why">parent</span></div>
         <div class="proc p3"><span class="ind">      └─ </span><span class="who">rundll32.exe comsvcs.dll MiniDump</span><span class="chip-alert">EDR alert</span></div>
         <div class="outcomes">
-          <div><svg width="14" height="14" viewBox="0 0 14 14" aria-hidden="true"><circle cx="7" cy="7" r="6" fill="#38bdf8"/></svg><span><b>Verdict upgraded</b> from Unprotected to Detected for this stage</span></div>
+          <div><svg width="14" height="14" viewBox="0 0 14 14" aria-hidden="true"><circle cx="7" cy="7" r="6" fill="#38bdf8"/></svg><span><b>Verdict upgraded</b> from Unprotected to Detected for this run</span></div>
           <div><svg width="14" height="14" viewBox="0 0 14 14" aria-hidden="true"><circle cx="7" cy="7" r="6" fill="#3ef08a"/></svg><span><b>Technique overlap recorded</b>: what the test did against what the EDR labelled</span></div>
           <div><svg width="14" height="14" viewBox="0 0 14 14" aria-hidden="true"><circle cx="7" cy="7" r="6" fill="#2dd4bf"/></svg><span><b>Alert auto-resolved</b> in the EDR console as authorized security testing</span></div>
         </div>
@@ -703,7 +703,7 @@ footer .wrap { display: flex; flex-wrap: wrap; gap: 12px 32px; justify-content: 
       <div class="edr-list">
         <div class="vendors"><span class="tag">Microsoft Defender</span><span class="tag">CrowdStrike Falcon</span><span class="tag">SentinelOne</span><span class="tag">Sophos Central</span></div>
         <div><h3>Same host, same window, the test in the evidence</h3><p>An alert is linked when it is on the test's host, inside the run's time window, and the test's UUID-named binary appears in its evidence: the triggering process, its parent or grandparent where the EDR reports them, or a file path.</p></div>
-        <div><h3>The SOC queue stays clean</h3><p>Once an alert is proven to be a test, Achilles can close it in the EDR console with a note naming the run. Dry-run mode shows what it would close before you let it write anything. The test results themselves are never edited.</p></div>
+        <div><h3>The SOC queue stays clean</h3><p>Once an alert is proven to be a test, Achilles can resolve it in the EDR console with a note naming the test. Dry-run mode shows what it would close before you let it write anything. The test results themselves are never edited.</p></div>
         <div><h3>The EDR's own posture, scored alongside</h3><p>Microsoft Secure Score, CrowdStrike Zero Trust, and Achilles-computed scores for SentinelOne and Sophos are trended next to the Defense Score. Posture checks also flag exclusions that would quietly whitelist every test.</p></div>
       </div>
     </div>
@@ -732,7 +732,7 @@ footer .wrap { display: flex; flex-wrap: wrap; gap: 12px 32px; justify-content: 
         <h3 style="color:var(--v-protected)">For risk management</h3>
         <ul>
           <li><strong>Control effectiveness you can quote</strong><span>"Ransomware chains are stopped before encryption on 85% of hosts" is a measured statement, re-measured every week.</span></li>
-          <li><strong>Exposure to named threat actors</strong><span>Threat-actor coverage shows which of the groups in your sector would get through today, based on their known techniques.</span></li>
+          <li><strong>Exposure to named threat actors</strong><span>Threat-actor coverage shows, for each group your test library emulates, how many of its tests got through on your hosts today.</span></li>
           <li><strong>Evidence for auditors and the board</strong><span>Campaigns produce a tests-by-hosts evidence matrix, CSV exports and print-ready execution reports.</span></li>
           <li><strong>Risk acceptance on the record</strong><span>Accepted gaps are excluded explicitly and remain visible in the unadjusted score, so nothing disappears from view.</span></li>
         </ul>
@@ -771,8 +771,8 @@ footer .wrap { display: flex; flex-wrap: wrap; gap: 12px 32px; justify-content: 
     <div class="guards">
       <div><svg width="28" height="28" viewBox="0 0 28 28" aria-hidden="true"><rect x="3" y="6" width="22" height="16" rx="3" fill="none" stroke="#3ef08a" stroke-width="1.8"/><path d="M3 8l11 8 11-8" fill="none" stroke="#3ef08a" stroke-width="1.8"/></svg><h3>Announced before it runs</h3><p>With pre-execution notices on, tests are held on the server until the email is accepted for every recipient, plus a lead time you choose. A broken mail server holds the tests rather than letting them run unannounced.</p></div>
       <div><svg width="28" height="28" viewBox="0 0 28 28" aria-hidden="true"><path d="M14 3l9 4v6c0 5.5-3.8 10-9 12-5.2-2-9-6.5-9-12V7l9-4z" fill="none" stroke="#3ef08a" stroke-width="1.8"/><path d="M10 14l3 3 5-6" fill="none" stroke="#3ef08a" stroke-width="1.8"/></svg><h3>Hash-checked before it runs</h3><p>A test binary runs only if its SHA-256 and size match the console's record. Windows builds are Authenticode-signed with your certificate when one is configured, and the Sophos posture checks flag an allow-list entry for that certificate, which would whitelist every test.</p></div>
-      <div><svg width="28" height="28" viewBox="0 0 28 28" aria-hidden="true"><circle cx="9" cy="10" r="4" fill="none" stroke="#3ef08a" stroke-width="1.8"/><circle cx="19" cy="10" r="4" fill="none" stroke="#3ef08a" stroke-width="1.8"/><path d="M3 23c0-4 3-6 6-6s6 2 6 6M13 23c0-4 3-6 6-6s6 2 6 6" fill="none" stroke="#3ef08a" stroke-width="1.8"/></svg><h3>Roles and organizations</h3><p>Viewers, operators and admins get different permissions. Organizations are isolated from one another, and shared EDR settings become read-only in multi-tenant installs.</p></div>
-      <div><svg width="28" height="28" viewBox="0 0 28 28" aria-hidden="true"><circle cx="10" cy="14" r="5" fill="none" stroke="#3ef08a" stroke-width="1.8"/><path d="M15 14h10M21 14v4M25 14v3" fill="none" stroke="#3ef08a" stroke-width="1.8"/></svg><h3>Scoped API keys</h3><p>Automation keys come in read, read-write and admin scopes. No key can create users or more keys, so revoking a leaked key contains the incident.</p></div>
+      <div><svg width="28" height="28" viewBox="0 0 28 28" aria-hidden="true"><circle cx="9" cy="10" r="4" fill="none" stroke="#3ef08a" stroke-width="1.8"/><circle cx="19" cy="10" r="4" fill="none" stroke="#3ef08a" stroke-width="1.8"/><path d="M3 23c0-4 3-6 6-6s6 2 6 6M13 23c0-4 3-6 6-6s6 2 6 6" fill="none" stroke="#3ef08a" stroke-width="1.8"/></svg><h3>Roles and organizations</h3><p>Admins, operators, analysts and read-only explorers get different permissions. Inside an install, agents, tasks, schedules and results are scoped to each organization; for full separation, run one install per organization.</p></div>
+      <div><svg width="28" height="28" viewBox="0 0 28 28" aria-hidden="true"><circle cx="10" cy="14" r="5" fill="none" stroke="#3ef08a" stroke-width="1.8"/><path d="M15 14h10M21 14v4M25 14v3" fill="none" stroke="#3ef08a" stroke-width="1.8"/></svg><h3>Scoped API keys</h3><p>Automation keys come in read, read-write and admin scopes. No key can create users or more API keys, so a leaked key can't mint console access that outlives it. Admin-scope keys can still run commands on agents, so treat them like root credentials.</p></div>
       <div><svg width="28" height="28" viewBox="0 0 28 28" aria-hidden="true"><path d="M4 14a10 10 0 0 1 17-7l3-3v8h-8l3-3a7 7 0 1 0 1.5 7" fill="none" stroke="#3ef08a" stroke-width="1.8"/></svg><h3>Safe self-updates</h3><p>Version checks, a launch test at the final path, automatic rollback and a repeat-install guard keep a bad build from knocking the fleet offline.</p></div>
       <div><svg width="28" height="28" viewBox="0 0 28 28" aria-hidden="true"><rect x="5" y="12" width="18" height="12" rx="2" fill="none" stroke="#3ef08a" stroke-width="1.8"/><path d="M9 12V8a5 5 0 0 1 10 0v4" fill="none" stroke="#3ef08a" stroke-width="1.8"/></svg><h3>Deployed where you need it</h3><p>Docker Compose, a single server behind Caddy with automatic TLS, an on-prem LAN installer with its own constrained CA, or managed cloud hosts.</p></div>
     </div>
@@ -1109,10 +1109,11 @@ footer .wrap { display: flex; flex-wrap: wrap; gap: 12px 32px; justify-content: 
   /* ════════ AGENT TERMINAL ════════ */
   var termLines = [
     ['k', '→ POST /api/agent/heartbeat'], ['w', '  200 ok  cpu 4%  mem 31 MB  v0.7.2'],
-    ['k', '→ GET  /api/agent/tasks'], ['w', '  200 task 4f2c9e1a  execute_test  7659eeba (windows/amd64)'],
+    ['k', '→ GET  /api/agent/tasks'], ['w', '  200 task 4f2c9e1a  execute_test  3f9c2d1a (windows/amd64)'],
+    ['k', '→ PATCH /api/agent/tasks/4f2c9e1a/status'], ['w', '  downloading'],
+    ['s', '  download 3f9c2d1a.exe  sha256 ok  size ok'],
     ['k', '→ PATCH /api/agent/tasks/4f2c9e1a/status'], ['w', '  executing'],
-    ['s', '  download 7659eeba.exe  sha256 ok  size ok'],
-    ['w', '  run C:\\F0\\tasks\\task-4f2c9e1a\\7659eeba.exe'],
+    ['w', '  run C:\\F0\\tasks\\task-4f2c9e1a\\3f9c2d1a.exe'],
     ['r', '  stage 1  T1204.002  exit 101  ran'],
     ['p', '  stage 2  T1562.001  exit 126  blocked by EDR'],
     ['w', '  stage 3..5 not reached'],
