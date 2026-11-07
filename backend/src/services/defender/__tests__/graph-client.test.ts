@@ -185,6 +185,19 @@ describe('MicrosoftGraphClient', () => {
       expect(graphCall).toContain('%24top=100');
       expect(graphCall).toContain('%24filter=');
     });
+
+    it('sends no $top by default: alerts_v2 caps the whole result at $top and returns no nextLink', async () => {
+      // Live (Nov 2026): a 90-day query with $top=500 returned 500 alerts and
+      // no @odata.nextLink; without $top, all 1,839 in one page.
+      mockTokenResponse();
+      mockGraphResponse([]);
+
+      await client.getAlerts('createdDateTime ge 2026-08-09T00:00:00Z');
+
+      const graphCall = mockFetch.mock.calls[1][0] as string;
+      expect(graphCall).not.toContain('%24top');
+      expect(graphCall).toContain('%24filter=');
+    });
   });
 
   // ── updateAlert (Wave 3 — write pillar) ───────────────────────────

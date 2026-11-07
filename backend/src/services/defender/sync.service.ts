@@ -27,6 +27,9 @@ import type {
   AutoResolvePassResult,
 } from '../../types/defender.js';
 
+/** Alerts per bulk write during an alert sync. */
+const ALERT_BULK_BATCH = 500;
+
 /** Days of alert history to fetch on first sync (no persisted lastAlertSync). */
 const INITIAL_ALERT_LOOKBACK_DAYS = 90;
 
@@ -35,7 +38,7 @@ const INITIAL_ALERT_LOOKBACK_DAYS = 90;
  * force a full re-sync on all deployments. The persisted sync_version is
  * compared against this; a mismatch clears lastAlertSync.
  */
-const ALERT_SYNC_VERSION = 5; // v5: + evidence_file_verdicts (per-file verdict, edr/multiTestEvidence.ts); v4: + prevention_action / remediation_status / portal_url
+const ALERT_SYNC_VERSION = 6; // v6: full 90 days (the re-sync used to stop at the 500 newest alerts); v5: + evidence_file_verdicts (edr/multiTestEvidence.ts); v4: + prevention_action / remediation_status / portal_url
 
 export class DefenderSyncService {
   private graphClient: MicrosoftGraphClient | null = null;
@@ -452,21 +455,25 @@ export class DefenderSyncService {
         // A plain `index` op replaces the whole doc and would wipe them whenever
         // Defender re-emits the alert (which it does whenever lastUpdateDateTime
         // ticks — common for "new"/"in progress" alerts as evidence evolves).
-        const operations = alerts.flatMap((alert) => {
-          const doc = this.transformAlert(alert, creds.tenant_id);
-          return [
-            { update: { _index: DEFENDER_INDEX, _id: `alert-${alert.id}`, retry_on_conflict: 3 } },
-            { doc, doc_as_upsert: true },
-          ];
-        });
+        // A 90-day (re-)sync can return thousands of alerts: write them in
+        // batches so one bulk request stays a reasonable size.
+        for (let i = 0; i < alerts.length; i += ALERT_BULK_BATCH) {
+          const operations = alerts.slice(i, i + ALERT_BULK_BATCH).flatMap((alert) => {
+            const doc = this.transformAlert(alert, creds.tenant_id);
+            return [
+              { update: { _index: DEFENDER_INDEX, _id: `alert-${alert.id}`, retry_on_conflict: 3 } },
+              { doc, doc_as_upsert: true },
+            ];
+          });
 
-        const result = await es.bulk({ operations, refresh: 'wait_for' });
+          const result = await es.bulk({ operations, refresh: 'wait_for' });
 
-        if (result.errors) {
-          for (const item of result.items) {
-            const op = item.update;
-            if (op?.error) {
-              errors.push(`Alert ${op._id}: ${op.error.reason}`);
+          if (result.errors) {
+            for (const item of result.items) {
+              const op = item.update;
+              if (op?.error) {
+                errors.push(`Alert ${op._id}: ${op.error.reason}`);
+              }
             }
           }
         }
