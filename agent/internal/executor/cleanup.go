@@ -45,6 +45,48 @@ func ArtifactDirs() []string {
 	return []string{"/tmp/F0"}
 }
 
+// openTrustedDir opens dir for cleanup, or returns nil. The root agent only
+// deletes inside a real folder (not a symlink or junction) that it trusts
+// (dirIsTrusted: on Linux / macOS owned by root or the agent and not writable
+// by others, because /tmp/F0 sits in world-writable /tmp). The checks are
+// repeated on the opened handle and every later operation goes through it
+// (os.Root), so a path swapped after the check can't redirect a deletion.
+func openTrustedDir(dir string) *os.Root {
+	before, err := os.Lstat(dir)
+	if err != nil {
+		return nil
+	}
+	if before.Mode()&(os.ModeSymlink|os.ModeIrregular) != 0 || !before.IsDir() {
+		log.Printf("[cleanup] skipping %s: not a real directory", dir)
+		return nil
+	}
+	root, err := os.OpenRoot(dir)
+	if err != nil {
+		return nil
+	}
+	opened, err := root.Stat(".")
+	if err != nil || !os.SameFile(before, opened) || !dirIsTrusted(opened) {
+		log.Printf("[cleanup] skipping %s: not owned by the agent or writable by others", dir)
+		root.Close()
+		return nil
+	}
+	return root
+}
+
+// readRoot lists the top level of an opened root.
+func readRoot(root *os.Root) []os.DirEntry {
+	f, err := root.Open(".")
+	if err != nil {
+		return nil
+	}
+	defer f.Close()
+	entries, err := f.ReadDir(-1)
+	if err != nil {
+		return nil
+	}
+	return entries
+}
+
 // removeTestBinaries deletes testUUID's binaries from the top level of dir and
 // returns their names. Errors (a file still in use, an EDR holding it) are
 // logged and skipped: the startup sweep retries leftovers.
@@ -52,16 +94,17 @@ func removeTestBinaries(dir, testUUID string) []string {
 	if testUUID == "" {
 		return nil
 	}
-	entries, err := os.ReadDir(dir)
-	if err != nil {
+	root := openTrustedDir(dir)
+	if root == nil {
 		return nil
 	}
+	defer root.Close()
 	var removed []string
-	for _, e := range entries {
+	for _, e := range readRoot(root) {
 		if !e.Type().IsRegular() || !isTestBinary(e.Name(), testUUID) {
 			continue
 		}
-		if err := os.Remove(filepath.Join(dir, e.Name())); err != nil {
+		if err := root.Remove(e.Name()); err != nil {
 			log.Printf("[cleanup] could not remove %s: %v", filepath.Join(dir, e.Name()), err)
 			continue
 		}
@@ -86,8 +129,8 @@ func cleanupAfterRun(testUUID string) {
 func SweepStale(workDir string, artifactDirs []string, olderThan time.Duration, now time.Time) {
 	cutoff := now.Add(-olderThan)
 	folders, files := 0, 0
-	if entries, err := os.ReadDir(workDir); err == nil {
-		for _, e := range entries {
+	if root := openTrustedDir(workDir); root != nil {
+		for _, e := range readRoot(root) {
 			name := e.Name()
 			if !e.IsDir() || !(strings.HasPrefix(name, "task-") || strings.HasPrefix(name, "cmd-")) {
 				continue
@@ -95,31 +138,33 @@ func SweepStale(workDir string, artifactDirs []string, olderThan time.Duration, 
 			if info, err := e.Info(); err != nil || info.ModTime().After(cutoff) {
 				continue
 			}
-			if err := os.RemoveAll(filepath.Join(workDir, name)); err != nil {
+			if err := root.RemoveAll(name); err != nil {
 				log.Printf("[cleanup] could not remove %s: %v", filepath.Join(workDir, name), err)
 				continue
 			}
 			folders++
 		}
+		root.Close()
 	}
 	for _, dir := range artifactDirs {
-		entries, err := os.ReadDir(dir)
-		if err != nil {
+		root := openTrustedDir(dir)
+		if root == nil {
 			continue
 		}
-		for _, e := range entries {
+		for _, e := range readRoot(root) {
 			if !e.Type().IsRegular() || !isTestBinary(e.Name(), "") {
 				continue
 			}
 			if info, err := e.Info(); err != nil || info.ModTime().After(cutoff) {
 				continue
 			}
-			if err := os.Remove(filepath.Join(dir, e.Name())); err != nil {
+			if err := root.Remove(e.Name()); err != nil {
 				log.Printf("[cleanup] could not remove %s: %v", filepath.Join(dir, e.Name()), err)
 				continue
 			}
 			files++
 		}
+		root.Close()
 	}
 	if folders > 0 || files > 0 {
 		log.Printf("[cleanup] removed %d stale run folder(s) and %d leftover test binar%s", folders, files, plural(files))
