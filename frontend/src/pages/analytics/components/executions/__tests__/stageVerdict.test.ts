@@ -20,6 +20,27 @@ describe('stageVerdict', () => {
     });
   });
 
+  it('an error stage names the vendor whose OWN stage alert carried the action, not a bundle-wide one', () => {
+    const v = stageVerdict(
+      mk({
+        error_code: 999,
+        crowdstrike_stage_detected: true, crowdstrike_prevented: true, crowdstrike_prevention_action: 'process_killed', crowdstrike_stage_prevented: false,
+        defender_stage_detected: true, defender_prevented: true, defender_prevention_action: 'blocked', defender_stage_prevented: true,
+      }),
+      [],
+    );
+    expect(v.kind).toBe('prevented');
+    expect(v.body).toBe('Defender reports it blocked it.');
+  });
+
+  it('an error stage whose only action came from a bundle-wide alert is detected, not prevented', () => {
+    const v = stageVerdict(
+      mk({ error_code: 999, crowdstrike_stage_detected: true, crowdstrike_prevented: true, crowdstrike_prevention_action: 'process_killed', crowdstrike_stage_prevented: false }),
+      [],
+    );
+    expect(v.kind).toBe('detected');
+  });
+
   it('prevented names the vendor and action', () => {
     const v = stageVerdict(
       mk({ defender_stage_detected: true, defender_prevention_action: 'quarantined' }),

@@ -140,8 +140,9 @@ export type CategoryType = 'intel-driven' | 'mitre-top10' | 'cyber-hygiene' | 'p
  * `<key>_stage_detected` (the alert names THIS stage's own binary; drives the
  * per-stage "Detected" badge; may be undefined on old docs, the UI then falls
  * back to the bundle flag), `<key>_prevented` (vendor-confirmed prevention,
- * subset of detected; drives "Prevented") and `<key>_prevention_action`
- * ('quarantined' | 'process_killed' | 'blocked').
+ * subset of detected; drives "Prevented"), `<key>_prevention_action`
+ * ('quarantined' | 'process_killed' | 'blocked') and `<key>_stage_prevented`
+ * (the action came from an alert naming THIS stage; absent on older rows).
  */
 export interface EnrichedTestExecution extends TestExecution, EdrResultFlags {
   category?: CategoryType;

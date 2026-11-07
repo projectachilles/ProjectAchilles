@@ -209,11 +209,21 @@ function stageOnlyDetected(exec: EnrichedTestExecution): boolean {
   return EDR_VENDOR_KEYS.some((k) => Boolean(exec[`${k}_stage_detected`]));
 }
 
-/** This stage was detected AND the EDR took a confirmed prevention action on it. */
+/**
+ * Vendor `k`'s own alert on THIS stage carried a confirmed prevention action.
+ * `<k>_stage_prevented` decides when present; rows enriched before it existed
+ * fall back to stage detection + a confirmed action (which can't tell a stage
+ * alert's action from a bundle-wide one).
+ */
+export function stageOwnPrevented(exec: EnrichedTestExecution, k: EdrVendorKey): boolean {
+  const own = exec[`${k}_stage_prevented`];
+  if (own !== undefined && own !== null) return own === true;
+  return Boolean(exec[`${k}_stage_detected`]) && isConfirmedPrevention(exec[`${k}_prevention_action`]);
+}
+
+/** Some vendor's own alert on this stage carried a confirmed prevention action. */
 function stageOnlyPrevented(exec: EnrichedTestExecution): boolean {
-  return EDR_VENDOR_KEYS.some(
-    (k) => Boolean(exec[`${k}_stage_detected`]) && isConfirmedPrevention(exec[`${k}_prevention_action`]),
-  );
+  return EDR_VENDOR_KEYS.some((k) => stageOwnPrevented(exec, k));
 }
 
 export function classifyExecution(exec: EnrichedTestExecution): ExecutionOutcome {
@@ -235,9 +245,12 @@ export function classifyExecution(exec: EnrichedTestExecution): ExecutionOutcome
   }
   // Per-stage flag, falling back to the bundle-level flag for older documents.
   const detected = (k: EdrVendorKey) => Boolean(exec[`${k}_stage_detected`] ?? exec[`${k}_detected`]);
-  const isPrevented = EDR_VENDOR_KEYS.some(
-    (k) => Boolean(exec[`${k}_prevented`]) || (detected(k) && isConfirmedPrevention(exec[`${k}_prevention_action`])),
-  );
+  const ownAction = (k: EdrVendorKey) => {
+    const own = exec[`${k}_stage_prevented`];
+    if (own !== undefined && own !== null) return own === true;
+    return detected(k) && isConfirmedPrevention(exec[`${k}_prevention_action`]);
+  };
+  const isPrevented = EDR_VENDOR_KEYS.some((k) => Boolean(exec[`${k}_prevented`]) || ownAction(k));
   if (isPrevented) return 'prevented';
   if (EDR_VENDOR_KEYS.some(detected)) return 'detected';
   return 'unprotected';
@@ -274,8 +287,11 @@ export function ExecResultLabel({ exec, compact }: { exec: EnrichedTestExecution
         </span>
       );
     case 'prevented': {
+      // The stage's own action first (stageOwnPrevented), then any vendor's.
+      const own = PREVENTION_ACTION_PRECEDENCE.find((k) => stageOwnPrevented(exec, k));
       const action = formatPreventionAction(
-        PREVENTION_ACTION_PRECEDENCE.map((k) => exec[`${k}_prevention_action`]).find((a) => a !== undefined && a !== null),
+        (own ? exec[`${own}_prevention_action`] : undefined)
+          ?? PREVENTION_ACTION_PRECEDENCE.map((k) => exec[`${k}_prevention_action`]).find((a) => a !== undefined && a !== null),
       );
       return (
         <span className="inline-flex items-center gap-1.5 text-accent">
