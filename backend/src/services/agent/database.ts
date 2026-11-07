@@ -442,6 +442,26 @@ export function initializeTables(database: Database.Database): void {
     );
   `);
 
+  // Deleted tasks (tasks.service.ts deleteTask). A delete moves the row here
+  // instead of discarding it: who deleted it and when, plus the full row as
+  // JSON, so a column added to `tasks` later is kept without a migration and
+  // the tasks-table recreate migrations never touch this table. Rows here are
+  // invisible to every task list; the EDR agent-kill pass still reads them,
+  // because a run an EDR stopped stays proven after its row is deleted.
+  database.exec(`
+    CREATE TABLE IF NOT EXISTS deleted_tasks (
+      id TEXT PRIMARY KEY,
+      agent_id TEXT,
+      org_id TEXT,
+      type TEXT NOT NULL,
+      status TEXT NOT NULL,
+      row TEXT NOT NULL,
+      deleted_at TEXT NOT NULL,
+      deleted_by TEXT
+    );
+    CREATE INDEX IF NOT EXISTS idx_deleted_tasks_deleted_at ON deleted_tasks(deleted_at);
+  `);
+
   // Migration: expand api_keys.scope CHECK constraint to include 'admin'.
   // Must run after the CREATE TABLE IF NOT EXISTS api_keys above — on a fresh
   // database the table doesn't exist until that statement runs.

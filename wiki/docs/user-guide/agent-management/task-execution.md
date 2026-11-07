@@ -269,7 +269,13 @@ Task tables render *honest* status: a task the agent marked `completed` whose re
 Select multiple tasks using checkboxes, then use bulk actions to:
 
 - **Cancel** all selected pending/assigned tasks
-- **Delete** selected tasks from the list
+- **Delete** the selected finished tasks (completed, failed or expired) from the list
+
+Only finished tasks can be deleted; cancel an active one instead. A deleted task
+leaves every list, but ProjectAchilles keeps an archived copy with who deleted it
+and when. Results already in Analytics stay there, and a run that failed because
+the agent went offline can still be recorded as **Protected** when an EDR's
+alert later proves it stopped the test.
 
 ### Pagination
 

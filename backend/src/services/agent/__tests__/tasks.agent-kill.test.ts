@@ -9,7 +9,7 @@ vi.mock('../database.js', async (importOriginal) => {
   return { ...actual, getDatabase: () => testDb };
 });
 
-const { listAgentKillCandidates, recordEdrTermination } = await import('../tasks.service.js');
+const { listAgentKillCandidates, recordEdrTermination, deleteTask } = await import('../tasks.service.js');
 const { RESULTS_INDEX_MAPPING } = await import('../../analytics/index-management.service.js');
 
 const OFFLINE = 'Agent went offline during execution';
@@ -46,6 +46,33 @@ beforeEach(() => {
 });
 
 describe('listAgentKillCandidates', () => {
+  it('still lists a deleted (archived) watchdog-failed task: an EDR kill can be proven after the row left the task list', () => {
+    addTask('deleted', { error: OFFLINE });
+    insertTestTask(testDb, { id: 'next', agent_id: 'agent-001', status: 'completed', assigned_at: '2026-10-20 10:07:00' });
+    deleteTask('deleted', 'user_abc');
+    const rows = listAgentKillCandidates('2026-10-01T00:00:00.000Z');
+    expect(rows.map((r) => r.task.id)).toEqual(['deleted']);
+    expect(rows[0]).toMatchObject({ hostname: 'LT4862', termination: null, nextAssignedAt: '2026-10-20 10:07:00' });
+    expect(rows[0].task.payload.metadata.techniques).toEqual(['T1003']);
+  });
+
+  it('a deleted cyber-hygiene or non-watchdog task is not listed', () => {
+    addTask('hygiene', { error: OFFLINE, category: 'cyber-hygiene' });
+    addTask('agent-fail', { error: 'binary not found' });
+    deleteTask('hygiene', 'u');
+    deleteTask('agent-fail', 'u');
+    expect(listAgentKillCandidates('2026-10-01T00:00:00.000Z')).toEqual([]);
+  });
+
+  it('recordEdrTermination stamps an archived task, and it is then listed as reconciled', () => {
+    addTask('deleted', { error: OFFLINE });
+    deleteTask('deleted', 'user_abc');
+    recordEdrTermination('deleted', term);
+    const [row] = listAgentKillCandidates('2026-10-01T00:00:00.000Z');
+    expect(row.termination).toEqual(term);
+    expect(testDb.prepare('SELECT * FROM tasks WHERE id = ?').get('deleted')).toBeUndefined();
+  });
+
   it('lists watchdog-failed execute_test tasks with the agent hostname', () => {
     addTask('offline', { error: OFFLINE });
     addTask('overdue', { error: OVERDUE });

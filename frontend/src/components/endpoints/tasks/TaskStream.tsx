@@ -523,7 +523,8 @@ export default function TaskStream({
                   Notes{selectedTask.notes ? ' •' : ''}
                 </Button>
               )}
-              {onDelete && (
+              {/* Only a finished task can be deleted (the backend archives it); cancel an active one. */}
+              {onDelete && TERMINAL_STATUSES.has(selectedTask.status) && (
                 <Button
                   variant="ghost"
                   size="sm"
