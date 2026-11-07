@@ -24,6 +24,9 @@ import type { BreakdownTile } from './utils/taskTiles';
 import { DEFAULT_TASK_KIND, TASK_KINDS, kindCount, typesForKind, type TaskKind } from './utils/taskKinds';
 import { pillClass } from '@/components/shared/ui/pillStyles';
 
+/** Task statuses DELETE /tasks/:id accepts; an active task is cancelled instead. */
+const DELETABLE_TASK_STATUSES = new Set(['completed', 'failed', 'expired']);
+
 const TOAST_DURATION_MS = 4000;
 const PAGE_SIZE_OPTIONS = [25, 50, 100];
 const SEARCH_DEBOUNCE_MS = 300;
@@ -322,7 +325,7 @@ export default function TasksPage() {
 
   async function handleBulkDelete(): Promise<void> {
     let count = 0;
-    for (const taskId of selectedTasks) {
+    for (const taskId of deletableSelected.map((t) => t.id)) {
       try {
         await agentApi.deleteTask(taskId);
         count++;
@@ -342,7 +345,9 @@ export default function TasksPage() {
   const canBulkCancel = selectedTaskObjects.length > 0 && selectedTaskObjects.every(
     (t) => t.status === 'pending' || t.status === 'assigned'
   );
-  const canBulkDelete = selectedTaskObjects.length > 0;
+  // Only finished tasks can be deleted (the backend archives them; 409 otherwise).
+  const deletableSelected = selectedTaskObjects.filter((t) => DELETABLE_TASK_STATUSES.has(t.status));
+  const canBulkDelete = deletableSelected.length > 0;
 
   // --- Schedules ---
 

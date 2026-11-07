@@ -1022,63 +1022,44 @@ describe('tasks.service', () => {
     });
   });
 
-  describe('deleteTask', () => {
-    it('deletes a completed task', () => {
-      insertTestTask(testDb, { id: 't1', status: 'completed' });
+  describe('deleteTask (archives, never loses the row)', () => {
+    const archived = (id: string) =>
+      testDb.prepare('SELECT * FROM deleted_tasks WHERE id = ?').get(id) as
+        { id: string; agent_id: string; type: string; status: string; row: string; deleted_at: string; deleted_by: string | null } | undefined;
 
-      deleteTask('t1');
+    it.each(['completed', 'failed', 'expired'])('a %s task leaves the task list and is archived with who and when', (status) => {
+      insertTestTask(testDb, { id: 't1', status });
+      testDb.prepare(`UPDATE tasks SET result = ? WHERE id = 't1'`).run(JSON.stringify({ error: 'Agent went offline during execution', exit_code: -1 }));
 
-      const row = testDb.prepare('SELECT * FROM tasks WHERE id = ?').get('t1');
-      expect(row).toBeUndefined();
+      deleteTask('t1', 'user_abc');
+
+      expect(testDb.prepare('SELECT * FROM tasks WHERE id = ?').get('t1')).toBeUndefined();
+      const a = archived('t1');
+      expect(a).toMatchObject({ id: 't1', agent_id: 'agent-001', type: 'execute_test', status, deleted_by: 'user_abc' });
+      expect(Date.parse(a!.deleted_at)).not.toBeNaN();
+      // The full row is kept, so any later column survives too.
+      const row = JSON.parse(a!.row);
+      expect(row).toMatchObject({ id: 't1', status, agent_id: 'agent-001' });
+      expect(JSON.parse(row.result)).toMatchObject({ error: 'Agent went offline during execution' });
     });
 
-    it('deletes a failed task', () => {
+    it.each(['pending', 'assigned', 'downloading', 'executing'])('refuses a %s task (409): cancel it instead', (status) => {
+      insertTestTask(testDb, { id: 't1', status });
+      expect(() => deleteTask('t1', 'user_abc')).toThrow(expect.objectContaining({ statusCode: 409 }));
+      expect(testDb.prepare('SELECT status FROM tasks WHERE id = ?').get('t1')).toEqual({ status });
+      expect(archived('t1')).toBeUndefined();
+    });
+
+    it('logs who deleted which task', () => {
+      const log = vi.spyOn(console, 'log').mockImplementation(() => {});
       insertTestTask(testDb, { id: 't1', status: 'failed' });
-
-      deleteTask('t1');
-
-      const row = testDb.prepare('SELECT * FROM tasks WHERE id = ?').get('t1');
-      expect(row).toBeUndefined();
-    });
-
-    it('deletes an expired task', () => {
-      insertTestTask(testDb, { id: 't1', status: 'expired' });
-
-      deleteTask('t1');
-
-      const row = testDb.prepare('SELECT * FROM tasks WHERE id = ?').get('t1');
-      expect(row).toBeUndefined();
-    });
-
-    it('deletes a pending task', () => {
-      insertTestTask(testDb, { id: 't1', status: 'pending' });
-
-      deleteTask('t1');
-
-      const row = testDb.prepare('SELECT * FROM tasks WHERE id = ?').get('t1');
-      expect(row).toBeUndefined();
-    });
-
-    it('deletes an assigned task', () => {
-      insertTestTask(testDb, { id: 't1', status: 'assigned' });
-
-      deleteTask('t1');
-
-      const row = testDb.prepare('SELECT * FROM tasks WHERE id = ?').get('t1');
-      expect(row).toBeUndefined();
-    });
-
-    it('deletes an executing task', () => {
-      insertTestTask(testDb, { id: 't1', status: 'executing' });
-
-      deleteTask('t1');
-
-      const row = testDb.prepare('SELECT * FROM tasks WHERE id = ?').get('t1');
-      expect(row).toBeUndefined();
+      deleteTask('t1', 'user_abc');
+      expect(log.mock.calls.flat().join(' ')).toMatch(/Deleted task t1 \(execute_test, failed\) by user_abc/);
+      log.mockRestore();
     });
 
     it('throws 404 for nonexistent task', () => {
-      expect(() => deleteTask('nonexistent')).toThrow('Task not found');
+      expect(() => deleteTask('nonexistent', 'user_abc')).toThrow('Task not found');
     });
   });
 

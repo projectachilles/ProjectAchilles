@@ -490,14 +490,15 @@ adminTasksRouter.post(
 
 /**
  * DELETE /tasks/:id
- * Delete a terminal task (completed/failed/expired).
+ * Delete a terminal task (completed/failed/expired); 409 for an active one.
+ * The row is archived in deleted_tasks with who deleted it, not discarded.
  */
 adminTasksRouter.delete(
   '/tasks/:id',
   requirePermission('endpoints:tasks:delete'),
   asyncHandler(async (req, res) => {
     requireTaskInScope(req);
-    deleteTask(req.params.id);
+    deleteTask(req.params.id, getUserId(req.auth) ?? null);
     res.json({ success: true, data: null });
   })
 );

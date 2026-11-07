@@ -770,18 +770,19 @@ export interface AgentKillCandidateRow {
 
 /**
  * Watchdog-failed `execute_test` tasks (agent vanished mid-run) completed
- * since `sinceIso`, with the agent hostname. Includes already-reconciled rows.
+ * since `sinceIso`, with the agent hostname. Includes already-reconciled rows
+ * and deleted ones (archived in `deleted_tasks`): deleting a run from the task
+ * list must not discard the proof that an EDR stopped it.
  * Cyber-hygiene tests are excluded: they score per control, so a whole-test
  * document can't represent them.
  */
 export function listAgentKillCandidates(sinceIso: string): AgentKillCandidateRow[] {
+  const db = getDatabase();
   const marks = AGENT_KILL_WATCHDOG_ERRORS.map(() => '?').join(', ');
   // completed_at is stored as SQLite `YYYY-MM-DD HH:MM:SS`; compare in that format.
   const since = new Date(parseSqliteUtc(sinceIso)).toISOString().slice(0, 19).replace('T', ' ');
-  const rows = getDatabase().prepare(`
-    SELECT t.*, a.hostname AS agent_hostname,
-      (SELECT MIN(t2.assigned_at) FROM tasks t2
-        WHERE t2.agent_id = t.agent_id AND t2.assigned_at > t.assigned_at) AS next_assigned_at
+  const live = db.prepare(`
+    SELECT t.*, a.hostname AS agent_hostname
     FROM tasks t
     LEFT JOIN agents a ON a.id = t.agent_id
     WHERE t.type = 'execute_test'
@@ -790,23 +791,66 @@ export function listAgentKillCandidates(sinceIso: string): AgentKillCandidateRow
       AND t.completed_at >= ?
       AND t.assigned_at IS NOT NULL
       AND COALESCE(json_extract(t.payload, '$.metadata.category'), '') != 'cyber-hygiene'
-  `).all(...AGENT_KILL_WATCHDOG_ERRORS, since) as Array<TaskRow & { next_assigned_at: string | null }>;
-  return rows.map((row) => {
+  `).all(...AGENT_KILL_WATCHDOG_ERRORS, since) as Array<TaskRow & { agent_hostname: string | null }>;
+  // The archived row is the task row as JSON; its result and payload are JSON text inside it.
+  const archived = (db.prepare(`
+    SELECT d.row AS row_json, a.hostname AS agent_hostname
+    FROM deleted_tasks d
+    LEFT JOIN agents a ON a.id = d.agent_id
+    WHERE d.type = 'execute_test'
+      AND d.status = 'failed'
+      AND json_extract(json_extract(d.row, '$.result'), '$.error') IN (${marks})
+      AND json_extract(d.row, '$.completed_at') >= ?
+      AND json_extract(d.row, '$.assigned_at') IS NOT NULL
+      AND COALESCE(json_extract(json_extract(d.row, '$.payload'), '$.metadata.category'), '') != 'cyber-hygiene'
+  `).all(...AGENT_KILL_WATCHDOG_ERRORS, since) as Array<{ row_json: string; agent_hostname: string | null }>)
+    .map((r) => ({ ...(JSON.parse(r.row_json) as TaskRow), agent_hostname: r.agent_hostname }));
+
+  // The same agent's next assignment, deleted tasks included.
+  const nextLive = db.prepare('SELECT MIN(assigned_at) AS at FROM tasks WHERE agent_id = ? AND assigned_at > ?');
+  const nextArchived = db.prepare(`
+    SELECT MIN(json_extract(row, '$.assigned_at')) AS at FROM deleted_tasks
+    WHERE agent_id = ? AND json_extract(row, '$.assigned_at') > ?`);
+  const nextAssigned = (agentId: string, after: string): string | null => {
+    const at = [nextLive.get(agentId, after), nextArchived.get(agentId, after)]
+      .map((r) => (r as { at: string | null } | undefined)?.at ?? null)
+      .filter((x): x is string => x !== null)
+      .sort();
+    return at[0] ?? null;
+  };
+
+  return [...live, ...archived].map((row) => {
     const task = parseTaskRow(row);
     const termination = task.result?.edr_terminated ?? null;
-    return { task, hostname: row.agent_hostname ?? null, termination, nextAssignedAt: row.next_assigned_at ?? null };
+    return {
+      task,
+      hostname: row.agent_hostname ?? null,
+      termination,
+      nextAssignedAt: row.assigned_at ? nextAssigned(row.agent_id, row.assigned_at) : null,
+    };
   });
 }
 
 /**
  * Stamp a watchdog-failed task as reconciled: adds `result.edr_terminated` and
  * sets es_ingested = 1. `status` and `exit_code` stay as the watchdog left them.
+ * A deleted task is stamped in its `deleted_tasks` archive row.
  */
 export function recordEdrTermination(taskId: string, t: EdrTermination): void {
-  getDatabase().prepare(`
+  const db = getDatabase();
+  const live = db.prepare(`
     UPDATE tasks
     SET result = json_set(COALESCE(result, '{}'), '$.edr_terminated', json(?)),
         es_ingested = 1
+    WHERE id = ?
+  `).run(JSON.stringify(t), taskId);
+  if (live.changes > 0) return;
+  db.prepare(`
+    UPDATE deleted_tasks
+    -- '' || drops the JSON subtype: result stays JSON *text* in the row, as in tasks.
+    SET row = json_set(row,
+      '$.result', '' || json_set(COALESCE(json_extract(row, '$.result'), '{}'), '$.edr_terminated', json(?)),
+      '$.es_ingested', 1)
     WHERE id = ?
   `).run(JSON.stringify(t), taskId);
 }
@@ -1160,19 +1204,33 @@ export function retryTask(taskId: string, retriedBy: string, noticeId: string | 
   return parseTaskRow(inserted);
 }
 
+/** Statuses a task can be deleted in; an active task is cancelled instead. */
+const DELETABLE_STATUSES = new Set(['completed', 'failed', 'expired']);
+
 /**
- * Delete a task in any status. Admin-only action behind Clerk auth.
+ * Delete a finished task: it leaves every task list, but the row is archived
+ * in `deleted_tasks` with who deleted it and when, never discarded. A
+ * watchdog-failed run deleted from the list can still be proven Protected by
+ * the EDR agent-kill pass (listAgentKillCandidates reads the archive).
+ * A pending or running task is refused (409): cancel it instead.
  */
-export function deleteTask(taskId: string): void {
+export function deleteTask(taskId: string, deletedBy: string | null): void {
   const db = getDatabase();
-
-  const row = db.prepare('SELECT status FROM tasks WHERE id = ?').get(taskId) as { status: string } | undefined;
-
-  if (!row) {
-    throw new AppError('Task not found', 404);
-  }
-
-  db.prepare('DELETE FROM tasks WHERE id = ?').run(taskId);
+  const archive = db.transaction(() => {
+    const row = db.prepare('SELECT * FROM tasks WHERE id = ?').get(taskId) as TaskRow | undefined;
+    if (!row) throw new AppError('Task not found', 404);
+    if (!DELETABLE_STATUSES.has(row.status)) {
+      throw new AppError(`Only a completed, failed or expired task can be deleted (this one is ${row.status}); cancel it instead`, 409);
+    }
+    db.prepare(`
+      INSERT OR REPLACE INTO deleted_tasks (id, agent_id, org_id, type, status, row, deleted_at, deleted_by)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+    `).run(row.id, row.agent_id, row.org_id ?? null, row.type, row.status, JSON.stringify(row), new Date().toISOString(), deletedBy);
+    db.prepare('DELETE FROM tasks WHERE id = ?').run(taskId);
+    return row;
+  });
+  const row = archive();
+  console.log(`[tasks] Deleted task ${row.id} (${row.type}, ${row.status}) by ${deletedBy ?? 'unknown'}; archived in deleted_tasks`);
 }
 
 /**
