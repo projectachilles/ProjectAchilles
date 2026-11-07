@@ -67,6 +67,7 @@ describe.each(VENDORS)('EDR alert enrichment — $name', ({ prefix, index, make 
       [`${prefix}_prevented`]: true,
       [`${prefix}_prevention_action`]: 'quarantined',
       [`${prefix}_stage_prevented`]: true,
+      [`${prefix}_stage_rule`]: 'single_test',
     });
     expect(ops[2]).toEqual({ update: { _index: index, _id: 'alert-1' } });
     expect(ops[3].doc.f0rtika).toMatchObject({ achilles_correlated: true, achilles_test_uuid: 'b1' });
@@ -85,7 +86,7 @@ describe.each(VENDORS)('EDR alert enrichment — $name', ({ prefix, index, make 
     await make(client).runEnrichmentPass();
     const q = search.mock.calls[0][0].query;
     const should = q.bool.filter[q.bool.filter.length - 1].bool.should;
-    expect(should).toHaveLength(4);
+    expect(should).toHaveLength(5);
     expect(should[2]).toEqual({
       bool: {
         filter: [
@@ -95,7 +96,7 @@ describe.each(VENDORS)('EDR alert enrichment — $name', ({ prefix, index, make 
         must_not: [{ term: { [`f0rtika.${prefix}_stage_prevented`]: true } }],
       },
     });
-    expect(should[3]).toEqual({
+    expect(should[4]).toEqual({
       bool: {
         filter: [{ term: { [`f0rtika.${prefix}_stage_detected`]: true } }],
         must_not: [{ exists: { field: `f0rtika.${prefix}_stage_prevented` } }],
@@ -118,7 +119,8 @@ describe.each(VENDORS)('EDR alert enrichment — $name', ({ prefix, index, make 
 
   it('finds an action beyond the hits returned (aggregation over every matching alert)', async () => {
     search.mockResolvedValueOnce({ hits: { hits: [resultDoc(999)] } });
-    const withAgg = { ...hits(), aggregations: { prevention: { actions: { buckets: [{ key: 'process_killed', doc_count: 1 }, { key: 'kill_failed', doc_count: 1 }] } } } };
+    // More alerts matched (150) than a stage query reads: the aggregation fills in.
+    const withAgg = { hits: { total: { value: 150 }, hits: [{ _id: 'alert-1', _source: {} }] }, aggregations: { prevention: { actions: { buckets: [{ key: 'process_killed', doc_count: 1 }, { key: 'kill_failed', doc_count: 1 }] } } } };
     msearch.mockResolvedValueOnce({ responses: [hits(), withAgg] });
     await make(client).runEnrichmentPass({ batchSize: 200 });
     const flags = bulk.mock.calls[0][0].operations[1].doc.f0rtika;
@@ -135,6 +137,7 @@ describe.each(VENDORS)('EDR alert enrichment — $name', ({ prefix, index, make 
       [`${prefix}_prevented`]: true,
       [`${prefix}_prevention_action`]: 'process_killed',
       [`${prefix}_stage_prevented`]: false,
+      [`${prefix}_stage_rule`]: 'single_test',
     });
   });
 
@@ -166,7 +169,8 @@ describe.each(VENDORS)('EDR alert enrichment — $name late prevention and prove
   const client = { search, msearch, bulk };
   const flagged = (extra: Record<string, unknown> = {}) => {
     const d = resultDoc(999);
-    return { ...d, _source: { ...d._source, f0rtika: { ...d._source.f0rtika, [`${prefix}_detected`]: true, [`${prefix}_stage_detected`]: true, ...extra } } };
+    // Stages already evaluated under the single-test rule (the multi-test describe covers older ones).
+    return { ...d, _source: { ...d._source, f0rtika: { ...d._source.f0rtika, [`${prefix}_detected`]: true, [`${prefix}_stage_detected`]: true, [`${prefix}_stage_rule`]: 'single_test', ...extra } } };
   };
   const alertHit = (source: Record<string, unknown>) => ({ hits: { total: { value: 1 }, hits: [{ _id: 'alert-1', _source: source }] } });
   const correlated = { f0rtika: { achilles_correlated: true } };
@@ -253,7 +257,100 @@ describe.each(VENDORS)('EDR alert enrichment — $name late prevention and prove
       [`${prefix}_prevented`]: true,
       [`${prefix}_prevention_action`]: 'blocked',
       [`${prefix}_stage_prevented`]: true,
+      [`${prefix}_stage_rule`]: 'single_test',
     });
     expect(ops[2]).toEqual({ update: { _index: index, _id: 'alert-1' } });
+  });
+});
+
+// Multi-test alerts: evidence naming binaries of 2+ different Achilles tests
+// (Defender's "A suspicious file was observed" lists leftover binaries of
+// several tests on the disk). Never stage evidence; still test-level evidence.
+describe.each(VENDORS)('EDR alert enrichment — $name multi-test alerts', ({ prefix, make }) => {
+  const search = vi.fn();
+  const msearch = vi.fn();
+  const bulk = vi.fn();
+  const client = { search, msearch, bulk };
+  const MULTI = { evidence_filenames: ['298cc137-ea39-4cf0-9b2d-b1c59a3cbacb-t1486.exe', '26a8b54e-0000-4000-8000-000000000001.exe', 'powershell.exe'] };
+  const agg = (extra: Record<string, unknown> = {}) => ({ _id: 'agg-1', _source: { ...MULTI, ...extra } });
+  const single = (extra: Record<string, unknown> = {}) => ({ _id: 'one-1', _source: { evidence_filenames: ['298cc137-ea39-4cf0-9b2d-b1c59a3cbacb-t1486.exe'], ...extra } });
+  const page = (...h: unknown[]) => ({ hits: { total: { value: h.length }, hits: h } });
+  const flaggedDoc = (exit: number, extra: Record<string, unknown> = {}) => {
+    const d = resultDoc(exit);
+    return { ...d, _source: { ...d._source, f0rtika: { ...d._source.f0rtika, [`${prefix}_detected`]: true, [`${prefix}_stage_detected`]: true, [`${prefix}_stage_prevented`]: true, [`${prefix}_prevented`]: true, [`${prefix}_prevention_action`]: 'blocked', ...extra } } };
+  };
+  beforeEach(() => {
+    vi.clearAllMocks();
+    bulk.mockResolvedValue({ items: [{ update: {} }, { update: {} }, { update: {} }] });
+  });
+
+  it('a stage query that matches only multi-test alerts is no stage evidence; the test-level match still counts', async () => {
+    search.mockResolvedValueOnce({ hits: { hits: [resultDoc(101)] } });
+    msearch.mockResolvedValueOnce({ responses: [page(agg({ prevention_action: 'blocked' })), page(agg({ prevention_action: 'blocked' }))] });
+    await make(client).runEnrichmentPass({ batchSize: 200 });
+    expect(bulk.mock.calls[0][0].operations[1].doc.f0rtika).toEqual({ [`${prefix}_detected`]: true });
+  });
+
+  it('a single-test alert next to a multi-test one is stage evidence (its own action only)', async () => {
+    search.mockResolvedValueOnce({ hits: { hits: [resultDoc(101)] } });
+    msearch.mockResolvedValueOnce({ responses: [page(single()), page(agg({ prevention_action: 'blocked' }), single())] });
+    await make(client).runEnrichmentPass({ batchSize: 200 });
+    expect(bulk.mock.calls[0][0].operations[1].doc.f0rtika).toEqual({
+      [`${prefix}_detected`]: true,
+      [`${prefix}_stage_detected`]: true,
+      [`${prefix}_stage_prevented`]: false,
+      [`${prefix}_stage_rule`]: 'single_test',
+    });
+  });
+
+  it('re-checks a stage stored under the old rule once', async () => {
+    search.mockResolvedValueOnce({ hits: { hits: [] } });
+    await make(client).runEnrichmentPass();
+    const q = search.mock.calls[0][0].query;
+    const should = q.bool.filter[q.bool.filter.length - 1].bool.should;
+    expect(should).toContainEqual({
+      bool: {
+        filter: [{ term: { [`f0rtika.${prefix}_stage_detected`]: true } }],
+        must_not: [{ term: { [`f0rtika.${prefix}_stage_rule`]: 'single_test' } }],
+      },
+    });
+  });
+
+  it('a stored stage whose only stage alerts are multi-test loses its stage flags; exit 101 also loses _prevented', async () => {
+    search.mockResolvedValueOnce({ hits: { hits: [flaggedDoc(101)] } });
+    msearch.mockResolvedValueOnce({ responses: [page(agg({ f0rtika: { achilles_correlated: true } })), page(agg({ f0rtika: { achilles_correlated: true } }))] });
+    await make(client).runEnrichmentPass({ batchSize: 200 });
+    expect(bulk.mock.calls[0][0].operations[1].doc.f0rtika).toEqual({
+      [`${prefix}_stage_detected`]: false,
+      [`${prefix}_stage_prevented`]: false,
+      [`${prefix}_prevented`]: false,
+      [`${prefix}_prevention_action`]: null,
+      [`${prefix}_stage_rule`]: 'single_test',
+    });
+  });
+
+  it('an error-coded stage keeps _prevented (it may come from the test-level match)', async () => {
+    search.mockResolvedValueOnce({ hits: { hits: [flaggedDoc(999)] } });
+    msearch.mockResolvedValueOnce({ responses: [page(agg({ f0rtika: { achilles_correlated: true } })), page(agg({ f0rtika: { achilles_correlated: true } }))] });
+    await make(client).runEnrichmentPass({ batchSize: 200 });
+    expect(bulk.mock.calls[0][0].operations[1].doc.f0rtika).toEqual({
+      [`${prefix}_stage_detected`]: false,
+      [`${prefix}_stage_prevented`]: false,
+      [`${prefix}_stage_rule`]: 'single_test',
+    });
+  });
+
+  it('never downgrades a stored stage whose stage alerts are gone (aged out): it is only marked checked', async () => {
+    search.mockResolvedValueOnce({ hits: { hits: [flaggedDoc(101)] } });
+    msearch.mockResolvedValueOnce({ responses: [page(), page()] });
+    await make(client).runEnrichmentPass({ batchSize: 200 });
+    expect(bulk.mock.calls[0][0].operations[1].doc.f0rtika).toEqual({ [`${prefix}_stage_rule`]: 'single_test' });
+  });
+
+  it('a stage already checked under this rule is left alone', async () => {
+    search.mockResolvedValueOnce({ hits: { hits: [flaggedDoc(101, { [`${prefix}_stage_rule`]: 'single_test' })] } });
+    msearch.mockResolvedValueOnce({ responses: [page(), page()] });
+    await make(client).runEnrichmentPass({ batchSize: 200 });
+    expect(bulk).not.toHaveBeenCalled();
   });
 });

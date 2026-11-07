@@ -12,6 +12,7 @@ import {
 } from './evidence-correlation.js';
 import type { EnrichmentPassOptions, EnrichmentPassResult } from '../../types/edr.js';
 import { isAchillesMitigated, ACHILLES_MITIGATION_FIELDS, ACHILLES_MITIGATED_QUERY } from '../shared/achillesMitigation.js';
+import { isMultiTestAlert, MULTI_TEST_EVIDENCE_FIELDS } from './multiTestEvidence.js';
 import { enrichmentEligibleClauses } from '../analytics/enrichment-eligibility.js';
 import type { EdrVendorKey } from '../outcomes/vendors.js';
 
@@ -40,6 +41,20 @@ const CONCLUSIVE_OUTCOME_CODES = new Set([101, 105, 126, 127]);
  * stages all hit the same orchestrator alert.
  */
 const ALERT_HITS_PER_SUBQUERY = 5;
+
+/**
+ * Stage sub-queries read (nearly) every matching alert, because each one is
+ * classified: a multi-test alert (multiTestEvidence.ts) is no stage evidence.
+ * Stage matches are narrow (this host, this window, this stage's binary).
+ */
+const STAGE_HITS_PER_SUBQUERY = 100;
+
+/**
+ * Marks a stage evaluated under the single-test stage-evidence rule. Stages
+ * flagged before it are re-checked once (eligibility clause) and lose their
+ * stage flags when every stage alert still in the index is multi-test.
+ */
+export const STAGE_RULE = 'single_test';
 
 /**
  * Prevention actions that count as vendor-confirmed PREVENTION (vs.
@@ -195,10 +210,10 @@ export class EdrAlertEnrichmentService {
         for (const q of queries) {
           searches.push({ index: this.target.alertIndex });
           const source = this.target.ignoreAchillesMitigated
-            ? ['prevention_action', ...ACHILLES_MITIGATION_FIELDS, 'f0rtika.achilles_correlated']
-            : ['prevention_action', 'f0rtika.achilles_correlated'];
+            ? ['prevention_action', ...ACHILLES_MITIGATION_FIELDS, 'f0rtika.achilles_correlated', ...MULTI_TEST_EVIDENCE_FIELDS]
+            : ['prevention_action', 'f0rtika.achilles_correlated', ...MULTI_TEST_EVIDENCE_FIELDS];
           searches.push({
-            size: ALERT_HITS_PER_SUBQUERY,
+            size: q.kind === 'stage' ? STAGE_HITS_PER_SUBQUERY : ALERT_HITS_PER_SUBQUERY,
             _source: source,
             query: q.body,
             // Every matching alert's action, not just the hits returned: a
@@ -243,7 +258,16 @@ export class EdrAlertEnrichmentService {
           wideActions: string[];
           /** Matched alerts already achilles_correlated. */
           correlatedAlertIds: Set<string>;
+          /** The stage sub-query ran and answered this pass. */
+          stageQueried: boolean;
+          /** Alerts the stage query matched, and how many of them name only one test. */
+          stageHitsAll: number;
+          stageHitsSingle: number;
         }
+        const emptyUpdate = (hit: any, bundleUuid: string): PerHitUpdate => ({
+          hit, bundleUuid, wideMatched: false, stageMatched: false, alertIds: new Set(), stageActions: [], wideActions: [],
+          correlatedAlertIds: new Set(), stageQueried: false, stageHitsAll: 0, stageHitsSingle: 0,
+        });
         const updatesByHitId = new Map<string, PerHitUpdate>();
         const responses = (msearchResponse as any).responses ?? [];
         for (let i = 0; i < queries.length; i++) {
@@ -257,10 +281,23 @@ export class EdrAlertEnrichmentService {
           const total = typeof resp.hits?.total === 'number'
             ? resp.hits.total
             : resp.hits?.total?.value ?? 0;
+          const hitId = q.hit._id as string;
+          let entry = updatesByHitId.get(hitId);
+          if (!entry) {
+            entry = emptyUpdate(q.hit, q.bundleUuid);
+            updatesByHitId.set(hitId, entry);
+          }
+          if (q.kind === 'stage') entry.stageQueried = true;
           if (total === 0) continue;
 
-          const alertHits = (resp.hits?.hits ?? []) as any[];
-          const alertIds = alertHits
+          const allHits = (resp.hits?.hits ?? []) as any[];
+          // A stage match counts only alerts naming a single test's binaries.
+          const alertHits = q.kind === 'stage' ? allHits.filter((h) => !isMultiTestAlert(h._source ?? {})) : allHits;
+          if (q.kind === 'stage') {
+            entry.stageHitsAll += allHits.length;
+            entry.stageHitsSingle += alertHits.length;
+          }
+          const alertIds = allHits
             .map((h) => h._id)
             .filter((id): id is string => typeof id === 'string');
           // Prevention-flag qualification rule (docs/edr-prevention-action-detection.md):
@@ -273,7 +310,10 @@ export class EdrAlertEnrichmentService {
           const hitActions = alertHits
             .filter((h) => !(this.target.ignoreAchillesMitigated && isAchillesMitigated(h._source)))
             .map((h) => h._source?.prevention_action);
-          const aggActions = ((resp.aggregations?.prevention?.actions?.buckets ?? []) as any[]).map((b) => b.key);
+          // The aggregation can't tell multi-test alerts apart: a stage query
+          // uses it only when more alerts matched than it could read.
+          const aggUsable = q.kind !== 'stage' || total > allHits.length;
+          const aggActions = aggUsable ? ((resp.aggregations?.prevention?.actions?.buckets ?? []) as any[]).map((b) => b.key) : [];
           const preventionActions = [...new Set([...hitActions, ...aggActions])]
             .filter((a): a is string => typeof a === 'string' && PREVENTION_ACTIONS.has(a));
 
@@ -282,25 +322,18 @@ export class EdrAlertEnrichmentService {
             || docErrorCode === undefined
             || !CONCLUSIVE_OUTCOME_CODES.has(docErrorCode);
 
-          const hitId = q.hit._id as string;
-          let entry = updatesByHitId.get(hitId);
-          if (!entry) {
-            entry = { hit: q.hit, bundleUuid: q.bundleUuid, wideMatched: false, stageMatched: false, alertIds: new Set(), stageActions: [], wideActions: [], correlatedAlertIds: new Set() };
-            updatesByHitId.set(hitId, entry);
-          }
+          if (!entry.bundleUuid) entry.bundleUuid = q.bundleUuid;
           if (q.kind === 'wide')  entry.wideMatched = true;
-          if (q.kind === 'stage') entry.stageMatched = true;
+          if (q.kind === 'stage' && alertHits.length > 0) entry.stageMatched = true;
           for (const id of alertIds) entry.alertIds.add(id);
-          for (const h of alertHits) if (typeof h._id === 'string' && h._source?.f0rtika?.achilles_correlated === true) entry.correlatedAlertIds.add(h._id);
+          for (const h of allHits) if (typeof h._id === 'string' && h._source?.f0rtika?.achilles_correlated === true) entry.correlatedAlertIds.add(h._id);
           if (q.kind === 'stage') entry.stageActions.push(...preventionActions);
           else if (preventionQualifies) entry.wideActions.push(...preventionActions);
         }
         // Scanned docs nothing matched still get an entry, so an older stage
         // can be settled below instead of staying eligible every pass.
         for (const hit of hits) {
-          if (!updatesByHitId.has(hit._id)) {
-            updatesByHitId.set(hit._id, { hit, bundleUuid: '', wideMatched: false, stageMatched: false, alertIds: new Set(), stageActions: [], wideActions: [], correlatedAlertIds: new Set() });
-          }
+          if (!updatesByHitId.has(hit._id)) updatesByHitId.set(hit._id, emptyUpdate(hit, ''));
         }
 
         // 5. Bulk update matched docs.
@@ -368,6 +401,26 @@ export class EdrAlertEnrichmentService {
               // nothing to lose, so settle it. One that has an action keeps the
               // older rule rather than being downgraded without evidence.
               f0rtika[`${v}_stage_prevented`] = false;
+            }
+            // Single-test stage rule (multiTestEvidence.ts). A stage stored
+            // under the older rule is checked once: when its stage alerts are
+            // still in the index and every one names several tests, it was
+            // only ever credited by alerts listing leftover binaries, so its
+            // stage flags go (and, on a conclusive exit, its prevention, which
+            // there can only have come from the stage match). No visible
+            // stage alerts (aged out): nothing is downgraded.
+            if (u.stageQueried && existing[`${v}_stage_rule`] !== STAGE_RULE) {
+              const wasStage = existing[`${v}_stage_detected`] === true;
+              if (wasStage && u.stageHitsAll > 0 && u.stageHitsSingle === 0) {
+                f0rtika[`${v}_stage_detected`] = false;
+                f0rtika[`${v}_stage_prevented`] = false;
+                const code = u.hit._source?.event?.ERROR as number | undefined;
+                if (code !== undefined && CONCLUSIVE_OUTCOME_CODES.has(code)) {
+                  f0rtika[`${v}_prevented`] = false;
+                  f0rtika[`${v}_prevention_action`] = null;
+                }
+              }
+              if (wasStage || u.stageMatched) f0rtika[`${v}_stage_rule`] = STAGE_RULE;
             }
             if (Object.keys(f0rtika).length > 0) {
               operations.push({ update: { _index: u.hit._index, _id: u.hit._id } });
@@ -459,6 +512,13 @@ export class EdrAlertEnrichmentService {
           { range: { 'routing.event_time': { gte: `now-${this.recheckHours}h` } } },
         ],
         must_not: [{ term: { [`f0rtika.${v}_stage_prevented`]: true } }],
+      },
+    });
+    // Single-test stage rule: a stage flagged before it is checked once.
+    eligible.push({
+      bool: {
+        filter: [{ term: { [`f0rtika.${v}_stage_detected`]: true } }],
+        must_not: [{ term: { [`f0rtika.${v}_stage_rule`]: STAGE_RULE } }],
       },
     });
     // Provenance backfill: a stage flagged before `_stage_prevented` existed

@@ -5,6 +5,8 @@
 // doc shape (alert_title, evidence_filenames, prevention_action, portal_url,
 // f0rtika.auto_resolved_at, gated on an enabled, error-free receipt).
 
+import { isMultiTestAlert } from '../edr/multiTestEvidence.js';
+
 export interface AlertAttribution {
   attribution: 'stage' | 'bundle';
   attributed_control_id?: string;
@@ -53,10 +55,11 @@ const optional = (v: unknown): string | undefined => (v === undefined || v === n
 
 export function projectAlertHit(source: Record<string, unknown>, bundleUuid: string): ProjectedAlert {
   const f0 = (source.f0rtika ?? {}) as Record<string, unknown>;
-  const { attribution, attributed_control_id } = classifyAttribution(
-    (source.evidence_filenames as string[] | undefined) ?? [],
-    bundleUuid,
-  );
+  // An alert naming several tests' binaries (leftovers listed by a file alert)
+  // says nothing about this stage: bundle-level only (edr/multiTestEvidence.ts).
+  const { attribution, attributed_control_id } = isMultiTestAlert(source)
+    ? { attribution: 'bundle' as const, attributed_control_id: undefined }
+    : classifyAttribution((source.evidence_filenames as string[] | undefined) ?? [], bundleUuid);
   const prevention_action = optional(source.prevention_action);
   const portal_url = optional(source.portal_url);
   // The auto-resolve receipt writer stamps auto_resolved_at on EVERY receipt,

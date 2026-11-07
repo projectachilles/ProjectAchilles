@@ -125,3 +125,18 @@ describe('projectAlertHit', () => {
     });
   });
 });
+
+describe('projectAlertHit: multi-test alerts are never stage-attributed', () => {
+  // Defender "A suspicious file was observed" lists leftover binaries of several tests.
+  const OTHER = '26a8b54e-0000-4000-8000-000000000001';
+  it('an alert naming this stage AND another test is bundle-level', () => {
+    const p = projectAlertHit({ alert_id: 'a', evidence_filenames: [`${UUID}-T1486.exe`, `${OTHER}.exe`] }, UUID);
+    expect(p.attribution).toBe('bundle');
+    expect(p.attributed_control_id).toBeUndefined();
+  });
+
+  it('the same stage binary alone stays stage-attributed', () => {
+    const p = projectAlertHit({ alert_id: 'a', evidence_filenames: [`${UUID}-T1486.exe`, `${UUID}.exe`, 'powershell.exe'] }, UUID);
+    expect(p).toMatchObject({ attribution: 'stage', attributed_control_id: 't1486' });
+  });
+});
