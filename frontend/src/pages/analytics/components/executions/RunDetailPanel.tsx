@@ -271,7 +271,7 @@ export function RunDetailPanel(props: RunDetailPanelProps) {
 
   if (!row) {
     return (
-      <div className="flex h-40 items-center justify-center rounded-lg border border-border bg-surface text-sm text-faint">
+      <div className="flex h-40 items-center justify-center rounded-lg border border-border bg-surface text-sm text-faint lg:h-full">
         Select a run to see its detail.
       </div>
     );
