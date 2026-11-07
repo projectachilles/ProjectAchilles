@@ -311,6 +311,11 @@ func Run(ctx context.Context, cfg *config.Config, st *store.Store, version strin
 
 	client := httpclient.NewClient(cfg, version)
 
+	// Remove what runs that died left behind (run folders, test binaries in
+	// the artifact folder), before any new task starts. Older than an hour
+	// only, so an orphaned test process that is still running is left alone.
+	executor.SweepStale(cfg.WorkDir, executor.ArtifactDirs(), time.Hour, time.Now())
+
 	// Initialize the local result queue for resilient reporting.
 	resultQueue, err := queue.New(cfg.WorkDir)
 	if err != nil {

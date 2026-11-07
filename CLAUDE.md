@@ -99,6 +99,7 @@ Key directories:
 - **Platforms**: Windows (amd64), Linux (amd64), macOS (amd64 + arm64)
 - Internal packages: `config`, `enrollment`, `executor`, `httpclient`, `poller`, `reporter`, `service`, `store`, `sysinfo`, `updater`
 - Platform-specific files use build tags (`//go:build darwin`, etc.) for service management, sysinfo, and binary updates
+- **Test leftovers** (`executor/cleanup.go`): after each run the agent removes that test's binaries (`<uuid>[-<control>].exe`) from the artifact folder (`C:\F0`, `/tmp/F0`), and at startup sweeps `task-*`/`cmd-*` folders and UUID-named test binaries older than 1 h. Only UUID-named files match: the agent, its config/log, `queue/` and the state store are never touched
 - CGO disabled for static cross-platform binaries
 - Version set via LDFLAGS: `-X main.version=$(VERSION)`
 - **Service integration**: Windows (SCM via `sc.exe`), Linux (systemd), macOS (launchd plist at `/Library/LaunchDaemons/`)
