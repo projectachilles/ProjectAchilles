@@ -13,7 +13,7 @@ lang: es
 translationKey: edr-study-30-days
 ---
 
-> **Actualización, 7 de noviembre de 2026.** Al principio describimos la tasa de detención de cada EDR como la proporción de ataques que el EDR detuvo. En realidad es la proporción detenida en los equipos con ese EDR, y una parte la detuvo el propio Windows. Una etapa de robo de credenciales no pudo acceder a LSASS en equipos de los cuatro EDR sin rastro de ningún EDR, lo que apunta a la protección LSA de Windows. La nueva sección 3 da las dos cifras, y el primer gráfico y la sección de confianza ahora también las muestran. El EDR que va primero no cambia. Lo encontramos al contrastar el estudio con los paneles de Project Achilles.
+> **Actualización, 7 de noviembre de 2026.** Al principio describimos la tasa de detención de cada EDR como la proporción de ataques que el EDR detuvo. En realidad es la proporción detenida en los equipos con ese EDR, y una parte la detuvo el propio Windows. Una etapa de robo de credenciales no pudo acceder a LSASS en equipos de los cuatro EDR sin rastro de ningún EDR, lo que apunta a la protección LSA de Windows. La nueva sección 3 da las dos cifras, con dos gráficos sobre el paso de robo de credenciales, y el primer gráfico y la sección de confianza ahora también las muestran. El EDR que va primero no cambia. Lo encontramos al contrastar el estudio con los paneles de Project Achilles.
 
 ## TL;DR
 
@@ -83,6 +83,14 @@ Si contamos solo las detenciones que cada EDR demostró por sí mismo (un bloque
 | EDR D | 30% | 4% |
 
 EDR B sigue a la cabeza, por entre 38 y 73 puntos porcentuales, y esa ventaja pasa todas las comprobaciones de "¿Qué tan seguros podemos estar?" más abajo. La mayoría de las detenciones de EDR D las hizo Windows. Para EDR C la segunda cifra es un piso: muchos de sus bloqueos no generan alerta, así que no dejan evidencia que contar.
+
+El paso de robo de credenciales por sí solo muestra cuánto pesa el efecto. Si cuenta cualquier bloqueo en el equipo, los cuatro EDR detuvieron o detectaron entre el 87% y el 100% de esas etapas. Si solo cuenta lo que cada EDR bloqueó o alertó por sí mismo, EDR B y EDR D quedan en 0%, EDR A en 20% y EDR C en 67%.
+
+![Etapas de robo de credenciales detenidas o detectadas por cada EDR, contando cualquier bloqueo en el equipo frente a solo la evidencia propia del EDR. EDR A: 87% frente a 20%. EDR B: 100% frente a 0%. EDR C: 95% frente a 67%. EDR D: 100% frente a 0%.](/edr-study-30-days/credential-dumping.png)
+
+Seguir una cadena de ataque etapa por etapa cuenta lo mismo. En LockBit, el robo de credenciales es la segunda etapa. Si cuenta cualquier bloqueo, como mucho el 17% de las ejecuciones de LockBit en los equipos de cada EDR pasó esa etapa sin bloqueo. Si solo cuentan los bloqueos propios del EDR, entre el 62% y el 100% de las ejecuciones en equipos de EDR A, B y D seguían sin ser bloqueadas por el EDR después de ella; EDR C detuvo ahí la mayoría de sus ejecuciones por sí mismo (quedó el 31%). Cada panel se apoya en 8 a 15 ejecuciones.
+
+![Proporción de ejecuciones de LockBit aún no bloqueadas, etapa por etapa, para cada EDR, contando cualquier bloqueo en el equipo frente a solo la evidencia propia del EDR. Si cuenta cualquier bloqueo, todas las curvas caen en la etapa 2, robo de credenciales. Con la evidencia propia del EDR, al final de la cadena: EDR A 62% en vez de 12%, EDR B 33% en vez de 8%, EDR C 8% en vez de 0%, EDR D 75% en vez de 17%.](/edr-study-30-days/lockbit-survival.png)
 
 Antes de atribuirle una detención a un EDR, o de decidir qué control seguir pagando, averigua qué control la hizo. Aquí, la mayoría de las detenciones atribuidas a los EDR sin evidencia vino de una configuración de Windows.
 
