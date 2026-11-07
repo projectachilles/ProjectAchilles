@@ -44,6 +44,7 @@ interface PartialAlert {
   prevention_action?: 'quarantined' | 'process_killed' | 'blocked' | 'kill_failed';
   pattern_disposition_description?: string;
   portal_url?: string;
+  initiated_by?: string;
 }
 
 function makeAlert(overrides: Partial<PartialAlert> = {}): PartialAlert {
@@ -395,6 +396,27 @@ describe('EndpointAlertDetailsDrawer', () => {
     const badge = screen.getByText('kill failed');
     expect(badge.className).toContain('text-warning');
     expect(badge.className).not.toContain('text-accent');
+  });
+
+  it("SentinelOne: labels a threat an analyst raised from Deep Visibility, with no prevention badge", async () => {
+    mockS1GetAlerts.mockResolvedValue({
+      data: [
+        makeAlert({ alert_id: 's1-dv', alert_title: 'achilles-agent-windows-amd64.exe', initiated_by: 'dv_command' }),
+        makeAlert({ alert_id: 's1-policy', alert_title: 'rwdrv.sys', initiated_by: 'agent_policy', prevention_action: 'process_killed' }),
+      ],
+      total: 2,
+      page: 1,
+      pageSize: 100,
+    });
+
+    render(<EndpointAlertDetailsDrawer vendor="sentinelone" open onClose={() => {}} />);
+
+    await waitFor(() => expect(screen.getByText('achilles-agent-windows-amd64.exe')).toBeInTheDocument());
+    const label = screen.getByText('Analyst response (Deep Visibility)');
+    expect(label).toHaveAttribute('title', expect.stringContaining('not counted as SentinelOne prevention'));
+    // Exactly one: the agent-policy kill keeps its prevention badge and gets no label.
+    expect(screen.getAllByText(/Analyst response/)).toHaveLength(1);
+    expect(screen.getByText('process killed')).toBeInTheDocument();
   });
 
   it('renders no prevention badge for detection-only alerts', async () => {

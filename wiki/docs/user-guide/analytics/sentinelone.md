@@ -44,7 +44,7 @@ policy cards show the latest posture snapshot and don't depend on the range.
 | **Endpoint Protection** | The Achilles [Endpoint Protection score](#endpoint-protection-score): the share of SentinelOne agents that pass every protection check, how many agents that is, the three weakest checks, and the trend over the window (at most 365 days). |
 | **SentinelOne Alerts** | Alerts (threats and detection alerts) in the window, how many are linked to Achilles tests versus organic, a severity bar, and the change versus the previous 7 days. Click it to jump to the alert feed. |
 | **Detected / Prevented** | The share of attack simulations in the window that SentinelOne detected, and the share it prevented, from the same response as the Technique Coverage card (see [Detection rate](#detection-rate)). |
-| **Agent response** | How many alerts in the window SentinelOne **prevented** (killed, quarantined or otherwise mitigated), how many were **detected only**, and how many had a failed mitigation. Read from the prevention action recorded on each threat; detection alerts carry none, so they count as detected only. A threat that Achilles [automatic mitigation](../integrations/sentinelone-auto-resolve#automatic-mitigation) killed or quarantined also counts as detected only. |
+| **Agent response** | How many alerts in the window SentinelOne **prevented** (killed, quarantined or otherwise mitigated), how many were **detected only**, and how many had a failed mitigation. Read from the prevention action recorded on each threat; detection alerts carry none, so they count as detected only. A threat that Achilles [automatic mitigation](../integrations/sentinelone-auto-resolve#automatic-mitigation) killed or quarantined also counts as detected only, and so does one an analyst raised from Deep Visibility. |
 | **Auto-Resolve** | The auto-resolve mode and the receipts written in the last 30 days and 24 hours, like the Defender and CrowdStrike tiles. See [SentinelOne Auto-Resolve](../integrations/sentinelone-auto-resolve#receipts). |
 
 ## Endpoint Protection score
@@ -189,6 +189,11 @@ SentinelOne alerts in the window with severity, status, age, the prevention
 badge, MITRE techniques and, when present, the auto-resolve receipt. Threats
 have a link that opens them in the SentinelOne console; detection alerts have
 no console link.
+
+A threat an analyst raised by mitigating a process from a Deep Visibility hunt
+shows **Analyst response (Deep Visibility)** instead of a prevention badge. It
+is a person responding, not SentinelOne preventing the test, so it counts as
+detected only (also in **Agent response** and test verdicts).
 
 ## Detection rate
 

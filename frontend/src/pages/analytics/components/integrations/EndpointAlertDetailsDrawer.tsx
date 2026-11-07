@@ -8,6 +8,7 @@ import { sophosAnalyticsApi } from '@/services/api/sophosAnalytics';
 import { getSeverityTokens } from '../../utils/crowdstrikeSeverityTokens';
 import { formatCrowdStrikeProduct } from '../../utils/crowdstrikeProduct';
 import PreventionBadge from '../PreventionBadge';
+import AnalystResponseBadge from '../AnalystResponseBadge';
 import { describeAutoResolveReceipt } from './autoResolveReceipt';
 import { VENDORS, type EndpointVendorId } from './vendorConfig';
 
@@ -287,6 +288,7 @@ export default function EndpointAlertDetailsDrawer({
                             action={alert.prevention_action}
                             rawStatus={alert.pattern_disposition_description}
                           />
+                          <AnalystResponseBadge initiatedBy={alert.initiated_by} />
                         </div>
                         {receipt && (
                           <div className={`mt-1 inline-flex items-center gap-1 text-[11px] ${receipt.tone === 'resolved' ? 'text-emerald-600 dark:text-emerald-400' : 'text-muted-foreground'}`}>

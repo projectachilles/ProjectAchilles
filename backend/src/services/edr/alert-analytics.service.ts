@@ -85,6 +85,11 @@ export interface EdrAlertItem {
   hostname: string | null;
   /** quarantined | process_killed | blocked | kill_failed; absent when Falcon only detected. */
   prevention_action?: string;
+  /**
+   * Who raised the alert, when the vendor says (SentinelOne threats:
+   * agent_policy, dv_command = an analyst's Deep Visibility response, star_active, ...).
+   */
+  initiated_by?: string;
   pattern_disposition_description?: string;
   /** Deep link to the alert in the Falcon console. */
   portal_url?: string;
@@ -374,6 +379,7 @@ export class EdrAlertAnalyticsService {
         recommended_actions: String(s.recommended_actions ?? ''),
         hostname: firstString(s.evidence_hostnames),
         ...(s.prevention_action && !(this.ignoreAchillesMitigated && isAchillesMitigated({ f0rtika })) ? { prevention_action: String(s.prevention_action) } : {}),
+        ...(s.initiated_by ? { initiated_by: String(s.initiated_by) } : {}),
         ...(s.pattern_disposition_description
           ? { pattern_disposition_description: String(s.pattern_disposition_description) }
           : {}),
