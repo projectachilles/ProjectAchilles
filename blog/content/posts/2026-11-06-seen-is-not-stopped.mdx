@@ -13,12 +13,14 @@ lang: en
 translationKey: edr-study-30-days
 ---
 
+> **Update, November 7, 2026.** We first described each EDR's stop rate as the share of attacks the EDR stopped. It is really the share stopped on hosts running that EDR, and some of those stops were Windows itself. A credential-dumping stage was refused access to LSASS on hosts of all four EDRs with no sign of any EDR, which points to Windows LSA protection. The new section 3 gives both figures. The EDR on top doesn't change. We found this by checking the study against the Project Achilles dashboards.
+
 ## TL;DR
 
 - For 30 days, Project Achilles ran six multi-stage attack chains, built from published threat intelligence, on 27 Windows endpoints of one organization. Each endpoint had one of four EDR products in active mode. We call them EDR A to D.
-- Each EDR raised an alert on 81% to 100% of the runs on its hosts. The share of attacks it actually stopped ranged from 30% to 90%.
+- Each EDR raised an alert on 81% to 100% of the runs on its hosts. The share of attacks stopped on those hosts ranged from 30% to 90%. The share the EDR provably stopped itself ranged from 4% to 76%.
 - The EDR that stopped the most did it mainly by blocking test binaries before they ran. That is real protection, but it also means we never saw how it handles the later stages of an attack.
-- One EDR, with every agent reporting "protect" mode, stopped 9% of the attack stages that ran. It raised alerts on many more.
+- One EDR, with every agent reporting "protect" mode, stopped 9% of the attack stages that ran, and Windows, not the EDR, blocked most of those. It raised alerts on many more.
 - Three techniques got past every EDR that faced them: masquerading (T1036), exfiltration over the command-and-control channel (T1041) and credential theft from password stores (T1555).
 - Five differences between EDRs looked statistically solid until we dropped a single test. Then they nearly vanished. One snapshot is not a measurement.
 
@@ -61,15 +63,34 @@ It also has a side effect. On three of the six attack chains, EDR B's hosts prod
 
 The way to fill that gap is a test variant the EDR doesn't stop at launch, such as a chain started from a script or a built-in Windows tool, with the production policy left exactly as it is. Never weaken a protection to make it measurable.
 
-## 3. "Protect Mode" Is Not a Guarantee
+## 3. Who Did the Stopping?
 
-Every EDR D agent reported that it was in protect mode. EDR D still stopped only 30% of attacks and 9% of the attack stages that ran. In 68% of its runs, it raised alerts and let the chain continue.
+A test can tell that a stage was blocked. It can't always tell what blocked it. In the first version of this study, we counted every stop on a host as a stop by the EDR active on that host. When we went back to the per-stage evidence, 36 stops had no EDR evidence on the blocked stage: no EDR flagged a prevention there, and the active EDR raised no alert on it.
+
+Most of them were the same stage. A credential-dumping step asks Windows for a handle to read LSASS memory, with debug privileges enabled. On hosts of all four EDRs, Windows refused. The refusal looks the same under four different EDR products and carries no EDR evidence, which points to Windows LSA protection: LSASS running as a protected process. That's a real control doing its job. It just isn't the EDR.
+
+Counting only the stops each EDR proved itself (a launch block or an agent kill matched to its own alert, or its own prevention flag on the blocked stage):
+
+| EDR | Attacks stopped on its hosts | Stopped by the EDR, with its own evidence |
+|---|---|---|
+| EDR A | 48% | 38% |
+| EDR B | 90% | 76% |
+| EDR C | 48% | 33% |
+| EDR D | 30% | 4% |
+
+EDR B still leads, and its interval doesn't overlap any of the others'. Windows did most of EDR D's stopping. For EDR C, the second figure is a floor: many of its blocks raise no alert, so they leave no evidence to count.
+
+Before you give an EDR credit for a stop, or decide which control to keep paying for, find out which control did it. Here, most of the stops credited to the EDRs without evidence came from a Windows setting.
+
+## 4. "Protect Mode" Is Not a Guarantee
+
+Every EDR D agent reported that it was in protect mode. EDR D still stopped only 30% of attacks on its hosts and 9% of the attack stages that ran, and section 3 shows that Windows did most of that stopping. In 68% of its runs, it raised alerts and let the chain continue.
 
 A likely cause: modern EDRs have several detection engines (behavioral rules, custom rules, cloud analytics), and each engine has its own response setting. The agent can be in protect mode while the engines that actually fired are set to alert only. Check this engine by engine, not agent by agent.
 
 EDR A shows a different pattern. It detected every run and stopped 48%, but all-or-nothing by attack chain. It stopped every Kothamine run and none of the Lumma, Gentlemen or Star Blizzard runs, while raising alerts on all of them. Its policy blocks some kinds of behavior and only reports others.
 
-## 4. Alert Time Is Not Block Time
+## 5. Alert Time Is Not Block Time
 
 Median time from the start of a run to the EDR's first alert:
 
@@ -84,7 +105,7 @@ These numbers measure how fast the alert reaches the console, not how fast the a
 
 One more thing worth measuring: the ATT&CK technique on the alert matched the technique the test actually performed in only 14% to 49% of alerts, depending on the EDR. If your SOC triages or reports by ATT&CK technique, it's working from labels that are often wrong.
 
-## 5. A Second Sensor Helps Some Groups and Not Others
+## 6. A Second Sensor Helps Some Groups and Not Others
 
 ![On the hosts of three EDRs, how each executed attack stage was seen by the active EDR and by the second EDR product running in passive mode. On EDR A hosts, the passive sensor alone flagged 4% of stages. On EDR B hosts, it alone flagged 19%. On EDR D hosts, it alone flagged 17%.](/edr-study-30-days/second-sensor.png)
 
@@ -96,7 +117,7 @@ On 13 hosts, a second EDR product ran in passive mode next to the active one, so
 
 Some of those stages may have been stopped by the active EDR without an alert, so this measures visibility, not protection. It still answers a common licensing question with data instead of opinion: a second sensor is worth what it adds on your hosts, next to your primary EDR, and that can be measured.
 
-## 6. Three Techniques Nobody Caught
+## 7. Three Techniques Nobody Caught
 
 Three techniques were missed in at least 80% of their stages by every EDR that faced them:
 
@@ -116,7 +137,7 @@ With 4 to 14 hosts per EDR, it's easy to see a pattern that isn't there. We trea
 - the difference holds when any single attack chain is left out,
 - the comparison rests on at least three attack chains both EDRs faced.
 
-**What held up.** EDR B stopped 42 to 60 percentage points more attacks than each of the other three. That difference is clear and survives removing any host or any test. EDR A and EDR C stopped the same share of attacks (48% each), so there's no winner there.
+**What held up.** EDR B stopped 42 to 60 percentage points more attacks than each of the other three. That difference is clear and survives removing any host or any test. It also holds when only each EDR's own evidence counts (section 3). EDR A and EDR C stopped the same share of attacks (48% each), so there's no winner there.
 
 **What didn't.** Five differences passed every check except the last one:
 
@@ -141,10 +162,11 @@ Three more effects make single measurements unreliable:
 None of these findings appear in an EDR console, and most wouldn't appear in an annual penetration test either: one run, on one build, on a handful of hosts, can't distinguish "this EDR is better" from "this EDR did better on this test". That's the case for continuous validation in practice:
 
 1. **Measure stopped separately from seen.** An alert on every stage of an attack that completed is not protection.
-2. **Check response settings per detection engine**, not per agent.
-3. **Measure alert latency separately from block time.**
-4. **Run the techniques nobody blocks**, and turn the misses into detection rules.
-5. **Repeat across hosts and over time** before deciding anything, and keep a confidence label next to every comparison.
-6. **If you pay for a second sensor, measure what it adds** on each group of hosts.
+2. **Find out which control did the stopping.** An exit code says a stage was blocked, not what blocked it. Give an EDR credit only for the stops it can prove.
+3. **Check response settings per detection engine**, not per agent.
+4. **Measure alert latency separately from block time.**
+5. **Run the techniques nobody blocks**, and turn the misses into detection rules.
+6. **Repeat across hosts and over time** before deciding anything, and keep a confidence label next to every comparison.
+7. **If you pay for a second sensor, measure what it adds** on each group of hosts.
 
 Every number in this post came from data Project Achilles already collects: test runs, per-stage results and the EDR alerts it correlates with them. To measure your own environment, [Install Project Achilles in 30 Minutes](/posts/2026-07-07-install-project-achilles-in-30-minutes) walks you through it from scratch, and the [interactive explainer](https://docs.projectachilles.io/how-it-works/) shows the loop in motion.
