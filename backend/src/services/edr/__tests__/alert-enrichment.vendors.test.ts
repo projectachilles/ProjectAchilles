@@ -68,6 +68,7 @@ describe.each(VENDORS)('EDR alert enrichment — $name', ({ prefix, index, make 
       [`${prefix}_prevention_action`]: 'quarantined',
       [`${prefix}_stage_prevented`]: true,
       [`${prefix}_stage_rule`]: 'single_test',
+      [`${prefix}_evidence_rule`]: 'file_verdict',
     });
     expect(ops[2]).toEqual({ update: { _index: index, _id: 'alert-1' } });
     expect(ops[3].doc.f0rtika).toMatchObject({ achilles_correlated: true, achilles_test_uuid: 'b1' });
@@ -78,7 +79,7 @@ describe.each(VENDORS)('EDR alert enrichment — $name', ({ prefix, index, make 
     msearch.mockResolvedValueOnce({ responses: [hits('process_killed'), none] });
     await make(client).runEnrichmentPass({ batchSize: 200 });
     const flags = bulk.mock.calls[0][0].operations[1].doc.f0rtika;
-    expect(flags).toEqual({ [`${prefix}_detected`]: true });
+    expect(flags).toEqual({ [`${prefix}_detected`]: true, [`${prefix}_evidence_rule`]: 'file_verdict' });
   });
 
   it('re-checks stages detected in the last 72 h without stage-own prevention, and stages never evaluated for it', async () => {
@@ -86,7 +87,7 @@ describe.each(VENDORS)('EDR alert enrichment — $name', ({ prefix, index, make 
     await make(client).runEnrichmentPass();
     const q = search.mock.calls[0][0].query;
     const should = q.bool.filter[q.bool.filter.length - 1].bool.should;
-    expect(should).toHaveLength(5);
+    expect(should).toHaveLength(6);
     expect(should[2]).toEqual({
       bool: {
         filter: [
@@ -96,7 +97,13 @@ describe.each(VENDORS)('EDR alert enrichment — $name', ({ prefix, index, make 
         must_not: [{ term: { [`f0rtika.${prefix}_stage_prevented`]: true } }],
       },
     });
-    expect(should[4]).toEqual({
+    expect(should[3]).toEqual({
+      bool: {
+        filter: [{ term: { [`f0rtika.${prefix}_detected`]: true } }],
+        must_not: [{ term: { [`f0rtika.${prefix}_evidence_rule`]: 'file_verdict' } }],
+      },
+    });
+    expect(should[5]).toEqual({
       bool: {
         filter: [{ term: { [`f0rtika.${prefix}_stage_detected`]: true } }],
         must_not: [{ exists: { field: `f0rtika.${prefix}_stage_prevented` } }],
@@ -138,6 +145,7 @@ describe.each(VENDORS)('EDR alert enrichment — $name', ({ prefix, index, make 
       [`${prefix}_prevention_action`]: 'process_killed',
       [`${prefix}_stage_prevented`]: false,
       [`${prefix}_stage_rule`]: 'single_test',
+      [`${prefix}_evidence_rule`]: 'file_verdict',
     });
   });
 
@@ -169,8 +177,8 @@ describe.each(VENDORS)('EDR alert enrichment — $name late prevention and prove
   const client = { search, msearch, bulk };
   const flagged = (extra: Record<string, unknown> = {}) => {
     const d = resultDoc(999);
-    // Stages already evaluated under the single-test rule (the multi-test describe covers older ones).
-    return { ...d, _source: { ...d._source, f0rtika: { ...d._source.f0rtika, [`${prefix}_detected`]: true, [`${prefix}_stage_detected`]: true, [`${prefix}_stage_rule`]: 'single_test', ...extra } } };
+    // Stages already evaluated under the single-test and per-file rules (the multi-test describes cover older ones).
+    return { ...d, _source: { ...d._source, f0rtika: { ...d._source.f0rtika, [`${prefix}_detected`]: true, [`${prefix}_stage_detected`]: true, [`${prefix}_stage_rule`]: 'single_test', [`${prefix}_evidence_rule`]: 'file_verdict', ...extra } } };
   };
   const alertHit = (source: Record<string, unknown>) => ({ hits: { total: { value: 1 }, hits: [{ _id: 'alert-1', _source: source }] } });
   const correlated = { f0rtika: { achilles_correlated: true } };
@@ -258,6 +266,7 @@ describe.each(VENDORS)('EDR alert enrichment — $name late prevention and prove
       [`${prefix}_prevention_action`]: 'blocked',
       [`${prefix}_stage_prevented`]: true,
       [`${prefix}_stage_rule`]: 'single_test',
+      [`${prefix}_evidence_rule`]: 'file_verdict',
     });
     expect(ops[2]).toEqual({ update: { _index: index, _id: 'alert-1' } });
   });
@@ -265,7 +274,8 @@ describe.each(VENDORS)('EDR alert enrichment — $name late prevention and prove
 
 // Multi-test alerts: evidence naming binaries of 2+ different Achilles tests
 // (Defender's "A suspicious file was observed" lists leftover binaries of
-// several tests on the disk). Never stage evidence; still test-level evidence.
+// several tests on the disk). Without per-file verdicts: no evidence at any
+// level (per-file verdicts: the describe below).
 describe.each(VENDORS)('EDR alert enrichment — $name multi-test alerts', ({ prefix, make }) => {
   const search = vi.fn();
   const msearch = vi.fn();
@@ -277,18 +287,23 @@ describe.each(VENDORS)('EDR alert enrichment — $name multi-test alerts', ({ pr
   const page = (...h: unknown[]) => ({ hits: { total: { value: h.length }, hits: h } });
   const flaggedDoc = (exit: number, extra: Record<string, unknown> = {}) => {
     const d = resultDoc(exit);
-    return { ...d, _source: { ...d._source, f0rtika: { ...d._source.f0rtika, [`${prefix}_detected`]: true, [`${prefix}_stage_detected`]: true, [`${prefix}_stage_prevented`]: true, [`${prefix}_prevented`]: true, [`${prefix}_prevention_action`]: 'blocked', ...extra } } };
+    // Already evaluated at test level (the per-file describe covers that re-check).
+    return { ...d, _source: { ...d._source, f0rtika: { ...d._source.f0rtika, [`${prefix}_detected`]: true, [`${prefix}_stage_detected`]: true, [`${prefix}_stage_prevented`]: true, [`${prefix}_prevented`]: true, [`${prefix}_prevention_action`]: 'blocked', [`${prefix}_evidence_rule`]: 'file_verdict', ...extra } } };
   };
   beforeEach(() => {
     vi.clearAllMocks();
     bulk.mockResolvedValue({ items: [{ update: {} }, { update: {} }, { update: {} }] });
   });
 
-  it('a stage query that matches only multi-test alerts is no stage evidence; the test-level match still counts', async () => {
-    search.mockResolvedValueOnce({ hits: { hits: [resultDoc(101)] } });
+  it('a multi-test alert without per-file verdicts is no evidence at any level, but is still correlated', async () => {
+    search.mockResolvedValueOnce({ hits: { hits: [resultDoc(999)] } });
     msearch.mockResolvedValueOnce({ responses: [page(agg({ prevention_action: 'blocked' })), page(agg({ prevention_action: 'blocked' }))] });
     await make(client).runEnrichmentPass({ batchSize: 200 });
-    expect(bulk.mock.calls[0][0].operations[1].doc.f0rtika).toEqual({ [`${prefix}_detected`]: true });
+    const ops = bulk.mock.calls[0][0].operations;
+    // Only the alert-side link (auto-resolve still closes it as security testing).
+    expect(ops).toHaveLength(2);
+    expect(ops[0].update._id).toBe('agg-1');
+    expect(ops[1].doc.f0rtika).toMatchObject({ achilles_correlated: true });
   });
 
   it('a single-test alert next to a multi-test one is stage evidence (its own action only)', async () => {
@@ -300,6 +315,7 @@ describe.each(VENDORS)('EDR alert enrichment — $name multi-test alerts', ({ pr
       [`${prefix}_stage_detected`]: true,
       [`${prefix}_stage_prevented`]: false,
       [`${prefix}_stage_rule`]: 'single_test',
+      [`${prefix}_evidence_rule`]: 'file_verdict',
     });
   });
 
@@ -352,5 +368,146 @@ describe.each(VENDORS)('EDR alert enrichment — $name multi-test alerts', ({ pr
     msearch.mockResolvedValueOnce({ responses: [page(), page()] });
     await make(client).runEnrichmentPass({ batchSize: 200 });
     expect(bulk).not.toHaveBeenCalled();
+  });
+});
+
+// Per-file verdicts (edr/multiTestEvidence.ts): the vendor's verdict on each
+// evidence file decides what a multi-test alert proves. Live case (Nov 2026):
+// one antivirus alert named a Qilin stage (malicious, blocked) and a Kothamine
+// stage (malicious, still active); the alert-wide action was "process killed".
+describe.each(VENDORS)('EDR alert enrichment — $name per-file verdicts', ({ prefix, make }) => {
+  const search = vi.fn();
+  const msearch = vi.fn();
+  const bulk = vi.fn();
+  const client = { search, msearch, bulk };
+  const QILIN = '8f68dda1-94be-430f-8f35-d8af3f9b5d2e';
+  const KOTH = 'c37d6a01-3934-4e72-9cb1-3dae284b937b';
+  const doc = (uuid: string, control: string, f0: Record<string, unknown> = {}, exit = 126) => ({
+    _id: 'r1',
+    _index: 'achilles-results-org',
+    _source: {
+      f0rtika: { test_uuid: `${uuid}::${control}`, control_id: control, ...f0 },
+      routing: { event_time: '2026-11-05T19:55:00Z', hostname: 'win-host-01' },
+      event: { ERROR: exit },
+    },
+    sort: ['2026-11-05T19:55:00Z'],
+  });
+  const av = {
+    _id: 'av-1',
+    _source: {
+      prevention_action: 'process_killed',
+      evidence_filenames: [`${QILIN}-t1518.001.exe`, `${KOTH}-t1572.exe`],
+      evidence_file_verdicts: [
+        { file: `${QILIN}-t1518.001.exe`, verdict: 'malicious', action: 'process_killed' },
+        { file: `${KOTH}-t1572.exe`, verdict: 'malicious', action: null },
+      ],
+    },
+  };
+  const listing = {
+    _id: 'list-1',
+    _source: {
+      evidence_filenames: [`${QILIN}-t1518.001.exe`, `${KOTH}-t1572.exe`, 'achilles-agent.exe', 'powershell.exe'],
+      evidence_file_verdicts: [
+        { file: `${QILIN}-t1518.001.exe`, verdict: 'suspicious', action: null },
+        { file: `${KOTH}-t1572.exe`, verdict: 'suspicious', action: null },
+        { file: 'achilles-agent.exe', verdict: 'suspicious', action: null },
+      ],
+    },
+  };
+  const page = (...h: unknown[]) => ({ hits: { total: { value: h.length }, hits: h } });
+  beforeEach(() => {
+    vi.clearAllMocks();
+    bulk.mockResolvedValue({ items: [{ update: {} }, { update: {} }, { update: {} }] });
+  });
+
+  it('credits the stage whose own file the vendor blocked, with that file\'s action', async () => {
+    search.mockResolvedValueOnce({ hits: { hits: [doc(QILIN, 'T1518.001')] } });
+    msearch.mockResolvedValueOnce({ responses: [page(av), page(av)] });
+    await make(client).runEnrichmentPass({ batchSize: 200 });
+    expect(bulk.mock.calls[0][0].operations[1].doc.f0rtika).toEqual({
+      [`${prefix}_detected`]: true,
+      [`${prefix}_stage_detected`]: true,
+      [`${prefix}_prevented`]: true,
+      [`${prefix}_prevention_action`]: 'process_killed',
+      [`${prefix}_stage_prevented`]: true,
+      [`${prefix}_stage_rule`]: 'single_test',
+      [`${prefix}_evidence_rule`]: 'file_verdict',
+    });
+  });
+
+  it('a file the vendor only detected is detection, never the alert-wide prevention', async () => {
+    search.mockResolvedValueOnce({ hits: { hits: [doc(KOTH, 'T1572', {}, 999)] } });
+    msearch.mockResolvedValueOnce({ responses: [page(av), page(av)] });
+    await make(client).runEnrichmentPass({ batchSize: 200 });
+    expect(bulk.mock.calls[0][0].operations[1].doc.f0rtika).toEqual({
+      [`${prefix}_detected`]: true,
+      [`${prefix}_stage_detected`]: true,
+      [`${prefix}_stage_prevented`]: false,
+      [`${prefix}_stage_rule`]: 'single_test',
+      [`${prefix}_evidence_rule`]: 'file_verdict',
+    });
+  });
+
+  it('a listing that marks every file suspicious is no evidence for any stage of either test', async () => {
+    search.mockResolvedValueOnce({ hits: { hits: [doc(QILIN, 'T1518.001')] } });
+    msearch.mockResolvedValueOnce({ responses: [page(listing), page(listing)] });
+    await make(client).runEnrichmentPass({ batchSize: 200 });
+    const ops = bulk.mock.calls[0][0].operations;
+    expect(ops).toHaveLength(2);
+    expect(ops[0].update._id).toBe('list-1');
+  });
+
+  it('another stage of the same test gets nothing from a file it does not own', async () => {
+    search.mockResolvedValueOnce({ hits: { hits: [doc(QILIN, 'T1055')] } });
+    // Wide query sees the alert (a Qilin file is marked); the T1055 stage query does not match it.
+    msearch.mockResolvedValueOnce({ responses: [page(av), page()] });
+    await make(client).runEnrichmentPass({ batchSize: 200 });
+    // Exit 126 is conclusive: the wide match is detection, never this stage's prevention.
+    expect(bulk.mock.calls[0][0].operations[1].doc.f0rtika).toEqual({
+      [`${prefix}_detected`]: true,
+      [`${prefix}_evidence_rule`]: 'file_verdict',
+    });
+  });
+
+  it('a doc detected only through listings loses _detected and its prevention once', async () => {
+    search.mockResolvedValueOnce({ hits: { hits: [doc(QILIN, 'T1055', { [`${prefix}_detected`]: true, [`${prefix}_prevented`]: true, [`${prefix}_prevention_action`]: 'blocked' }, 999)] } });
+    msearch.mockResolvedValueOnce({ responses: [page(listing), page()] });
+    await make(client).runEnrichmentPass({ batchSize: 200 });
+    expect(bulk.mock.calls[0][0].operations[1].doc.f0rtika).toEqual({
+      [`${prefix}_detected`]: false,
+      [`${prefix}_prevented`]: false,
+      [`${prefix}_prevention_action`]: null,
+      [`${prefix}_evidence_rule`]: 'file_verdict',
+    });
+  });
+
+  it('keeps _detected when one alert still counts for the test', async () => {
+    search.mockResolvedValueOnce({ hits: { hits: [doc(QILIN, 'T1055', { [`${prefix}_detected`]: true }, 999)] } });
+    msearch.mockResolvedValueOnce({ responses: [page(listing, av), page()] });
+    await make(client).runEnrichmentPass({ batchSize: 200 });
+    const flags = bulk.mock.calls[0][0].operations[1].doc.f0rtika;
+    expect(flags[`${prefix}_detected`]).toBeUndefined();
+    expect(flags[`${prefix}_evidence_rule`]).toBe('file_verdict');
+  });
+
+  it('never downgrades a detected doc whose alerts are gone (aged out): it is only marked checked', async () => {
+    search.mockResolvedValueOnce({ hits: { hits: [doc(QILIN, 'T1055', { [`${prefix}_detected`]: true, [`${prefix}_prevented`]: true }, 999)] } });
+    msearch.mockResolvedValueOnce({ responses: [page(), page()] });
+    await make(client).runEnrichmentPass({ batchSize: 200 });
+    expect(bulk.mock.calls[0][0].operations[1].doc.f0rtika).toEqual({ [`${prefix}_evidence_rule`]: 'file_verdict' });
+  });
+
+  it('a stage removed under the single-test rule gets its credit back once the vendor marks its file', async () => {
+    search.mockResolvedValueOnce({ hits: { hits: [doc(QILIN, 'T1518.001', {
+      [`${prefix}_detected`]: true, [`${prefix}_stage_detected`]: false, [`${prefix}_stage_prevented`]: false, [`${prefix}_stage_rule`]: 'single_test', [`${prefix}_evidence_rule`]: 'file_verdict',
+    })] } });
+    msearch.mockResolvedValueOnce({ responses: [page(av), page(av)] });
+    await make(client).runEnrichmentPass({ batchSize: 200 });
+    expect(bulk.mock.calls[0][0].operations[1].doc.f0rtika).toEqual({
+      [`${prefix}_stage_detected`]: true,
+      [`${prefix}_prevented`]: true,
+      [`${prefix}_prevention_action`]: 'process_killed',
+      [`${prefix}_stage_prevented`]: true,
+    });
   });
 });

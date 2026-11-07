@@ -86,7 +86,7 @@ export interface CrowdStrikeAlertItem {
    * etc.). Drives whether the alert renders inside a stage drill-down or in
    * the bundle parent's bundle-level callout.
    */
-  attribution?: 'stage' | 'bundle';
+  attribution?: 'stage' | 'bundle' | 'multi_test';
   /**
    * Lowercased technique token from a stage-attributable evidence binary.
    * Frontend matches case-insensitively against `f0rtika.control_id`.

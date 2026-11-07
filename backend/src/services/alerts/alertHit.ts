@@ -5,10 +5,18 @@
 // doc shape (alert_title, evidence_filenames, prevention_action, portal_url,
 // f0rtika.auto_resolved_at, gated on an enabled, error-free receipt).
 
-import { isMultiTestAlert } from '../edr/multiTestEvidence.js';
+import { fileVerdicts, isMultiTestAlert, isTestFile } from '../edr/multiTestEvidence.js';
+
+/**
+ * 'stage': the evidence pins the alert to one stage; 'bundle': to the test
+ * as a whole; 'multi_test': it names several Achilles tests and the vendor
+ * singled out none of this test's files (a listing of C:\F0), so it is no
+ * evidence for this run (edr/multiTestEvidence.ts).
+ */
+export type AlertAttributionKind = 'stage' | 'bundle' | 'multi_test';
 
 export interface AlertAttribution {
-  attribution: 'stage' | 'bundle';
+  attribution: AlertAttributionKind;
   attributed_control_id?: string;
 }
 
@@ -25,7 +33,7 @@ export interface ProjectedAlert {
   updated_at: string;
   resolved_at: string | null;
   recommended_actions: string;
-  attribution: 'stage' | 'bundle';
+  attribution: AlertAttributionKind;
   attributed_control_id?: string;
   prevention_action?: string;
   portal_url?: string;
@@ -53,14 +61,32 @@ export function classifyAttribution(filenames: readonly string[], bundleUuid: st
 const text = (v: unknown): string => (v === undefined || v === null ? '' : String(v));
 const optional = (v: unknown): string | undefined => (v === undefined || v === null || v === '' ? undefined : String(v));
 
+/**
+ * Attribution and prevention of an alert naming several Achilles tests: only
+ * this test's files the vendor marked malicious count, each with its own
+ * action (one file blocked, another only detected). None: 'multi_test'.
+ */
+function multiTestAttribution(
+  source: Record<string, unknown>,
+  bundleUuid: string,
+): AlertAttribution & { prevention_action?: string } {
+  const marked = (fileVerdicts(source) ?? []).filter((v) => v.verdict === 'malicious' && isTestFile(v.file, bundleUuid));
+  if (marked.length === 0) return { attribution: 'multi_test' };
+  for (const v of marked) {
+    const a = classifyAttribution([v.file], bundleUuid);
+    if (a.attribution === 'stage') return { ...a, ...(v.action ? { prevention_action: v.action } : {}) };
+  }
+  const action = marked.find((v) => v.action)?.action;
+  return { attribution: 'bundle', ...(action ? { prevention_action: action } : {}) };
+}
+
 export function projectAlertHit(source: Record<string, unknown>, bundleUuid: string): ProjectedAlert {
   const f0 = (source.f0rtika ?? {}) as Record<string, unknown>;
-  // An alert naming several tests' binaries (leftovers listed by a file alert)
-  // says nothing about this stage: bundle-level only (edr/multiTestEvidence.ts).
-  const { attribution, attributed_control_id } = isMultiTestAlert(source)
-    ? { attribution: 'bundle' as const, attributed_control_id: undefined }
-    : classifyAttribution((source.evidence_filenames as string[] | undefined) ?? [], bundleUuid);
-  const prevention_action = optional(source.prevention_action);
+  const multi = isMultiTestAlert(source) ? multiTestAttribution(source, bundleUuid) : null;
+  const { attribution, attributed_control_id } = multi
+    ?? classifyAttribution((source.evidence_filenames as string[] | undefined) ?? [], bundleUuid);
+  // A multi-test alert shows only this test's file's own action.
+  const prevention_action = multi ? multi.prevention_action : optional(source.prevention_action);
   const portal_url = optional(source.portal_url);
   // The auto-resolve receipt writer stamps auto_resolved_at on EVERY receipt,
   // including dry-run receipts (no PATCH made) and failed attempts (carry

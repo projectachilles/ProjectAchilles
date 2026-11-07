@@ -37,6 +37,7 @@ import {
   type RunDetailPanelProps,
 } from './detailParts';
 import { StageList } from './StageList';
+import { MultiTestAlertsNote } from './MultiTestAlertsNote';
 import { ENDPOINT_VENDOR_IDS, VENDORS } from '../integrations/vendorConfig';
 import { agentKill, agentKillNote, launchBlock, launchBlockNote, stageOutcomeCounts } from './stageVerdict';
 
@@ -212,6 +213,12 @@ function ExecDetailBody({
                 : 'No related Defender alerts within the time window'}
             </p>
           )}
+          {/* A bundle stage's multi-test alerts render once in the bundle body. */}
+          {!exec.is_bundle_control && !defender.loading && !defender.failed && (
+            <div className="mt-2">
+              <MultiTestAlertsNote vendor="Defender" alerts={defender.multiTestAlerts} />
+            </div>
+          )}
         </div>
       )}
 
@@ -246,6 +253,11 @@ function ExecDetailBody({
                   ? `No stage-specific ${name} alerts. See the bundle-level alerts above.`
                   : `No related ${name} alerts within the time window`}
               </p>
+            )}
+            {!exec.is_bundle_control && !state.loading && !state.failed && (
+              <div className="mt-2">
+                <MultiTestAlertsNote vendor={name} alerts={state.multiTestAlerts} />
+              </div>
             )}
           </div>
         );
@@ -415,6 +427,14 @@ function BundleBody({
     }
   }
   const bundleAlerts = Array.from(seen.values());
+  // Alerts naming several tests that flag none of this run's files: one note.
+  const multiSeen = new Map<string, RelatedAlertsResponse['alerts'][number]>();
+  for (const ctrl of group.controls) {
+    for (const a of alertsMap.get(stageAlertsCacheKey(ctrl))?.alerts ?? []) {
+      if (a.attribution === 'multi_test') multiSeen.set(a.alert_id, a);
+    }
+  }
+  const defenderMultiTest = Array.from(multiSeen.values());
 
   // Bundle-level endpoint-EDR alerts — same union/dedupe pattern as Defender.
   const endpointBundle = ENDPOINT_VENDOR_IDS.map((id) => {
@@ -428,7 +448,13 @@ function BundleBody({
         if (a.attribution === 'bundle') seenAlerts.set(a.alert_id, a);
       }
     }
-    return { id, configured, isLoading, alerts: Array.from(seenAlerts.values()) };
+    const multi = new Map<string, CrowdStrikeAlertItem>();
+    for (const ctrl of group.controls) {
+      for (const a of map.get(stageAlertsCacheKey(ctrl))?.alerts ?? []) {
+        if (a.attribution === 'multi_test') multi.set(a.alert_id, a);
+      }
+    }
+    return { id, configured, isLoading, alerts: Array.from(seenAlerts.values()), multiTest: Array.from(multi.values()) };
   });
 
   return (
@@ -514,6 +540,11 @@ function BundleBody({
             </div>
           </div>
         ) : null,
+      )}
+
+      {defenderConfigured && !isLoadingAlerts && <MultiTestAlertsNote vendor="Defender" alerts={defenderMultiTest} />}
+      {endpointBundle.map(({ id, configured, isLoading, multiTest }) =>
+        configured && !isLoading ? <MultiTestAlertsNote key={`multi-${id}`} vendor={VENDORS[id].shortName} alerts={multiTest} /> : null,
       )}
 
       {group.category !== 'cyber-hygiene' ? (
