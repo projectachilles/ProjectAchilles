@@ -223,7 +223,9 @@ describe('TestDetailPage', () => {
     expect(section).toHaveTextContent(UUID);
     // The page's own build state is handed down, so the section never fetches its own.
     expect(section).toHaveAttribute('data-has-build', 'yes');
-    expect(tests.getBuildInfo).toHaveBeenCalledTimes(1);
+    // useBuildInfo fetches in an effect after the render commits, so the section
+    // can be on screen a tick before the call: wait for it rather than assert now.
+    await waitFor(() => expect(tests.getBuildInfo).toHaveBeenCalledTimes(1));
     expect(tests.getBuildInfo).toHaveBeenCalledWith(UUID);
     unmount();
     tests.getBuildInfo.mockClear();
