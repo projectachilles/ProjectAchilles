@@ -23,6 +23,7 @@ import type {
 } from '@elastic/elasticsearch/lib/api/types.js';
 import { isAchillesMitigated, ACHILLES_MITIGATED_QUERY } from '../shared/achillesMitigation.js';
 import type { DetectionRateResponse, RelatedAlertsResponse } from '../../types/crowdstrike.js';
+import { techniqueMatchClauses } from '../../data/techniqueAliases.js';
 
 // ---------------------------------------------------------------------------
 // Response types
@@ -319,10 +320,8 @@ export class EdrAlertAnalyticsService {
     if (techniques && techniques.length > 0) {
       // Match exact technique (e.g. T1059) and any sub-technique (T1059.001, T1059.003 …)
       // without false-positives like T10590. The trailing dot in the prefix is load-bearing.
-      const should: QueryDslQueryContainer[] = techniques.flatMap((t) => [
-        { term: { mitre_techniques: t } },
-        { prefix: { mitre_techniques: `${t}.` } },
-      ]);
+      // ATT&CK renumbering counts as the same technique (data/techniqueAliases.ts).
+      const should: QueryDslQueryContainer[] = techniqueMatchClauses('mitre_techniques', techniques);
       must.push({ bool: { should, minimum_should_match: 1 } });
     }
 

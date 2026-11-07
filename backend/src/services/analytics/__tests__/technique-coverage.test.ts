@@ -261,8 +261,12 @@ describe('technique coverage', () => {
     });
   });
 
-  const rowFilter = (t: string) => ({
-    bool: { should: [{ term: { mitre_techniques: t } }, { prefix: { mitre_techniques: `${t}.` } }], minimum_should_match: 1 },
+  // `aliases`: ids ATT&CK renumbered the technique to or from (MITRE revoked-by).
+  const rowFilter = (t: string, aliases: string[] = []) => ({
+    bool: {
+      should: [t, ...aliases].flatMap((id) => [{ term: { mitre_techniques: id } }, { prefix: { mitre_techniques: `${id}.` } }]),
+      minimum_should_match: 1,
+    },
   });
 
   it('counts alerts per row by the id or its sub-techniques in the created_at window, doc_type alert only', async () => {
@@ -283,10 +287,23 @@ describe('technique coverage', () => {
     ]);
     // One filters bucket per tested technique: the same rule as getAlerts({ techniques: [t] }).
     expect(req.aggs.techniques).toEqual({
-      filters: { filters: { T1486: rowFilter('T1486'), 'T1574.002': rowFilter('T1574.002') } },
+      // MITRE revoked T1574.002 (DLL Side-Loading) in favour of T1574.001.
+      filters: { filters: { T1486: rowFilter('T1486'), 'T1574.002': rowFilter('T1574.002', ['T1574.001']) } },
     });
     expect(res.byTechnique.find((t) => t.technique === 'T1574.002')?.alerts).toBe(0);
     expect(res.byTechnique.find((t) => t.technique === 'T1486')?.alerts).toBe(4);
+  });
+
+  it('a row also counts alerts tagged with the id ATT&CK renumbered it to (T1562.001 -> T1685)', async () => {
+    mockSearch
+      .mockResolvedValueOnce(resultsResponse(1, { prevented: 0, detected: 0 }, [
+        { key: 'T1562.001', doc_count: 1, prevented: 0, detected: 0 },
+      ]))
+      .mockResolvedValueOnce(alertResponse({ 'T1562.001': 2 }));
+    await getTechniqueCoverage(client, opts('defender'));
+    const should = mockSearch.mock.calls[1][0].aggs.techniques.filters.filters['T1562.001'].bool.should;
+    expect(should).toContainEqual({ term: { mitre_techniques: 'T1685' } });
+    expect(should).toContainEqual({ prefix: { mitre_techniques: 'T1685.' } });
   });
 
   it('rolls sub-technique alerts up into the parent row (distinct alerts), never parent alerts down', async () => {

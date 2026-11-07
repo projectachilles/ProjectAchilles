@@ -178,4 +178,9 @@ describe('buildHostTechniqueQuery', () => {
     expect(q.bool.must).toContainEqual({ terms: { mitre_techniques: ['T1486'] } });
     expect(JSON.stringify(q)).toContain('HOST1*');
   });
+
+  it('also matches the id ATT&CK renumbered a technique to (T1562.001 -> T1685)', () => {
+    const q = buildHostTechniqueQuery(DEFENDER_ADAPTER, run(1, ['T1562.001'])) as { bool: { must: unknown[] } };
+    expect(q.bool.must).toContainEqual({ terms: { mitre_techniques: ['T1562.001', 'T1685'] } });
+  });
 });

@@ -13,6 +13,7 @@ export const AGENT_KILL_WATCHDOG_ERRORS = [
 ] as const;
 
 import type { EdrVendorKey } from '../outcomes/vendors.js';
+import { techniqueAliases } from '../../data/techniqueAliases.js';
 export type { EdrVendorKey };
 
 /** A watchdog-failed task, with its timestamps already parsed to epoch ms. */
@@ -78,15 +79,19 @@ export function hostMatches(agentHost: string, evidence: string[]): boolean {
   return want !== '' && evidence.some((e) => shortHostname(e) === want);
 }
 
-/** `T1003.001` -> `t1003`. */
-function parentTechnique(t: string): string {
-  return t.trim().toLowerCase().split('.')[0];
+/** Parent ids of a technique and its ATT&CK aliases: `T1562.001` -> `T1562`, `T1685`. */
+function parentTechniques(t: string): string[] {
+  return techniqueAliases(t).map((a) => a.split('.')[0]);
 }
 
-/** True when any technique pair shares a parent (sub-techniques count). */
+/**
+ * True when any technique pair shares a parent (sub-techniques count), also
+ * across an ATT&CK renumbering: an EDR reporting the new id (T1685) matches a
+ * test that still cites the revoked one (T1562.001).
+ */
 export function techniquesOverlap(a: string[], b: string[]): boolean {
-  const parents = new Set(a.map(parentTechnique).filter(Boolean));
-  return b.some((t) => parents.has(parentTechnique(t)));
+  const parents = new Set(a.flatMap(parentTechniques));
+  return b.some((t) => parentTechniques(t).some((p) => parents.has(p)));
 }
 
 /** Test uuids compared case-insensitively, a `<bundle>::<control>` id by its bundle. */

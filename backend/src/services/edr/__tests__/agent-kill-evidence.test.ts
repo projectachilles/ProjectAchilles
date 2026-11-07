@@ -85,6 +85,17 @@ describe('techniquesOverlap', () => {
     expect(techniquesOverlap(['t1003'], ['T1003.001'])).toBe(true);
     expect(techniquesOverlap(['T1003'], ['T1566'])).toBe(false);
   });
+
+  it('matches across an ATT&CK renumbering (revoked-by), both ways', () => {
+    // SentinelOne's agent-kill Threat on an Akira run: T1685.x, the test declares T1562.001.
+    expect(techniquesOverlap(['T1068', 'T1562.001'], ['T1685', 'T1685.005', 'T1685.001'])).toBe(true);
+    expect(techniquesOverlap(['T1685'], ['T1562.001'])).toBe(true);
+    expect(techniquesOverlap(['T1070.001'], ['T1685.005'])).toBe(true);
+  });
+
+  it('reads an id out of a library label', () => {
+    expect(techniquesOverlap(['T1068 (Exploitation for Privilege Escalation)'], ['T1068'])).toBe(true);
+  });
 });
 
 describe('hostMatches', () => {

@@ -13,6 +13,7 @@ import type {
   QueryDslQueryContainer,
 } from '@elastic/elasticsearch/lib/api/types.js';
 import { techniqueInfo } from '../../data/attackTechniques.js';
+import { techniqueMatchClauses } from '../../data/techniqueAliases.js';
 import { attackSimulationExclusions } from './attack-simulation-filter.js';
 import { ENRICHMENT_ELIGIBLE_ERROR_CODES } from './enrichment-eligibility.js';
 import { windowRange } from './integration-window.js';
@@ -266,10 +267,8 @@ export async function getTechniqueCoverage(
                 b.key,
                 {
                   bool: {
-                    should: [
-                      { term: { mitre_techniques: b.key } },
-                      { prefix: { mitre_techniques: `${b.key}.` } },
-                    ],
+                    // The id, its sub-techniques, and its ATT&CK renumbering (data/techniqueAliases.ts).
+                    should: techniqueMatchClauses('mitre_techniques', [b.key]),
                     minimum_should_match: 1,
                   },
                 },

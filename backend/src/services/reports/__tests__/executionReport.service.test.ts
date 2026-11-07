@@ -733,9 +733,10 @@ describe('payload size at the caps', () => {
     expect(report.runs[0].stages[0]).toEqual({ controlId: 'CH-DEF-001', order: 1, outcome: 'protected', exitCode: 126, highImpact: false });
     expect(report.runs.some((r) => r.stages.some((s) => 'name' in s || 'techniques' in s || 'tactics' in s))).toBe(false);
     expect(JSON.stringify(report).length).toBeLessThan(4_000_000);
-    // Correlation ran on the full stages: the technique+host fallback still names the stage techniques.
+    // Correlation ran on the full stages: the technique+host fallback still names the stage techniques
+    // (plus T1685, the id ATT&CK renumbered T1562.001 to).
     const fallback = deps.client.msearch.mock.calls.map(([req]: [{ searches: any[] }]) => JSON.stringify(req.searches[1].query));
-    expect(fallback.some((q: string) => q.includes('"mitre_techniques":["T1562.001"]'))).toBe(true);
+    expect(fallback.some((q: string) => q.includes('"mitre_techniques":["T1562.001","T1685"]'))).toBe(true);
   });
 });
 
