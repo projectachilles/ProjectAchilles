@@ -520,6 +520,7 @@ export class IntegrationsSettingsService {
       label: settings.label !== undefined ? settings.label : current.label,
       last_alert_sync: settings.last_alert_sync !== undefined ? settings.last_alert_sync : current.last_alert_sync,
       last_score_sync: settings.last_score_sync !== undefined ? settings.last_score_sync : current.last_score_sync,
+      sync_version: settings.sync_version !== undefined ? settings.sync_version : current.sync_version,
       auto_resolve_mode: settings.auto_resolve_mode !== undefined ? settings.auto_resolve_mode : current.auto_resolve_mode,
     };
 
@@ -592,9 +593,11 @@ export class IntegrationsSettingsService {
       const orgDefender = existing.orgs![this.orgId]!.defender!;
       if (timestamps.last_alert_sync !== undefined) orgDefender.last_alert_sync = timestamps.last_alert_sync;
       if (timestamps.last_score_sync !== undefined) orgDefender.last_score_sync = timestamps.last_score_sync;
+      if (timestamps.sync_version !== undefined) orgDefender.sync_version = timestamps.sync_version;
     } else if (existing.defender) {
       if (timestamps.last_alert_sync !== undefined) existing.defender.last_alert_sync = timestamps.last_alert_sync;
       if (timestamps.last_score_sync !== undefined) existing.defender.last_score_sync = timestamps.last_score_sync;
+      if (timestamps.sync_version !== undefined) existing.defender.sync_version = timestamps.sync_version;
     } else {
       // No existing defender section in file — credentials come from env vars.
       // Store timestamps in a lightweight top-level key that won't shadow env vars.
@@ -963,10 +966,7 @@ export class IntegrationsSettingsService {
     // Write timestamps into the correct section (org-specific or top-level)
     // but ONLY if that section already exists — never create a crowdstrike
     // entry just for timestamps, as that would shadow env var credentials.
-    // Note: sync_version is persisted in the section too (the Defender
-    // equivalent only round-trips it via the standalone defender_sync key,
-    // which means file-based Defender installs never record it — we don't
-    // replicate that quirk).
+    // sync_version is persisted in the section too, as for Defender.
     if (this.orgId && existing.orgs?.[this.orgId]?.crowdstrike) {
       const orgCrowdStrike = existing.orgs![this.orgId]!.crowdstrike!;
       if (timestamps.last_alert_sync !== undefined) orgCrowdStrike.last_alert_sync = timestamps.last_alert_sync;

@@ -43,6 +43,8 @@ export interface DefenderIntegrationSettings {
   /** Persisted sync timestamps so incremental syncs survive process restarts. */
   last_alert_sync?: string;
   last_score_sync?: string;
+  /** Alert sync schema version; a mismatch forces a full re-sync at startup. */
+  sync_version?: number;
   /**
    * Auto-resolve pillar mode. Missing/undefined = 'disabled' (default).
    * Operationally opt-in — requires SecurityAlert.ReadWrite.All granted to

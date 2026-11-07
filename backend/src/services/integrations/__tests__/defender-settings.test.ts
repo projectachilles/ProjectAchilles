@@ -389,6 +389,65 @@ describe('IntegrationsSettingsService — Defender', () => {
 
   // ── Error handling ────────────────────────────────────────────
 
+  // ── Sync timestamps ───────────────────────────────────────────
+
+  describe('sync timestamps', () => {
+    function saveCredsAndReadBack(): { read: () => string } {
+      let writtenData = '';
+      mockWriteFileSync.mockImplementation((_p: string, data: string) => { writtenData = data; });
+      service.saveDefenderSettings({
+        tenant_id: 'aaaabbbb-cccc-dddd-eeee-ffffffffffff',
+        client_id: '11112222-3333-4444-5555-666677778888',
+        client_secret: 'super-secret-value',
+      });
+      mockExistsSync.mockImplementation((p: string) => p === SETTINGS_FILE || p === SETTINGS_DIR);
+      mockReadFileSync.mockImplementation(() => writtenData);
+      return { read: () => writtenData };
+    }
+
+    // A file-configured install that never records sync_version re-reads
+    // 90 days of alerts from Graph on every restart.
+    it('persists sync_version in the defender section (file-based credentials)', () => {
+      const file = saveCredsAndReadBack();
+
+      service.saveDefenderSyncTimestamps({
+        last_alert_sync: '2026-10-01T00:00:00Z',
+        last_score_sync: '2026-10-01T01:00:00Z',
+        sync_version: 4,
+      });
+
+      const saved = JSON.parse(file.read());
+      expect(saved.defender.sync_version).toBe(4);
+      expect(saved.defender_sync).toBeUndefined();
+      expect(service.getDefenderSyncTimestamps()).toEqual({
+        last_alert_sync: '2026-10-01T00:00:00Z',
+        last_score_sync: '2026-10-01T01:00:00Z',
+        sync_version: 4,
+      });
+    });
+
+    it('keeps sync_version when the settings are saved again (e.g. auto-resolve mode)', () => {
+      const file = saveCredsAndReadBack();
+      service.saveDefenderSyncTimestamps({ last_alert_sync: '2026-10-01T00:00:00Z', sync_version: 4 });
+
+      service.saveDefenderSettings({ auto_resolve_mode: 'dry_run' });
+
+      expect(JSON.parse(file.read()).defender.sync_version).toBe(4);
+      expect(service.getDefenderSyncTimestamps().sync_version).toBe(4);
+    });
+
+    it('uses the standalone defender_sync key when credentials come from env vars', () => {
+      let writtenData = '';
+      mockWriteFileSync.mockImplementation((_p: string, data: string) => { writtenData = data; });
+
+      service.saveDefenderSyncTimestamps({ last_alert_sync: '2026-10-02T00:00:00Z', sync_version: 4 });
+
+      const saved = JSON.parse(writtenData);
+      expect(saved.defender).toBeUndefined();
+      expect(saved.defender_sync).toEqual({ last_alert_sync: '2026-10-02T00:00:00Z', sync_version: 4 });
+    });
+  });
+
   describe('error handling', () => {
     it('returns null on corrupt JSON', () => {
       mockExistsSync.mockImplementation((p: string) => p === SETTINGS_FILE || p === SETTINGS_DIR);
