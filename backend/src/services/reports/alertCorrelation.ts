@@ -43,7 +43,7 @@ const HITS_PER_RUN = 50;
 const ALERT_SOURCE_FIELDS = [
   'alert_id', 'alert_title', 'description', 'severity', 'status', 'category', 'service_source',
   'mitre_techniques', 'created_at', 'updated_at', 'resolved_at', 'recommended_actions',
-  'evidence_filenames', 'prevention_action', 'portal_url', 'f0rtika.auto_resolved_at',
+  'evidence_filenames', 'evidence_filepaths', 'prevention_action', 'portal_url', 'f0rtika.auto_resolved_at',
   'f0rtika.auto_resolve_mode', 'f0rtika.auto_resolve_error', ...ACHILLES_MITIGATION_FIELDS,
 ];
 

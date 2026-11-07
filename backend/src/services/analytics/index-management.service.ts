@@ -302,6 +302,8 @@ function edrFlagMappings(): Record<string, { type: 'boolean' | 'keyword' }> {
       [`${v}_prevented`, { type: 'boolean' as const }],
       [`${v}_prevention_action`, { type: 'keyword' as const }],
       [`${v}_stage_prevented`, { type: 'boolean' as const }],
+      // 'single_test' once the stage was evaluated under the single-test rule (edr/multiTestEvidence.ts).
+      [`${v}_stage_rule`, { type: 'keyword' as const }],
     ]),
   );
 }

@@ -57,6 +57,16 @@ Alert docs also carry `portal_url` — the exact per-alert console deep link
 (Falcon's `falcon_host_link`, Defender's `alertWebUrl`) — used by the alert
 drawers and execution detail panels.
 
+**Alerts that name several tests.** Some alerts list every flagged file on
+a disk; Defender's *A suspicious file was observed* is the common one. When
+earlier runs left test binaries in `C:\F0`, such an alert names the binaries of
+several different tests at once, so it is no evidence that *this* run's stage
+was seen. An alert whose evidence names the binaries of two or more different
+Achilles tests never sets `*_stage_detected` / `*_stage_prevented` (it still
+counts for the test as a whole), and the stage's evidence list leaves it out.
+Stages flagged before this rule are checked once: if every stage alert still in
+the index names several tests, the stage loses those flags.
+
 **Late actions.** EDRs often add the action after the alert was first
 matched: Defender updates the alert's remediation status, SentinelOne adds
 mitigation entries, Sophos sends the remedy in a later SIEM event. A stage
