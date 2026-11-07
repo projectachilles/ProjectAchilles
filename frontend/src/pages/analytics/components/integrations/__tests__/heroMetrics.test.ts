@@ -1,6 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import {
   alertWeekDelta,
+  coverageScopePhrase,
   firstToLastDelta,
   formatScore,
   stillOpenFootnote,
@@ -103,3 +104,17 @@ describe('weakestChecks', () => {
     expect(weakestChecks([], 3)).toEqual([]);
   });
 });
+
+describe('coverageScopePhrase', () => {
+  it('names the hosts the Detected / Prevented counts cover', () => {
+    expect(coverageScopePhrase({ source: 'inventory', hosts: 5 }, 'SentinelOne')).toBe('on 5 hosts running SentinelOne');
+    expect(coverageScopePhrase({ source: 'alerts', hosts: 4 }, 'CrowdStrike')).toBe('on 4 hosts with a CrowdStrike alert in 90 days');
+    expect(coverageScopePhrase({ source: 'fleet', hosts: 27 }, 'Defender')).toBe('on all 27 tested hosts');
+    expect(coverageScopePhrase({ source: 'inventory', hosts: 1 }, 'Sophos')).toBe('on 1 host running Sophos');
+  });
+
+  it('says nothing when the backend sends no scope (older backends)', () => {
+    expect(coverageScopePhrase(undefined, 'Defender')).toBeNull();
+  });
+});
+

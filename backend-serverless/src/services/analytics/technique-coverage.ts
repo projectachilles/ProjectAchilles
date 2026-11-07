@@ -1,4 +1,4 @@
-// Evidence-based technique coverage for the Defender, CrowdStrike and SentinelOne tabs.
+// Evidence-based technique coverage for the Defender, CrowdStrike, SentinelOne and Sophos tabs.
 //
 // One response drives both the Detection hero tile and the Technique Coverage
 // table, so they can never disagree. Detection comes from the flags the
@@ -14,11 +14,23 @@ import type {
 } from '@elastic/elasticsearch/lib/api/types.js';
 import { techniqueInfo } from '../../data/attackTechniques.js';
 import { attackSimulationExclusions } from './attack-simulation-filter.js';
-import { enrichmentEligibleClauses } from './enrichment-eligibility.js';
+import { ENRICHMENT_ELIGIBLE_ERROR_CODES } from './enrichment-eligibility.js';
 import { windowRange } from './integration-window.js';
 import type { TimeWindow } from './integration-window.js';
 
 export type CoverageVendor = 'crowdstrike' | 'defender' | 'sentinelone' | 'sophos';
+
+/**
+ * The hosts a vendor covers, so its tab is not divided by hosts it never saw.
+ * `inventory`: the vendor's own agent/endpoint list; `alerts`: hosts that
+ * raised one of its alerts recently. Names may be FQDNs in any case; they are
+ * matched to result docs by short host name, case-insensitively.
+ */
+export type CoverageHostSource = 'inventory' | 'alerts';
+export interface CoverageHostScope {
+  source: CoverageHostSource;
+  hostnames: string[];
+}
 
 export interface TechniqueCoverageItem {
   technique: string;
@@ -50,10 +62,17 @@ export interface TechniqueCoverageResponse {
   };
   /** Detected (prevented + detectedOnly > 0) first, then executions desc. */
   byTechnique: TechniqueCoverageItem[];
+  /**
+   * Which hosts the counts cover: the vendor's (`inventory` / `alerts`) or
+   * every host with a result (`fleet`, no host scope given). `hosts` = hosts
+   * with a counted result.
+   */
+  scope: { source: CoverageHostSource | 'fleet'; hosts: number };
 }
 
 export const COVERAGE_DEFAULT_DAYS = 30;
 const TERMS_SIZE = 500;
+const HOST_TERMS_SIZE = 10_000;
 const DAY_MS = 86_400_000;
 
 /** The route's window when from/to are absent: the last 30 days up to now. */
@@ -71,7 +90,8 @@ export function defaultCoverageWindow(now: number = Date.now()): TimeWindow {
  *     test's own detection. On a bundle control the wide flag only means the
  *     bundle UUID matched, so a stage is never credited because a sibling
  *     stage was caught; or
- *   - `<v>_prevented: true` — a vendor-confirmed prevention is a detection.
+ *   - `<v>_prevented: true` — a vendor-confirmed prevention is a detection; or
+ *   - the vendor killed the agent mid-run (`edr_terminated_vendors`).
  */
 export function detectedClause(vendor: CoverageVendor): QueryDslQueryContainer {
   return {
@@ -85,15 +105,49 @@ export function detectedClause(vendor: CoverageVendor): QueryDslQueryContainer {
           },
         },
         { term: { [`f0rtika.${vendor}_prevented`]: true } },
+        killedBy(vendor),
       ],
       minimum_should_match: 1,
     },
   };
 }
 
-/** Prevented = `<v>_prevented: true` (which the detected predicate also counts). */
+/**
+ * Prevented = `<v>_prevented: true` (a launch block's doc carries it too), or
+ * the vendor killed the agent mid-run: that whole-test doc carries no vendor
+ * flags, only `edr_terminated_vendors`. The detected predicate counts both.
+ */
 export function preventedClause(vendor: CoverageVendor): QueryDslQueryContainer {
-  return { term: { [`f0rtika.${vendor}_prevented`]: true } };
+  return {
+    bool: {
+      should: [{ term: { [`f0rtika.${vendor}_prevented`]: true } }, killedBy(vendor)],
+      minimum_should_match: 1,
+    },
+  };
+}
+
+function killedBy(vendor: CoverageVendor): QueryDslQueryContainer {
+  return { term: { 'f0rtika.edr_terminated_vendors': vendor } };
+}
+
+/**
+ * Docs where stages ran: not a stageless whole-test doc for a run the EDR
+ * killed with the agent (`edr_terminated`) or blocked at launch
+ * (`edr_launch_blocked`). Such a run counts in the totals (it was stopped)
+ * but never under a technique, since no stage exercised one.
+ */
+const STAGES_RAN: QueryDslQueryContainer = {
+  bool: {
+    must_not: [
+      { term: { 'f0rtika.edr_terminated': true } },
+      { term: { 'f0rtika.edr_launch_blocked': true } },
+    ],
+  },
+};
+
+/** Short host name, lower-cased: `WS-01.corp.example` and `ws-01` are one host. */
+function hostKey(h: string): string {
+  return h.trim().toLowerCase().split('.')[0];
 }
 
 function outcomeAgg(vendor: CoverageVendor): AggregationsAggregationContainer {
@@ -102,6 +156,7 @@ function outcomeAgg(vendor: CoverageVendor): AggregationsAggregationContainer {
 
 type OutcomeBuckets = { buckets?: { prevented?: { doc_count: number }; detected?: { doc_count: number } } };
 type TechniqueBucket = { key: string; doc_count: number; outcome?: OutcomeBuckets };
+type HostBucket = { key: string | number };
 
 function outcomeCounts(agg: OutcomeBuckets | undefined): { prevented: number; detected: number } {
   return {
@@ -122,36 +177,72 @@ function pct(part: number, whole: number): number {
 
 export async function getTechniqueCoverage(
   client: Client,
-  opts: { vendor: CoverageVendor; resultsIndex: string; alertIndex: string; window: TimeWindow },
+  opts: {
+    vendor: CoverageVendor;
+    resultsIndex: string;
+    alertIndex: string;
+    window: TimeWindow;
+    /** Count only these hosts' results; absent = every host (`scope.source: 'fleet'`). */
+    hostScope?: CoverageHostScope;
+  },
 ): Promise<TechniqueCoverageResponse> {
-  const { vendor, resultsIndex, alertIndex, window } = opts;
+  const { vendor, resultsIndex, alertIndex, window, hostScope } = opts;
   const outcome = outcomeAgg(vendor);
   // The window is always set here, so windowRange never returns null.
   const inWindow = (field: string) => windowRange(field, window) as QueryDslQueryContainer;
 
-  // Request 1: the coverage execution set — conclusive attack simulations in
-  // the window, using the same eligibility clauses as the enrichment passes.
+  // The coverage execution set: attack simulations in the window with an
+  // enrichment-eligible exit code. Stageless runs stay in (see STAGES_RAN).
+  const eligible: QueryDslQueryContainer[] = [
+    inWindow('routing.event_time'),
+    { terms: { 'event.ERROR': ENRICHMENT_ELIGIBLE_ERROR_CODES } },
+  ];
+  const must_not = attackSimulationExclusions();
+  let hostFilter: QueryDslQueryContainer[] = [];
+
+  // Host scope: resolve the scope's names to the exact routing.hostname
+  // values of the counted results (short name, any case). No match leaves an
+  // empty terms filter, which matches nothing.
+  if (hostScope) {
+    const wanted = new Set(hostScope.hostnames.map(hostKey).filter((h) => h !== ''));
+    const hostResponse = await client.search({
+      index: resultsIndex,
+      size: 0,
+      query: { bool: { filter: eligible, must_not } },
+      aggs: { hosts: { terms: { field: 'routing.hostname', size: HOST_TERMS_SIZE } } },
+    });
+    const hostAggs = hostResponse.aggregations as Record<string, unknown> | undefined;
+    const buckets = ((hostAggs?.hosts as { buckets?: HostBucket[] } | undefined)?.buckets) ?? [];
+    const matched = buckets.map((b) => String(b.key)).filter((h) => wanted.has(hostKey(h)));
+    hostFilter = [{ terms: { 'routing.hostname': matched } }];
+  }
+
+  // Request 1: totals over the counted set, technique rows over the docs
+  // where stages ran.
   const resultsResponse = await client.search({
     index: resultsIndex,
     size: 0,
     track_total_hits: true,
-    query: {
-      bool: {
-        filter: [inWindow('routing.event_time'), ...enrichmentEligibleClauses()],
-        must_not: attackSimulationExclusions(),
-      },
-    },
+    query: { bool: { filter: [...eligible, ...hostFilter], must_not } },
     aggs: {
       overall: outcome,
+      host_count: { cardinality: { field: 'routing.hostname' } },
       techniques: {
-        terms: { field: 'f0rtika.techniques', size: TERMS_SIZE },
-        aggs: { outcome },
+        filter: STAGES_RAN,
+        aggs: {
+          list: {
+            terms: { field: 'f0rtika.techniques', size: TERMS_SIZE },
+            aggs: { outcome },
+          },
+        },
       },
     },
   });
 
   const aggs = resultsResponse.aggregations as Record<string, unknown> | undefined;
-  const techniqueBuckets = ((aggs?.techniques as { buckets?: TechniqueBucket[] } | undefined)?.buckets) ?? [];
+  const techniqueBuckets =
+    ((aggs?.techniques as { list?: { buckets?: TechniqueBucket[] } } | undefined)?.list?.buckets) ?? [];
+  const hostCount = Number((aggs?.host_count as { value?: number } | undefined)?.value) || 0;
 
   // Request 2: vendor alerts per tested technique — one filters bucket per row
   // matching the id or an `<id>.` sub-technique, the same rule as
@@ -233,5 +324,6 @@ export async function getTechniqueCoverage(
       detectedTechniques: byTechnique.filter(isDetected).length,
     },
     byTechnique,
+    scope: { source: hostScope?.source ?? 'fleet', hosts: hostCount },
   };
 }

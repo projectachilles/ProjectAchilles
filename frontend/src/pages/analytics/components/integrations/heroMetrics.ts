@@ -1,7 +1,7 @@
 // Pure helpers behind the integration tabs' hero tiles.
 
 import type { DeltaTone } from '../HeroStatTile';
-import type { AlertFacetCounts, IntegrationTrendPoint, TimeWindow } from '@/services/api/integrationTypes';
+import type { AlertFacetCounts, CoverageScope, IntegrationTrendPoint, TimeWindow } from '@/services/api/integrationTypes';
 
 const DAY_MS = 86_400_000;
 /** Longest ZTA trend the backend is asked for. */
@@ -88,3 +88,22 @@ export function scrollToAlertFeed(): void {
   feed.scrollIntoView({ behavior: 'smooth', block: 'start' });
   feed.focus({ preventScroll: true });
 }
+
+/**
+ * Which hosts the Detected / Prevented tile counts, e.g. "on 5 hosts running
+ * SentinelOne". Null when the backend sends no scope.
+ */
+export function coverageScopePhrase(scope: CoverageScope | undefined, shortName: string): string | null {
+  if (!scope) return null;
+  const n = scope.hosts.toLocaleString();
+  const noun = scope.hosts === 1 ? 'host' : 'hosts';
+  switch (scope.source) {
+    case 'inventory':
+      return `on ${n} ${noun} running ${shortName}`;
+    case 'alerts':
+      return `on ${n} ${noun} with a ${shortName} alert in 90 days`;
+    case 'fleet':
+      return `on all ${n} tested ${noun}`;
+  }
+}
+

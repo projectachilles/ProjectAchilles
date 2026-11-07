@@ -55,6 +55,17 @@ export interface TechniqueCoverageResponse {
   };
   /** Detected first, then executions desc. */
   byTechnique: TechniqueCoverageItem[];
+  /**
+   * The hosts the counts cover: the EDR's own host list (`inventory`), hosts
+   * that raised one of its alerts in 90 days (`alerts`), or every tested host
+   * (`fleet`). `hosts` = hosts with a counted result. Absent on older backends.
+   */
+  scope?: CoverageScope;
+}
+
+export interface CoverageScope {
+  source: 'inventory' | 'alerts' | 'fleet';
+  hosts: number;
 }
 
 // ---------------------------------------------------------------------------

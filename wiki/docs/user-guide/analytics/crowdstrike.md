@@ -99,15 +99,25 @@ The Detection Rate is **evidence-based and per-execution**:
 detectionRate = (prevented + detectedOnly) / executions × 100
 ```
 
-- **executions** — conclusive attack-simulation executions in the selected
-  window. Each execution is counted once, even if it exercises several
-  techniques.
+- **executions** — attack-simulation results in the selected window, on the
+  hosts CrowdStrike covers (the tile says which hosts, for example "on 4 hosts
+  with a CrowdStrike alert in 90 days"). Each result is counted once, even if
+  it exercises several techniques. A run CrowdStrike blocked at launch or
+  stopped by killing the agent counts as one prevented result, but under no
+  technique.
+- **hosts** — each EDR tab counts only the hosts that EDR covers, so a fleet
+  with several EDRs doesn't divide one EDR's results by hosts it never saw. The
+  hosts come from the EDR's own host list where Achilles stores one
+  (SentinelOne agents, Sophos endpoints), otherwise from the hosts that raised
+  one of its alerts in the last 90 days (CrowdStrike, Defender). A host where
+  the EDR never alerted is left out of the second kind.
 - **detected** — the execution's own enrichment flag says CrowdStrike caught it. A
   bundle stage counts only by its own per-stage flag, so it is never credited
   because a sibling stage was detected; a standalone test counts by its own
   detection flag. A prevention CrowdStrike confirmed always counts as detected.
-- **prevented** — CrowdStrike confirmed it blocked the execution. **Detected only** is
-  detected but not blocked; the rest are **missed**.
+- **prevented** — CrowdStrike confirmed it blocked the execution, blocked the test
+  at launch, or killed the agent mid-run. **Detected only** is detected but not
+  blocked; the rest are **missed**.
 
 :::note[Numbers can differ from before]
 Earlier versions matched alerts to executions by MITRE technique within a

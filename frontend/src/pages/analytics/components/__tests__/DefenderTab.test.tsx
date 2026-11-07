@@ -91,6 +91,7 @@ const coverage = {
     { technique: 'T1003', name: 'OS Credential Dumping', executions: 10, prevented: 0, detectedOnly: 2, missed: 8, alerts: 2 },
     { technique: 'T1027', name: null, executions: 10, prevented: 0, detectedOnly: 0, missed: 10, alerts: 0 },
   ],
+  scope: { source: 'fleet', hosts: 27 },
 };
 
 function mockHappyPath() {
@@ -212,8 +213,9 @@ describe('DefenderTab', () => {
     expect(screen.getByText('15.0')).toBeInTheDocument();
     expect(screen.getByText('% prevented')).toBeInTheDocument();
     expect(
-      screen.getByText('10 / 40 executions raised an alert · 6 were stopped'),
+      screen.getByText('10 / 40 test results raised an alert · 6 were stopped'),
     ).toBeInTheDocument();
+    expect(screen.getByText('on all 27 tested hosts')).toBeInTheDocument();
     expect(screen.getByRole('img', { name: '2 of 3 techniques detected' })).toBeInTheDocument();
   });
 
