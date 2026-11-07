@@ -5,6 +5,7 @@ import { createEsClient } from './client.js';
 import { RiskAcceptanceService } from '../risk-acceptance/risk-acceptance.service.js';
 import { attackSimulationExclusions } from './attack-simulation-filter.js';
 import { NOT_STAGELESS } from './enrichment-eligibility.js';
+import { EDR_PREVENTED_ERROR_STAGE } from '../reports/stageOutcome.js';
 import { AppError } from '../../middleware/error.middleware.js';
 import {
   MAX_FRESHNESS_DAYS,
@@ -151,6 +152,10 @@ interface ChainRun extends PairRun {
   blockedStages: number[] | null;
   /** "Stage N" numbers of the detected-but-unblocked stages; null when any has no such validator. */
   alertedStages: number[] | null;
+  /** Some error-coded stage was stopped by the EDR's own action on it (EDR_PREVENTED_ERROR_STAGE). */
+  edrStopped: boolean;
+  /** "Stage N" numbers of those stages; null when any has no such validator. */
+  edrStoppedStages: number[] | null;
   /** The EDR killed the agent mid-run: one whole-test kill doc, stages unknown. */
   agentTerminated: boolean;
 }
@@ -342,8 +347,12 @@ function stageNumbers(agg: any): number[] | null {
  * same stage for orchestrators that stop at the first block.
  */
 function chainStop(run: ChainRun): { stage: number; alertedBefore: boolean } {
-  if (run.blockedStages && run.blockedStages.length > 0) {
-    const stage = Math.min(...run.blockedStages);
+  // A stage the EDR killed (error code + its own prevention alert) stopped the
+  // chain like a block. Stage numbers are usable only when every kind has them.
+  const known = run.blockedStages !== null && run.edrStoppedStages !== null;
+  const stops = known ? [...run.blockedStages!, ...run.edrStoppedStages!] : [];
+  if (stops.length > 0) {
+    const stage = Math.min(...stops);
     const alertedBefore = run.alertedStages
       ? run.alertedStages.some(n => n < stage)
       : run.alertedUnblocked;
@@ -493,9 +502,24 @@ export class ElasticsearchService {
     };
   }
 
-  // Filter to only conclusive test outcomes (for Defense Score calculations)
+  /**
+   * Scored test outcomes (Defense Score, posture, outcome breakdown, error
+   * rate, activity): a conclusive exit code, or an error-coded stage the EDR's
+   * own alert on that stage says it stopped (EDR_PREVENTED_ERROR_STAGE, which
+   * the console labels Prevented).
+   */
   private buildConclusiveResultsFilter(): any {
-    return { terms: { 'event.ERROR': this.CONCLUSIVE_ERROR_CODES } };
+    return {
+      bool: {
+        should: [{ terms: { 'event.ERROR': this.CONCLUSIVE_ERROR_CODES } }, EDR_PREVENTED_ERROR_STAGE],
+        minimum_should_match: 1,
+      },
+    };
+  }
+
+  /** Test errors for the error rate: error codes, minus the stages an EDR stopped (those are scored). */
+  private buildTestErrorFilter(): any {
+    return { bool: { filter: [{ terms: { 'event.ERROR': this.ERROR_CODES } }], must_not: [EDR_PREVENTED_ERROR_STAGE] } };
   }
 
   // Filter to exclude upload confirmations (for Error Rate — real test activity only)
@@ -1419,9 +1443,14 @@ export class ElasticsearchService {
                 ...edrDetectedTerms(),
               ],
               minimum_should_match: 1,
-              must_not: [{ term: { 'f0rtika.is_protected': true } }],
+              must_not: [{ term: { 'f0rtika.is_protected': true } }, EDR_PREVENTED_ERROR_STAGE],
             },
           },
+          aggs: { stages: { terms: { field: 'f0rtika.control_validator', size: this.CHAIN_STAGE_TERMS } } },
+        },
+        // Chain depth: error-coded stages the EDR stopped itself (they stop the chain like a block).
+        edr_stopped: {
+          filter: EDR_PREVENTED_ERROR_STAGE,
           aggs: { stages: { terms: { field: 'f0rtika.control_validator', size: this.CHAIN_STAGE_TERMS } } },
         },
         // Chain depth: the unblocked stages an EDR saw themselves, for "alerted
@@ -1432,7 +1461,7 @@ export class ElasticsearchService {
           filter: {
             bool: {
               filter: [edrOwnDetectedClause()],
-              must_not: [{ term: { 'f0rtika.is_protected': true } }],
+              must_not: [{ term: { 'f0rtika.is_protected': true } }, EDR_PREVENTED_ERROR_STAGE],
             },
           },
           aggs: { stages: { terms: { field: 'f0rtika.control_validator', size: this.CHAIN_STAGE_TERMS } } },
@@ -1479,6 +1508,8 @@ export class ElasticsearchService {
           alertedUnblocked: (b.alerted_unblocked?.doc_count ?? 0) > 0,
           blockedStages: stageNumbers(b.strict),
           alertedStages: stageNumbers(b.alerted_stages),
+          edrStopped: (b.edr_stopped?.doc_count ?? 0) > 0,
+          edrStoppedStages: stageNumbers(b.edr_stopped),
           agentTerminated: (b.edr_terminated?.doc_count ?? 0) > 0,
         };
         all.push(run);
@@ -1713,7 +1744,8 @@ export class ElasticsearchService {
     const filters = this.buildPostureFilters(
       scope.window.fromMs,
       scope.window.toMs,
-      { bool: { must_not: [{ terms: { 'event.ERROR': this.CHAIN_SETTLED_CODES } }] } },
+      // An EDR-stopped error stage settles its run (chain depth buckets it).
+      { bool: { must_not: [{ terms: { 'event.ERROR': this.CHAIN_SETTLED_CODES } }, EDR_PREVENTED_ERROR_STAGE] } },
       scope.org,
       scope.clauses,
     );
@@ -3443,7 +3475,7 @@ export class ElasticsearchService {
       if (p.agentTerminated) {
         agentTerminated++;
         if (p.testName) agentTerminatedNames.add(p.testName);
-      } else if (p.strictProtected) {
+      } else if (p.strictProtected || p.edrStopped) {
         const stop = chainStop(p);
         const bucket = buckets[Math.min(Math.max(stop.stage, 1), 4) - 1];
         bucket.blocked++;
@@ -3603,10 +3635,10 @@ export class ElasticsearchService {
           },
           aggs: {
             errors: {
-              filter: { terms: { 'event.ERROR': this.ERROR_CODES } },
+              filter: this.buildTestErrorFilter(),
             },
             conclusive: {
-              filter: { terms: { 'event.ERROR': this.CONCLUSIVE_ERROR_CODES } },
+              filter: this.buildConclusiveResultsFilter(),
             },
           },
         },
@@ -3673,10 +3705,10 @@ export class ElasticsearchService {
       },
       aggs: {
         errors: {
-          filter: { terms: { 'event.ERROR': this.ERROR_CODES } },
+          filter: this.buildTestErrorFilter(),
         },
         conclusive: {
-          filter: { terms: { 'event.ERROR': this.CONCLUSIVE_ERROR_CODES } },
+          filter: this.buildConclusiveResultsFilter(),
         },
       },
     });
@@ -3742,7 +3774,7 @@ export class ElasticsearchService {
       countedFilter,
     ];
 
-    const conclusive = { terms: { 'event.ERROR': this.CONCLUSIVE_ERROR_CODES } };
+    const conclusive = this.buildConclusiveResultsFilter();
     // Each result counts on its own evidence (a bundle stage is not credited
     // for an alert that named a sibling stage).
     const detected = {

@@ -172,6 +172,16 @@ const ERROR_CODED: Clause = {
   },
 };
 
+/**
+ * An error-coded stage (e.g. 999, or Falcon's 0xE0000027) that the EDR's own
+ * alert on that stage says it killed, quarantined or blocked: classifyStage's
+ * Prevented for an error code. The Defense Score, outcome breakdown, chain
+ * depth and error rate count it as a scored (conclusive) result.
+ */
+export const EDR_PREVENTED_ERROR_STAGE: Clause = {
+  bool: { filter: [ERROR_CODED, STAGE_PREVENTION_SIGNAL] },
+};
+
 const UNPROTECTED: Clause = {
   bool: { filter: [term('event.ERROR', UNPROTECTED_EXIT_CODE)], must_not: [PREVENTION_SIGNAL, STAGE_DETECTED] },
 };
@@ -184,7 +194,7 @@ export const OUTCOME_FILTERS: Record<StageOutcome, Clause> = {
     bool: {
       should: [
         { bool: { filter: [term('event.ERROR', UNPROTECTED_EXIT_CODE), PREVENTION_SIGNAL] } },
-        { bool: { filter: [ERROR_CODED, STAGE_PREVENTION_SIGNAL] } },
+        EDR_PREVENTED_ERROR_STAGE,
       ],
       minimum_should_match: 1,
     },
