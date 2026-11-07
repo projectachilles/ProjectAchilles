@@ -118,6 +118,17 @@ describe('SentinelOneAnalyticsService', () => {
     expect(all).not.toContain('crowdstrike_');
   });
 
+  it("rows carry initiated_by, so the drawer can label an analyst's Deep Visibility response", async () => {
+    mockSearch.mockResolvedValue({ hits: { total: { value: 2 }, hits: [
+      { _source: { alert_id: 't1', initiated_by: 'dv_command', prevention_action: null } },
+      { _source: { alert_id: 't2', initiated_by: 'agent_policy', prevention_action: 'process_killed' } },
+    ] }, aggregations: {} });
+    const res = await new SentinelOneAnalyticsService().getAlerts({});
+    expect(res.data.find((a) => a.alert_id === 't1')).toMatchObject({ initiated_by: 'dv_command' });
+    expect(res.data.find((a) => a.alert_id === 't1')?.prevention_action).toBeUndefined();
+    expect(res.data.find((a) => a.alert_id === 't2')).toMatchObject({ initiated_by: 'agent_policy', prevention_action: 'process_killed' });
+  });
+
   it('an alert Achilles mitigated reads as detected only: no prevention badge, not in the prevented facet', async () => {
     const receipt = { auto_mitigated: true, auto_mitigation_mode: 'enabled' };
     mockSearch.mockResolvedValue({ hits: { total: { value: 2 }, hits: [
