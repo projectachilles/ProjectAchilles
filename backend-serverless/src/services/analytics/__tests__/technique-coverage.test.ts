@@ -261,10 +261,14 @@ describe('technique coverage', () => {
     });
   });
 
-  // `aliases`: ids ATT&CK renumbered the technique to or from (MITRE revoked-by).
+  // `aliases`: ids ATT&CK renumbered the technique to or from (MITRE revoked-by), matched exactly.
   const rowFilter = (t: string, aliases: string[] = []) => ({
     bool: {
-      should: [t, ...aliases].flatMap((id) => [{ term: { mitre_techniques: id } }, { prefix: { mitre_techniques: `${id}.` } }]),
+      should: [
+        { term: { mitre_techniques: t } },
+        { prefix: { mitre_techniques: `${t}.` } },
+        ...aliases.map((id) => ({ term: { mitre_techniques: id } })),
+      ],
       minimum_should_match: 1,
     },
   });
@@ -303,7 +307,8 @@ describe('technique coverage', () => {
     await getTechniqueCoverage(client, opts('defender'));
     const should = mockSearch.mock.calls[1][0].aggs.techniques.filters.filters['T1562.001'].bool.should;
     expect(should).toContainEqual({ term: { mitre_techniques: 'T1685' } });
-    expect(should).toContainEqual({ prefix: { mitre_techniques: 'T1685.' } });
+    // A row never takes the alias's sub-techniques: T1685.005 was T1070.001 (log clearing).
+    expect(should).not.toContainEqual({ prefix: { mitre_techniques: 'T1685.' } });
   });
 
   it('rolls sub-technique alerts up into the parent row (distinct alerts), never parent alerts down', async () => {

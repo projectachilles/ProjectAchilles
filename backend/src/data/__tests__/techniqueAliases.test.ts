@@ -59,12 +59,18 @@ describe('techniqueAliases', () => {
 });
 
 describe('techniqueMatchClauses', () => {
-  it('matches each alias exactly and its sub-techniques (trailing dot)', () => {
+  it('matches the id and its sub-techniques, and each alias exactly', () => {
     expect(techniqueMatchClauses('mitre_techniques', ['T1562.001'])).toEqual([
       { term: { mitre_techniques: 'T1562.001' } },
       { prefix: { mitre_techniques: 'T1562.001.' } },
       { term: { mitre_techniques: 'T1685' } },
-      { prefix: { mitre_techniques: 'T1685.' } },
     ]);
+  });
+
+  it("never widens to an alias's sub-technique tree (different techniques)", () => {
+    // T1685.005 was T1070.001 (log clearing); T1562.004 is now T1686 (firewall).
+    expect(techniqueMatchClauses('f', ['T1562.001'])).not.toContainEqual({ prefix: { f: 'T1685.' } });
+    expect(techniqueMatchClauses('f', ['T1685'])).not.toContainEqual({ prefix: { f: 'T1562.' } });
+    expect(techniqueMatchClauses('f', ['T1685'])).toContainEqual({ term: { f: 'T1562.001' } });
   });
 });

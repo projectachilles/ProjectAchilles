@@ -264,7 +264,8 @@ describe('CrowdStrikeAnalyticsService', () => {
       const must = mockSearch.mock.calls[0][0].query.bool.must;
       const techClause = must.find((c: any) => Array.isArray(c?.bool?.should));
       expect(techClause.bool.should).toContainEqual({ term: { mitre_techniques: 'T1685' } });
-      expect(techClause.bool.should).toContainEqual({ prefix: { mitre_techniques: 'T1685.' } });
+      // Exactly: T1685.x are other techniques (e.g. T1685.005 was T1070.001).
+      expect(techClause.bool.should).not.toContainEqual({ prefix: { mitre_techniques: 'T1685.' } });
     });
 
     it('OR-filters techniques with sub-technique prefix matching', async () => {

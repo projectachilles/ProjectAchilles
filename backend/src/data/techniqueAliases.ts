@@ -54,13 +54,16 @@ export function expandTechniqueAliases(ids: readonly string[]): string[] {
 export type TechniqueMatchClause = { term: Record<string, string> } | { prefix: Record<string, string> };
 
 /**
- * ES clauses matching `field` against each id's aliases: the id itself and any
- * sub-technique of it. The trailing dot in the prefix is load-bearing (no
- * T1059 -> T10590). Put them in a bool `should` with minimum_should_match 1.
+ * ES clauses for `field`: each requested id and its sub-techniques (the
+ * trailing dot in the prefix is load-bearing: no T1059 -> T10590), plus each
+ * of its aliases EXACTLY. An alias's sub-techniques are other techniques
+ * (T1685.005 was T1070.001, log clearing), so they never ride along.
+ * Put the clauses in a bool `should` with minimum_should_match 1.
  */
 export function techniqueMatchClauses(field: string, ids: readonly string[]): TechniqueMatchClause[] {
-  return expandTechniqueAliases(ids).flatMap((t): TechniqueMatchClause[] => [
-    { term: { [field]: t } },
-    { prefix: { [field]: `${t}.` } },
-  ]);
+  const requested = new Set(ids.map(normalizeTechniqueId).filter((t): t is string => t !== null));
+  const out: TechniqueMatchClause[] = [];
+  for (const t of requested) out.push({ term: { [field]: t } }, { prefix: { [field]: `${t}.` } });
+  for (const t of expandTechniqueAliases(ids)) if (!requested.has(t)) out.push({ term: { [field]: t } });
+  return out;
 }
