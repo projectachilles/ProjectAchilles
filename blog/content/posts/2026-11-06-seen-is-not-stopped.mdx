@@ -15,7 +15,7 @@ translationKey: edr-study-30-days
 
 > **Update, November 7, 2026.** We first described each EDR's stop rate as the share of attacks the EDR stopped. It is really the share stopped on hosts running that EDR, and some of those stops were Windows itself. A credential-dumping stage was refused access to LSASS on hosts of all four EDRs with no sign of any EDR, which points to Windows LSA protection. The new section 3 gives both figures, with two charts on the credential-dumping step, and the first chart and the confidence section now show both too. The EDR on top doesn't change. We found this by checking the study against the Project Achilles dashboards.
 
-> **Update, November 7, 2026 (later).** Project Achilles now records EDR prevention that reaches an alert after the fact, and which alert it came from. Re-running the study with it raised EDR C's figures to 53% of attacks stopped on its hosts and 39% on its own evidence, and moved a few other numbers by a point or two. EDR C now clearly stops more attacks than EDR D even counting every block. The EDR on top doesn't change.
+> **Update, November 7, 2026 (later).** Project Achilles now records EDR prevention that reaches an alert after the fact, and which alert it came from. Re-running the study with it raised EDR C's figures to 53% of attacks stopped on its hosts and 39% on its own evidence, and moved a few other numbers by a point or two. EDR C now clearly stops more attacks than EDR D even counting every block. The EDR on top doesn't change. A ranking table now follows the confidence section.
 
 ## TL;DR
 
@@ -167,6 +167,28 @@ Three more effects make single measurements unreliable:
 - **The same test on the same host doesn't always give the same result.** Across repeated runs, the outcome was identical only 50% to 75% of the time, depending on the EDR. One run tells you little.
 - **Test binaries change.** The attack chains were rebuilt during the month, and not every EDR saw every build. Recomputing on only the build every EDR saw (five of the six chains) gives stop rates of 58% for A, 90% for B, 60% for C and 38% for D, or 46%, 70%, 45% and 0% counting only each EDR's own evidence. EDR B still leads, but by less.
 - **Integrations start at different times.** One EDR's alert data only covered the last eight days of the period, so its earlier runs were left out instead of being counted as misses.
+
+## The Ranking at a Glance
+
+Putting it together: the EDRs ranked by the share of attacks each one stopped with its own evidence, the measure from section 3. Each EDR is compared with the next one down using the labels above, and two EDRs that can't be told apart share a rank. The other columns are context; they don't decide the order.
+
+| Rank | EDR | Attacks stopped, own evidence | Lead over the next EDR down | Attacks stopped on its hosts | Blocked at launch |
+|---|---|---|---|---|---|
+| 1 | EDR B | 76% | +37 pp over EDR C, clear | 90% | 54% |
+| 2 (tie) | EDR C | 39% | +1 pp over EDR A, not distinguishable | 53% | 0% |
+| 2 (tie) | EDR A | 38% | +35 pp over EDR D, clear | 48% | 0% |
+| 4 | EDR D | 4% | | 30% | 0% |
+
+| EDR | Raised an alert on its runs | Stages stopped or detected | Median time to first alert | Alert's ATT&CK technique was right | Same result on repeat runs |
+|---|---|---|---|---|---|
+| EDR B | 91% | 54%* | 64 s | 14% | 75% |
+| EDR C | 81% | 64% | 2.3 min | 51% | 70% |
+| EDR A | 100% | 77% | 24 s | 34% | 50% |
+| EDR D | 94% | 53% | 73 s | 32% | 67% |
+
+\* From the three attack chains where EDR B let stages run; on the other three it blocked the binary at launch. EDR C's own-evidence figure is a floor (section 3), and alert time is when the alert reached the console, not when the attack was blocked (section 5).
+
+EDR B is clearly first. EDR A and EDR C are a toss-up on stopping; where they differ is in how they report what they see. EDR D raises alerts on most runs but proved almost none of its stops.
 
 ## What This Means for Your Environment
 
