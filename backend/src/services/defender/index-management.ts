@@ -82,6 +82,9 @@ export const DEFENDER_INDEX_MAPPING = {
         type: 'text' as const,
         fields: { keyword: { type: 'keyword' as const, ignore_above: 1024 } },
       },
+      // Defender's per-file verdict + action (edr/multiTestEvidence.ts). Read
+      // from _source only, so stored without indexing.
+      evidence_file_verdicts: { type: 'object' as const, enabled: false },
 
       // Achilles correlation + auto-resolve fields.
       // Populated on ALERT docs by:

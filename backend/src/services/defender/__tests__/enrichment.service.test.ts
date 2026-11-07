@@ -516,7 +516,7 @@ describe('DefenderEnrichmentService', () => {
     // Full _source is not pulled — only prevention_action (needed to flip
     // the prevention flags), the correlation receipt (re-check dedup) and
     // the evidence lists (multi-test alerts are no stage evidence); nothing else.
-    expect(searches[1]._source).toEqual(['prevention_action', 'f0rtika.achilles_correlated', 'evidence_filenames', 'evidence_filepaths']);
+    expect(searches[1]._source).toEqual(['prevention_action', 'f0rtika.achilles_correlated', 'evidence_filenames', 'evidence_filepaths', 'evidence_file_verdicts']);
   });
 
   // ──────────────────────────────────────────────────────────────────────────

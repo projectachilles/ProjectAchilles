@@ -282,7 +282,7 @@ export interface RelatedAlertsResponse {
      * found, attribution is `'stage'` and `attributed_control_id` carries the
      * technique token (lowercased). Otherwise `'bundle'`.
      */
-    attribution: 'stage' | 'bundle';
+    attribution: 'stage' | 'bundle' | 'multi_test';
     /**
      * Lowercased technique token from a stage-attributable evidence binary
      * (e.g. `'t1211-cfapi'`). Frontend matches this case-insensitively

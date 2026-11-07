@@ -126,13 +126,52 @@ describe('projectAlertHit', () => {
   });
 });
 
-describe('projectAlertHit: multi-test alerts are never stage-attributed', () => {
+describe('projectAlertHit: multi-test alerts', () => {
   // Defender "A suspicious file was observed" lists leftover binaries of several tests.
   const OTHER = '26a8b54e-0000-4000-8000-000000000001';
-  it('an alert naming this stage AND another test is bundle-level', () => {
-    const p = projectAlertHit({ alert_id: 'a', evidence_filenames: [`${UUID}-T1486.exe`, `${OTHER}.exe`] }, UUID);
-    expect(p.attribution).toBe('bundle');
+  it('an alert naming this stage AND another test, with no per-file verdicts, is multi_test', () => {
+    const p = projectAlertHit({ alert_id: 'a', prevention_action: 'blocked', evidence_filenames: [`${UUID}-T1486.exe`, `${OTHER}.exe`] }, UUID);
+    expect(p.attribution).toBe('multi_test');
     expect(p.attributed_control_id).toBeUndefined();
+    expect(p.prevention_action).toBeUndefined();
+  });
+
+  it('a listing that marks every file suspicious is multi_test', () => {
+    const p = projectAlertHit({
+      alert_id: 'a',
+      evidence_filenames: [`${UUID}-t1486.exe`, `${OTHER}.exe`],
+      evidence_file_verdicts: [
+        { file: `${UUID}-t1486.exe`, verdict: 'suspicious', action: null },
+        { file: `${OTHER}.exe`, verdict: 'suspicious', action: null },
+      ],
+    }, UUID);
+    expect(p.attribution).toBe('multi_test');
+  });
+
+  it('is stage-attributed to the file the vendor marked malicious, with that file\'s own action', () => {
+    const source = {
+      alert_id: 'a',
+      prevention_action: 'process_killed',
+      evidence_filenames: [`${UUID}-t1486.exe`, `${OTHER}-t1572.exe`],
+      evidence_file_verdicts: [
+        { file: `${UUID}-t1486.exe`, verdict: 'malicious', action: null },
+        { file: `${OTHER}-t1572.exe`, verdict: 'malicious', action: 'process_killed' },
+      ],
+    };
+    const mine = projectAlertHit(source, UUID);
+    expect(mine).toMatchObject({ attribution: 'stage', attributed_control_id: 't1486' });
+    // The alert-wide "process killed" was the other test's file, not this one.
+    expect(mine.prevention_action).toBeUndefined();
+    expect(projectAlertHit(source, OTHER)).toMatchObject({ attribution: 'stage', attributed_control_id: 't1572', prevention_action: 'process_killed' });
+  });
+
+  it('a malicious orchestrator file is bundle-level', () => {
+    const p = projectAlertHit({
+      alert_id: 'a',
+      evidence_filenames: [`${UUID}.exe`, `${OTHER}.exe`],
+      evidence_file_verdicts: [{ file: `${UUID}.exe`, verdict: 'malicious', action: 'blocked' }, { file: `${OTHER}.exe`, verdict: 'suspicious', action: null }],
+    }, UUID);
+    expect(p).toMatchObject({ attribution: 'bundle', prevention_action: 'blocked' });
   });
 
   it('the same stage binary alone stays stage-attributed', () => {

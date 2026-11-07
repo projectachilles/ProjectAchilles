@@ -416,6 +416,34 @@ describe('ExecutionsDataTable — bundle-level alert callout dedupe', () => {
 
     expect(screen.queryByText(/Bundle-level Defender alerts/i)).toBeNull();
   });
+
+  it('collapses alerts naming several tests into one note, never the bundle callout', async () => {
+    // Live: Defender listings of C:\F0 (this run's files + another test's
+    // leftovers), returned for every stage of the run.
+    const listings = [1, 2, 3].map((i) => makeAlert({
+      alert_id: `list-${i}`,
+      alert_title: 'A suspicious file was observed',
+      attribution: 'multi_test',
+      auto_resolved_at: '2026-11-05T20:30:00Z',
+    }));
+    getAlertsForTestMock.mockResolvedValue({ alerts: listings, matchedTechniques: ['T1083'], total: 3 });
+
+    const stage1 = makeStage({ test_uuid: `${BUNDLE_UUID}::T1083`, control_id: 'T1083', techniques: ['T1083'] });
+    const stage2 = makeStage({ test_uuid: `${BUNDLE_UUID}::T1562.001`, control_id: 'T1562.001', techniques: ['T1562.001'] });
+    renderTable(makeData([stage1, stage2], { defenderDetected: true }));
+
+    await userEvent.click(screen.getAllByText(stage1.bundle_name!)[0]);
+
+    const note = await screen.findByTestId('multi-test-alerts-note');
+    // Deduped across stages: 3 alerts, one line, list hidden.
+    expect(note).toHaveTextContent('3 Defender alerts list files from several Achilles tests');
+    expect(note).toHaveTextContent('3 auto-resolved in Defender.');
+    expect(screen.queryByText('A suspicious file was observed')).toBeNull();
+    expect(screen.queryByText(/Bundle-level Defender alerts/i)).toBeNull();
+
+    await userEvent.click(screen.getByRole('button', { name: 'Show 3' }));
+    expect(screen.getAllByText('A suspicious file was observed')).toHaveLength(3);
+  });
 });
 
 describe('ExecutionsDataTable — variant-suffix attribution matching', () => {
@@ -1272,6 +1300,22 @@ describe('ExecutionsDataTable — related alerts keyed by endpoint vendor', () =
       ['T1059.001'], standalone.timestamp, 30, standalone.hostname,
       'aaaaaaaa-1111-2222-3333-444444444444.exe', standalone.bundle_name,
     );
+  });
+
+  it('a standalone run lists its own Defender alerts and folds alerts naming several tests into a note', async () => {
+    getAlertsForTestMock.mockResolvedValue({
+      alerts: [
+        makeAlert({ alert_id: 'own', alert_title: 'Suspicious PowerShell command line', attribution: 'bundle' }),
+        makeAlert({ alert_id: 'list', alert_title: 'A suspicious file was observed', attribution: 'multi_test' }),
+      ],
+      matchedTechniques: ['T1059.001'],
+      total: 2,
+    });
+    renderTable(standaloneData({ ...standalone, defender_detected: true } as EnrichedTestExecution));
+
+    expect(await screen.findByText('Suspicious PowerShell command line')).toBeInTheDocument();
+    expect(await screen.findByTestId('multi-test-alerts-note')).toHaveTextContent('1 Defender alert lists files from several Achilles tests');
+    expect(screen.queryByText('A suspicious file was observed')).toBeNull();
   });
 
   it('fetches each bundle control for Sophos under its own cache key', async () => {

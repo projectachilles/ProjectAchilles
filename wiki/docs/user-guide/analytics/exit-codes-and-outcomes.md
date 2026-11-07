@@ -57,15 +57,35 @@ Alert docs also carry `portal_url` — the exact per-alert console deep link
 (Falcon's `falcon_host_link`, Defender's `alertWebUrl`) — used by the alert
 drawers and execution detail panels.
 
-**Alerts that name several tests.** Some alerts list every flagged file on
-a disk; Defender's *A suspicious file was observed* is the common one. When
-earlier runs left test binaries in `C:\F0`, such an alert names the binaries of
-several different tests at once, so it is no evidence that *this* run's stage
-was seen. An alert whose evidence names the binaries of two or more different
-Achilles tests never sets `*_stage_detected` / `*_stage_prevented` (it still
-counts for the test as a whole), and the stage's evidence list leaves it out.
-Stages flagged before this rule are checked once: if every stage alert still in
-the index names several tests, the stage loses those flags.
+**Alerts that name several tests.** An alert can name the binaries of two or
+more different Achilles tests for two very different reasons:
+
+- **A listing.** Defender's *A suspicious file was observed* (and behaviour
+  alerts such as *Suspicious behavior by cmd.exe*) list everything they
+  connected on the disk: the files in `C:\F0` left by earlier runs, the
+  Achilles agent itself, `powershell.exe`. Defender marks every one of them
+  *suspicious*. It says nothing about any one run.
+- **A real verdict on several files.** When tests run back to back (a
+  campaign), Defender can put the files of two or three tests into one
+  antivirus alert (*An active 'Filery' malware was blocked*) and mark each
+  file *malicious*, with its own remediation status: one file blocked, another
+  only detected.
+
+Achilles reads Defender's verdict on each file (`evidence_file_verdicts` on the
+alert). An alert that names several tests counts for a test, and for a stage,
+only when Defender marked that test's (or stage's) own file malicious. It
+counts as prevention only when that file was blocked, prevented or remediated,
+never because of the alert-wide action. A listing therefore counts for no test.
+For EDRs that report no per-file verdict (CrowdStrike, SentinelOne, Sophos),
+an alert naming several tests counts for none of them. These alerts are still
+linked to Achilles, so auto-resolve closes them as security testing. In
+**All executions** they appear as one muted line ("N Defender alerts list files
+from several Achilles tests on this host…") with the list one click away,
+instead of a row per alert.
+
+Results flagged before this rule are checked once. A result loses
+`*_detected` (and its prevention, unless the stage itself stays detected) only
+when alerts are still in the index and none of them counts for the test.
 
 **Late actions.** EDRs often add the action after the alert was first
 matched: Defender updates the alert's remediation status, SentinelOne adds
