@@ -173,7 +173,9 @@ describe('getTestFleet with the posture pipeline', () => {
     'f0rtika.techniques': [technique],
     'event.ERROR': code,
     'f0rtika.is_protected': code === 126,
-    ...(detected ? { 'f0rtika.defender_detected': true } : {}),
+    // A stage detection: the wide flag plus the stage's own match (the wide flag
+    // alone only means an alert named the bundle).
+    ...(detected ? { 'f0rtika.defender_detected': true, 'f0rtika.defender_stage_detected': true } : {}),
   });
   const killDoc = (at: string, host: string): Doc => ({
     ...base(at, host),
