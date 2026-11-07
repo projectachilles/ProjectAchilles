@@ -52,6 +52,8 @@ export const SENTINELONE_INDEX_MAPPING = {
       confidence_level: { type: 'keyword' as const },
       classification: { type: 'keyword' as const },
       analyst_verdict: { type: 'keyword' as const },
+      // threatInfo.initiatedBy: dv_command (analyst) is never prevention.
+      initiated_by: { type: 'keyword' as const },
       mitigation_status: { type: 'keyword' as const },
       sha1: { type: 'keyword' as const },
       sha256: { type: 'keyword' as const },

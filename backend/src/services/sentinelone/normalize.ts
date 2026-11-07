@@ -37,11 +37,28 @@ export function hasStopAttempt(t: S1Threat): boolean {
 }
 
 /**
+ * `threatInfo.initiatedBy` values for a Threat a person raised. A Deep
+ * Visibility command ("dv_command", engine "Manual") is an analyst mitigating
+ * a process from a threat hunt: the Threat is created by that action, so its
+ * kill starts with the detection and would pass the 15-minute window. It is
+ * a human response, not SentinelOne preventing the test. Agent policy and the
+ * organization's STAR active rules ("star_active") are automatic and count.
+ */
+export const ANALYST_INITIATED_THREAT_SOURCES: ReadonlySet<string> = new Set(['dv_command']);
+
+/** True when a person raised this Threat (see ANALYST_INITIATED_THREAT_SOURCES). */
+export function isAnalystInitiated(t: S1Threat): boolean {
+  return ANALYST_INITIATED_THREAT_SOURCES.has(normalizeToken(t.threatInfo?.initiatedBy));
+}
+
+/**
  * The prevention action SentinelOne itself took, in the shared vocabulary
  * (quarantined / process_killed / blocked / kill_failed). Only mitigations
- * that started with the detection count (AUTONOMOUS_MITIGATION_WINDOW_MS).
+ * that started with the detection count (AUTONOMOUS_MITIGATION_WINDOW_MS), and
+ * none on a Threat an analyst raised (isAnalystInitiated).
  */
 export function threatPreventionAction(t: S1Threat): string | undefined {
+  if (isAnalystInitiated(t)) return undefined;
   const report = (t.mitigationStatus ?? []).filter((m) => startedWithDetection(t, m));
   const done = (action: string) => report.some((m) => m.action === action && m.status === 'success');
   if (done('quarantine')) return 'quarantined';

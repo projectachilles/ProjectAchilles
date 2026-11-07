@@ -91,6 +91,14 @@ more than 15 minutes after the threat was identified (`mitigationStartedAt` vs
 quarantining from the console, a STAR rule) and is ignored, so the stage stays
 **detected**, not **prevented**. Entries without timestamps are kept.
 
+A threat an analyst raised is never prevention, however soon its mitigation
+started: a Deep Visibility command (`threatInfo.initiatedBy` `dv_command`,
+engine `Manual`) is someone mitigating a process from a threat hunt, and the
+threat is created by that action. Threat docs record the source as
+`initiated_by` (`agent_policy`, `dv_command`, `star_active`, …). Threats from
+the agent policy and from the organization's STAR active rules (`star_active`)
+still count.
+
 Threats that Achilles [automatic mitigation](../user-guide/integrations/sentinelone-auto-resolve#automatic-mitigation)
 killed or quarantined (an `enabled`, error-free `f0rtika.auto_mitigated`
 receipt) are not SentinelOne preventions: they count under `detected_only`,
