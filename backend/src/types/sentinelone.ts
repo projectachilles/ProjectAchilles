@@ -161,6 +161,8 @@ export interface S1Threat {
     identifiedAt?: string;
     detectionType?: string;
     engines?: string[];
+    /** agent_policy | dv_command (analyst, Deep Visibility) | star_active (STAR custom rule) | ... */
+    initiatedBy?: string;
   };
   agentDetectionInfo?: {
     accountId?: string;
@@ -282,7 +284,10 @@ export interface SentinelOneAlertDoc {
   classification?: string;
   analyst_verdict?: string;
   mitigation_status?: string;
-  prevention_action?: string;
+  /** null on a Threat with no SentinelOne prevention (written explicitly; see transformThreat). */
+  prevention_action?: string | null;
+  /** threatInfo.initiatedBy, lower snake_case (Threats only). */
+  initiated_by?: string;
   sha1?: string;
   sha256?: string;
   portal_url?: string;
