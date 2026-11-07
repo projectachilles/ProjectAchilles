@@ -1,9 +1,9 @@
 import type { Client } from '@elastic/elasticsearch';
-// Shared evidence-correlation pass for endpoint-EDR alert indexes
-// (CrowdStrike, SentinelOne): matches alerts to Achilles result docs and
-// writes f0rtika.<vendor>_detected / _stage_detected / _prevented flags.
-// Vendor subclasses bind the target (crowdstrike/enrichment.service.ts,
-// sentinelone/enrichment.service.ts); one test suite runs per vendor
+// Shared evidence-correlation pass for every EDR alert index (Defender,
+// CrowdStrike, SentinelOne, Sophos): matches alerts to Achilles result docs
+// and writes f0rtika.<vendor>_detected / _stage_detected / _prevented /
+// _prevention_action / _stage_prevented flags. Vendor subclasses bind the
+// target (<vendor>/enrichment.service.ts); one test suite runs per vendor
 // (edr/__tests__/alert-enrichment.vendors.test.ts).
 import {
   buildCrowdStrikeEvidenceQuery,
@@ -11,7 +11,7 @@ import {
   extractBundleUuid,
 } from './evidence-correlation.js';
 import type { EnrichmentPassOptions, EnrichmentPassResult } from '../../types/edr.js';
-import { isAchillesMitigated, ACHILLES_MITIGATION_FIELDS } from '../shared/achillesMitigation.js';
+import { isAchillesMitigated, ACHILLES_MITIGATION_FIELDS, ACHILLES_MITIGATED_QUERY } from '../shared/achillesMitigation.js';
 import { enrichmentEligibleClauses } from '../analytics/enrichment-eligibility.js';
 import type { EdrVendorKey } from '../outcomes/vendors.js';
 
@@ -50,6 +50,24 @@ const ALERT_HITS_PER_SUBQUERY = 5;
 const PREVENTION_ACTIONS = new Set(['quarantined', 'process_killed', 'blocked']);
 
 /**
+ * How long a stage that is detected but not prevented by its own alert keeps
+ * being re-checked. EDRs often attach the action after the alert was first
+ * matched: Defender updates an alert's remediation status, SentinelOne adds
+ * mitigation entries, Sophos sends the remedy as a separate SIEM event
+ * (live: a Defender "blocked" status landed 23 minutes after the alert).
+ */
+export const DEFAULT_RECHECK_UNPREVENTED_HOURS = 72;
+
+/** Distinct prevention actions per alert sub-query (aggregated over every matching alert). */
+const PREVENTION_ACTION_BUCKETS = 10;
+
+/** The wide (bundle) and stage alert queries for one result doc. */
+export interface EvidenceQueryBuilders {
+  wide: typeof buildCrowdStrikeEvidenceQuery;
+  stage: typeof buildStageCrowdStrikeEvidenceQuery;
+}
+
+/**
  * Which vendor's alert index to read and which `f0rtika.<vendor>_*` flags to
  * write. Vendors share the pass because their normalized alert docs share the
  * evidence_* / prevention_action shape.
@@ -65,15 +83,20 @@ export interface EnrichmentVendorTarget {
    */
   ignoreAchillesMitigated?: boolean;
   /**
-   * Re-check docs flagged `<vendor>_detected` but not `<vendor>_prevented`
-   * whose routing.event_time is within this many hours, so prevention that
-   * reaches the alert index after the first match (Sophos: the SIEM event
-   * carrying the remedy merges into the Common Alert a poll later) still
-   * becomes `<vendor>_prevented`. A re-checked doc only gets flags it lacks,
-   * and only alerts not yet `achilles_correlated` get the alert-side write,
-   * so passes over an unchanged doc write nothing. Unset = never re-check.
+   * Re-check stages flagged `<vendor>_stage_detected` but not
+   * `<vendor>_stage_prevented` whose routing.event_time is within this many
+   * hours (default DEFAULT_RECHECK_UNPREVENTED_HOURS), so an action that
+   * reaches the alert after the first match still counts. A re-checked doc
+   * only gets flags it lacks, and only alerts not yet `achilles_correlated`
+   * get the alert-side write, so passes over an unchanged doc write nothing.
    */
   recheckUnpreventedHours?: number;
+  /**
+   * The wide (bundle) and stage evidence queries. Defaults to the shared
+   * builders; Defender passes its own, whose time window handles its alert
+   * aggregation and re-fires (defender/evidence-correlation.ts).
+   */
+  evidenceQueries?: EvidenceQueryBuilders;
 }
 
 export class EdrAlertEnrichmentService {
@@ -141,13 +164,13 @@ export class EdrAlertEnrichmentService {
         const src = hit._source?.f0rtika ?? {};
         const routing = hit._source?.routing ?? {};
         const testUuid = src.test_uuid ?? '';
-        const wideQuery = buildCrowdStrikeEvidenceQuery({
+        const wideQuery = this.evidenceQueries.wide({
           test_uuid: testUuid,
           routing_event_time: routing.event_time ?? '',
           routing_hostname: routing.hostname ?? '',
           bundle_name: src.bundle_name,
         });
-        const stageQuery = buildStageCrowdStrikeEvidenceQuery({
+        const stageQuery = this.evidenceQueries.stage({
           test_uuid: testUuid,
           routing_event_time: routing.event_time ?? '',
           routing_hostname: routing.hostname ?? '',
@@ -172,10 +195,24 @@ export class EdrAlertEnrichmentService {
         for (const q of queries) {
           searches.push({ index: this.target.alertIndex });
           const source = this.target.ignoreAchillesMitigated
-            ? ['prevention_action', ...ACHILLES_MITIGATION_FIELDS]
-            : ['prevention_action'];
-          if (this.recheckEnabled) source.push('f0rtika.achilles_correlated');
-          searches.push({ size: ALERT_HITS_PER_SUBQUERY, _source: source, query: q.body });
+            ? ['prevention_action', ...ACHILLES_MITIGATION_FIELDS, 'f0rtika.achilles_correlated']
+            : ['prevention_action', 'f0rtika.achilles_correlated'];
+          searches.push({
+            size: ALERT_HITS_PER_SUBQUERY,
+            _source: source,
+            query: q.body,
+            // Every matching alert's action, not just the hits returned: a
+            // stage with many alerts (a LOLBin storm) can have its one
+            // kill / quarantine outside the first ALERT_HITS_PER_SUBQUERY.
+            aggs: {
+              prevention: {
+                filter: this.target.ignoreAchillesMitigated
+                  ? { bool: { must_not: [ACHILLES_MITIGATED_QUERY] } }
+                  : { match_all: {} },
+                aggs: { actions: { terms: { field: 'prevention_action', size: PREVENTION_ACTION_BUCKETS } } },
+              },
+            },
+          });
         }
 
         let msearchResponse;
@@ -200,9 +237,11 @@ export class EdrAlertEnrichmentService {
           wideMatched: boolean;
           stageMatched: boolean;
           alertIds: Set<string>;
-          /** Qualifying prevention actions from matched alerts (first one wins on the test doc). */
-          preventionActions: string[];
-          /** Matched alerts already achilles_correlated (only tracked when re-checking). */
+          /** Confirmed actions of alerts naming THIS stage's binary (stage query). */
+          stageActions: string[];
+          /** Qualifying confirmed actions of bundle-wide matches. */
+          wideActions: string[];
+          /** Matched alerts already achilles_correlated. */
           correlatedAlertIds: Set<string>;
         }
         const updatesByHitId = new Map<string, PerHitUpdate>();
@@ -231,9 +270,11 @@ export class EdrAlertEnrichmentService {
           //     a sibling stage that ran to completion was not prevented by the
           //     alert that killed a later stage (prod: Falcon killed T1486 while
           //     stages 1–4 had already exited 101).
-          const preventionActions = alertHits
+          const hitActions = alertHits
             .filter((h) => !(this.target.ignoreAchillesMitigated && isAchillesMitigated(h._source)))
-            .map((h) => h._source?.prevention_action)
+            .map((h) => h._source?.prevention_action);
+          const aggActions = ((resp.aggregations?.prevention?.actions?.buckets ?? []) as any[]).map((b) => b.key);
+          const preventionActions = [...new Set([...hitActions, ...aggActions])]
             .filter((a): a is string => typeof a === 'string' && PREVENTION_ACTIONS.has(a));
 
           const docErrorCode = q.hit._source?.event?.ERROR as number | undefined;
@@ -244,16 +285,22 @@ export class EdrAlertEnrichmentService {
           const hitId = q.hit._id as string;
           let entry = updatesByHitId.get(hitId);
           if (!entry) {
-            entry = { hit: q.hit, bundleUuid: q.bundleUuid, wideMatched: false, stageMatched: false, alertIds: new Set(), preventionActions: [], correlatedAlertIds: new Set() };
+            entry = { hit: q.hit, bundleUuid: q.bundleUuid, wideMatched: false, stageMatched: false, alertIds: new Set(), stageActions: [], wideActions: [], correlatedAlertIds: new Set() };
             updatesByHitId.set(hitId, entry);
           }
           if (q.kind === 'wide')  entry.wideMatched = true;
           if (q.kind === 'stage') entry.stageMatched = true;
           for (const id of alertIds) entry.alertIds.add(id);
-          if (this.recheckEnabled) {
-            for (const h of alertHits) if (typeof h._id === 'string' && h._source?.f0rtika?.achilles_correlated === true) entry.correlatedAlertIds.add(h._id);
+          for (const h of alertHits) if (typeof h._id === 'string' && h._source?.f0rtika?.achilles_correlated === true) entry.correlatedAlertIds.add(h._id);
+          if (q.kind === 'stage') entry.stageActions.push(...preventionActions);
+          else if (preventionQualifies) entry.wideActions.push(...preventionActions);
+        }
+        // Scanned docs nothing matched still get an entry, so an older stage
+        // can be settled below instead of staying eligible every pass.
+        for (const hit of hits) {
+          if (!updatesByHitId.has(hit._id)) {
+            updatesByHitId.set(hit._id, { hit, bundleUuid: '', wideMatched: false, stageMatched: false, alertIds: new Set(), stageActions: [], wideActions: [], correlatedAlertIds: new Set() });
           }
-          if (preventionQualifies) entry.preventionActions.push(...preventionActions);
         }
 
         // 5. Bulk update matched docs.
@@ -278,21 +325,49 @@ export class EdrAlertEnrichmentService {
             // Test-doc update: only set the fields that flipped to true.
             const f0rtika: Record<string, unknown> = {};
             const v = this.target.flagPrefix;
-            // Re-check mode: a doc already flagged by an earlier pass only gets
-            // the flags it lacks (so an unchanged doc is never re-written).
-            const existing = this.recheckEnabled ? (u.hit._source?.f0rtika ?? {}) : {};
-            const recheck = this.recheckEnabled && existing[`${v}_detected`] === true;
+            // A doc already flagged by an earlier pass only gets the flags it
+            // lacks (so an unchanged doc is never re-written).
+            const existing = u.hit._source?.f0rtika ?? {};
+            const recheck = existing[`${v}_detected`] === true;
             const wide = u.wideMatched && existing[`${v}_detected`] !== true;
             const stage = u.stageMatched && existing[`${v}_stage_detected`] !== true;
             if (wide)  f0rtika[`${v}_detected`]       = true;
             if (stage) f0rtika[`${v}_stage_detected`] = true;
             // Vendor-confirmed prevention — rides alongside the detected flags.
-            // preventionActions is already qualification-filtered above
-            // (stage matches always; wide matches only for non-conclusive docs).
+            // The actions are already qualification-filtered above (stage
+            // matches always; wide matches only for non-conclusive docs), and
+            // the stage's own action is preferred over a wide one.
             // Prevention ⊆ detection: a prevention flag implies a matched alert.
-            if (u.preventionActions.length > 0 && existing[`${v}_prevented`] !== true) {
+            const actions = [...u.stageActions, ...u.wideActions];
+            if (actions.length > 0 && existing[`${v}_prevented`] !== true) {
               f0rtika[`${v}_prevented`] = true;
-              f0rtika[`${v}_prevention_action`] = u.preventionActions[0];
+              f0rtika[`${v}_prevention_action`] = actions[0];
+            }
+            // Provenance: did an alert naming THIS stage's binary carry the
+            // action? Decided only when the stage query matched this pass (a
+            // stage whose alerts are gone keeps what it has). Only ever
+            // upgrades; false marks "evaluated" so the doc leaves the
+            // backfill clause of the eligibility query.
+            if (u.stageMatched) {
+              if (u.stageActions.length > 0) {
+                if (existing[`${v}_stage_prevented`] !== true) {
+                  f0rtika[`${v}_stage_prevented`] = true;
+                  const current = f0rtika[`${v}_prevention_action`] ?? existing[`${v}_prevention_action`];
+                  if (current !== u.stageActions[0]) f0rtika[`${v}_prevention_action`] = u.stageActions[0];
+                }
+              } else if (existing[`${v}_stage_prevented`] === undefined) {
+                f0rtika[`${v}_stage_prevented`] = false;
+              }
+            } else if (
+              existing[`${v}_stage_detected`] === true
+              && existing[`${v}_stage_prevented`] === undefined
+              && existing[`${v}_prevention_action`] === undefined
+            ) {
+              // An older stage whose alerts no longer match (e.g. a Defender
+              // alert resolved since): with no action on record there is
+              // nothing to lose, so settle it. One that has an action keeps the
+              // older rule rather than being downgraded without evidence.
+              f0rtika[`${v}_stage_prevented`] = false;
             }
             if (Object.keys(f0rtika).length > 0) {
               operations.push({ update: { _index: u.hit._index, _id: u.hit._id } });
@@ -375,18 +450,25 @@ export class EdrAlertEnrichmentService {
       missingFlag(`f0rtika.${v}_detected`),
       missingFlag(`f0rtika.${v}_stage_detected`),
     ];
-    // Late prevention (see recheckUnpreventedHours): detected, not prevented, recent.
-    if (this.recheckEnabled) {
-      eligible.push({
-        bool: {
-          filter: [
-            { term: { [`f0rtika.${v}_detected`]: true } },
-            { range: { 'routing.event_time': { gte: `now-${this.target.recheckUnpreventedHours}h` } } },
-          ],
-          must_not: [{ term: { [`f0rtika.${v}_prevented`]: true } }],
-        },
-      });
-    }
+    // Late prevention (see recheckUnpreventedHours): a recent stage its own
+    // alerts haven't proven prevented yet.
+    eligible.push({
+      bool: {
+        filter: [
+          { term: { [`f0rtika.${v}_stage_detected`]: true } },
+          { range: { 'routing.event_time': { gte: `now-${this.recheckHours}h` } } },
+        ],
+        must_not: [{ term: { [`f0rtika.${v}_stage_prevented`]: true } }],
+      },
+    });
+    // Provenance backfill: a stage flagged before `_stage_prevented` existed
+    // is evaluated once (it also picks up actions that arrived late).
+    eligible.push({
+      bool: {
+        filter: [{ term: { [`f0rtika.${v}_stage_detected`]: true } }],
+        must_not: [{ exists: { field: `f0rtika.${v}_stage_prevented` } }],
+      },
+    });
     return {
       bool: {
         filter: [
@@ -403,9 +485,12 @@ export class EdrAlertEnrichmentService {
     };
   }
 
-  private get recheckEnabled(): boolean {
-    const h = this.target.recheckUnpreventedHours;
-    return typeof h === 'number' && h > 0;
+  private get recheckHours(): number {
+    return this.target.recheckUnpreventedHours ?? DEFAULT_RECHECK_UNPREVENTED_HOURS;
+  }
+
+  private get evidenceQueries(): EvidenceQueryBuilders {
+    return this.target.evidenceQueries ?? { wide: buildCrowdStrikeEvidenceQuery, stage: buildStageCrowdStrikeEvidenceQuery };
   }
 
   private errMsg(err: unknown): string {

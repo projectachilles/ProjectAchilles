@@ -80,6 +80,13 @@ backend-serverless twin: an error-coded stage upgrades to Prevented/Detected on 
 evidence only** (`*_stage_detected` + a confirmed `*_prevention_action`; never the bundle-level
 `*_prevented`/`*_detected` flags, which a sibling stage can set).
 
+**Update (Nov 7 2026):** "stage-level evidence" is now the enrichment pass's
+`*_stage_prevented` flag: `true` only when an alert naming the stage's own
+binary carried the action. `*_prevention_action` alone could have come from a
+bundle-wide alert (6 of 24 error-coded "Prevented" stages in production data).
+Docs enriched before the flag existed keep the old rule until they are
+re-checked (each one once, within the 90-day lookback).
+
 The **Defense Score** still filters to conclusive codes `[101,105,126,127]`
 (`analytics/elasticsearch.ts` `buildConclusiveResultsFilter`, `posture.ts` `CONCLUSIVE_CODES`)
 *before* the detection-OR applies, so an error-coded killed stage shows the right verdict but does

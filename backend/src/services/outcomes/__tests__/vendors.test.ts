@@ -40,7 +40,7 @@ describe('EDR vendor registry', () => {
 describe('registry-derived ES helpers', () => {
   it('lists every flag field per vendor', async () => {
     const { edrFlagSourceFields } = await import('../vendors.js');
-    expect(edrFlagSourceFields()).toHaveLength(4 * EDR_VENDOR_KEYS.length);
+    expect(edrFlagSourceFields()).toHaveLength(5 * EDR_VENDOR_KEYS.length);
     expect(edrFlagSourceFields(['detected'])).toEqual([
       'f0rtika.defender_detected',
       'f0rtika.crowdstrike_detected',

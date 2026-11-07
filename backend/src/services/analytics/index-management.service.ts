@@ -112,8 +112,9 @@ export const RESULTS_INDEX_MAPPING = {
           // enrichment pass writes: <key>_detected (bundle-scoped match),
           // <key>_stage_detected (alert names THIS stage's own binary;
           // drives the per-stage "Detected" badge), <key>_prevented
-          // (vendor-confirmed prevention, subset of detected) and
-          // <key>_prevention_action.
+          // (vendor-confirmed prevention, subset of detected),
+          // <key>_prevention_action and <key>_stage_prevented (the action
+          // came from an alert naming THIS stage; absent on older docs).
           ...edrFlagMappings(),
           tenant_label: { type: 'keyword' as const },
         },
@@ -300,6 +301,7 @@ function edrFlagMappings(): Record<string, { type: 'boolean' | 'keyword' }> {
       [`${v}_stage_detected`, { type: 'boolean' as const }],
       [`${v}_prevented`, { type: 'boolean' as const }],
       [`${v}_prevention_action`, { type: 'keyword' as const }],
+      [`${v}_stage_prevented`, { type: 'boolean' as const }],
     ]),
   );
 }

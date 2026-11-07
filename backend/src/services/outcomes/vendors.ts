@@ -3,7 +3,7 @@
  *
  * Every vendor here has an enrichment pass that writes `f0rtika.<key>_*`
  * flags on result docs (`_detected`, `_stage_detected`, `_prevented`,
- * `_prevention_action`). Stage verdicts, Analytics queries, reports,
+ * `_prevention_action`, `_stage_prevented`). Stage verdicts, Analytics queries, reports,
  * campaigns and notices all read their vendor lists from this registry, so a
  * new vendor is one entry here (plus its mirror in
  * `frontend/src/lib/edrVendors.ts`, which a parity test keeps in step).
@@ -82,14 +82,14 @@ export function edrVendor(key: EdrVendorKey): EdrVendor {
   return vendor;
 }
 
-export type EdrFlagKind = 'detected' | 'stage_detected' | 'prevented' | 'prevention_action';
+export type EdrFlagKind = 'detected' | 'stage_detected' | 'prevented' | 'prevention_action' | 'stage_prevented';
 
 /** The result-doc field an enrichment pass writes, e.g. `f0rtika.crowdstrike_prevented`. */
 export function edrFlagField(key: EdrVendorKey, kind: EdrFlagKind): `f0rtika.${EdrVendorKey}_${EdrFlagKind}` {
   return `f0rtika.${key}_${kind}`;
 }
 
-const ALL_FLAG_KINDS: readonly EdrFlagKind[] = ['detected', 'stage_detected', 'prevented', 'prevention_action'];
+const ALL_FLAG_KINDS: readonly EdrFlagKind[] = ['detected', 'stage_detected', 'prevented', 'prevention_action', 'stage_prevented'];
 
 /** `_source` includes for the vendor flags, vendor by vendor (all four kinds by default). */
 export function edrFlagSourceFields(kinds: readonly EdrFlagKind[] = ALL_FLAG_KINDS): string[] {
@@ -147,9 +147,13 @@ export function edrPreventedTerms(): Array<{ term: Record<string, true> }> {
   return EDR_VENDOR_KEYS.map((v) => ({ term: { [edrFlagField(v, 'prevented')]: true } }));
 }
 
-/** The per-vendor enrichment flags on a result row (API field names). */
+/**
+ * The per-vendor enrichment flags on a result row (API field names).
+ * `<key>_stage_prevented` stays absent (not false) on docs enriched before it
+ * existed, so readers can fall back to the older rule.
+ */
 export type EdrResultFlags =
-  { [K in EdrVendorKey as `${K}_detected` | `${K}_stage_detected` | `${K}_prevented`]?: boolean }
+  { [K in EdrVendorKey as `${K}_detected` | `${K}_stage_detected` | `${K}_prevented` | `${K}_stage_prevented`]?: boolean }
   & { [K in EdrVendorKey as `${K}_prevention_action`]?: string };
 
 /** Bundle-group rollups of the vendor flags (API field names, e.g. `crowdstrikePrevented`). */

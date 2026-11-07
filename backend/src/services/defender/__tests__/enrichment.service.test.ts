@@ -514,8 +514,9 @@ describe('DefenderEnrichmentService', () => {
     // searches[0] is the header, searches[1] is the body
     expect(searches[1].size).toBeGreaterThan(0);
     // Full _source is not pulled — only prevention_action (needed to flip
-    // defender_prevented on the test doc).
-    expect(searches[1]._source).toEqual(['prevention_action']);
+    // the prevention flags) and the correlation receipt (re-check dedup);
+    // nothing else.
+    expect(searches[1]._source).toEqual(['prevention_action', 'f0rtika.achilles_correlated']);
   });
 
   // ──────────────────────────────────────────────────────────────────────────

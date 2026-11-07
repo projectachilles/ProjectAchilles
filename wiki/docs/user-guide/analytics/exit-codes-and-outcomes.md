@@ -40,7 +40,8 @@ them against synced EDR alerts:
 |---|---|---|
 | `defender_detected` / `crowdstrike_detected` / `sentinelone_detected` / `sophos_detected` | Alert evidence matches hostname + bundle UUID in filename/path, within −5/+30 min of the test | — |
 | `*_stage_detected` | Alert evidence names the **stage's own binary** (`<bundle-uuid>-<control>.exe`) | — |
-| `crowdstrike_prevented` / `defender_prevented` / `sentinelone_prevented` / `sophos_prevented` (+ `*_prevention_action`) | Matched alert carries a vendor-confirmed prevention disposition | **Stage-binary matches always qualify. Bundle-wide matches only if the stage never reached a conclusive outcome** (exit ∉ `{101, 105, 126, 127}`). A failed kill (CS `kill_action_failed`) never qualifies |
+| `crowdstrike_prevented` / `defender_prevented` / `sentinelone_prevented` / `sophos_prevented` (+ `*_prevention_action`) | Matched alert carries a vendor-confirmed prevention disposition | **Stage-binary matches always qualify. Bundle-wide matches only if the stage never reached a conclusive outcome** (exit ∉ `{101, 105, 126, 127}`). A failed kill (CS `kill_action_failed`) never qualifies. The stage alert's action is preferred over a bundle-wide one |
+| `*_stage_prevented` | `true` when an alert naming the **stage's own binary** carried a confirmed action; `false` when the stage's alerts carried none | Absent on documents enriched before it existed; those fall back to `*_stage_detected` + a confirmed `*_prevention_action` |
 
 **Vendor prevention dispositions**, normalized to a shared vocabulary
 (`process_killed` / `quarantined` / `blocked`):
@@ -55,6 +56,13 @@ them against synced EDR alerts:
 Alert docs also carry `portal_url` — the exact per-alert console deep link
 (Falcon's `falcon_host_link`, Defender's `alertWebUrl`) — used by the alert
 drawers and execution detail panels.
+
+**Late actions.** EDRs often add the action after the alert was first
+matched: Defender updates the alert's remediation status, SentinelOne adds
+mitigation entries, Sophos sends the remedy in a later SIEM event. A stage
+that is detected but not yet `*_stage_prevented` is re-checked for 72 hours,
+and only gains the flags it lacks. Every alert matching a document counts,
+not only the first few returned.
 
 **Which documents are scanned:** exit codes `[0, 1, 101, 105, 126, 127, 259, 999]`
 — so EDR-killed stages (999) are eligible. Deliberately **not scanned**:
@@ -89,7 +97,7 @@ precedence (top wins):
 | Label | Condition | Meaning |
 |---|---|---|
 | **Protected** | exit ∈ `{105, 126, 127}` | Endpoint blocked/quarantined at the OS level |
-| **Prevented** | `crowdstrike_prevented`, `defender_prevented`, `sentinelone_prevented` or `sophos_prevented` (or detected flags + confirmed prevention action) | Vendor-confirmed kill/quarantine/block — shows the action, e.g. "Prevented (process killed)" |
+| **Prevented** | `crowdstrike_prevented`, `defender_prevented`, `sentinelone_prevented` or `sophos_prevented` (or the stage's own `*_stage_prevented`) on exit 101; on an error code (e.g. 999), only the stage's own `*_stage_prevented` | Vendor-confirmed kill/quarantine/block — shows the action, e.g. "Prevented (process killed)" |
 | **Detected** | `*_stage_detected` | The EDR saw this stage and alerted, but didn't stop it. The run-wide `*_detected` flag, which every stage of a run carries once any alert names the run, doesn't count here |
 | **Unprotected** | exit 101 | Attack ran to completion, nothing reacted |
 | **Inconclusive** | everything else (0, 1, 259, 260, 999, missing) | Can't judge — error, timeout, policy block, or unconfirmed kill |

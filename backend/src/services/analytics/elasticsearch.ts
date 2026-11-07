@@ -4084,6 +4084,9 @@ function vendorFlagsOf(source: unknown): EdrResultFlags {
     out[`${v}_stage_detected`] = getField(source, edrFlagField(v, 'stage_detected')) ?? false;
     out[`${v}_prevented`] = getField(source, edrFlagField(v, 'prevented')) ?? false;
     out[`${v}_prevention_action`] = getField(source, edrFlagField(v, 'prevention_action'));
+    // Absent (not false) on docs enriched before it existed: readers fall back.
+    const stagePrevented = getField(source, edrFlagField(v, 'stage_prevented'));
+    if (typeof stagePrevented === 'boolean') out[`${v}_stage_prevented`] = stagePrevented;
   }
   return out as EdrResultFlags;
 }

@@ -7,8 +7,10 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 const { CrowdStrikeEnrichmentService } = await import('../../crowdstrike/enrichment.service.js');
 const { SentinelOneEnrichmentService } = await import('../../sentinelone/enrichment.service.js');
 const { SophosEnrichmentService } = await import('../../sophos/enrichment.service.js');
+const { DefenderEnrichmentService } = await import('../../defender/enrichment.service.js');
 
 const VENDORS = [
+  { name: 'Defender', prefix: 'defender', index: 'achilles-defender', make: (c: any) => new DefenderEnrichmentService(c, 'achilles-results-*') },
   { name: 'CrowdStrike', prefix: 'crowdstrike', index: 'achilles-crowdstrike', make: (c: any) => new CrowdStrikeEnrichmentService(c, 'achilles-results-*') },
   { name: 'SentinelOne', prefix: 'sentinelone', index: 'achilles-sentinelone', make: (c: any) => new SentinelOneEnrichmentService(c, 'achilles-results-*') },
   { name: 'Sophos', prefix: 'sophos', index: 'achilles-sophos', make: (c: any) => new SophosEnrichmentService(c, 'achilles-results-*') },
@@ -64,6 +66,7 @@ describe.each(VENDORS)('EDR alert enrichment — $name', ({ prefix, index, make 
       [`${prefix}_stage_detected`]: true,
       [`${prefix}_prevented`]: true,
       [`${prefix}_prevention_action`]: 'quarantined',
+      [`${prefix}_stage_prevented`]: true,
     });
     expect(ops[2]).toEqual({ update: { _index: index, _id: 'alert-1' } });
     expect(ops[3].doc.f0rtika).toMatchObject({ achilles_correlated: true, achilles_test_uuid: 'b1' });
@@ -77,22 +80,69 @@ describe.each(VENDORS)('EDR alert enrichment — $name', ({ prefix, index, make 
     expect(flags).toEqual({ [`${prefix}_detected`]: true });
   });
 
-  it(prefix === 'sophos' ? 'opts in to the late-prevention re-check' : 'has no late-prevention re-check (only the two missing-flag clauses)', async () => {
+  it('re-checks stages detected in the last 72 h without stage-own prevention, and stages never evaluated for it', async () => {
     search.mockResolvedValueOnce({ hits: { hits: [] } });
     await make(client).runEnrichmentPass();
     const q = search.mock.calls[0][0].query;
     const should = q.bool.filter[q.bool.filter.length - 1].bool.should;
-    expect(should).toHaveLength(prefix === 'sophos' ? 3 : 2);
-    expect(JSON.stringify(q).includes(`${prefix}_prevented`)).toBe(prefix === 'sophos');
+    expect(should).toHaveLength(4);
+    expect(should[2]).toEqual({
+      bool: {
+        filter: [
+          { term: { [`f0rtika.${prefix}_stage_detected`]: true } },
+          { range: { 'routing.event_time': { gte: 'now-72h' } } },
+        ],
+        must_not: [{ term: { [`f0rtika.${prefix}_stage_prevented`]: true } }],
+      },
+    });
+    expect(should[3]).toEqual({
+      bool: {
+        filter: [{ term: { [`f0rtika.${prefix}_stage_detected`]: true } }],
+        must_not: [{ exists: { field: `f0rtika.${prefix}_stage_prevented` } }],
+      },
+    });
   });
 
-  it(prefix === 'sophos' ? 'reads alert correlation in msearch' : 'msearch reads only what it did before', async () => {
+  it('msearch reads alert correlation and aggregates every matching alert\'s action', async () => {
     search.mockResolvedValueOnce({ hits: { hits: [resultDoc(999)] } });
     msearch.mockResolvedValueOnce({ responses: [none, none] });
     await make(client).runEnrichmentPass({ batchSize: 200 });
-    const src = msearch.mock.calls[0][0].searches[1]._source as string[];
-    expect(src[0]).toBe('prevention_action');
-    expect(src.includes('f0rtika.achilles_correlated')).toBe(prefix === 'sophos');
+    const body = msearch.mock.calls[0][0].searches[1];
+    expect(body._source[0]).toBe('prevention_action');
+    expect(body._source).toContain('f0rtika.achilles_correlated');
+    const agg = body.aggs.prevention;
+    expect(agg.aggs.actions.terms.field).toBe('prevention_action');
+    // Only SentinelOne has automatic mitigation; its own kills never count.
+    expect(JSON.stringify(agg.filter).includes('auto_mitigated')).toBe(prefix === 'sentinelone');
+  });
+
+  it('finds an action beyond the hits returned (aggregation over every matching alert)', async () => {
+    search.mockResolvedValueOnce({ hits: { hits: [resultDoc(999)] } });
+    const withAgg = { ...hits(), aggregations: { prevention: { actions: { buckets: [{ key: 'process_killed', doc_count: 1 }, { key: 'kill_failed', doc_count: 1 }] } } } };
+    msearch.mockResolvedValueOnce({ responses: [hits(), withAgg] });
+    await make(client).runEnrichmentPass({ batchSize: 200 });
+    const flags = bulk.mock.calls[0][0].operations[1].doc.f0rtika;
+    expect(flags).toMatchObject({ [`${prefix}_stage_prevented`]: true, [`${prefix}_prevention_action`]: 'process_killed' });
+  });
+
+  it('a wide-only action on an error stage is prevention, but not the stage\'s own (stage_prevented false)', async () => {
+    search.mockResolvedValueOnce({ hits: { hits: [resultDoc(999)] } });
+    msearch.mockResolvedValueOnce({ responses: [hits('process_killed'), hits()] });
+    await make(client).runEnrichmentPass({ batchSize: 200 });
+    expect(bulk.mock.calls[0][0].operations[1].doc.f0rtika).toEqual({
+      [`${prefix}_detected`]: true,
+      [`${prefix}_stage_detected`]: true,
+      [`${prefix}_prevented`]: true,
+      [`${prefix}_prevention_action`]: 'process_killed',
+      [`${prefix}_stage_prevented`]: false,
+    });
+  });
+
+  it('prefers the stage alert\'s action over a wide one', async () => {
+    search.mockResolvedValueOnce({ hits: { hits: [resultDoc(999)] } });
+    msearch.mockResolvedValueOnce({ responses: [hits('blocked'), hits('quarantined')] });
+    await make(client).runEnrichmentPass({ batchSize: 200 });
+    expect(bulk.mock.calls[0][0].operations[1].doc.f0rtika[`${prefix}_prevention_action`]).toBe('quarantined');
   });
 
   it('kill_failed is detection, never prevention', async () => {
@@ -105,78 +155,105 @@ describe.each(VENDORS)('EDR alert enrichment — $name', ({ prefix, index, make 
   });
 });
 
-// Sophos only: a Common Alert and its SIEM event (which carries the remedy /
-// prevention) arrive in different polls, so a test doc can be flagged
-// detected before the prevention is known. Sophos re-checks recent
-// detected-but-unprevented docs; the other vendors never do (cases above).
-describe('EDR alert enrichment — Sophos late-prevention re-check', () => {
+// Late prevention: an EDR often attaches its action after the alert was first
+// matched (Defender's remediation status, SentinelOne's mitigation report,
+// Sophos' remedy event). A stage already flagged detected is re-checked, and
+// gets only the flags it lacks.
+describe.each(VENDORS)('EDR alert enrichment — $name late prevention and provenance', ({ prefix, index, make }) => {
   const search = vi.fn();
   const msearch = vi.fn();
   const bulk = vi.fn();
   const client = { search, msearch, bulk };
   const flagged = (extra: Record<string, unknown> = {}) => {
     const d = resultDoc(999);
-    return { ...d, _source: { ...d._source, f0rtika: { ...d._source.f0rtika, sophos_detected: true, sophos_stage_detected: true, ...extra } } };
+    return { ...d, _source: { ...d._source, f0rtika: { ...d._source.f0rtika, [`${prefix}_detected`]: true, [`${prefix}_stage_detected`]: true, ...extra } } };
   };
   const alertHit = (source: Record<string, unknown>) => ({ hits: { total: { value: 1 }, hits: [{ _id: 'alert-1', _source: source }] } });
+  const correlated = { f0rtika: { achilles_correlated: true } };
   beforeEach(() => {
     vi.clearAllMocks();
     bulk.mockResolvedValue({ items: [{ update: {} }, { update: {} }] });
   });
 
-  it('admits docs detected but not prevented in the last 24 h', async () => {
-    search.mockResolvedValueOnce({ hits: { hits: [] } });
-    await new SophosEnrichmentService(client as any, 'achilles-results-*').runEnrichmentPass();
-    const q = search.mock.calls[0][0].query;
-    const should = q.bool.filter[q.bool.filter.length - 1].bool.should;
-    expect(should[2]).toEqual({
-      bool: {
-        filter: [
-          { term: { 'f0rtika.sophos_detected': true } },
-          { range: { 'routing.event_time': { gte: 'now-24h' } } },
-        ],
-        must_not: [{ term: { 'f0rtika.sophos_prevented': true } }],
-      },
-    });
-  });
-
-  it('a late prevention on an already-correlated alert writes only the prevention flags', async () => {
-    search.mockResolvedValueOnce({ hits: { hits: [flagged()] } });
-    const alert = alertHit({ prevention_action: 'quarantined', f0rtika: { achilles_correlated: true } });
+  it('a late stage action writes only the prevention flags', async () => {
+    search.mockResolvedValueOnce({ hits: { hits: [flagged({ [`${prefix}_stage_prevented`]: false })] } });
+    const alert = alertHit({ prevention_action: 'quarantined', ...correlated });
     msearch.mockResolvedValueOnce({ responses: [alert, alert] });
-    const result = await new SophosEnrichmentService(client as any, 'achilles-results-*').runEnrichmentPass({ batchSize: 200 });
+    const result = await make(client).runEnrichmentPass({ batchSize: 200 });
     const ops = bulk.mock.calls[0][0].operations;
     expect(ops).toHaveLength(2);
-    expect(ops[1].doc.f0rtika).toEqual({ sophos_prevented: true, sophos_prevention_action: 'quarantined' });
+    expect(ops[1].doc.f0rtika).toEqual({
+      [`${prefix}_prevented`]: true,
+      [`${prefix}_prevention_action`]: 'quarantined',
+      [`${prefix}_stage_prevented`]: true,
+    });
     expect(result).toMatchObject({ detected: 0, stageDetected: 0, alertsMarkedCorrelated: 0 });
   });
 
-  it('re-checking a doc with nothing new writes nothing (idempotent)', async () => {
+  it('a stage already prevented by a wide alert takes the stage\'s own late action', async () => {
+    search.mockResolvedValueOnce({ hits: { hits: [flagged({ [`${prefix}_prevented`]: true, [`${prefix}_prevention_action`]: 'blocked', [`${prefix}_stage_prevented`]: false })] } });
+    msearch.mockResolvedValueOnce({ responses: [alertHit({ prevention_action: 'blocked', ...correlated }), alertHit({ prevention_action: 'process_killed', ...correlated })] });
+    await make(client).runEnrichmentPass({ batchSize: 200 });
+    expect(bulk.mock.calls[0][0].operations[1].doc.f0rtika).toEqual({
+      [`${prefix}_prevention_action`]: 'process_killed',
+      [`${prefix}_stage_prevented`]: true,
+    });
+  });
+
+  it('a stage flagged before provenance existed gets stage_prevented from its own alerts', async () => {
+    search.mockResolvedValueOnce({ hits: { hits: [flagged({ [`${prefix}_prevented`]: true, [`${prefix}_prevention_action`]: 'quarantined' })] } });
+    msearch.mockResolvedValueOnce({ responses: [alertHit({ prevention_action: 'quarantined', ...correlated }), alertHit(correlated)] });
+    await make(client).runEnrichmentPass({ batchSize: 200 });
+    expect(bulk.mock.calls[0][0].operations[1].doc.f0rtika).toEqual({ [`${prefix}_stage_prevented`]: false });
+  });
+
+  it('settles an older stage with no action as not prevented when its stage alerts no longer match', async () => {
     search.mockResolvedValueOnce({ hits: { hits: [flagged()] } });
-    const alert = alertHit({ f0rtika: { achilles_correlated: true } });
+    msearch.mockResolvedValueOnce({ responses: [none, none] });
+    await make(client).runEnrichmentPass({ batchSize: 200 });
+    const ops = bulk.mock.calls[0][0].operations;
+    expect(ops).toEqual([{ update: { _index: 'achilles-results-org', _id: 'r1' } }, { doc: { f0rtika: { [`${prefix}_stage_prevented`]: false } } }]);
+  });
+
+  it('keeps an older stage\'s action (no downgrade) when its stage alerts no longer match', async () => {
+    search.mockResolvedValueOnce({ hits: { hits: [flagged({ [`${prefix}_prevented`]: true, [`${prefix}_prevention_action`]: 'quarantined' })] } });
+    msearch.mockResolvedValueOnce({ responses: [alertHit(correlated), none] });
+    await make(client).runEnrichmentPass({ batchSize: 200 });
+    expect(bulk).not.toHaveBeenCalled();
+  });
+
+  it('re-checking a stage with nothing new writes nothing (idempotent)', async () => {
+    search.mockResolvedValueOnce({ hits: { hits: [flagged({ [`${prefix}_stage_prevented`]: false })] } });
+    const alert = alertHit(correlated);
     msearch.mockResolvedValueOnce({ responses: [alert, alert] });
-    await new SophosEnrichmentService(client as any, 'achilles-results-*').runEnrichmentPass({ batchSize: 200 });
+    await make(client).runEnrichmentPass({ batchSize: 200 });
     expect(bulk).not.toHaveBeenCalled();
   });
 
   it('a re-checked doc correlates a matching alert that is not correlated yet', async () => {
-    search.mockResolvedValueOnce({ hits: { hits: [flagged()] } });
+    search.mockResolvedValueOnce({ hits: { hits: [flagged({ [`${prefix}_stage_prevented`]: false })] } });
     const alert = alertHit({});
     msearch.mockResolvedValueOnce({ responses: [alert, alert] });
-    await new SophosEnrichmentService(client as any, 'achilles-results-*').runEnrichmentPass({ batchSize: 200 });
+    await make(client).runEnrichmentPass({ batchSize: 200 });
     const ops = bulk.mock.calls[0][0].operations;
     expect(ops).toHaveLength(2);
-    expect(ops[0]).toEqual({ update: { _index: 'achilles-sophos', _id: 'alert-1' } });
+    expect(ops[0]).toEqual({ update: { _index: index, _id: 'alert-1' } });
     expect(ops[1].doc.f0rtika).toMatchObject({ achilles_correlated: true, achilles_test_uuid: 'b1' });
   });
 
   it('a new doc is still flagged in full, and its alert correlated even when already correlated (unchanged rule)', async () => {
     search.mockResolvedValueOnce({ hits: { hits: [resultDoc(999)] } });
-    const alert = alertHit({ prevention_action: 'blocked', f0rtika: { achilles_correlated: true } });
+    const alert = alertHit({ prevention_action: 'blocked', ...correlated });
     msearch.mockResolvedValueOnce({ responses: [alert, alert] });
-    await new SophosEnrichmentService(client as any, 'achilles-results-*').runEnrichmentPass({ batchSize: 200 });
+    await make(client).runEnrichmentPass({ batchSize: 200 });
     const ops = bulk.mock.calls[0][0].operations;
-    expect(ops[1].doc.f0rtika).toEqual({ sophos_detected: true, sophos_stage_detected: true, sophos_prevented: true, sophos_prevention_action: 'blocked' });
-    expect(ops[2]).toEqual({ update: { _index: 'achilles-sophos', _id: 'alert-1' } });
+    expect(ops[1].doc.f0rtika).toEqual({
+      [`${prefix}_detected`]: true,
+      [`${prefix}_stage_detected`]: true,
+      [`${prefix}_prevented`]: true,
+      [`${prefix}_prevention_action`]: 'blocked',
+      [`${prefix}_stage_prevented`]: true,
+    });
+    expect(ops[2]).toEqual({ update: { _index: index, _id: 'alert-1' } });
   });
 });
