@@ -175,6 +175,10 @@ func Execute(ctx context.Context, client *httpclient.Client, task Task, cfg *con
 		return nil, fmt.Errorf("create temp dir: %w", err)
 	}
 	defer os.RemoveAll(tempDir)
+	// The test's stage binaries land in the shared artifact folder, not
+	// tempDir: remove them once the run is over (cleanup.go). Deferred, so it
+	// runs after bundle_results.json is read and on every early return.
+	defer cleanupAfterRun(task.Payload.TestUUID)
 
 	// Step 2: Download the binary. Scope the context to MaxDownloadTimeout
 	// so a slow link can't tie up the agent forever; large binaries (e.g.
