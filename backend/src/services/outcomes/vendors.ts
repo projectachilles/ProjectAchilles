@@ -19,6 +19,8 @@
  * - `abbrev`: compact stage badges.
  * - `reportName`: report diagrams.
  */
+
+import type { QueryDslQueryContainer } from '@elastic/elasticsearch/lib/api/types.js';
 export interface EdrVendor {
   key: string;
   name: string;
@@ -97,6 +99,47 @@ export function edrFlagSourceFields(kinds: readonly EdrFlagKind[] = ALL_FLAG_KIN
 /** One `<key>_detected: true` term per vendor: the "an EDR saw it" half of the combined score. */
 export function edrDetectedTerms(): Array<{ term: Record<string, true> }> {
   return EDR_VENDOR_KEYS.map((v) => ({ term: { [edrFlagField(v, 'detected')]: true } }));
+}
+
+/**
+ * "An EDR saw THIS result" — the per-document rule for views that score each
+ * stage on its own (technique views, per-doc counts). On a bundle control the
+ * wide `<key>_detected` only means some alert named the bundle (another stage
+ * or the orchestrator), so a stage needs its own `<key>_stage_detected`; a
+ * standalone doc's wide flag is its own detection. A vendor prevention on a
+ * conclusive stage always comes with `_stage_detected` (the enrichment passes
+ * only take a prevention from a stage match there), so `_prevented` needs no
+ * term of its own, and a prevention without a detection stays silent, as in
+ * the score. Chain-level verdicts keep `edrDetectedTerms()`.
+ */
+export function edrOwnDetectedClause(): QueryDslQueryContainer {
+  return {
+    bool: {
+      should: EDR_VENDOR_KEYS.flatMap((v) => [
+        { term: { [edrFlagField(v, 'stage_detected')]: true } },
+        {
+          bool: {
+            filter: [{ term: { [edrFlagField(v, 'detected')]: true } }],
+            must_not: [{ term: { 'f0rtika.is_bundle_control': true } }],
+          },
+        },
+      ]),
+      minimum_should_match: 1,
+    },
+  };
+}
+
+/** The `_source` / top_metrics fields `hasOwnEdrDetection` reads. */
+export function edrOwnDetectionFields(): string[] {
+  return ['f0rtika.is_bundle_control', ...edrFlagSourceFields(['detected', 'stage_detected'])];
+}
+
+/** `edrOwnDetectedClause` evaluated in code, over fields read with `flag` (e.g. top_metrics values). */
+export function hasOwnEdrDetection(flag: (field: string) => boolean): boolean {
+  const bundleControl = flag('f0rtika.is_bundle_control');
+  return EDR_VENDOR_KEYS.some((v) =>
+    flag(edrFlagField(v, 'stage_detected'))
+    || (!bundleControl && flag(edrFlagField(v, 'detected'))));
 }
 
 /** One `<key>_prevented: true` term per vendor: an EDR stopped it itself (see classifyPairOutcome). */

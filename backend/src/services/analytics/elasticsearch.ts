@@ -20,7 +20,16 @@ import type { OutcomeRun } from './outcomeBreakdown.js';
 import { countPairOutcomes } from './outcomeBreakdown.js';
 import { TtlPromiseCache } from './postureCache.js';
 import type { TtlCacheOptions } from './postureCache.js';
-import { EDR_VENDOR_KEYS, edrDetectedTerms, edrFlagField, edrFlagSourceFields, edrPreventedTerms } from '../outcomes/vendors.js';
+import {
+  EDR_VENDOR_KEYS,
+  edrDetectedTerms,
+  edrFlagField,
+  edrFlagSourceFields,
+  edrOwnDetectedClause,
+  edrOwnDetectionFields,
+  edrPreventedTerms,
+  hasOwnEdrDetection,
+} from '../outcomes/vendors.js';
 import type { EdrGroupRollup, EdrResultFlags } from '../outcomes/vendors.js';
 import type {
   ExecutionActivityResponse,
@@ -552,8 +561,10 @@ export class ElasticsearchService {
   }
 
   /**
-   * Run a score query that returns both combined (is_protected OR any EDR
-   * registry vendor's <key>_detected) and strict (is_protected only) counts in a single ES request.
+   * Run a score query that returns both combined (is_protected OR an EDR saw
+   * this doc itself, edrOwnDetectedClause) and strict (is_protected only)
+   * counts in a single ES request. Every doc is its own unit here, so a bundle
+   * stage is never credited for an alert that named a sibling stage.
    */
   private async runCombinedScoreQuery(filters: any[]): Promise<{
     total: number;
@@ -573,7 +584,7 @@ export class ElasticsearchService {
             bool: {
               should: [
                 { term: { 'f0rtika.is_protected': true } },
-                ...edrDetectedTerms(),
+                edrOwnDetectedClause(),
               ],
               minimum_should_match: 1,
             },
@@ -610,7 +621,7 @@ export class ElasticsearchService {
                 bool: {
                   should: [
                     { term: { 'f0rtika.is_protected': true } },
-                    ...edrDetectedTerms(),
+                    edrOwnDetectedClause(),
                   ],
                   minimum_should_match: 1,
                 },
@@ -1286,7 +1297,8 @@ export class ElasticsearchService {
             metrics: [
               'routing.event_time',
               'f0rtika.is_protected',
-              ...edrFlagSourceFields(['detected', 'prevented']),
+              ...edrOwnDetectionFields(),
+              ...edrFlagSourceFields(['prevented']),
               'event.ERROR',
               'f0rtika.error_name',
             ].map(field => ({ field })),
@@ -1309,7 +1321,10 @@ export class ElasticsearchService {
         runs.push({
           pairKey: `${b.key.oid ?? ''}|${testUuid}|${hostname}`,
           ts,
-          protected: isProtected || edrFlagSourceFields(['detected']).some((f) => esBool(m[f])),
+          // Each doc is its own pair here (per-stage in all-stages mode), so it
+          // needs its own evidence: a bundle stage is never credited for an
+          // alert that named a sibling stage (edrOwnDetectedClause).
+          protected: isProtected || hasOwnEdrDetection((f) => esBool(m[f])),
           strictProtected: isProtected,
           edrPrevented: edrFlagSourceFields(['prevented']).some((f) => esBool(m[f])),
           errorCodes: codes,
@@ -1409,6 +1424,19 @@ export class ElasticsearchService {
           },
           aggs: { stages: { terms: { field: 'f0rtika.control_validator', size: this.CHAIN_STAGE_TERMS } } },
         },
+        // Chain depth: the unblocked stages an EDR saw themselves, for "alerted
+        // before the block". alerted_unblocked above stays chain-level (an alert
+        // naming the bundle detected the chain), but its wide flag is on every
+        // stage, so its stage numbers can't say which stage the alert was on.
+        alerted_stages: {
+          filter: {
+            bool: {
+              filter: [edrOwnDetectedClause()],
+              must_not: [{ term: { 'f0rtika.is_protected': true } }],
+            },
+          },
+          aggs: { stages: { terms: { field: 'f0rtika.control_validator', size: this.CHAIN_STAGE_TERMS } } },
+        },
         // Outcome breakdown: an EDR prevention flag on any stage of the run.
         // Detected-any AND prevented-any on the same doc, like the per-doc verdict rule.
         prevented: {
@@ -1450,7 +1478,7 @@ export class ElasticsearchService {
           stagesRun: Number(b.doc_count) || 0,
           alertedUnblocked: (b.alerted_unblocked?.doc_count ?? 0) > 0,
           blockedStages: stageNumbers(b.strict),
-          alertedStages: stageNumbers(b.alerted_unblocked),
+          alertedStages: stageNumbers(b.alerted_stages),
           agentTerminated: (b.edr_terminated?.doc_count ?? 0) > 0,
         };
         all.push(run);
@@ -3715,11 +3743,13 @@ export class ElasticsearchService {
     ];
 
     const conclusive = { terms: { 'event.ERROR': this.CONCLUSIVE_ERROR_CODES } };
+    // Each result counts on its own evidence (a bundle stage is not credited
+    // for an alert that named a sibling stage).
     const detected = {
       bool: {
         should: [
           { term: { 'f0rtika.is_protected': true } },
-          ...edrDetectedTerms(),
+          edrOwnDetectedClause(),
         ],
         minimum_should_match: 1,
       },

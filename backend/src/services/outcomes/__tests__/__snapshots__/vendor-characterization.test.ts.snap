@@ -1115,6 +1115,128 @@ exports[`EDR vendor characterization (pre-registry refactor) > fetchBundlePairRu
     "aggs": {
       "bundle_runs": {
         "aggs": {
+          "alerted_stages": {
+            "aggs": {
+              "stages": {
+                "terms": {
+                  "field": "f0rtika.control_validator",
+                  "size": 20,
+                },
+              },
+            },
+            "filter": {
+              "bool": {
+                "filter": [
+                  {
+                    "bool": {
+                      "minimum_should_match": 1,
+                      "should": [
+                        {
+                          "bool": {
+                            "filter": [
+                              {
+                                "term": {
+                                  "f0rtika.crowdstrike_detected": true,
+                                },
+                              },
+                            ],
+                            "must_not": [
+                              {
+                                "term": {
+                                  "f0rtika.is_bundle_control": true,
+                                },
+                              },
+                            ],
+                          },
+                        },
+                        {
+                          "bool": {
+                            "filter": [
+                              {
+                                "term": {
+                                  "f0rtika.defender_detected": true,
+                                },
+                              },
+                            ],
+                            "must_not": [
+                              {
+                                "term": {
+                                  "f0rtika.is_bundle_control": true,
+                                },
+                              },
+                            ],
+                          },
+                        },
+                        {
+                          "bool": {
+                            "filter": [
+                              {
+                                "term": {
+                                  "f0rtika.sentinelone_detected": true,
+                                },
+                              },
+                            ],
+                            "must_not": [
+                              {
+                                "term": {
+                                  "f0rtika.is_bundle_control": true,
+                                },
+                              },
+                            ],
+                          },
+                        },
+                        {
+                          "bool": {
+                            "filter": [
+                              {
+                                "term": {
+                                  "f0rtika.sophos_detected": true,
+                                },
+                              },
+                            ],
+                            "must_not": [
+                              {
+                                "term": {
+                                  "f0rtika.is_bundle_control": true,
+                                },
+                              },
+                            ],
+                          },
+                        },
+                        {
+                          "term": {
+                            "f0rtika.crowdstrike_stage_detected": true,
+                          },
+                        },
+                        {
+                          "term": {
+                            "f0rtika.defender_stage_detected": true,
+                          },
+                        },
+                        {
+                          "term": {
+                            "f0rtika.sentinelone_stage_detected": true,
+                          },
+                        },
+                        {
+                          "term": {
+                            "f0rtika.sophos_stage_detected": true,
+                          },
+                        },
+                      ],
+                    },
+                  },
+                ],
+                "must_not": [
+                  {
+                    "term": {
+                      "f0rtika.is_protected": true,
+                    },
+                  },
+                ],
+              },
+            },
+          },
           "alerted_unblocked": {
             "aggs": {
               "stages": {
@@ -1353,25 +1475,40 @@ exports[`EDR vendor characterization (pre-registry refactor) > fetchDocPairRuns 
                   "field": "f0rtika.is_protected",
                 },
                 {
+                  "field": "f0rtika.is_bundle_control",
+                },
+                {
                   "field": "f0rtika.defender_detected",
                 },
                 {
-                  "field": "f0rtika.defender_prevented",
+                  "field": "f0rtika.defender_stage_detected",
                 },
                 {
                   "field": "f0rtika.crowdstrike_detected",
                 },
                 {
-                  "field": "f0rtika.crowdstrike_prevented",
+                  "field": "f0rtika.crowdstrike_stage_detected",
                 },
                 {
                   "field": "f0rtika.sentinelone_detected",
                 },
                 {
-                  "field": "f0rtika.sentinelone_prevented",
+                  "field": "f0rtika.sentinelone_stage_detected",
                 },
                 {
                   "field": "f0rtika.sophos_detected",
+                },
+                {
+                  "field": "f0rtika.sophos_stage_detected",
+                },
+                {
+                  "field": "f0rtika.defender_prevented",
+                },
+                {
+                  "field": "f0rtika.crowdstrike_prevented",
+                },
+                {
+                  "field": "f0rtika.sentinelone_prevented",
                 },
                 {
                   "field": "f0rtika.sophos_prevented",
@@ -1530,28 +1667,107 @@ exports[`EDR vendor characterization (pre-registry refactor) > getExecutionActiv
                       "minimum_should_match": 1,
                       "should": [
                         {
-                          "term": {
-                            "f0rtika.crowdstrike_detected": true,
-                          },
-                        },
-                        {
-                          "term": {
-                            "f0rtika.defender_detected": true,
+                          "bool": {
+                            "minimum_should_match": 1,
+                            "should": [
+                              {
+                                "bool": {
+                                  "filter": [
+                                    {
+                                      "term": {
+                                        "f0rtika.crowdstrike_detected": true,
+                                      },
+                                    },
+                                  ],
+                                  "must_not": [
+                                    {
+                                      "term": {
+                                        "f0rtika.is_bundle_control": true,
+                                      },
+                                    },
+                                  ],
+                                },
+                              },
+                              {
+                                "bool": {
+                                  "filter": [
+                                    {
+                                      "term": {
+                                        "f0rtika.defender_detected": true,
+                                      },
+                                    },
+                                  ],
+                                  "must_not": [
+                                    {
+                                      "term": {
+                                        "f0rtika.is_bundle_control": true,
+                                      },
+                                    },
+                                  ],
+                                },
+                              },
+                              {
+                                "bool": {
+                                  "filter": [
+                                    {
+                                      "term": {
+                                        "f0rtika.sentinelone_detected": true,
+                                      },
+                                    },
+                                  ],
+                                  "must_not": [
+                                    {
+                                      "term": {
+                                        "f0rtika.is_bundle_control": true,
+                                      },
+                                    },
+                                  ],
+                                },
+                              },
+                              {
+                                "bool": {
+                                  "filter": [
+                                    {
+                                      "term": {
+                                        "f0rtika.sophos_detected": true,
+                                      },
+                                    },
+                                  ],
+                                  "must_not": [
+                                    {
+                                      "term": {
+                                        "f0rtika.is_bundle_control": true,
+                                      },
+                                    },
+                                  ],
+                                },
+                              },
+                              {
+                                "term": {
+                                  "f0rtika.crowdstrike_stage_detected": true,
+                                },
+                              },
+                              {
+                                "term": {
+                                  "f0rtika.defender_stage_detected": true,
+                                },
+                              },
+                              {
+                                "term": {
+                                  "f0rtika.sentinelone_stage_detected": true,
+                                },
+                              },
+                              {
+                                "term": {
+                                  "f0rtika.sophos_stage_detected": true,
+                                },
+                              },
+                            ],
                           },
                         },
                         {
                           "term": {
                             "f0rtika.is_protected": true,
-                          },
-                        },
-                        {
-                          "term": {
-                            "f0rtika.sentinelone_detected": true,
-                          },
-                        },
-                        {
-                          "term": {
-                            "f0rtika.sophos_detected": true,
                           },
                         },
                       ],
@@ -1609,28 +1825,107 @@ exports[`EDR vendor characterization (pre-registry refactor) > getExecutionActiv
                       "minimum_should_match": 1,
                       "should": [
                         {
-                          "term": {
-                            "f0rtika.crowdstrike_detected": true,
-                          },
-                        },
-                        {
-                          "term": {
-                            "f0rtika.defender_detected": true,
+                          "bool": {
+                            "minimum_should_match": 1,
+                            "should": [
+                              {
+                                "bool": {
+                                  "filter": [
+                                    {
+                                      "term": {
+                                        "f0rtika.crowdstrike_detected": true,
+                                      },
+                                    },
+                                  ],
+                                  "must_not": [
+                                    {
+                                      "term": {
+                                        "f0rtika.is_bundle_control": true,
+                                      },
+                                    },
+                                  ],
+                                },
+                              },
+                              {
+                                "bool": {
+                                  "filter": [
+                                    {
+                                      "term": {
+                                        "f0rtika.defender_detected": true,
+                                      },
+                                    },
+                                  ],
+                                  "must_not": [
+                                    {
+                                      "term": {
+                                        "f0rtika.is_bundle_control": true,
+                                      },
+                                    },
+                                  ],
+                                },
+                              },
+                              {
+                                "bool": {
+                                  "filter": [
+                                    {
+                                      "term": {
+                                        "f0rtika.sentinelone_detected": true,
+                                      },
+                                    },
+                                  ],
+                                  "must_not": [
+                                    {
+                                      "term": {
+                                        "f0rtika.is_bundle_control": true,
+                                      },
+                                    },
+                                  ],
+                                },
+                              },
+                              {
+                                "bool": {
+                                  "filter": [
+                                    {
+                                      "term": {
+                                        "f0rtika.sophos_detected": true,
+                                      },
+                                    },
+                                  ],
+                                  "must_not": [
+                                    {
+                                      "term": {
+                                        "f0rtika.is_bundle_control": true,
+                                      },
+                                    },
+                                  ],
+                                },
+                              },
+                              {
+                                "term": {
+                                  "f0rtika.crowdstrike_stage_detected": true,
+                                },
+                              },
+                              {
+                                "term": {
+                                  "f0rtika.defender_stage_detected": true,
+                                },
+                              },
+                              {
+                                "term": {
+                                  "f0rtika.sentinelone_stage_detected": true,
+                                },
+                              },
+                              {
+                                "term": {
+                                  "f0rtika.sophos_stage_detected": true,
+                                },
+                              },
+                            ],
                           },
                         },
                         {
                           "term": {
                             "f0rtika.is_protected": true,
-                          },
-                        },
-                        {
-                          "term": {
-                            "f0rtika.sentinelone_detected": true,
-                          },
-                        },
-                        {
-                          "term": {
-                            "f0rtika.sophos_detected": true,
                           },
                         },
                       ],
@@ -1661,28 +1956,107 @@ exports[`EDR vendor characterization (pre-registry refactor) > getExecutionActiv
                       "minimum_should_match": 1,
                       "should": [
                         {
-                          "term": {
-                            "f0rtika.crowdstrike_detected": true,
-                          },
-                        },
-                        {
-                          "term": {
-                            "f0rtika.defender_detected": true,
+                          "bool": {
+                            "minimum_should_match": 1,
+                            "should": [
+                              {
+                                "bool": {
+                                  "filter": [
+                                    {
+                                      "term": {
+                                        "f0rtika.crowdstrike_detected": true,
+                                      },
+                                    },
+                                  ],
+                                  "must_not": [
+                                    {
+                                      "term": {
+                                        "f0rtika.is_bundle_control": true,
+                                      },
+                                    },
+                                  ],
+                                },
+                              },
+                              {
+                                "bool": {
+                                  "filter": [
+                                    {
+                                      "term": {
+                                        "f0rtika.defender_detected": true,
+                                      },
+                                    },
+                                  ],
+                                  "must_not": [
+                                    {
+                                      "term": {
+                                        "f0rtika.is_bundle_control": true,
+                                      },
+                                    },
+                                  ],
+                                },
+                              },
+                              {
+                                "bool": {
+                                  "filter": [
+                                    {
+                                      "term": {
+                                        "f0rtika.sentinelone_detected": true,
+                                      },
+                                    },
+                                  ],
+                                  "must_not": [
+                                    {
+                                      "term": {
+                                        "f0rtika.is_bundle_control": true,
+                                      },
+                                    },
+                                  ],
+                                },
+                              },
+                              {
+                                "bool": {
+                                  "filter": [
+                                    {
+                                      "term": {
+                                        "f0rtika.sophos_detected": true,
+                                      },
+                                    },
+                                  ],
+                                  "must_not": [
+                                    {
+                                      "term": {
+                                        "f0rtika.is_bundle_control": true,
+                                      },
+                                    },
+                                  ],
+                                },
+                              },
+                              {
+                                "term": {
+                                  "f0rtika.crowdstrike_stage_detected": true,
+                                },
+                              },
+                              {
+                                "term": {
+                                  "f0rtika.defender_stage_detected": true,
+                                },
+                              },
+                              {
+                                "term": {
+                                  "f0rtika.sentinelone_stage_detected": true,
+                                },
+                              },
+                              {
+                                "term": {
+                                  "f0rtika.sophos_stage_detected": true,
+                                },
+                              },
+                            ],
                           },
                         },
                         {
                           "term": {
                             "f0rtika.is_protected": true,
-                          },
-                        },
-                        {
-                          "term": {
-                            "f0rtika.sentinelone_detected": true,
-                          },
-                        },
-                        {
-                          "term": {
-                            "f0rtika.sophos_detected": true,
                           },
                         },
                       ],
@@ -1936,28 +2310,107 @@ exports[`EDR vendor characterization (pre-registry refactor) > runAnyStageCombin
                 "minimum_should_match": 1,
                 "should": [
                   {
-                    "term": {
-                      "f0rtika.crowdstrike_detected": true,
-                    },
-                  },
-                  {
-                    "term": {
-                      "f0rtika.defender_detected": true,
+                    "bool": {
+                      "minimum_should_match": 1,
+                      "should": [
+                        {
+                          "bool": {
+                            "filter": [
+                              {
+                                "term": {
+                                  "f0rtika.crowdstrike_detected": true,
+                                },
+                              },
+                            ],
+                            "must_not": [
+                              {
+                                "term": {
+                                  "f0rtika.is_bundle_control": true,
+                                },
+                              },
+                            ],
+                          },
+                        },
+                        {
+                          "bool": {
+                            "filter": [
+                              {
+                                "term": {
+                                  "f0rtika.defender_detected": true,
+                                },
+                              },
+                            ],
+                            "must_not": [
+                              {
+                                "term": {
+                                  "f0rtika.is_bundle_control": true,
+                                },
+                              },
+                            ],
+                          },
+                        },
+                        {
+                          "bool": {
+                            "filter": [
+                              {
+                                "term": {
+                                  "f0rtika.sentinelone_detected": true,
+                                },
+                              },
+                            ],
+                            "must_not": [
+                              {
+                                "term": {
+                                  "f0rtika.is_bundle_control": true,
+                                },
+                              },
+                            ],
+                          },
+                        },
+                        {
+                          "bool": {
+                            "filter": [
+                              {
+                                "term": {
+                                  "f0rtika.sophos_detected": true,
+                                },
+                              },
+                            ],
+                            "must_not": [
+                              {
+                                "term": {
+                                  "f0rtika.is_bundle_control": true,
+                                },
+                              },
+                            ],
+                          },
+                        },
+                        {
+                          "term": {
+                            "f0rtika.crowdstrike_stage_detected": true,
+                          },
+                        },
+                        {
+                          "term": {
+                            "f0rtika.defender_stage_detected": true,
+                          },
+                        },
+                        {
+                          "term": {
+                            "f0rtika.sentinelone_stage_detected": true,
+                          },
+                        },
+                        {
+                          "term": {
+                            "f0rtika.sophos_stage_detected": true,
+                          },
+                        },
+                      ],
                     },
                   },
                   {
                     "term": {
                       "f0rtika.is_protected": true,
-                    },
-                  },
-                  {
-                    "term": {
-                      "f0rtika.sentinelone_detected": true,
-                    },
-                  },
-                  {
-                    "term": {
-                      "f0rtika.sophos_detected": true,
                     },
                   },
                 ],
@@ -2046,28 +2499,107 @@ exports[`EDR vendor characterization (pre-registry refactor) > runCombinedScoreQ
             "minimum_should_match": 1,
             "should": [
               {
-                "term": {
-                  "f0rtika.crowdstrike_detected": true,
-                },
-              },
-              {
-                "term": {
-                  "f0rtika.defender_detected": true,
+                "bool": {
+                  "minimum_should_match": 1,
+                  "should": [
+                    {
+                      "bool": {
+                        "filter": [
+                          {
+                            "term": {
+                              "f0rtika.crowdstrike_detected": true,
+                            },
+                          },
+                        ],
+                        "must_not": [
+                          {
+                            "term": {
+                              "f0rtika.is_bundle_control": true,
+                            },
+                          },
+                        ],
+                      },
+                    },
+                    {
+                      "bool": {
+                        "filter": [
+                          {
+                            "term": {
+                              "f0rtika.defender_detected": true,
+                            },
+                          },
+                        ],
+                        "must_not": [
+                          {
+                            "term": {
+                              "f0rtika.is_bundle_control": true,
+                            },
+                          },
+                        ],
+                      },
+                    },
+                    {
+                      "bool": {
+                        "filter": [
+                          {
+                            "term": {
+                              "f0rtika.sentinelone_detected": true,
+                            },
+                          },
+                        ],
+                        "must_not": [
+                          {
+                            "term": {
+                              "f0rtika.is_bundle_control": true,
+                            },
+                          },
+                        ],
+                      },
+                    },
+                    {
+                      "bool": {
+                        "filter": [
+                          {
+                            "term": {
+                              "f0rtika.sophos_detected": true,
+                            },
+                          },
+                        ],
+                        "must_not": [
+                          {
+                            "term": {
+                              "f0rtika.is_bundle_control": true,
+                            },
+                          },
+                        ],
+                      },
+                    },
+                    {
+                      "term": {
+                        "f0rtika.crowdstrike_stage_detected": true,
+                      },
+                    },
+                    {
+                      "term": {
+                        "f0rtika.defender_stage_detected": true,
+                      },
+                    },
+                    {
+                      "term": {
+                        "f0rtika.sentinelone_stage_detected": true,
+                      },
+                    },
+                    {
+                      "term": {
+                        "f0rtika.sophos_stage_detected": true,
+                      },
+                    },
+                  ],
                 },
               },
               {
                 "term": {
                   "f0rtika.is_protected": true,
-                },
-              },
-              {
-                "term": {
-                  "f0rtika.sentinelone_detected": true,
-                },
-              },
-              {
-                "term": {
-                  "f0rtika.sophos_detected": true,
                 },
               },
             ],

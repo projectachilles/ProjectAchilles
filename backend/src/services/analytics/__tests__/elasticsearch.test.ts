@@ -1,6 +1,7 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import type { AnalyticsSettings, AnalyticsQueryParams, ExtendedAnalyticsQueryParams, PaginatedExecutionsParams } from '../../../types/analytics.js';
 import { attackSimulationExclusions } from '../attack-simulation-filter.js';
+import { edrOwnDetectedClause } from '../../outcomes/vendors.js';
 
 // ─── Mock setup ───────────────────────────────────────────────────
 const mockSearch = vi.fn();
@@ -3575,7 +3576,7 @@ describe('elasticsearch.ts', () => {
       function chain(r: {
         bundle: string; host: string; ts: string; stagesRun: number;
         blocked?: boolean; alertedUnblocked?: number; oid?: string;
-        /** control_validator of each blocked / detected-unblocked stage doc (sets the counts). */
+        /** control_validator of each blocked / own-detected unblocked stage doc (sets the counts). */
         blockedValidators?: string[]; alertedValidators?: string[];
       }) {
         const strict = r.blockedValidators?.length ?? (r.blocked ? 1 : 0);
@@ -3588,6 +3589,8 @@ describe('elasticsearch.ts', () => {
           combined: { doc_count: strict + alerted },
           strict: { doc_count: strict, ...stages(r.blockedValidators) },
           alerted_unblocked: { doc_count: alerted, ...stages(r.alertedValidators) },
+          // The same stages, judged on their own evidence (edrOwnDetectedClause).
+          alerted_stages: { doc_count: r.alertedValidators?.length ?? 0, ...stages(r.alertedValidators) },
           codes: { buckets: (r.blocked ? [101, 126] : [101]).map(c => ({ key: c, doc_count: 1 })) },
           names: { buckets: [] },
         };
@@ -3790,6 +3793,16 @@ describe('elasticsearch.ts', () => {
           aggs: stages,
         });
         expect(sub.strict).toEqual({ filter: { term: { 'f0rtika.is_protected': true } }, aggs: stages });
+        // Stage numbers for "alerted before the block" come from each stage's own evidence.
+        expect(sub.alerted_stages).toEqual({
+          filter: {
+            bool: {
+              filter: [edrOwnDetectedClause()],
+              must_not: [{ term: { 'f0rtika.is_protected': true } }],
+            },
+          },
+          aggs: stages,
+        });
       });
 
       /** A run with a non-conclusive, non-skipped stage (999 error, 260 ASR pre-execution block…). */
