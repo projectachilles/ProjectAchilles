@@ -81,6 +81,10 @@ services:
       - PORT=3000
       - NODE_ENV=production
       - AGENT_SOURCE_PATH=/agent-src
+      # The checkout's .git, read-only: agent builds record the commit they
+      # compiled ("Built from source … at <sha>"), so a build made before a
+      # `git pull` shows the old commit.
+      - AGENT_SOURCE_GIT_DIR=/agent-src-git
       # Keep Go's compiled-object cache in the go-cache volume (Go's default,
       # /root/.cache/go-build, is lost on every container recreate, so the next
       # build compiles everything again). Agent builds use it too.
@@ -90,6 +94,7 @@ services:
       - repo-cache:/app/data
       - go-cache:/root/go
       - ./agent:/agent-src:ro
+      - ./.git:/agent-src-git:ro
     healthcheck:
       test: ["CMD", "wget", "-qO-", "http://localhost:3000/api/health"]
       interval: 30s

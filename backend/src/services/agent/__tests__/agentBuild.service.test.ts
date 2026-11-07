@@ -686,6 +686,39 @@ describe('AgentBuildService', () => {
       await expect(svc.buildAndSign('0.6.6', 'linux', 'amd64')).resolves.toBeDefined();
     });
 
+    it('records the commit of a mounted checkout from its .git (Docker installs)', async () => {
+      const realFs = await vi.importActual<typeof import('fs')>('fs');
+      const gitDir = realFs.mkdtempSync('/tmp/agent-git-');
+      realFs.writeFileSync(`${gitDir}/HEAD`, 'ref: refs/heads/main\n');
+      realFs.mkdirSync(`${gitDir}/refs/heads`, { recursive: true });
+      realFs.writeFileSync(`${gitDir}/refs/heads/main`, 'f34959f3aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\n');
+      const svc = new AgentBuildService(createMockSettingsService(), AGENT_SOURCE, undefined, { gitDir });
+
+      await svc.buildAndSign('0.6.6', 'linux', 'amd64');
+
+      expect(mockRegisterVersion).toHaveBeenCalledWith(
+        '0.6.6', 'linux', 'amd64', expect.any(String),
+        'Built from source (linux/amd64) at f34959f',
+        false, expect.any(Boolean),
+      );
+    });
+
+    it("notes when the typed version differs from the source's own version", async () => {
+      const realFs = await vi.importActual<typeof import('fs')>('fs');
+      const src = realFs.mkdtempSync('/tmp/agent-src-');
+      realFs.writeFileSync(`${src}/main.go`, 'package main\n\nvar version = "0.7.2"\n');
+      mockExistsSync.mockImplementation((p: string) => p === `${src}/go.mod`);
+      const svc = new AgentBuildService(createMockSettingsService(), src);
+
+      await svc.buildAndSign('0.7.3', 'windows', 'amd64');
+
+      expect(mockRegisterVersion).toHaveBeenCalledWith(
+        '0.7.3', 'windows', 'amd64', expect.any(String),
+        'Built from source (windows/amd64) (source says 0.7.2)',
+        false, expect.any(Boolean),
+      );
+    });
+
     it('keeps the existing behaviour when no source sync is configured (local checkout)', async () => {
       const svc = new AgentBuildService(createMockSettingsService(), AGENT_SOURCE);
 
