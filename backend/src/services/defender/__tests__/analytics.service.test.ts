@@ -248,6 +248,16 @@ describe('DefenderAnalyticsService', () => {
       expect(should).toContainEqual({ prefix: { mitre_techniques: 'T1059.' } });
     });
 
+    it('a technique filter also matches the id ATT&CK renumbered it to (T1562.001 -> T1685)', async () => {
+      mockSearch.mockResolvedValueOnce({ hits: { total: { value: 0 }, hits: [] } });
+      await service.getAlerts({ techniques: ['T1562.001'] });
+      const must = mockSearch.mock.calls[0][0].query.bool.must;
+      const techClause = must.find((c: any) => Array.isArray(c?.bool?.should));
+      expect(techClause.bool.should).toContainEqual({ term: { mitre_techniques: 'T1685' } });
+      // Exactly: T1685.x are other techniques (e.g. T1685.005 was T1070.001).
+      expect(techClause.bool.should).not.toContainEqual({ prefix: { mitre_techniques: 'T1685.' } });
+    });
+
     it('surfaces auto-resolved fields from the nested f0rtika object', async () => {
       mockSearch.mockResolvedValueOnce({
         hits: {

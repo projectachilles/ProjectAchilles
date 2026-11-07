@@ -33,6 +33,7 @@ import type { EdrVendorKey } from '../outcomes/vendors.js';
 import { projectAlertHit } from '../alerts/alertHit.js';
 import { isAchillesMitigated, ACHILLES_MITIGATION_FIELDS } from '../shared/achillesMitigation.js';
 import type { ReportAlert } from '../../types/reports.js';
+import { expandTechniqueAliases } from '../../data/techniqueAliases.js';
 
 /** Same lead and default post-window the console uses. */
 const PRE_WINDOW_MS = 5 * 60 * 1000;
@@ -128,7 +129,7 @@ export function buildHostTechniqueQuery(adapter: VendorAdapter, run: Correlation
     bool: {
       must: [
         { term: { doc_type: 'alert' } },
-        { terms: { mitre_techniques: run.techniques } },
+        { terms: { mitre_techniques: expandTechniqueAliases(run.techniques) } },
         {
           bool: {
             should: [

@@ -16,6 +16,7 @@
 
 import { AppError } from '../../middleware/error.middleware.js';
 import { projectAlertHit } from './alertHit.js';
+import { expandTechniqueAliases, techniqueAliases } from '../../data/techniqueAliases.js';
 
 export interface AlertsForTestRequest {
   techniques: string[];
@@ -104,7 +105,7 @@ export function alertsForTestTiers(req: AlertsForTestRequest, deps: AlertsForTes
 
   const must: Array<Record<string, unknown>> = [
     { term: { doc_type: 'alert' } },
-    { terms: { mitre_techniques: req.techniques } },
+    { terms: { mitre_techniques: expandTechniqueAliases(req.techniques) } },
     deps.buildTimeWindow(from, to),
   ];
   // With a host, keep it in the last tier too: during fleet-wide runs an
@@ -127,8 +128,9 @@ export function toAlertsForTestResult(req: AlertsForTestRequest, page: HitsPage)
   const matched = new Set<string>();
   const alerts = (page.hits?.hits ?? []).map((hit) => {
     const source = (hit._source ?? {}) as Record<string, unknown>;
+    // Report the test's own id even when the alert used a renumbered one.
     for (const t of (source.mitre_techniques as string[] | undefined) ?? []) {
-      if (req.techniques.includes(t)) matched.add(t);
+      for (const r of req.techniques) if (techniqueAliases(r).includes(t)) matched.add(r);
     }
     return projectAlertHit(source, bundleUuid);
   });
