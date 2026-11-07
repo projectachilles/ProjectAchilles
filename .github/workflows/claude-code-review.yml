@@ -33,6 +33,19 @@ jobs:
       pull-requests: write # Needed to post review comments
       issues: read
       id-token: write
+    # One configuration for both review attempts (the retry below runs the same review).
+    env:
+      REVIEW_PROMPT: '/code-review:code-review ${{ github.repository }}/pull/${{ github.event.pull_request.number }} --comment'
+      # Pinned: the action's default model changes with its version
+      # The allow rules match whole commands: a pipe, `&&` or `cd` makes every
+      # part need its own rule, so `gh pr diff 1 | grep x` is denied, and a
+      # review whose reads were all denied ends green having posted nothing.
+      # Widening the rules (cat, grep, ...) would let a prompt-injected review
+      # read more of the runner, so steer the reads to the built-in tools.
+      REVIEW_ARGS: |
+        --model claude-opus-5-5
+        --allowedTools "mcp__github_inline_comment__create_inline_comment,Bash(gh pr comment:*),Bash(gh pr diff:*),Bash(gh pr view:*),Bash(gh pr list:*),Bash(gh issue view:*),Bash(gh issue list:*),Bash(gh search:*)"
+        --append-system-prompt "Shell commands here are allowed one at a time: run each gh command on its own, with no pipes, &&, ;, redirection or cd (for example gh pr diff 123 or gh pr view 123 --json files). Anything chained is denied. Read and search source files with the Read, Grep and Glob tools, never cat, grep, head or wc. The PR's changes come from gh pr diff; files on disk may be the base branch."
 
     steps:
       - name: Checkout repository
@@ -88,93 +101,90 @@ jobs:
           plugin_marketplaces: 'https://github.com/anthropics/claude-code.git'
           plugins: 'code-review@claude-code-plugins'
           # Without --comment the plugin stops after the review and posts nothing
-          prompt: '/code-review:code-review ${{ github.repository }}/pull/${{ github.event.pull_request.number }} --comment'
-          # Pinned: the action's default model changes with its version
-          # The allow rules match whole commands: a pipe, `&&` or `cd` makes every
-          # part need its own rule, so `gh pr diff 1 | grep x` is denied, and a
-          # review whose reads were all denied ends green having posted nothing.
-          # Widening the rules (cat, grep, ...) would let a prompt-injected review
-          # read more of the runner, so steer the reads to the built-in tools.
-          claude_args: |
-            --model claude-opus-5-5
-            --allowedTools "mcp__github_inline_comment__create_inline_comment,Bash(gh pr comment:*),Bash(gh pr diff:*),Bash(gh pr view:*),Bash(gh pr list:*),Bash(gh issue view:*),Bash(gh issue list:*),Bash(gh search:*)"
-            --append-system-prompt "Shell commands here are allowed one at a time: run each gh command on its own, with no pipes, &&, ;, redirection or cd (for example gh pr diff 123 or gh pr view 123 --json files). Anything chained is denied. Read and search source files with the Read, Grep and Glob tools, never cat, grep, head or wc. The PR's changes come from gh pr diff; files on disk may be the base branch."
+          prompt: ${{ env.REVIEW_PROMPT }}
+          claude_args: ${{ env.REVIEW_ARGS }}
 
-      # Full output stays hidden (public repo); list only which tool calls were denied
+      # Full output stays hidden (public repo); list only which tool calls were
+      # denied. The action writes its log to one fixed path, so each attempt is
+      # reported (and checked) before the next one overwrites it.
       - name: Report denied tool calls
         continue-on-error: true # Reporting only; never fail the review over it
         if: always() && steps.claude-review.outputs.execution_file != ''
         env:
           EXECUTION_FILE: ${{ steps.claude-review.outputs.execution_file }}
-        # Bash denials show the first two words of each part of a compound command
-        # (split on ; && || |, at most 4 parts), so "cd /tmp; gh pr diff" reads
-        # "cd /tmp → gh pr". Everything from the first quote or backtick on is
-        # dropped, so quoted text is never shown; so are lines after a heredoc
-        # start. VAR=value words are masked.
-        run: |
-          denials=$(jq -r '
-            def words2: split(" ") | map(select(. != "")) as $w
-              | ($w | map(test("^[A-Za-z_][A-Za-z0-9_]*=")) | index(false) // ($w | length)) as $n
-              | (if $n > 0 then ["<env>"] else [] end)
-                + ($w[$n:$n + 2] | map(if test("=") then "<env>" else . end))
-              | join(" ");
-            .[] | select(.type == "result") | .permission_denials[]? |
-            if .tool_name == "Bash" then
-              "Bash: " + ((.tool_input.command // "") | sub("[\"\u0027`][\\s\\S]*"; "") | split("\n")
-                | (map(test("<<")) | index(true)) as $h | (if $h == null then . else .[0:$h + 1] end)
-                | join("; ") | [splits("\\s*(?:;|&&|\\|\\||\\|)\\s*")] | map(select(. != "")) | .[0:4]
-                | map(words2) | join(" → "))
-            else .tool_name end
-          ' "$EXECUTION_FILE" | sort | uniq -c | sort -rn)
-          { echo "### Denied tool calls"; echo '```'; echo "${denials:-none}"; echo '```'; } >> "$GITHUB_STEP_SUMMARY"
-          echo "${denials:-No denied tool calls}"
-          # See https://github.com/anthropics/claude-code-action/blob/main/docs/usage.md
-          # or https://code.claude.com/docs/en/cli-reference for available options
+          ATTEMPT: 1
+        run: bash .github/scripts/claude-review-outcome.sh report
 
       # A green job must mean the review ran. Posting nothing is normal for a
       # trivial PR, but not when tool calls were denied: then the review may
-      # not have been able to read the diff. Re-run the job when this fails.
-      #
-      # Exception: the plugin reviews a PR only once. Its step 1 stops when the
-      # PR "already has a code review from you from earlier", so every push
-      # after the first review posts nothing, and stray denials (most runs have
-      # a few, successful ones included) used to fail the job on every re-run.
-      # When claude[bot] reviewed an earlier push, pass with a warning that the
-      # newer commits went unreviewed.
-      - name: Fail when denied tool calls left no review
+      # not have been able to read the diff ("empty"). The plugin reviews a PR
+      # only once, so when claude[bot] reviewed an earlier push, posting nothing
+      # now is by design ("prior"). See .github/scripts/claude-review-outcome.sh.
+      - name: Check the review posted
+        id: first
         if: always() && steps.claude-review.outputs.execution_file != ''
         env:
           EXECUTION_FILE: ${{ steps.claude-review.outputs.execution_file }}
           GH_TOKEN: ${{ github.token }}
           PR: ${{ github.event.pull_request.number }}
           SINCE: ${{ steps.start.outputs.at }}
+        run: echo "outcome=$(bash .github/scripts/claude-review-outcome.sh outcome)" >> "$GITHUB_OUTPUT"
+
+      # A review that a stray denied command left empty usually succeeds on a
+      # second run, so retry once with the same configuration (no new
+      # permissions) instead of failing and waiting for a manual re-run.
+      - name: Run Claude Code Review again (one retry)
+        id: claude-review-retry
+        if: steps.first.outputs.outcome == 'empty'
+        env:
+          CLAUDE_CODE_SUBPROCESS_ENV_SCRUB: ${{ github.event_name == 'pull_request_target' && '1' || '0' }}
+        uses: anthropics/claude-code-action@5eb090f3c3afd701a0672cd32981197ca27688f6 # v1.0.253
+        with:
+          claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
+          github_token: ${{ github.event_name == 'pull_request_target' && secrets.GITHUB_TOKEN || '' }}
+          plugin_marketplaces: 'https://github.com/anthropics/claude-code.git'
+          plugins: 'code-review@claude-code-plugins'
+          prompt: ${{ env.REVIEW_PROMPT }}
+          claude_args: ${{ env.REVIEW_ARGS }}
+
+      - name: Report denied tool calls (retry)
+        continue-on-error: true
+        if: always() && steps.claude-review-retry.outputs.execution_file != ''
+        env:
+          EXECUTION_FILE: ${{ steps.claude-review-retry.outputs.execution_file }}
+          ATTEMPT: 2
+        run: bash .github/scripts/claude-review-outcome.sh report
+
+      - name: Fail when denied tool calls left no review
+        if: always() && steps.first.outputs.outcome != ''
+        env:
+          FIRST: ${{ steps.first.outputs.outcome }}
+          RETRY_FILE: ${{ steps.claude-review-retry.outputs.execution_file }}
+          GH_TOKEN: ${{ github.token }}
+          PR: ${{ github.event.pull_request.number }}
+          SINCE: ${{ steps.start.outputs.at }}
         run: |
-          denied=$(jq '[.[] | select(.type == "result") | .permission_denials[]?] | length' "$EXECUTION_FILE")
-          [ "${denied:-0}" -gt 0 ] || exit 0
-          # The review heads its comment "## Code review" or, in newer plugin
-          # versions, "<h2>Code review</h2>"; accept both.
-          summary=$(gh api "repos/$GITHUB_REPOSITORY/issues/$PR/comments?since=$SINCE" \
-            --jq '[.[] | select(.user.type == "Bot" and (.body | test("(^|\n)(#+ |<h[1-6][^>]*>)Code review")))] | length')
-          inline=$(gh api "repos/$GITHUB_REPOSITORY/pulls/$PR/comments?since=$SINCE" \
-            --jq '[.[] | select(.user.type == "Bot")] | length')
-          if [ "$((summary + inline))" -eq 0 ]; then
-            # Reviewed on an earlier push? Then the plugin skipped by design.
-            prior=$( {
-              gh api --paginate "repos/$GITHUB_REPOSITORY/pulls/$PR/comments" \
-                --jq '.[] | select(.user.login == "claude[bot]" and .created_at < env.SINCE) | .id'
-              gh api --paginate "repos/$GITHUB_REPOSITORY/issues/$PR/comments" \
-                --jq '.[] | select(.user.type == "Bot" and .created_at < env.SINCE and (.body | test("(^|\n)(#+ |<h[1-6][^>]*>)Code review"))) | .id'
-            } | wc -l)
-            if [ "$prior" -gt 0 ]; then
+          case "$FIRST" in
+            ok) echo "The review ran." ;;
+            prior)
               msg="Claude reviewed an earlier push of this PR and the code-review plugin does not review a PR twice, so commits pushed after that review were not reviewed."
               echo "::warning::$msg"
-              { echo "### Review skipped"; echo "$msg"; } >> "$GITHUB_STEP_SUMMARY"
-              exit 0
-            fi
-            echo "::error::$denied tool call(s) were denied and the review posted nothing. Re-run this job."
-            exit 1
-          fi
-          echo "$denied denied tool call(s), but the review posted ($summary summary, $inline inline)."
+              { echo "### Review skipped"; echo "$msg"; } >> "$GITHUB_STEP_SUMMARY" ;;
+            empty)
+              if [ -z "$RETRY_FILE" ]; then
+                echo "::error::Tool calls were denied, the review posted nothing, and the retry did not run. Re-run this job."
+                exit 1
+              fi
+              second=$(EXECUTION_FILE="$RETRY_FILE" bash .github/scripts/claude-review-outcome.sh outcome)
+              if [ "$second" = "empty" ]; then
+                echo "::error::Tool calls were denied and neither review attempt posted anything. Re-run this job."
+                exit 1
+              fi
+              msg="The first review attempt posted nothing after denied tool calls; the retry ran (outcome: $second)."
+              echo "::notice::$msg"
+              { echo "### Review retried"; echo "$msg"; } >> "$GITHUB_STEP_SUMMARY" ;;
+            *) echo "::error::Unexpected review outcome '$FIRST'."; exit 1 ;;
+          esac
 
       # One review per label: the next push needs a fresh look and a new label.
       - name: Remove the review label
