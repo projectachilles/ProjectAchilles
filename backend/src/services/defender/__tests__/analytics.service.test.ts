@@ -248,6 +248,16 @@ describe('DefenderAnalyticsService', () => {
       expect(should).toContainEqual({ prefix: { mitre_techniques: 'T1059.' } });
     });
 
+    it('a technique filter also matches the id ATT&CK renumbered it to (T1562.001 -> T1685)', async () => {
+      mockSearch.mockResolvedValueOnce({ hits: { total: { value: 0 }, hits: [] } });
+      await service.getAlerts({ techniques: ['T1562.001'] });
+      const must = mockSearch.mock.calls[0][0].query.bool.must;
+      const techClause = must.find((c: any) => Array.isArray(c?.bool?.should));
+      expect(techClause.bool.should).toContainEqual({ term: { mitre_techniques: 'T1685' } });
+      // Exactly: T1685.x are other techniques (e.g. T1685.005 was T1070.001).
+      expect(techClause.bool.should).not.toContainEqual({ prefix: { mitre_techniques: 'T1685.' } });
+    });
+
     it('surfaces auto-resolved fields from the nested f0rtika object', async () => {
       mockSearch.mockResolvedValueOnce({
         hits: {
@@ -1625,5 +1635,27 @@ describe('DefenderAnalyticsService', () => {
       expect(JSON.stringify(body.query)).toContain('now-30d/d');
       expect(result[0].interval).toBe('day');
     });
+  });
+});
+
+describe('DefenderAnalyticsService.getTechniqueCoverage host scope', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    mockSearch.mockReset();
+  });
+
+  it('counts only the hosts that raised a Defender alert in the last 90 days', async () => {
+    mockSearch
+      // 1. hosts with a Defender alert (no stored inventory for Defender)
+      .mockResolvedValueOnce({ hits: { hits: [] }, aggregations: { hosts: { buckets: [{ key: 'WS-01.corp.example' }] } } })
+      // 2. the counted results' host names
+      .mockResolvedValueOnce({ hits: { hits: [] }, aggregations: { hosts: { buckets: [{ key: 'ws-01' }, { key: 'ws-09' }] } } })
+      // 3. the coverage counts (no techniques, so no alert-count request)
+      .mockResolvedValueOnce({ hits: { total: { value: 2 }, hits: [] }, aggregations: { host_count: { value: 1 } } });
+    const res = await new DefenderAnalyticsService().getTechniqueCoverage({ from: '2026-10-08T00:00:00Z', to: '2026-11-07T00:00:00Z' });
+
+    expect(mockSearch.mock.calls[0][0].index).toBe('achilles-defender');
+    expect(mockSearch.mock.calls[2][0].query.bool.filter).toContainEqual({ terms: { 'routing.hostname': ['ws-01'] } });
+    expect(res.scope).toEqual({ source: 'alerts', hosts: 1 });
   });
 });

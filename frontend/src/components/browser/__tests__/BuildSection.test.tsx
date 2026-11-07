@@ -110,3 +110,24 @@ describe('BuildSection', () => {
     expect(signals[0].aborted).toBe(true);
   });
 });
+
+describe('BuildSection with shared build state', () => {
+  it('does not fetch build info itself and writes through the passed setter', async () => {
+    const setBuildInfo = vi.fn();
+    const build = {
+      buildInfo: { exists: true, filename: 'x.exe', platform: { os: 'windows', arch: 'amd64' } } as BuildInfo,
+      setBuildInfo,
+      loading: false,
+      download: vi.fn(),
+    };
+    testsApiMock.deleteBuild.mockResolvedValue(undefined);
+    render(<BuildSection uuid={UUID_A} build={build} />);
+    await screen.findByText('x.exe');
+    expect(testsApiMock.getBuildInfo).not.toHaveBeenCalled();
+
+    const { fireEvent } = await import('@testing-library/react');
+    const del = screen.getAllByRole('button').find((b) => /delete|remove|trash/i.test(b.getAttribute('title') ?? b.textContent ?? '') ) ?? screen.getAllByRole('button').at(-1)!;
+    fireEvent.click(del);
+    await waitFor(() => expect(setBuildInfo).toHaveBeenCalledWith({ exists: false }));
+  });
+});

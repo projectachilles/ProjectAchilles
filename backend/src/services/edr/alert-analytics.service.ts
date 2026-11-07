@@ -15,6 +15,7 @@ import { alertDocs, alertFacets, allOf, LINKED, firstString, severityFilter, sou
 import type { AlertFacetCounts, AlertSource, TimeWindow } from '../analytics/integration-window.js';
 import { resolveTestNames } from '../analytics/test-name-lookup.js';
 import { getTechniqueCoverage } from '../analytics/technique-coverage.js';
+import { resolveVendorHostScope } from './vendor-host-scope.js';
 import type { CoverageVendor, TechniqueCoverageResponse } from '../analytics/technique-coverage.js';
 import type { Client } from '@elastic/elasticsearch';
 import type {
@@ -22,6 +23,7 @@ import type {
 } from '@elastic/elasticsearch/lib/api/types.js';
 import { isAchillesMitigated, ACHILLES_MITIGATED_QUERY } from '../shared/achillesMitigation.js';
 import type { DetectionRateResponse, RelatedAlertsResponse } from '../../types/crowdstrike.js';
+import { techniqueMatchClauses } from '../../data/techniqueAliases.js';
 
 // ---------------------------------------------------------------------------
 // Response types
@@ -83,6 +85,11 @@ export interface EdrAlertItem {
   hostname: string | null;
   /** quarantined | process_killed | blocked | kill_failed; absent when Falcon only detected. */
   prevention_action?: string;
+  /**
+   * Who raised the alert, when the vendor says (SentinelOne threats:
+   * agent_policy, dv_command = an analyst's Deep Visibility response, star_active, ...).
+   */
+  initiated_by?: string;
   pattern_disposition_description?: string;
   /** Deep link to the alert in the Falcon console. */
   portal_url?: string;
@@ -318,10 +325,8 @@ export class EdrAlertAnalyticsService {
     if (techniques && techniques.length > 0) {
       // Match exact technique (e.g. T1059) and any sub-technique (T1059.001, T1059.003 …)
       // without false-positives like T10590. The trailing dot in the prefix is load-bearing.
-      const should: QueryDslQueryContainer[] = techniques.flatMap((t) => [
-        { term: { mitre_techniques: t } },
-        { prefix: { mitre_techniques: `${t}.` } },
-      ]);
+      // ATT&CK renumbering counts as the same technique (data/techniqueAliases.ts).
+      const should: QueryDslQueryContainer[] = techniqueMatchClauses('mitre_techniques', techniques);
       must.push({ bool: { should, minimum_should_match: 1 } });
     }
 
@@ -374,6 +379,7 @@ export class EdrAlertAnalyticsService {
         recommended_actions: String(s.recommended_actions ?? ''),
         hostname: firstString(s.evidence_hostnames),
         ...(s.prevention_action && !(this.ignoreAchillesMitigated && isAchillesMitigated({ f0rtika })) ? { prevention_action: String(s.prevention_action) } : {}),
+        ...(s.initiated_by ? { initiated_by: String(s.initiated_by) } : {}),
         ...(s.pattern_disposition_description
           ? { pattern_disposition_description: String(s.pattern_disposition_description) }
           : {}),
@@ -570,11 +576,14 @@ export class EdrAlertAnalyticsService {
    */
   async getTechniqueCoverage(window: TimeWindow): Promise<TechniqueCoverageResponse> {
     const { client, settings } = this.getEsContext();
+    // Count only the hosts this EDR covers (see edr/vendor-host-scope.ts).
+    const hostScope = await resolveVendorHostScope(client, this.vendor, this.alertIndex);
     return getTechniqueCoverage(client, {
       vendor: this.vendor,
       resultsIndex: settings.indexPattern,
       alertIndex: this.alertIndex,
       window,
+      hostScope,
     });
   }
 

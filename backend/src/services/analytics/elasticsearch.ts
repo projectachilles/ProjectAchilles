@@ -5,6 +5,7 @@ import { createEsClient } from './client.js';
 import { RiskAcceptanceService } from '../risk-acceptance/risk-acceptance.service.js';
 import { attackSimulationExclusions } from './attack-simulation-filter.js';
 import { NOT_STAGELESS } from './enrichment-eligibility.js';
+import { EDR_PREVENTED_ERROR_STAGE } from '../reports/stageOutcome.js';
 import { AppError } from '../../middleware/error.middleware.js';
 import {
   MAX_FRESHNESS_DAYS,
@@ -16,9 +17,20 @@ import {
   summarizePairs,
 } from './posture.js';
 import type { OutcomeFilters, PairRun, PostureWindow } from './posture.js';
+import type { OutcomeRun } from './outcomeBreakdown.js';
+import { countPairOutcomes } from './outcomeBreakdown.js';
 import { TtlPromiseCache } from './postureCache.js';
 import type { TtlCacheOptions } from './postureCache.js';
-import { EDR_VENDOR_KEYS, edrDetectedTerms, edrFlagField, edrFlagSourceFields } from '../outcomes/vendors.js';
+import {
+  EDR_VENDOR_KEYS,
+  edrDetectedTerms,
+  edrFlagField,
+  edrFlagSourceFields,
+  edrOwnDetectedClause,
+  edrOwnDetectionFields,
+  edrPreventedTerms,
+  hasOwnEdrDetection,
+} from '../outcomes/vendors.js';
 import type { EdrGroupRollup, EdrResultFlags } from '../outcomes/vendors.js';
 import type {
   ExecutionActivityResponse,
@@ -48,6 +60,7 @@ import type {
   TestResultItem,
   ChainDepthBucket,
   ChainDepthResponse,
+  OutcomeBreakdownResponse,
   DefenseScoreByHostItem,
   CanonicalTestCountResponse,
   ErrorRateResponse,
@@ -56,32 +69,14 @@ import type {
   CategoryType,
   ExecutionGroup,
   GroupedPaginatedResponse,
+  ExecutionVerdict,
 } from '../../types/analytics.js';
 import { orgName, orgShortName } from './orgNames.js';
+import { createAchillesIndex } from '../shared/esIndexCreate.js';
 
-// Canonical error code → name mapping
-// Categories: protected, failed, inconclusive, contextual, error
-export const ERROR_CODE_MAP: Record<number, { name: string; description: string; category: string }> = {
-  0:   { name: 'NormalExit',                description: 'Normal exit - varies by context',              category: 'inconclusive' },
-  1:   { name: 'BinaryNotRecognized',       description: 'Binary not recognized or permission denied',   category: 'contextual' },
-  101: { name: 'Unprotected',               description: 'Attack succeeded - endpoint unprotected',      category: 'failed' },
-  105: { name: 'FileQuarantinedOnExtraction', description: 'File quarantined during extraction',          category: 'protected' },
-  126: { name: 'ExecutionPrevented',         description: 'Execution blocked/prevented by AV/EDR',       category: 'protected' },
-  127: { name: 'QuarantinedOnExecution',     description: 'Quarantined on execution attempt',            category: 'protected' },
-  200: { name: 'NoOutput',                   description: 'No output - quick AV block before execution', category: 'inconclusive' },
-  259: { name: 'StillActive',               description: 'Windows STILL_ACTIVE - process timeout',      category: 'inconclusive' },
-  260: { name: 'BlockedPreExecution',      description: 'Blocked before execution (access denied) by an EDR/AV or an app-control rule such as Defender ASR - technique not evaluated; Protected (126) once the EDR\'s own alert confirms it', category: 'inconclusive' },
-  999: { name: 'UnexpectedTestError',        description: 'Test error - prerequisites not met',          category: 'error' },
-};
-
-/** Resolve an error code to its canonical name, with optional fallback to f0rtika.error_name */
-export function resolveErrorName(errorCode: number | undefined, storedName?: string): string {
-  if (errorCode !== undefined && ERROR_CODE_MAP[errorCode]) {
-    return ERROR_CODE_MAP[errorCode].name;
-  }
-  if (storedName) return storedName;
-  return `Unknown (${errorCode ?? '?'})`;
-}
+// Canonical error code map lives in outcomes/exitCodes.ts; re-exported for existing importers.
+import { ERROR_CODE_MAP, resolveErrorName } from '../outcomes/exitCodes.js';
+export { ERROR_CODE_MAP, resolveErrorName };
 
 /** Get field value from ES _source — handles both flattened (dot-key) and nested formats */
 function getField(source: any, path: string): any {
@@ -157,6 +152,10 @@ interface ChainRun extends PairRun {
   blockedStages: number[] | null;
   /** "Stage N" numbers of the detected-but-unblocked stages; null when any has no such validator. */
   alertedStages: number[] | null;
+  /** Some error-coded stage was stopped by the EDR's own action on it (EDR_PREVENTED_ERROR_STAGE). */
+  edrStopped: boolean;
+  /** "Stage N" numbers of those stages; null when any has no such validator. */
+  edrStoppedStages: number[] | null;
   /** The EDR killed the agent mid-run: one whole-test kill doc, stages unknown. */
   agentTerminated: boolean;
 }
@@ -177,6 +176,11 @@ function bundlePairKey(oid: unknown, bundleId: string, hostname: string): string
 export function pairTestUuid(pairKey: string): string {
   const id = pairKey.split('|')[1] ?? '';
   return (id.startsWith('bundle:') ? id.slice('bundle:'.length) : id).split('::')[0];
+}
+
+/** Control (or stage) id of a per-stage pair `oid|<bundle>::<control>|host`; undefined for plain and `bundle:` keys. */
+export function pairControlId(pairKey: string): string | undefined {
+  return (pairKey.split('|')[1] ?? '').split('::')[1];
 }
 
 /**
@@ -201,12 +205,17 @@ interface PostureShapeSpec extends PairFetchOptions {
   withRaw: boolean;
 }
 
-type PostureShape = 'series' | 'metadata';
+type PostureShape = 'series' | 'metadata' | 'breakdown';
 
-/** The two snapshot shapes: tile + trend share 'series'; the four breakdowns share 'metadata'. */
+/**
+ * The snapshot shapes: tile + trend share 'series'; the four breakdowns share
+ * 'metadata'; the outcome breakdown card uses 'breakdown' (latest run per pair,
+ * no lookback, no metadata, with rawRuns for risk-accepted pairs).
+ */
 const POSTURE_SHAPES: Record<PostureShape, PostureShapeSpec> = {
   series: { lookback: true, withMetadata: false, withRaw: true, latestOnly: false },
   metadata: { lookback: false, withMetadata: true, withRaw: false, latestOnly: true },
+  breakdown: { lookback: false, withMetadata: false, withRaw: true, latestOnly: true },
 };
 
 /**
@@ -293,6 +302,10 @@ export const TEST_KEY_SCRIPT = {
 interface TechniqueScopeOption {
   /** Leave out stageless EDR docs (killed agent or launch block); the name predates launch blocks. */
   excludeEdrTerminated?: boolean;
+  /** Leave out cyber-hygiene docs (outcome breakdown: a configuration check is not an attack outcome). */
+  excludeCyberHygiene?: boolean;
+  /** Only this test: its own docs (standalone) or its bundle's (stage / control docs). */
+  testUuid?: string;
 }
 
 /** Exit code for a test binary blocked before it ran (an EDR/AV, or an app-control rule such as an ASR prevalence rule). */
@@ -334,8 +347,12 @@ function stageNumbers(agg: any): number[] | null {
  * same stage for orchestrators that stop at the first block.
  */
 function chainStop(run: ChainRun): { stage: number; alertedBefore: boolean } {
-  if (run.blockedStages && run.blockedStages.length > 0) {
-    const stage = Math.min(...run.blockedStages);
+  // A stage the EDR killed (error code + its own prevention alert) stopped the
+  // chain like a block. Stage numbers are usable only when every kind has them.
+  const known = run.blockedStages !== null && run.edrStoppedStages !== null;
+  const stops = known ? [...run.blockedStages!, ...run.edrStoppedStages!] : [];
+  if (stops.length > 0) {
+    const stage = Math.min(...stops);
     const alertedBefore = run.alertedStages
       ? run.alertedStages.some(n => n < stage)
       : run.alertedUnblocked;
@@ -466,6 +483,12 @@ export class ElasticsearchService {
     return { term: { 'routing.oid': org } };
   }
 
+  /** `filters` plus the org filter when an org is given. */
+  private withOrgFilter(filters: any[], org?: string): any[] {
+    const orgFilter = this.buildOrgFilter(org);
+    return orgFilter ? [...filters, orgFilter] : filters;
+  }
+
   // Filter for valid test execution data only
   // Excludes incomplete records (cleanup operations, etc.)
   private buildTestDataFilter(): any {
@@ -479,9 +502,24 @@ export class ElasticsearchService {
     };
   }
 
-  // Filter to only conclusive test outcomes (for Defense Score calculations)
+  /**
+   * Scored test outcomes (Defense Score, posture, outcome breakdown, error
+   * rate, activity): a conclusive exit code, or an error-coded stage the EDR's
+   * own alert on that stage says it stopped (EDR_PREVENTED_ERROR_STAGE, which
+   * the console labels Prevented).
+   */
   private buildConclusiveResultsFilter(): any {
-    return { terms: { 'event.ERROR': this.CONCLUSIVE_ERROR_CODES } };
+    return {
+      bool: {
+        should: [{ terms: { 'event.ERROR': this.CONCLUSIVE_ERROR_CODES } }, EDR_PREVENTED_ERROR_STAGE],
+        minimum_should_match: 1,
+      },
+    };
+  }
+
+  /** Test errors for the error rate: error codes, minus the stages an EDR stopped (those are scored). */
+  private buildTestErrorFilter(): any {
+    return { bool: { filter: [{ terms: { 'event.ERROR': this.ERROR_CODES } }], must_not: [EDR_PREVENTED_ERROR_STAGE] } };
   }
 
   // Filter to exclude upload confirmations (for Error Rate — real test activity only)
@@ -547,8 +585,10 @@ export class ElasticsearchService {
   }
 
   /**
-   * Run a score query that returns both combined (is_protected OR any EDR
-   * registry vendor's <key>_detected) and strict (is_protected only) counts in a single ES request.
+   * Run a score query that returns both combined (is_protected OR an EDR saw
+   * this doc itself, edrOwnDetectedClause) and strict (is_protected only)
+   * counts in a single ES request. Every doc is its own unit here, so a bundle
+   * stage is never credited for an alert that named a sibling stage.
    */
   private async runCombinedScoreQuery(filters: any[]): Promise<{
     total: number;
@@ -568,7 +608,7 @@ export class ElasticsearchService {
             bool: {
               should: [
                 { term: { 'f0rtika.is_protected': true } },
-                ...edrDetectedTerms(),
+                edrOwnDetectedClause(),
               ],
               minimum_should_match: 1,
             },
@@ -605,7 +645,7 @@ export class ElasticsearchService {
                 bool: {
                   should: [
                     { term: { 'f0rtika.is_protected': true } },
-                    ...edrDetectedTerms(),
+                    edrOwnDetectedClause(),
                   ],
                   minimum_should_match: 1,
                 },
@@ -1263,7 +1303,7 @@ export class ElasticsearchService {
 
   /** Per-doc pairs: the latest doc per (oid, test_uuid, hostname[, UTC day]). */
   private async fetchDocPairRuns(filters: any[], opts: PairFetchOptions): Promise<PairRun[]> {
-    const runs: PairRun[] = [];
+    const runs: OutcomeRun[] = [];
     const uuidOf: string[] = []; // test_uuid of runs[i], for the metadata join
     await this.paginateComposite(
       filters,
@@ -1281,7 +1321,8 @@ export class ElasticsearchService {
             metrics: [
               'routing.event_time',
               'f0rtika.is_protected',
-              ...edrFlagSourceFields(['detected']),
+              ...edrOwnDetectionFields(),
+              ...edrFlagSourceFields(['prevented']),
               'event.ERROR',
               'f0rtika.error_name',
             ].map(field => ({ field })),
@@ -1304,8 +1345,12 @@ export class ElasticsearchService {
         runs.push({
           pairKey: `${b.key.oid ?? ''}|${testUuid}|${hostname}`,
           ts,
-          protected: isProtected || edrFlagSourceFields(['detected']).some((f) => esBool(m[f])),
+          // Each doc is its own pair here (per-stage in all-stages mode), so it
+          // needs its own evidence: a bundle stage is never credited for an
+          // alert that named a sibling stage (edrOwnDetectedClause).
+          protected: isProtected || hasOwnEdrDetection((f) => esBool(m[f])),
           strictProtected: isProtected,
+          edrPrevented: edrFlagSourceFields(['prevented']).some((f) => esBool(m[f])),
           errorCodes: codes,
           errorNames: errorNamesFor(codes, typeof m['f0rtika.error_name'] === 'string' ? [m['f0rtika.error_name']] : []),
           hostname,
@@ -1398,10 +1443,40 @@ export class ElasticsearchService {
                 ...edrDetectedTerms(),
               ],
               minimum_should_match: 1,
-              must_not: [{ term: { 'f0rtika.is_protected': true } }],
+              must_not: [{ term: { 'f0rtika.is_protected': true } }, EDR_PREVENTED_ERROR_STAGE],
             },
           },
           aggs: { stages: { terms: { field: 'f0rtika.control_validator', size: this.CHAIN_STAGE_TERMS } } },
+        },
+        // Chain depth: error-coded stages the EDR stopped itself (they stop the chain like a block).
+        edr_stopped: {
+          filter: EDR_PREVENTED_ERROR_STAGE,
+          aggs: { stages: { terms: { field: 'f0rtika.control_validator', size: this.CHAIN_STAGE_TERMS } } },
+        },
+        // Chain depth: the unblocked stages an EDR saw themselves, for "alerted
+        // before the block". alerted_unblocked above stays chain-level (an alert
+        // naming the bundle detected the chain), but its wide flag is on every
+        // stage, so its stage numbers can't say which stage the alert was on.
+        alerted_stages: {
+          filter: {
+            bool: {
+              filter: [edrOwnDetectedClause()],
+              must_not: [{ term: { 'f0rtika.is_protected': true } }, EDR_PREVENTED_ERROR_STAGE],
+            },
+          },
+          aggs: { stages: { terms: { field: 'f0rtika.control_validator', size: this.CHAIN_STAGE_TERMS } } },
+        },
+        // Outcome breakdown: an EDR prevention flag on any stage of the run.
+        // Detected-any AND prevented-any on the same doc, like the per-doc verdict rule.
+        prevented: {
+          filter: {
+            bool: {
+              filter: [
+                { bool: { should: edrDetectedTerms(), minimum_should_match: 1 } },
+                { bool: { should: edrPreventedTerms(), minimum_should_match: 1 } },
+              ],
+            },
+          },
         },
         codes: { terms: { field: 'event.ERROR', size: 10 } },
         names: { terms: { field: 'f0rtika.error_name', size: 20 } },
@@ -1418,11 +1493,12 @@ export class ElasticsearchService {
           .filter(n => Number.isFinite(n))
           .sort((x, y) => x - y);
         const storedNames = ((b.names?.buckets ?? []) as any[]).map(n => String(n.key));
-        const run: ChainRun = {
+        const run: ChainRun & OutcomeRun = {
           pairKey: bundlePairKey(b.key.oid, bundleId, hostname),
           ts,
           protected: (b.combined?.doc_count ?? 0) > 0,
           strictProtected: (b.strict?.doc_count ?? 0) > 0,
+          edrPrevented: (b.prevented?.doc_count ?? 0) > 0,
           errorCodes: codes,
           errorNames: errorNamesFor(codes, storedNames),
           hostname,
@@ -1431,7 +1507,9 @@ export class ElasticsearchService {
           stagesRun: Number(b.doc_count) || 0,
           alertedUnblocked: (b.alerted_unblocked?.doc_count ?? 0) > 0,
           blockedStages: stageNumbers(b.strict),
-          alertedStages: stageNumbers(b.alerted_unblocked),
+          alertedStages: stageNumbers(b.alerted_stages),
+          edrStopped: (b.edr_stopped?.doc_count ?? 0) > 0,
+          edrStoppedStages: stageNumbers(b.edr_stopped),
           agentTerminated: (b.edr_terminated?.doc_count ?? 0) > 0,
         };
         all.push(run);
@@ -1567,6 +1645,8 @@ export class ElasticsearchService {
     const outcome = this.parseOutcomeFilters(params);
     const isAnyStage = params.scoringMode === 'any-stage';
     const clauses = this.buildFilterBarClauses(params, { excludeOutcome: true });
+    // Attack tests only (outcome breakdown card).
+    if (params.excludeCyberHygiene) clauses.push({ bool: { must_not: [{ term: { 'f0rtika.category': 'cyber-hygiene' } }] } });
     // Technique views: an EDR-killed run has unknown stages and an EDR
     // launch-blocked run ran none, so no technique is credited.
     if (params.excludeEdrTerminated) clauses.push(NOT_STAGELESS);
@@ -1574,6 +1654,14 @@ export class ElasticsearchService {
     // as its own `oid|<bundle>|host` pair no later real run would replace it.
     // Standalone kill docs stay: there the kill doc is the test's only doc.
     else if (!isAnyStage) clauses.push({ bool: { must_not: [this.STAGELESS_BUNDLE_DOC] } });
+    if (params.testUuid) {
+      clauses.push({
+        bool: {
+          should: [{ term: { 'f0rtika.test_uuid': params.testUuid } }, { term: { 'f0rtika.bundle_id': params.testUuid } }],
+          minimum_should_match: 1,
+        },
+      });
+    }
     const exclusionFilter: unknown = (await this.getRiskAcceptanceService().buildExclusionFilter(params.org)) ?? null;
     return {
       window,
@@ -1591,6 +1679,8 @@ export class ElasticsearchService {
         exclusion: exclusionFilter,
         // Only when set, so the tile's cache key is unchanged; the clause alone would differ too, this keeps it explicit.
         ...(params.excludeEdrTerminated ? { excludeEdrTerminated: true } : {}),
+        ...(params.excludeCyberHygiene ? { excludeCyberHygiene: true } : {}),
+        ...(params.testUuid ? { testUuid: params.testUuid } : {}),
       },
     };
   }
@@ -1654,7 +1744,8 @@ export class ElasticsearchService {
     const filters = this.buildPostureFilters(
       scope.window.fromMs,
       scope.window.toMs,
-      { bool: { must_not: [{ terms: { 'event.ERROR': this.CHAIN_SETTLED_CODES } }] } },
+      // An EDR-stopped error stage settles its run (chain depth buckets it).
+      { bool: { must_not: [{ terms: { 'event.ERROR': this.CHAIN_SETTLED_CODES } }, EDR_PREVENTED_ERROR_STAGE] } },
       scope.org,
       scope.clauses,
     );
@@ -1706,6 +1797,74 @@ export class ElasticsearchService {
   async getLatestPairs(params: AnalyticsQueryParams & Partial<ExtendedAnalyticsQueryParams> & TechniqueScopeOption): Promise<PairRun[]> {
     const { window, runs, outcome } = await this.getLatestPosture(params, 'metadata');
     return applyOutcomeFilters(latestPairsAsOf(runs, window.toMs, window.freshnessMs), outcome);
+  }
+
+  /**
+   * Outcome breakdown of the latest-basis pairs (non-cyber-hygiene): protected
+   * / prevented / detected / silent, plus pairs with no conclusive result in
+   * the window and pairs hidden by risk acceptance. Outcome filters are ignored
+   * (the card shows the whole split); basis is always latest.
+   */
+  async getOutcomeBreakdown(params: AnalyticsQueryParams & Partial<ExtendedAnalyticsQueryParams>): Promise<OutcomeBreakdownResponse> {
+    const stripped = { ...params, result: undefined, errorCodes: undefined, errorNames: undefined, excludeCyberHygiene: true };
+    const scope = await this.resolvePostureScope(stripped);
+    const { window, runs, rawRuns } = await this.latestPostureFor(scope, 'breakdown');
+    const pairs = latestPairsAsOf(runs, window.toMs, window.freshnessMs) as OutcomeRun[];
+    const counts = countPairOutcomes(pairs);
+    const riskAccepted = rawRuns ? Math.max(0, latestPairsAsOf(rawRuns, window.toMs, window.freshnessMs).length - pairs.length) : 0;
+    const noConclusive = await this.countNoConclusivePairs(scope, new Set(pairs.map((p) => p.pairKey)));
+    return { ...counts, noConclusive, riskAccepted, windowLabel: window.label };
+  }
+
+  /** Pairs with docs in the window but no conclusive result (not cached). */
+  private async countNoConclusivePairs(scope: PostureScope, conclusiveKeys: Set<string>): Promise<number> {
+    const filters = this.buildPostureFilters(
+      scope.window.fromMs,
+      scope.window.toMs,
+      { bool: { must_not: [this.buildConclusiveResultsFilter()] } },
+      scope.org,
+      scope.clauses,
+    );
+    if (scope.exclusionFilter) filters.push(scope.exclusionFilter);
+    const runs = await this.fetchPairRuns(filters, scope.isAnyStage, { withMetadata: false, latestOnly: true });
+    const missing = new Set<string>();
+    for (const r of runs) if (!conclusiveKeys.has(r.pairKey)) missing.add(r.pairKey);
+    return missing.size;
+  }
+
+  /**
+   * Validator and description of each control of a bundle, from its newest
+   * control doc (controls are defined at run time in bundle_results.json).
+   */
+  async getControlLabels(testUuid: string, org?: string): Promise<Record<string, { validator?: string; description?: string }>> {
+    const response = await this.client.search({
+      index: this.settings.indexPattern,
+      size: 0,
+      query: { bool: { filter: this.withOrgFilter([this.buildTestDataFilter(), { term: { 'f0rtika.bundle_id': testUuid } }], org) } },
+      aggs: {
+        controls: {
+          terms: { field: 'f0rtika.control_id', size: 500 },
+          aggs: {
+            doc: {
+              top_hits: {
+                size: 1,
+                sort: [{ 'routing.event_time': { order: 'desc' } }],
+                _source: ['f0rtika.control_validator', 'f0rtika.control_description'],
+              },
+            },
+          },
+        },
+      },
+    });
+    const out: Record<string, { validator?: string; description?: string }> = {};
+    for (const b of (response.aggregations as any)?.controls?.buckets ?? []) {
+      const src = b.doc?.hits?.hits?.[0]?._source ?? {};
+      out[String(b.key)] = {
+        validator: optString(getField(src, 'f0rtika.control_validator')),
+        description: optString(getField(src, 'f0rtika.control_description')),
+      };
+    }
+    return out;
   }
 
   /** Defense Score, basis=latest. Same snapshot and calculation as the trend's last point. */
@@ -1862,10 +2021,12 @@ export class ElasticsearchService {
   }
 
   // Get list of organizations
-  async getOrganizations(): Promise<OrganizationInfo[]> {
+  async getOrganizations(org?: string): Promise<OrganizationInfo[]> {
+    const orgFilter = this.buildOrgFilter(org);
     const response = await this.client.search({
       index: this.settings.indexPattern,
       size: 0,
+      ...(orgFilter ? { query: { bool: { filter: [orgFilter] } } } : {}),
       aggs: {
         orgs: {
           terms: { field: 'routing.oid', size: 50 },
@@ -2140,12 +2301,12 @@ export class ElasticsearchService {
   }
 
   // Get list of available tests (for filter dropdown)
-  async getAvailableTests(): Promise<string[]> {
+  async getAvailableTests(org?: string): Promise<string[]> {
     const response = await this.client.search({
       index: this.settings.indexPattern,
       size: 0,
       query: {
-        bool: { filter: [this.buildTestDataFilter()] }
+        bool: { filter: this.withOrgFilter([this.buildTestDataFilter()], org) }
       },
       aggs: {
         tests: {
@@ -2158,12 +2319,12 @@ export class ElasticsearchService {
   }
 
   // Get list of test UUIDs that have been executed (for NRY filter)
-  async getExecutedTestUuids(): Promise<string[]> {
+  async getExecutedTestUuids(org?: string): Promise<string[]> {
     const response = await this.client.search({
       index: this.settings.indexPattern,
       size: 0,
       query: {
-        bool: { filter: [this.buildTestDataFilter()] }
+        bool: { filter: this.withOrgFilter([this.buildTestDataFilter()], org) }
       },
       aggs: {
         uuids: {
@@ -2177,12 +2338,12 @@ export class ElasticsearchService {
   }
 
   // Get list of available techniques (for filter dropdown)
-  async getAvailableTechniques(): Promise<string[]> {
+  async getAvailableTechniques(org?: string): Promise<string[]> {
     const response = await this.client.search({
       index: this.settings.indexPattern,
       size: 0,
       query: {
-        bool: { filter: [this.buildTestDataFilter(), NOT_STAGELESS] }
+        bool: { filter: this.withOrgFilter([this.buildTestDataFilter(), NOT_STAGELESS], org) }
       },
       aggs: {
         techniques: {
@@ -2437,7 +2598,7 @@ export class ElasticsearchService {
    * Build all extended filters (base + filter-bar clauses). Public: the
    * execution report reuses it so its scope is exactly the tab's.
    */
-  buildExtendedFilters(params: Partial<ExtendedAnalyticsQueryParams>): any[] {
+  buildExtendedFilters(params: Partial<ExtendedAnalyticsQueryParams> & { verdict?: ExecutionVerdict }): any[] {
     const filters: any[] = [
       this.buildTestDataFilter(),
       this.buildDateFilter(params.from, params.to)
@@ -2448,7 +2609,36 @@ export class ElasticsearchService {
 
     filters.push(...this.buildFilterBarClauses(params));
 
+    if (params.verdict) {
+      // Same population as the Outcome breakdown card: attack tests only.
+      filters.push(
+        this.buildConclusiveResultsFilter(),
+        { bool: { must_not: [{ term: { 'f0rtika.category': 'cyber-hygiene' } }] } },
+        ...this.buildVerdictClauses(params.verdict),
+      );
+    }
+
     return filters;
+  }
+
+  /**
+   * Per-document clauses for the executions `verdict` filter (the Outcome
+   * breakdown card's slices). Callers also require the conclusive codes.
+   */
+  private buildVerdictClauses(verdict: ExecutionVerdict): any[] {
+    const isProtected = { term: { 'f0rtika.is_protected': true } };
+    const notProtected = { bool: { must_not: [isProtected] } };
+    const detected = { bool: { should: edrDetectedTerms(), minimum_should_match: 1 } };
+    switch (verdict) {
+      case 'protected':
+        return [isProtected];
+      case 'prevented':
+        return [notProtected, detected, { bool: { should: edrPreventedTerms(), minimum_should_match: 1 } }];
+      case 'detected':
+        return [notProtected, detected, { bool: { must_not: edrPreventedTerms() } }];
+      case 'silent':
+        return [notProtected, { bool: { must_not: edrDetectedTerms() } }];
+    }
   }
 
   // ============================================
@@ -2686,7 +2876,9 @@ export class ElasticsearchService {
     const response = await this.client.search({
       index: this.settings.indexPattern,
       size: 0,
-      query: { bool: { filter: [this.buildTestDataFilter()] } },
+      // The org applies to every list, including tests and techniques (which
+      // ignore only the date); a caller in an organization never sees another's.
+      query: { bool: { filter: this.withOrgFilter([this.buildTestDataFilter()], params?.org) } },
       aggs: {
         tests: { terms: { field: 'f0rtika.test_name', size: 100 } },
         techniques: {
@@ -3283,7 +3475,7 @@ export class ElasticsearchService {
       if (p.agentTerminated) {
         agentTerminated++;
         if (p.testName) agentTerminatedNames.add(p.testName);
-      } else if (p.strictProtected) {
+      } else if (p.strictProtected || p.edrStopped) {
         const stop = chainStop(p);
         const bucket = buckets[Math.min(Math.max(stop.stage, 1), 4) - 1];
         bucket.blocked++;
@@ -3443,10 +3635,10 @@ export class ElasticsearchService {
           },
           aggs: {
             errors: {
-              filter: { terms: { 'event.ERROR': this.ERROR_CODES } },
+              filter: this.buildTestErrorFilter(),
             },
             conclusive: {
-              filter: { terms: { 'event.ERROR': this.CONCLUSIVE_ERROR_CODES } },
+              filter: this.buildConclusiveResultsFilter(),
             },
           },
         },
@@ -3513,10 +3705,10 @@ export class ElasticsearchService {
       },
       aggs: {
         errors: {
-          filter: { terms: { 'event.ERROR': this.ERROR_CODES } },
+          filter: this.buildTestErrorFilter(),
         },
         conclusive: {
-          filter: { terms: { 'event.ERROR': this.CONCLUSIVE_ERROR_CODES } },
+          filter: this.buildConclusiveResultsFilter(),
         },
       },
     });
@@ -3582,12 +3774,14 @@ export class ElasticsearchService {
       countedFilter,
     ];
 
-    const conclusive = { terms: { 'event.ERROR': this.CONCLUSIVE_ERROR_CODES } };
+    const conclusive = this.buildConclusiveResultsFilter();
+    // Each result counts on its own evidence (a bundle stage is not credited
+    // for an alert that named a sibling stage).
     const detected = {
       bool: {
         should: [
           { term: { 'f0rtika.is_protected': true } },
-          ...edrDetectedTerms(),
+          edrOwnDetectedClause(),
         ],
         minimum_should_match: 1,
       },
@@ -3730,12 +3924,9 @@ export class ElasticsearchService {
     if (!exists) {
       const { RESULTS_INDEX_MAPPING } = await import('./index-management.service.js');
       try {
-        await this.client.indices.create({
-          index: archiveIndex,
-          ...RESULTS_INDEX_MAPPING,
-        });
+        await createAchillesIndex(this.client, archiveIndex, RESULTS_INDEX_MAPPING);
       } catch (err) {
-        this.wrapEsError(`indices.create(${archiveIndex})`, err);
+        this.wrapEsError(`createIndex(${archiveIndex})`, err);
       }
     }
     return archiveIndex;
@@ -3765,6 +3956,7 @@ export class ElasticsearchService {
    */
   async archiveByGroupKeys(
     groupKeys: string[],
+    org?: string,
   ): Promise<{ archived: number; errors: string[] }> {
     const errors: string[] = [];
     const shouldClauses: any[] = [];
@@ -3827,7 +4019,7 @@ export class ElasticsearchService {
 
     const query = {
       bool: {
-        filter: [this.buildTestDataFilter()],
+        filter: this.withOrgFilter([this.buildTestDataFilter()], org),
         should: shouldClauses,
         minimum_should_match: 1,
       },
@@ -3867,18 +4059,19 @@ export class ElasticsearchService {
     return { archived, errors };
   }
 
-  /** Archive all executions before a given date. */
+  /** Archive all executions before a given date (of one org, when given). */
   async archiveByDateRange(
     before: string,
+    org?: string,
   ): Promise<{ archived: number; errors: string[] }> {
     const errors: string[] = [];
 
     const query = {
       bool: {
-        filter: [
+        filter: this.withOrgFilter([
           this.buildTestDataFilter(),
           { range: { 'routing.event_time': { lt: before } } },
-        ],
+        ], org),
       },
     };
 
@@ -3923,6 +4116,9 @@ function vendorFlagsOf(source: unknown): EdrResultFlags {
     out[`${v}_stage_detected`] = getField(source, edrFlagField(v, 'stage_detected')) ?? false;
     out[`${v}_prevented`] = getField(source, edrFlagField(v, 'prevented')) ?? false;
     out[`${v}_prevention_action`] = getField(source, edrFlagField(v, 'prevention_action'));
+    // Absent (not false) on docs enriched before it existed: readers fall back.
+    const stagePrevented = getField(source, edrFlagField(v, 'stage_prevented'));
+    if (typeof stagePrevented === 'boolean') out[`${v}_stage_prevented`] = stagePrevented;
   }
   return out as EdrResultFlags;
 }

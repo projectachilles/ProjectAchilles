@@ -207,8 +207,14 @@ export function stageAlertState(
   // (including an EDR launch block) has no stages and no callout, so every
   // correlated alert is the run's own, even though its test binary's alert
   // reads as orchestrator-attributed ('bundle').
+  // Alerts naming several tests that single out none of this run's files are
+  // never the run's own ('multi_test'): they render as one note instead.
   const pick = <A extends { attribution?: string; attributed_control_id?: string }>(alerts: A[]): A[] =>
-    exec.is_bundle_control ? filterStageAlerts(alerts, exec.control_id) : alerts;
+    exec.is_bundle_control
+      ? filterStageAlerts(alerts, exec.control_id)
+      : alerts.filter((a) => a.attribution !== 'multi_test');
+  const multiTest = <A extends { attribution?: string }>(alerts: A[]): A[] =>
+    alerts.filter((a) => a.attribution === 'multi_test');
   const endpoint = Object.fromEntries(
     ENDPOINT_VENDOR_IDS.map((id) => {
       const map = endpointAlerts[id]?.map;
@@ -220,17 +226,19 @@ export function stageAlertState(
           loading,
           failed: !loading && Boolean(map?.has(key)) && entry === null,
           alerts: entry ? pick(entry.alerts) : [],
+          multiTestAlerts: entry ? multiTest(entry.alerts) : [],
           hasBundleAlerts: Boolean(entry?.alerts.some((a) => a.attribution === 'bundle')),
         },
       ];
     }),
-  ) as Record<EndpointVendorId, { loading: boolean; failed: boolean; alerts: CrowdStrikeAlertItem[]; hasBundleAlerts: boolean }>;
+  ) as Record<EndpointVendorId, { loading: boolean; failed: boolean; alerts: CrowdStrikeAlertItem[]; multiTestAlerts: CrowdStrikeAlertItem[]; hasBundleAlerts: boolean }>;
   const defLoading = alertsLoading.has(key);
   return {
     defender: {
       loading: defLoading,
       failed: !defLoading && alertsMap.has(key) && def === null,
       alerts: def ? pick(def.alerts) : [],
+      multiTestAlerts: def ? multiTest(def.alerts) : [],
       hasBundleAlerts: Boolean(def?.alerts.some((a) => a.attribution === 'bundle')),
     },
     endpoint,

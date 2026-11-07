@@ -28,6 +28,7 @@ import integrationsRoutes, { alertsService } from './api/integrations.routes.js'
 import { processSchedules } from './services/agent/schedules.service.js';
 import { processAutoRotation } from './services/agent/autoRotation.service.js';
 import { pruneHeartbeatHistory, detectOfflineAgents } from './services/agent/heartbeat.service.js';
+import { runRetentionTick } from './services/agent/retention.service.js';
 import { initCatalog } from './services/agent/test-catalog.service.js';
 import { startIngestionRetryWorker, stopIngestionRetryWorker } from './services/agent/ingestionWorker.service.js';
 import type { TestSource } from './types/test.js';
@@ -55,7 +56,7 @@ import apiKeysRoutes from './api/api-keys.routes.js';
 import consoleIdentityRoutes from './api/consoleIdentity.routes.js';
 import { acceptApiKey } from './middleware/apiKeyAuth.middleware.js';
 import { cliBearerLimiterSkip } from './middleware/cliBearerLimiterSkip.js';
-import { uiLimiterKey } from './middleware/rateLimitKeys.js';
+import { uiLimiterKey, uiLimiterSkip } from './middleware/rateLimitKeys.js';
 
 // Get __dirname equivalent in ES modules
 const __filename = fileURLToPath(import.meta.url);
@@ -187,11 +188,8 @@ const apiLimiter = rateLimit({
   legacyHeaders: false,
   keyGenerator: uiLimiterKey,
   message: { success: false, error: 'Too many requests, please try again later' },
-  skip: (req) => {
-    // Agent device endpoints have their own dedicated rate limiter
-    const p = req.originalUrl;
-    return p.startsWith('/api/agent/') && !p.startsWith('/api/agent/admin/');
-  },
+  // Agent device endpoints have their own dedicated rate limiters
+  skip: uiLimiterSkip,
 });
 app.use('/api', apiLimiter);
 
@@ -329,10 +327,12 @@ async function startServer() {
       preExecutionNotices: true,
       campaigns: true,
       consoleIdentity: true,
+      outcomeBreakdown: true,
       sentinelone: true,
       sophos: true,
       alerting: true,
       randomizedOnce: true,
+      testFleet: true,
       platform: 'docker',
     });
   });
@@ -357,7 +357,11 @@ async function startServer() {
   app.use('/api/tests', testsRouter);
 
   // Agent module - Achilles Agent management
-  app.use('/api/agent', createAgentRouter({ testSources, testsSourcePath, agentSourcePath, agentSourceSync }));
+  // A local or mounted checkout (no AGENT_REPO_URL): builds record its commit
+  // from this .git. Docker mounts it at AGENT_SOURCE_GIT_DIR; a plain checkout
+  // has it next to agent/.
+  const agentSourceGitDir = process.env.AGENT_SOURCE_GIT_DIR || path.resolve(agentSourcePath, '..', '.git');
+  app.use('/api/agent', createAgentRouter({ testSources, testsSourcePath, agentSourcePath, agentSourceSync, agentSourceGitDir }));
 
   // User management - RBAC role assignment (admin-only)
   app.use('/api/users', usersRoutes);
@@ -469,6 +473,15 @@ function startBackgroundJobs(httpServer?: http.Server) {
 
   // --- Heartbeat history pruning: every hour ---
   const heartbeatPruneInterval = setInterval(pruneHeartbeatHistory, 60 * 60 * 1000);
+
+  // --- Retention: compact old task output + prune old agent events, every hour ---
+  const retentionInterval = setInterval(() => {
+    try {
+      runRetentionTick();
+    } catch (err) {
+      console.error('[retention] Tick failed:', err);
+    }
+  }, 60 * 60 * 1000);
 
   // --- Offline agent detection + agent alerts: every 60s ---
   const offlineDetectionInterval = setInterval(() => {
@@ -635,6 +648,7 @@ function startBackgroundJobs(httpServer?: http.Server) {
     clearInterval(sophosInterval);
     clearInterval(autoRotationInterval);
     clearInterval(heartbeatPruneInterval);
+    clearInterval(retentionInterval);
     clearInterval(offlineDetectionInterval);
     stopIngestionRetryWorker();
     if (defenderScoreInterval) clearInterval(defenderScoreInterval);

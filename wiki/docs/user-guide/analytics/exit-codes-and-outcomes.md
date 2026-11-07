@@ -40,7 +40,8 @@ them against synced EDR alerts:
 |---|---|---|
 | `defender_detected` / `crowdstrike_detected` / `sentinelone_detected` / `sophos_detected` | Alert evidence matches hostname + bundle UUID in filename/path, within −5/+30 min of the test | — |
 | `*_stage_detected` | Alert evidence names the **stage's own binary** (`<bundle-uuid>-<control>.exe`) | — |
-| `crowdstrike_prevented` / `defender_prevented` / `sentinelone_prevented` / `sophos_prevented` (+ `*_prevention_action`) | Matched alert carries a vendor-confirmed prevention disposition | **Stage-binary matches always qualify. Bundle-wide matches only if the stage never reached a conclusive outcome** (exit ∉ `{101, 105, 126, 127}`). A failed kill (CS `kill_action_failed`) never qualifies |
+| `crowdstrike_prevented` / `defender_prevented` / `sentinelone_prevented` / `sophos_prevented` (+ `*_prevention_action`) | Matched alert carries a vendor-confirmed prevention disposition | **Stage-binary matches always qualify. Bundle-wide matches only if the stage never reached a conclusive outcome** (exit ∉ `{101, 105, 126, 127}`). A failed kill (CS `kill_action_failed`) never qualifies. The stage alert's action is preferred over a bundle-wide one |
+| `*_stage_prevented` | `true` when an alert naming the **stage's own binary** carried a confirmed action; `false` when the stage's alerts carried none | Absent on documents enriched before it existed; those fall back to `*_stage_detected` + a confirmed `*_prevention_action` |
 
 **Vendor prevention dispositions**, normalized to a shared vocabulary
 (`process_killed` / `quarantined` / `blocked`):
@@ -55,6 +56,43 @@ them against synced EDR alerts:
 Alert docs also carry `portal_url` — the exact per-alert console deep link
 (Falcon's `falcon_host_link`, Defender's `alertWebUrl`) — used by the alert
 drawers and execution detail panels.
+
+**Alerts that name several tests.** An alert can name the binaries of two or
+more different Achilles tests for two very different reasons:
+
+- **A listing.** Defender's *A suspicious file was observed* (and behaviour
+  alerts such as *Suspicious behavior by cmd.exe*) list everything they
+  connected on the disk: the files in `C:\F0` left by earlier runs, the
+  Achilles agent itself, `powershell.exe`. Defender marks every one of them
+  *suspicious*. It says nothing about any one run.
+- **A real verdict on several files.** When tests run back to back (a
+  campaign), Defender can put the files of two or three tests into one
+  antivirus alert (*An active 'Filery' malware was blocked*) and mark each
+  file *malicious*, with its own remediation status: one file blocked, another
+  only detected.
+
+Achilles reads Defender's verdict on each file (`evidence_file_verdicts` on the
+alert). An alert that names several tests counts for a test, and for a stage,
+only when Defender marked that test's (or stage's) own file malicious. It
+counts as prevention only when that file was blocked, prevented or remediated,
+never because of the alert-wide action. A listing therefore counts for no test.
+For EDRs that report no per-file verdict (CrowdStrike, SentinelOne, Sophos),
+an alert naming several tests counts for none of them. These alerts are still
+linked to Achilles, so auto-resolve closes them as security testing. In
+**All executions** they appear as one muted line ("N Defender alerts list files
+from several Achilles tests on this host…") with the list one click away,
+instead of a row per alert.
+
+Results flagged before this rule are checked once. A result loses
+`*_detected` (and its prevention, unless the stage itself stays detected) only
+when alerts are still in the index and none of them counts for the test.
+
+**Late actions.** EDRs often add the action after the alert was first
+matched: Defender updates the alert's remediation status, SentinelOne adds
+mitigation entries, Sophos sends the remedy in a later SIEM event. A stage
+that is detected but not yet `*_stage_prevented` is re-checked for 72 hours,
+and only gains the flags it lacks. Every alert matching a document counts,
+not only the first few returned.
 
 **Which documents are scanned:** exit codes `[0, 1, 101, 105, 126, 127, 259, 999]`
 — so EDR-killed stages (999) are eligible. Deliberately **not scanned**:
@@ -89,7 +127,7 @@ precedence (top wins):
 | Label | Condition | Meaning |
 |---|---|---|
 | **Protected** | exit ∈ `{105, 126, 127}` | Endpoint blocked/quarantined at the OS level |
-| **Prevented** | `crowdstrike_prevented`, `defender_prevented`, `sentinelone_prevented` or `sophos_prevented` (or detected flags + confirmed prevention action) | Vendor-confirmed kill/quarantine/block — shows the action, e.g. "Prevented (process killed)" |
+| **Prevented** | `crowdstrike_prevented`, `defender_prevented`, `sentinelone_prevented` or `sophos_prevented` (or the stage's own `*_stage_prevented`) on exit 101; on an error code (e.g. 999), only the stage's own `*_stage_prevented` | Vendor-confirmed kill/quarantine/block — shows the action, e.g. "Prevented (process killed)" |
 | **Detected** | `*_stage_detected` | The EDR saw this stage and alerted, but didn't stop it. The run-wide `*_detected` flag, which every stage of a run carries once any alert names the run, doesn't count here |
 | **Unprotected** | exit 101 | Attack ran to completion, nothing reacted |
 | **Inconclusive** | everything else (0, 1, 259, 260, 999, missing) | Can't judge — error, timeout, policy block, or unconfirmed kill |
@@ -101,12 +139,18 @@ Protected > Prevented > Detected > Unprotected.
 
 ### Defense Score (Analytics dashboards)
 
-- **Strict score**: `protected (105/126/127) / conclusive (101 + 105 + 126 + 127)`
+- **Scored results**: exit `101`, `105`, `126` or `127`, **plus** an error-coded
+  stage (e.g. `999`, `0xE0000027`) that the EDR's own alert on that stage says
+  it stopped (`*_stage_prevented`, or on older documents `*_stage_detected` + a
+  confirmed `*_prevention_action`). Such a stage is the **Prevented** label of
+  §3, and counts on the combined (protected) side, not the strict one.
+- **Strict score**: `protected (105/126/127) / scored results`
 - **Combined score** ("detected counts as protected"): adds
   `defender_detected OR crowdstrike_detected` to the protected side.
   `*_prevented` ⊆ `*_detected` for both vendors, so prevented stages are
   covered automatically.
-- Error codes (`0`, `1`, `259`, `999`) feed the **Error Rate**, not the score.
+- Error codes (`0`, `1`, `259`, `999`) feed the **Error Rate**, not the score,
+  except a stage the EDR stopped as above: it is scored, not an error.
 - `200` and `260` are excluded from both. A `260` that an EDR's own alert
   proves was the EDR blocking the launch is rewritten to `126` and counts as
   protected ([section 7](#7-test-blocked-at-launch-by-the-edr)).
@@ -148,8 +192,8 @@ per stage, not per technique.
 
 | Scenario | Exit | Evidence | Label / SB outcome |
 |---|---|---|---|
-| Falcon kills the ransomware stage at launch | `0xE0000027` → 999 | Stage-binary alert match, `process_killed` disposition | **Prevented (process killed)** / PREVENTED |
-| Defender blocks a stage binary mid-execution | 999 | Stage-binary alert match, `remediationStatus: blocked` | **Prevented (process killed)** / PREVENTED |
+| Falcon kills the ransomware stage at launch | `0xE0000027` → 999 | Stage-binary alert match, `process_killed` disposition | **Prevented (process killed)** / PREVENTED; counts in the Defense Score and stops the chain at that stage in chain depth |
+| Defender blocks a stage binary mid-execution | 999 | Stage-binary alert match, `remediationStatus: blocked` | **Prevented (process killed)** / PREVENTED; counts in the Defense Score |
 | Sibling stage already ran to completion before the kill | 101 | Bundle-wide alert match only | **Unprotected** / MISSED (EXPOSED for exfiltration/impact): the alert names another stage, and a succeeded stage is never upgraded to Prevented |
 | Stage runs, nothing reacts | 101, no alert | none | **Unprotected** / MISSED (or EXPOSED for exfiltration/impact tactics) |
 | Stage dies, no alert anywhere | 999, no alert | none | **Inconclusive** / ERROR — a kill is never assumed |
@@ -168,7 +212,7 @@ A watchdog failure becomes a result only when **all** of these hold:
 - It was created between the moment the agent picked up the task and the moment the watchdog failed it. If the agent came back (service recovery, a quick reboot) and picked up its next test first, the window ends at that pickup plus 60 seconds, so the next test's alerts never count for the dead one.
 - If the alert is already linked to a test (`f0rtika.achilles_test_uuid`), it is this test.
 - The EDR itself killed, quarantined or blocked something. Achilles' own SentinelOne automatic mitigation does not count.
-- The alert's ATT&CK techniques overlap the test's techniques (compared at parent level, so `T1486` matches `T1486.001`). Sophos currently provides no such alert on any tenant: its alerts and SIEM events carry the prevention but no techniques, and its XDR detections carry techniques but never a prevention action, so a Sophos kill stays a failed task instead of becoming Protected.
+- The alert's ATT&CK techniques overlap the test's techniques (compared at parent level, so `T1486` matches `T1486.001`). A technique ATT&CK renumbered counts as the same technique under either id: SentinelOne reports `T1685` (Disable or Modify Tools) where a test may still cite `T1562.001`, the id MITRE revoked for it. The pairs come from MITRE's own revoked-by data. Sophos currently provides no such alert on any tenant: its alerts and SIEM events carry the prevention but no techniques, and its XDR detections carry techniques but never a prevention action, so a Sophos kill stays a failed task instead of becoming Protected.
 
 The name of the flagged file does not matter. For example, an alert whose process tree is rooted at the agent's own binary or at a remote-management agent such as `rphcp.exe` still matches, because the technique and time window tie it to the run. The first check after the server starts covers watchdog failures from the last 30 days; later checks cover the last 2 days, since vendor alerts sync within minutes. Each failure's alerts are searched only within that run's own window.
 

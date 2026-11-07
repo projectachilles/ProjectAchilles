@@ -8,6 +8,7 @@
 // a watchdog-failed run that the EDR reconciliation pass proved was killed by
 // the EDR (result.edr_terminated) is Protected.
 
+import { resolveErrorName } from './exitCodes.js';
 import type { TaskResult, TaskStatus, TaskType } from '../../types/agent.js';
 
 export type TaskOutcomeKind = 'protected' | 'unprotected' | 'not-run' | 'run-failed' | 'test-error' | 'inconclusive';
@@ -39,4 +40,81 @@ export function classifyTaskOutcome(task: { type: TaskType; status: TaskStatus; 
     if (controls.some((c) => !c.skipped && c.exit_code === 101)) return 'unprotected';
   }
   return exitKind(code);
+}
+
+export const OFFLINE_ERROR = 'Agent went offline during execution';
+export const TIMEOUT_ERROR = 'Task exceeded execution timeout';
+
+export type TaskBreakdownKey = string;
+export const TASK_BREAKDOWN_KEY_RE = /^(exit:-?\d{1,10}|stage:-?\d{1,10}|edr-stopped|failed:(offline|timeout|other))$/;
+
+/** SQL for "finished in the last 7 days"; pass a table alias when joining tables that also have `status`. */
+export function outcomeWindowSql(alias?: string): string {
+  const p = alias ? `${alias}.` : '';
+  return `${p}status IN ('completed', 'failed') AND ${p}completed_at > datetime('now', '-7 days')`;
+}
+
+/**
+ * SELECT expression for a task's `result` without stdout/stderr (the classifier never reads them, and
+ * they stay uncompacted for 7 days). Invalid JSON selects NULL, so such a row has no outcome.
+ * Pass it as `${outcomeResultSql('t')} AS result` and read rows with `parseOutcomeResult`.
+ */
+export function outcomeResultSql(alias?: string): string {
+  const p = alias ? `${alias}.` : '';
+  return `CASE WHEN json_valid(${p}result) THEN json_remove(${p}result, '$.stdout', '$.stderr') END`;
+}
+
+/** A row's result column (from `outcomeResultSql`) as a TaskResult; null when absent or unparseable. */
+export function parseOutcomeResult(raw: string | null): TaskResult | null {
+  if (!raw) return null;
+  try {
+    return JSON.parse(raw) as TaskResult;
+  } catch {
+    return null;
+  }
+}
+
+/** The exit code / failure reason behind a finished task's outcome; null when it has none. */
+export function taskBreakdown(task: { type: TaskType; status: TaskStatus; result: TaskResult | null }): { key: TaskBreakdownKey; outcome: TaskOutcomeKind } | null {
+  const outcome = classifyTaskOutcome(task);
+  if (outcome === null) return null;
+  const result = task.result;
+  if (task.status === 'failed') {
+    if (result?.edr_terminated) return { key: 'edr-stopped', outcome };
+    const err = (result as { error?: unknown } | null)?.error;
+    if (err === OFFLINE_ERROR) return { key: 'failed:offline', outcome };
+    if (err === TIMEOUT_ERROR) return { key: 'failed:timeout', outcome };
+    return { key: 'failed:other', outcome };
+  }
+  if (!result) return null;
+
+  const bundle = result.bundle_results;
+  const controls = Array.isArray(bundle?.controls)
+    ? bundle.controls.filter((c) => typeof c?.control_id === 'string' && typeof c?.exit_code === 'number')
+    : [];
+  if (controls.length > 0 && bundle?.bundle_category !== 'cyber-hygiene') {
+    const live = controls.filter((c) => !c.skipped);
+    if (outcome === 'protected') {
+      const hit = live.find((c) => PROTECTED_CODES.has(c.exit_code));
+      if (hit) return { key: `stage:${hit.exit_code}`, outcome };
+    } else if (outcome === 'unprotected' && live.some((c) => c.exit_code === 101)) {
+      return { key: 'stage:101', outcome };
+    }
+  }
+  return { key: `exit:${result.exit_code}`, outcome };
+}
+
+export function breakdownLabel(key: TaskBreakdownKey): { code: number | null; name: string } {
+  switch (key) {
+    case 'edr-stopped': return { code: null, name: 'EDR stopped the agent' };
+    case 'failed:offline': return { code: null, name: 'Agent offline' };
+    case 'failed:timeout': return { code: null, name: 'Timeout' };
+    case 'failed:other': return { code: null, name: 'Other failure' };
+  }
+  const m = /^(exit|stage):(-?\d+)$/.exec(key);
+  if (!m) return { code: null, name: key };
+  const code = Number(m[2]);
+  let name = resolveErrorName(code);
+  if (m[1] === 'stage') name += code === 101 ? ' · stage ran' : ' · stage blocked';
+  return { code, name };
 }

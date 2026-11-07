@@ -12,7 +12,7 @@ import { getSeverityTokens } from '../../utils/crowdstrikeSeverityTokens';
 import HeroStatTile from '../HeroStatTile';
 import CoveragePips from '../CoveragePips';
 import { groupSeverities } from './severity';
-import { alertWeekDelta, inverseDeltaTone, scrollToAlertFeed } from './heroMetrics';
+import { alertWeekDelta, coverageScopePhrase, inverseDeltaTone, scrollToAlertFeed } from './heroMetrics';
 import type { IntegrationVendor } from './vendorConfig';
 
 const LINKED = 'var(--chart-series-alert)';
@@ -82,6 +82,7 @@ export function AlertsHeroTile({ vendor, summary, trend, window, loading, failed
 }
 
 interface CoverageHeroTileProps {
+  vendor: IntegrationVendor;
   coverage: TechniqueCoverageResponse | null;
   loading: boolean;
   failed: boolean;
@@ -90,10 +91,13 @@ interface CoverageHeroTileProps {
 
 /**
  * Detected / Prevented, from the same Technique Coverage response as the
- * coverage card (spec D1), so the two cannot disagree.
+ * coverage card (spec D1), so the two cannot disagree. Counts only the hosts
+ * the EDR covers (`coverage.scope`), and runs it stopped at launch or by
+ * killing the agent count as stopped.
  */
-export function CoverageHeroTile({ coverage, loading, failed, windowLabel }: CoverageHeroTileProps) {
+export function CoverageHeroTile({ vendor, coverage, loading, failed, windowLabel }: CoverageHeroTileProps) {
   const o = coverage?.overall;
+  const scopePhrase = coverageScopePhrase(coverage?.scope, vendor.shortName);
   const pips = (coverage?.byTechnique ?? []).map((t) => ({
     technique: t.technique,
     detected: t.prevented + t.detectedOnly > 0,
@@ -120,8 +124,9 @@ export function CoverageHeroTile({ coverage, loading, failed, windowLabel }: Cov
           <span className="flex flex-col gap-0.5">
             <span>{windowPhrase(windowLabel)}</span>
             <span>
-              {`${(o.prevented + o.detectedOnly).toLocaleString()} / ${o.executions.toLocaleString()} executions raised an alert · ${o.prevented.toLocaleString()} were stopped`}
+              {`${(o.prevented + o.detectedOnly).toLocaleString()} / ${o.executions.toLocaleString()} test results raised an alert · ${o.prevented.toLocaleString()} were stopped`}
             </span>
+            {scopePhrase && <span>{scopePhrase}</span>}
           </span>
         ) : undefined
       }

@@ -5,6 +5,8 @@ import { FileText } from 'lucide-react';
 
 interface FileViewerProps {
   file: FileContent;
+  /** Passed to MarkdownViewer to drop a first h1 that repeats the page title. */
+  hideTitle?: string;
 }
 
 function prettyPrintNdjson(content: string): string {
@@ -23,10 +25,10 @@ function prettyPrintNdjson(content: string): string {
     .join('\n\n');
 }
 
-export default function FileViewer({ file }: FileViewerProps) {
+export default function FileViewer({ file, hideTitle }: FileViewerProps) {
   // Render markdown files
   if (file.type === 'markdown') {
-    return <MarkdownViewer content={file.content} />;
+    return <MarkdownViewer content={file.content} hideTitle={hideTitle} />;
   }
 
   // Render code files with syntax highlighting
@@ -37,7 +39,7 @@ export default function FileViewer({ file }: FileViewerProps) {
 
   // Render plain text
   return (
-    <div className="h-full overflow-auto p-6">
+    <div className="h-full overflow-auto p-1 sm:p-6">
       <div className="max-w-4xl mx-auto">
         <div className="flex items-center gap-2 mb-4 text-muted-foreground">
           <FileText className="w-4 h-4" />

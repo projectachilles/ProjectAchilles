@@ -4,6 +4,7 @@
 import { SettingsService } from '../analytics/settings.js';
 import { createEsClient } from '../analytics/client.js';
 import type { IndexInfo } from '../analytics/index-management.service.js';
+import { createAchillesIndex } from '../shared/esIndexCreate.js';
 
 export const CROWDSTRIKE_INDEX = 'achilles-crowdstrike';
 
@@ -90,10 +91,7 @@ export async function createCrowdStrikeIndex(): Promise<{ created: boolean; mess
   const client = createEsClient(settings);
 
   try {
-    await client.indices.create({
-      index: CROWDSTRIKE_INDEX,
-      ...CROWDSTRIKE_INDEX_MAPPING,
-    });
+    await createAchillesIndex(client, CROWDSTRIKE_INDEX, CROWDSTRIKE_INDEX_MAPPING);
     return { created: true, message: `Index "${CROWDSTRIKE_INDEX}" created successfully` };
   } catch (err: unknown) {
     if (err && typeof err === 'object' && 'statusCode' in err && (err as { statusCode: number }).statusCode === 400) {

@@ -207,6 +207,21 @@ describe('DefenderSyncService', () => {
   // ── syncAlerts ─────────────────────────────────────────────────
 
   describe('syncAlerts', () => {
+    it('writes a full 90-day re-sync in bulk batches of 500 alerts', async () => {
+      mockGetAlerts.mockResolvedValue(Array.from({ length: 1200 }, (_, i) => ({
+        id: `a-${i}`, title: 't', description: '', severity: 'low', status: 'new', category: '',
+        serviceSource: '', createdDateTime: '2026-11-01T00:00:00Z', lastUpdateDateTime: '2026-11-01T00:00:00Z',
+        mitreTechniques: [], recommendedActions: '', evidence: [],
+      })));
+      mockBulk.mockImplementation(async ({ operations }: { operations: unknown[] }) => ({ errors: false, items: operations.filter((_, i) => i % 2 === 0).map(() => ({ update: {} })) }));
+
+      const result = await service.syncAlerts();
+
+      expect(mockBulk.mock.calls.map((c) => c[0].operations.length / 2)).toEqual([500, 500, 200]);
+      expect(result.synced).toBe(1200);
+      expect(mockGetAlerts.mock.calls[0]).toHaveLength(1); // no $top cap
+    });
+
     it('syncs alerts to ES', async () => {
       mockGetAlerts.mockResolvedValue([
         {
@@ -447,6 +462,25 @@ describe('DefenderSyncService', () => {
       expect(doc.prevention_action).toBeUndefined();
       expect(doc.remediation_status).toBeUndefined();
       expect(doc.portal_url).toBeUndefined();
+    });
+
+    it('records Defender\'s own verdict and action per evidence file (file + process evidence merged)', async () => {
+      // Live shape (Nov 2026): one antivirus alert, two test files; Defender
+      // blocked one and only detected the other.
+      const doc = await syncOneAndGetDoc(alertWithEvidence([
+        { '@odata.type': '#microsoft.graph.security.fileEvidence', verdict: 'malicious', remediationStatus: 'active', fileDetails: { fileName: 'A-T1518.001.exe', filePath: 'C:\\F0' } },
+        { '@odata.type': '#microsoft.graph.security.processEvidence', verdict: 'malicious', remediationStatus: 'blocked', imageFile: { fileName: 'A-T1518.001.exe', filePath: 'C:\\F0\\A-T1518.001.exe' } },
+        { '@odata.type': '#microsoft.graph.security.fileEvidence', verdict: 'malicious', remediationStatus: 'active', fileDetails: { fileName: 'B-T1572.exe', filePath: 'C:\\F0' } },
+        { '@odata.type': '#microsoft.graph.security.processEvidence', verdict: 'suspicious', remediationStatus: 'active', imageFile: { fileName: 'powershell.exe' }, parentProcess: { imageFile: { fileName: 'A.exe' } } },
+        deviceEvidence('active'),
+      ]));
+      expect(doc.evidence_file_verdicts).toEqual([
+        { file: 'a-t1518.001.exe', verdict: 'malicious', action: 'process_killed' },
+        { file: 'b-t1572.exe', verdict: 'malicious', action: null },
+        { file: 'powershell.exe', verdict: 'suspicious', action: null },
+      ]);
+      // The alert-wide action stays as before.
+      expect(doc.prevention_action).toBe('process_killed');
     });
 
     it('captures alertWebUrl as portal_url', async () => {

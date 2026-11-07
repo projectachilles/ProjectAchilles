@@ -18,13 +18,14 @@ export function PageContainer({ children, className = '' }: PageContainerProps) 
 // Page header with title and optional actions
 interface PageHeaderProps {
   title: string;
-  description?: string;
+  description?: ReactNode;
+  titleAside?: ReactNode;
   actions?: ReactNode;
 }
 
-export function PageHeader({ title, description, actions }: PageHeaderProps) {
+export function PageHeader({ title, description, titleAside, actions }: PageHeaderProps) {
   return (
-    <SharedPageHeader title={title} description={description}>
+    <SharedPageHeader title={title} description={description} titleAside={titleAside}>
       {actions}
     </SharedPageHeader>
   );

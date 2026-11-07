@@ -193,6 +193,80 @@ describe('heartbeat.service', () => {
       expect(o.other).toEqual({ total: 3, failed: 2 });
     });
 
+    it('counts outcomes the same with huge stdout/stderr, and ignores a malformed result', () => {
+      insertTestAgent(testDb, { id: 'a1' });
+      const recent = new Date(Date.now() - 3 * 86400 * 1000).toISOString().replace('T', ' ').slice(0, 19);
+      const ins = testDb.prepare(`
+        INSERT INTO tasks (id, agent_id, org_id, type, status, payload, created_by, ttl, completed_at, result)
+        VALUES (?, 'a1', 'org-001', ?, ?, '{}', 'user', 604800, ?, ?)
+      `);
+      const big = 'x'.repeat(100_000);
+      const res = (exit_code: number, extra: Record<string, unknown> = {}) =>
+        JSON.stringify({ exit_code, stdout: big, stderr: big, execution_duration_ms: 1, ...extra });
+      ins.run('p1', 'execute_test', 'completed', recent, res(126));
+      ins.run('u1', 'execute_test', 'completed', recent, res(101));
+      ins.run('p2', 'execute_test', 'failed', recent, res(-1, { edr_terminated: { vendors: ['defender'], alert_ids: ['x'] } }));
+      ins.run('c1', 'execute_command', 'completed', recent, res(255));
+      ins.run('bad', 'execute_test', 'completed', recent, '{not json');
+
+      const { task_outcomes_7d: o } = getAgentMetrics();
+      expect(o.tests).toMatchObject({ protected: 2, edr_stopped: 1, unprotected: 1 });
+      expect(o.breakdown.map((r) => r.key).sort()).toEqual(['edr-stopped', 'exit:101', 'exit:126']);
+      // the malformed test row has no verdict and counts as an "other" task (not failed); only the exit-255 command failed
+      expect(o.other).toEqual({ total: 2, failed: 1 });
+    });
+
+    it('breaks 7-day outcomes down by exit code / failure reason', () => {
+      insertTestAgent(testDb, { id: 'a1' });
+      const fmt = (ms: number) => new Date(Date.now() - ms).toISOString().replace('T', ' ').slice(0, 19);
+      const recent = fmt(3 * 86400 * 1000);
+      const old = fmt(8 * 86400 * 1000);
+      const ins = testDb.prepare(`
+        INSERT INTO tasks (id, agent_id, org_id, type, status, payload, created_by, ttl, completed_at, result)
+        VALUES (?, 'a1', 'org-001', ?, ?, '{}', 'user', 604800, ?, ?)
+      `);
+      const res = (exit_code: number, extra: Record<string, unknown> = {}) =>
+        JSON.stringify({ exit_code, stdout: '', stderr: '', execution_duration_ms: 1, ...extra });
+      const err = (error: string) => JSON.stringify({ exit_code: -1, stdout: '', stderr: '', execution_duration_ms: 1, error });
+      ins.run('p1', 'execute_test', 'completed', recent, res(126));
+      ins.run('p2', 'execute_test', 'completed', recent, res(126));
+      ins.run('n1', 'execute_test', 'completed', recent, res(260));
+      ins.run('f1', 'execute_test', 'failed', recent, err('Agent went offline during execution'));
+      ins.run('f2', 'execute_test', 'failed', recent, err('Agent went offline during execution'));
+      ins.run('f3', 'execute_test', 'failed', recent, err('Task exceeded execution timeout'));
+      ins.run('b1', 'execute_test', 'completed', recent, res(0, {
+        bundle_results: {
+          bundle_id: 'b', bundle_name: 'B', bundle_category: 'intel-driven',
+          controls: [
+            { control_id: 'S1', exit_code: 101, validator: 'v' },
+            { control_id: 'S2', exit_code: 126, validator: 'v' },
+          ],
+        },
+      }));
+      ins.run('c1', 'execute_command', 'completed', recent, res(0));
+      ins.run('old', 'execute_test', 'completed', old, res(126));
+
+      const { task_outcomes_7d: o } = getAgentMetrics();
+      const rows = o.breakdown.map((r) => [r.key, r.outcome, r.count]);
+      expect(rows).toEqual([
+        ['exit:126', 'protected', 2],
+        ['failed:offline', 'run-failed', 2],
+        ['exit:260', 'not-run', 1],
+        ['failed:timeout', 'run-failed', 1],
+        ['stage:126', 'protected', 1],
+      ]);
+      expect(o.breakdown[0]).toMatchObject({ code: 126 });
+      expect(o.breakdown[1]).toMatchObject({ code: null, name: 'Agent offline' });
+
+      const sum = (outcome: string) => o.breakdown.filter((r) => r.outcome === outcome).reduce((a, r) => a + r.count, 0);
+      expect(sum('protected')).toBe(o.tests.protected);
+      expect(sum('unprotected')).toBe(o.tests.unprotected);
+      expect(sum('not-run')).toBe(o.tests.not_run);
+      expect(sum('run-failed')).toBe(o.tests.run_failed);
+      expect(sum('test-error')).toBe(o.tests.test_error);
+      expect(sum('inconclusive')).toBe(o.tests.inconclusive);
+    });
+
     it('includes by_version distribution', () => {
       insertTestAgent(testDb, { id: 'a1', agent_version: '1.0.0' });
       insertTestAgent(testDb, { id: 'a2', agent_version: '1.0.0' });

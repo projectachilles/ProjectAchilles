@@ -15,6 +15,7 @@ vi.mock('../../middleware/clerk.middleware.js', () => ({
     next();
   },
   getUserId: (auth: any) => auth?.userId || 'test-user-001',
+  getUserOrgId: (auth: any) => auth?.orgId,
   requirePermission: () => (_req: any, _res: any, next: any) => next(),
 }));
 
@@ -58,7 +59,10 @@ const mockThreatActorLatest = vi.fn();
 const mockThreatActor = vi.fn();
 const mockTechniqueOutcomes = vi.fn();
 const mockChainDepth = vi.fn();
+const mockOutcomeBreakdown = vi.fn();
 const mockTestResults = vi.fn();
+const mockGetPaginatedExecutions = vi.fn();
+const mockGetGroupedPaginatedExecutions = vi.fn();
 vi.mock('../../services/analytics/elasticsearch.js', () => ({
   ElasticsearchService: class MockElasticsearchService {
     testConnection = mockTestConnection;
@@ -82,9 +86,15 @@ vi.mock('../../services/analytics/elasticsearch.js', () => ({
     getThreatActorCoverage = mockThreatActor;
     getTechniqueOutcomes = mockTechniqueOutcomes;
     getChainDepth = mockChainDepth;
+    getOutcomeBreakdown = mockOutcomeBreakdown;
     getTestResults = mockTestResults;
+    getPaginatedExecutions = mockGetPaginatedExecutions;
+    getGroupedPaginatedExecutions = mockGetGroupedPaginatedExecutions;
   },
 }));
+
+const mockTestFleet = vi.fn();
+vi.mock('../../services/analytics/testFleet.js', () => ({ getTestFleet: mockTestFleet }));
 
 // Mock index management
 vi.mock('../../services/analytics/index-management.service.js', () => ({
@@ -199,7 +209,7 @@ describe('analytics routes', () => {
       expect(saved.connectionType).toBe('self-hosted');
     });
 
-    it('preserves existing apiKey on same-mode partial update (regression guard)', async () => {
+    it('preserves the saved apiKey for the same cluster, never for a new node (regression guard)', async () => {
       mockGetSettings.mockReturnValue({
         configured: true,
         connectionType: 'self-hosted',
@@ -212,18 +222,27 @@ describe('analytics routes', () => {
       });
 
       const app = createApp();
-      // User updates only the node, keeps apiKey blank (= keep existing)
+      // Same cluster (node blank = keep current), only the index pattern changes:
+      // a blank apiKey keeps the saved one.
       const res = await request(app)
         .post('/api/analytics/settings')
         .send({
           connectionType: 'self-hosted',
-          node: 'https://updated.example.com',
+          indexPattern: 'achilles-results-*',
         });
 
       expect(res.status).toBe(200);
       const saved = mockSaveSettings.mock.calls.at(-1)?.[0];
       expect(saved.apiKey).toBe('EXISTING_DIRECT_KEY');
-      expect(saved.node).toBe('https://updated.example.com');
+      expect(saved.node).toBe('https://existing.example.com');
+
+      // A new node is a new cluster: the saved key is not carried over to it.
+      await request(app)
+        .post('/api/analytics/settings')
+        .send({ connectionType: 'self-hosted', node: 'https://updated.example.com' });
+      const moved = mockSaveSettings.mock.calls.at(-1)?.[0];
+      expect(moved.node).toBe('https://updated.example.com');
+      expect(moved.apiKey).toBe('');
     });
 
     it('does not treat first-time setup as a mode switch', async () => {
@@ -341,7 +360,7 @@ describe('analytics routes', () => {
       expect(res.status).toBe(200);
       expect(res.body.success).toBe(true);
       expect(res.body.archived).toBe(3);
-      expect(mockArchiveByGroupKeys).toHaveBeenCalledWith(['standalone::uuid-001::host-a', 'bundle::b1::host-b']);
+      expect(mockArchiveByGroupKeys).toHaveBeenCalledWith(['standalone::uuid-001::host-a', 'bundle::b1::host-b'], undefined);
     });
   });
 
@@ -381,7 +400,7 @@ describe('analytics routes', () => {
       expect(res.status).toBe(200);
       expect(res.body.success).toBe(true);
       expect(res.body.archived).toBe(15);
-      expect(mockArchiveByDateRange).toHaveBeenCalledWith('2025-01-01T00:00:00Z');
+      expect(mockArchiveByDateRange).toHaveBeenCalledWith('2025-01-01T00:00:00Z', undefined);
     });
   });
   describe('GET /api/analytics/error-rate/trend', () => {
@@ -473,6 +492,30 @@ describe('analytics routes', () => {
       expect(mockTestResults).toHaveBeenCalledWith(expect.objectContaining({ org: 'o1' }));
     });
 
+    it('/test-results/:uuid/stages rejects a malformed test id', async () => {
+      const res = await request(createApp()).get('/api/analytics/test-results/not-a-uuid/stages');
+      expect(res.status).toBe(400);
+      expect(res.body.success).toBe(false);
+      expect(mockTestFleet).not.toHaveBeenCalled();
+    });
+
+    it('/test-results/:uuid/stages returns the per-stage fleet results for the org', async () => {
+      const uuid = 'a1b2c3d4-0000-4000-8000-000000000001';
+      const body = { headline: { hostCount: 1, pairCount: 1, stoppedCount: 1, lastRunAt: '2025-01-12T00:00:00.000Z' }, stages: [], stoppedBeforeStage: 0 };
+      mockTestFleet.mockResolvedValue(body);
+      const res = await request(createApp()).get(`/api/analytics/test-results/${uuid}/stages?org=o1&threatActors=APT29`);
+      expect(res.status).toBe(200);
+      expect(res.body).toEqual(body);
+      expect(mockTestFleet).toHaveBeenCalledWith(expect.anything(), uuid, expect.objectContaining({ org: 'o1', threatActors: 'APT29' }));
+    });
+
+    it('/test-results/:uuid/stages forwards an upper-case test id lower-cased', async () => {
+      mockTestFleet.mockResolvedValue({ headline: { hostCount: 0, pairCount: 0, stoppedCount: 0, lastRunAt: null }, stages: [], stoppedBeforeStage: 0 });
+      const res = await request(createApp()).get('/api/analytics/test-results/A1B2C3D4-0000-4000-8000-00000000000F/stages');
+      expect(res.status).toBe(200);
+      expect(mockTestFleet).toHaveBeenCalledWith(expect.anything(), 'a1b2c3d4-0000-4000-8000-00000000000f', expect.anything());
+    });
+
     it('/chain-depth always uses the latest chain-depth method and ignores basis', async () => {
       const body = { chains: 1, buckets: [], endToEnd: 1, endToEndAlerted: 0, endToEndBundleNames: ['Chain One'] };
       mockChainDepth.mockResolvedValue(body);
@@ -486,6 +529,48 @@ describe('analytics routes', () => {
         expect(r.status).toBe(200);
       }
       expect(mockChainDepth).toHaveBeenCalledTimes(3);
+    });
+  });
+
+  describe('outcome breakdown', () => {
+    it('/outcome-breakdown returns the service result and does not pass basis', async () => {
+      const body = { pairCount: 3, protected: 1, prevented: 1, detected: 0, silent: 1, noConclusive: 0, riskAccepted: 0, windowLabel: 'Last 30 days' };
+      mockOutcomeBreakdown.mockResolvedValue(body);
+      const res = await request(createApp()).get('/api/analytics/outcome-breakdown?basis=executions&org=o1');
+      expect(res.status).toBe(200);
+      expect(res.body).toEqual(body);
+      const arg = mockOutcomeBreakdown.mock.calls[0][0];
+      expect(arg).toEqual(expect.objectContaining({ org: 'o1' }));
+      expect(arg.basis).toBeUndefined();
+    });
+  });
+
+  describe('executions verdict filter', () => {
+    beforeEach(() => {
+      mockGetSettings.mockReturnValue({ configured: true, connectionType: 'direct', node: 'http://localhost:9200' });
+      mockGetPaginatedExecutions.mockResolvedValue({ data: [] });
+      mockGetGroupedPaginatedExecutions.mockResolvedValue({ groups: [] });
+    });
+
+    it('rejects an unknown verdict with 400', async () => {
+      const res = await request(createApp()).get('/api/analytics/executions/paginated?verdict=bogus');
+      expect(res.status).toBe(400);
+      expect(res.body).toEqual({ success: false, error: 'Invalid verdict' });
+      expect(mockGetPaginatedExecutions).not.toHaveBeenCalled();
+    });
+
+    it('passes a valid verdict through (flat and grouped)', async () => {
+      const flat = await request(createApp()).get('/api/analytics/executions/paginated?verdict=silent');
+      expect(flat.status).toBe(200);
+      expect(mockGetPaginatedExecutions).toHaveBeenCalledWith(expect.objectContaining({ verdict: 'silent' }));
+      const grouped = await request(createApp()).get('/api/analytics/executions/paginated?verdict=detected&grouped=true');
+      expect(grouped.status).toBe(200);
+      expect(mockGetGroupedPaginatedExecutions).toHaveBeenCalledWith(expect.objectContaining({ verdict: 'detected' }));
+    });
+
+    it('leaves verdict undefined when absent', async () => {
+      await request(createApp()).get('/api/analytics/executions/paginated');
+      expect(mockGetPaginatedExecutions.mock.calls[0][0].verdict).toBeUndefined();
     });
   });
 

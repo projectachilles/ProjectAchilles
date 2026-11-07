@@ -5,7 +5,6 @@ export interface TestMetadata {
   name: string;
   category?: string;           // Category folder: cyber-hygiene, intel-driven, etc.
   subcategory?: string;        // More specific classification
-  severity?: string;           // critical, high, medium, low
   techniques: string[];        // MITRE ATT&CK techniques (T1xxx)
   tactics?: string[];          // MITRE ATT&CK tactics (TA00xx)
   target?: string[];            // Target platforms: windows-endpoint, linux-server, entra-id, etc.
@@ -17,6 +16,7 @@ export interface TestMetadata {
   unit?: string;               // Test unit identifier
   score?: number;
   scoreBreakdown?: ScoreBreakdown;
+  validatorDescriptions?: Record<string, string>; // bundle tests: validator name → description
   isMultiStage: boolean;
   stages: StageInfo[];
   description?: string;
@@ -57,6 +57,8 @@ export interface ScoreBreakdown {
 export interface StageInfo {
   stageId: number;
   technique: string;
+  /** Every technique the stage performs, `technique` first (backend may omit on older payloads). */
+  techniques?: string[];
   name: string;
   fileName: string;
 }
@@ -67,6 +69,19 @@ export interface TestFile {
   type: 'go' | 'powershell' | 'markdown' | 'html' | 'bash' | 'kql' | 'yara' | 'sigma' | 'ndjson' | 'yaml' | 'other';
   size: number;
   category: 'source' | 'documentation' | 'diagram' | 'config' | 'detection' | 'defense' | 'references' | 'other';
+}
+
+export interface TestOverview {
+  expectedOutcomes?: { label: string; code?: number; text: string }[];
+  safety?: string[];                    // ≤ 5 plain-text bullets
+  safetySource?: string;                // file name to open for "Full safety →"
+  quality?:
+    | { rubric: 'v2.1'; realism: number; structure: number; validation?: string }
+    | { rubric: 'legacy'; breakdown: ScoreBreakdown; validation?: string };
+  detectionAudit?: { stage?: number; primitive: string; sensor: string; pattern: string }[];
+  labStageOutcomes?: { stage: number; outcome: 'blocked' | 'ran' | 'error'; detail: string }[];
+  primarySource?: { title: string; url?: string; publisher?: string; date?: string };
+  stageBudgetsSec?: Record<number, number>;
 }
 
 export interface TestDetails extends TestMetadata {
@@ -81,6 +96,7 @@ export interface TestDetails extends TestMetadata {
   hasDetectionFiles: boolean;
   hasDefenseGuidance: boolean;
   hasReferences: boolean;
+  overview?: TestOverview;
 }
 
 export interface FileContent {

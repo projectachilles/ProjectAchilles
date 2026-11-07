@@ -69,6 +69,14 @@ describe('useAnalyticsFilters', () => {
       expect(result.current.filters.bundleNames).toEqual([]);
     });
 
+    it('ignores a legacy ?severities= param', () => {
+      const { result } = renderHook(() => useAnalyticsFilters(), { wrapper: wrapperWithParams('severities=high&result=protected') });
+
+      expect(result.current.filters.result).toBe('protected');
+      expect(result.current.filters).not.toHaveProperty('severities');
+      expect(result.current.activeFilterCount).toBe(1);
+    });
+
     it('initializes bundleNames from URL', () => {
       const { result } = renderHook(
         () => useAnalyticsFilters(),

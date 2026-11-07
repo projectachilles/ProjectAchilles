@@ -190,6 +190,7 @@ export default function SentinelOneTab({ dateRange }: SentinelOneTabProps) {
         </div>
         <div>
           <CoverageHeroTile
+            vendor={vendor}
             coverage={data?.coverage ?? null}
             loading={loading}
             failed={!!data?.coverageFailed}

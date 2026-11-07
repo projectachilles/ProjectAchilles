@@ -33,6 +33,18 @@ describe('acceptApiKey()', () => {
     for (const p of READ_ONLY_PERMISSIONS) expect(perms.has(p)).toBe(true);
   });
 
+  it.each([['default'], [null]])('a key stored with org_id %s (created without an organization) carries no org', async (orgId) => {
+    const { generateApiKey } = await import('../../services/apiKeys/apiKeys.service.js');
+    const { acceptApiKey } = await import('../apiKeyAuth.middleware.js');
+    const created = generateApiKey({ name: 'k', scope: 'read', createdBy: 'u', orgId: orgId as string | null });
+
+    const req: any = { headers: { authorization: `Bearer ${created.key}` } };
+    acceptApiKey()(req, {} as any, vi.fn());
+    expect(req.auth.userId).toBe(`apikey:${created.id}`);
+    expect(req.auth.orgId).toBeUndefined();
+    expect(req.auth.sessionClaims.org_id).toBeUndefined();
+  });
+
   it('attaches operator permissions for a read-write-scope key', async () => {
     const { generateApiKey } = await import('../../services/apiKeys/apiKeys.service.js');
     const { acceptApiKey } = await import('../apiKeyAuth.middleware.js');

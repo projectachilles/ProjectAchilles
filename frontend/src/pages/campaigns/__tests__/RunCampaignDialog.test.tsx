@@ -76,7 +76,7 @@ describe('RunCampaignDialog', () => {
     expect(screen.getByRole('button', { name: /Run|Starting/ })).toBeDisabled();
     expect(api.startRun).toHaveBeenCalledWith('c1', { org_id: 'org-1' });
     resolve({ run_id: 'r9' });
-    await waitFor(() => expect(nav).toHaveBeenCalledWith('/campaigns/runs/r9'));
+    await waitFor(() => expect(nav).toHaveBeenCalledWith('/tasks/campaigns/runs/r9'));
   });
 
   it('on 409 shows the list and Run the rest resends with confirm_partial', async () => {
@@ -89,7 +89,7 @@ describe('RunCampaignDialog', () => {
     await user.click(screen.getByRole('button', { name: 'Run' }));
     await user.click(await screen.findByRole('button', { name: 'Run the rest' }));
     expect(api.startRun).toHaveBeenLastCalledWith('c1', { org_id: 'org-1', confirm_partial: true });
-    await waitFor(() => expect(nav).toHaveBeenCalledWith('/campaigns/runs/r2'));
+    await waitFor(() => expect(nav).toHaveBeenCalledWith('/tasks/campaigns/runs/r2'));
   });
 
   it('blocks a second launch while one is in flight, including via Cancel', async () => {

@@ -3,13 +3,12 @@ import { render, screen, waitFor, within } from '@testing-library/react';
 import { MemoryRouter } from 'react-router-dom';
 import type { TestMetadata } from '@/types/test';
 
-const mk = (uuid: string, severity: string, category = 'intel-driven'): TestMetadata => ({
+const mk = (uuid: string, category = 'intel-driven'): TestMetadata => ({
   uuid,
   name: `test ${uuid}`,
   techniques: [],
   isMultiStage: false,
   stages: [],
-  severity,
   category,
 });
 
@@ -18,9 +17,9 @@ const analytics = vi.hoisted(() => ({ configured: false }));
 vi.mock('@/services/api/browser', () => ({
   browserApi: {
     getAllTests: vi.fn(async () => [
-      mk('a', 'critical'),
-      mk('b', 'high'),
-      mk('c', 'low', 'cyber-hygiene'),
+      mk('a'),
+      mk('b'),
+      mk('c', 'cyber-hygiene'),
     ]),
     getBuiltTestUuids: vi.fn(async () => []),
   },

@@ -118,3 +118,4 @@ deploy/onprem/*.sh
 # Windows appliance image build
 appliance/out/
 !appliance/build/
+sim-keys.json

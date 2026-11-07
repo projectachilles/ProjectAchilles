@@ -48,6 +48,8 @@ Each agent has **at most one** open update task: clicking **Update** again while
 
 ## Publishing a new version
 
+Agent versions are shared by the whole install: every agent updates to the newest version registered for its platform, whatever organization it belongs to. So when the install uses Clerk organizations, only an administrator who is not signed in to an organization can build, upload, register or delete a version. A user or API key in an organization can see the versions and update its own agents, but gets `403` when changing them.
+
 Go to **Settings → Agent**. There are two ways to publish.
 
 ### Build Agent Binary (recommended)
@@ -56,6 +58,7 @@ The server compiles the agent from the git repository in `AGENT_REPO_URL` (branc
 
 - The version you type is compiled into the binary, so its label and what it reports always match.
 - The version's release notes record the source commit, e.g. `Built from source (windows/amd64) at 1bbe749`. Check it against your repository before agents pick the version up.
+- **Docker and server installs build from the server's own checkout** (the repository folder the containers were started from), so run `git pull` there **before** Build from source. A build made first compiles the old code under the new version number. The release notes show the checked-out commit, and add `(source says 0.7.2)` when the agent version in the source differs from the version you typed. Agents that already installed such a build don't take a corrected rebuild of the same version; they update with the next version.
 - If the server can't reach the repository, the build **fails** rather than compiling possibly stale code.
 
 ### Upload Agent Binary

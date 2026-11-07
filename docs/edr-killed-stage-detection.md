@@ -69,7 +69,16 @@ for unrelated reasons inside the same window — acceptable, and visible in the 
 **Load:** the scan set grows by error-category docs inside the 90-day lookback. Pass caps (200
 docs/pass, 60s) are unchanged; the pass is self-healing across cycles.
 
-### 2. Scoring — verdict display fixed here; Defense-Score widen deferred
+### 2. Scoring — verdict display fixed here; Defense Score widened Nov 7 2026
+
+**Update (Nov 7 2026):** the Defense Score now counts these stages. Its gate
+(`buildConclusiveResultsFilter`) is a conclusive code **or**
+`EDR_PREVENTED_ERROR_STAGE` (`reports/stageOutcome.ts`: an error code plus the
+stage's own prevention), so posture, the outcome breakdown, the error rate and
+the activity counts follow; chain depth treats such a stage as where the chain
+stopped. `is_protected` and the strict score are unchanged (an EDR save is on
+the combined side). `backend-serverless/` keeps the exit-code gate. The text
+below records the earlier state.
 
 **Correction (Oct 27 2026):** the earlier claim that flagging alone makes a killed stage count was
 wrong for per-stage verdicts. The stage verdict functions returned `inconclusive` as soon as the
@@ -79,6 +88,13 @@ now fixed in `reports/stageOutcome.ts` (`classifyStage` + `OUTCOME_FILTERS`) and
 backend-serverless twin: an error-coded stage upgrades to Prevented/Detected on **stage-level
 evidence only** (`*_stage_detected` + a confirmed `*_prevention_action`; never the bundle-level
 `*_prevented`/`*_detected` flags, which a sibling stage can set).
+
+**Update (Nov 7 2026):** "stage-level evidence" is now the enrichment pass's
+`*_stage_prevented` flag: `true` only when an alert naming the stage's own
+binary carried the action. `*_prevention_action` alone could have come from a
+bundle-wide alert (6 of 24 error-coded "Prevented" stages in production data).
+Docs enriched before the flag existed keep the old rule until they are
+re-checked (each one once, within the 90-day lookback).
 
 The **Defense Score** still filters to conclusive codes `[101,105,126,127]`
 (`analytics/elasticsearch.ts` `buildConclusiveResultsFilter`, `posture.ts` `CONCLUSIVE_CODES`)

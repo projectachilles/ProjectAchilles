@@ -2,8 +2,8 @@
  * EDR vendor registry, mirrored from backend/src/services/outcomes/vendors.ts
  * (a parity test reads the backend file, so change both together). Every
  * vendor here has an enrichment pass writing `<key>_detected`,
- * `<key>_stage_detected`, `<key>_prevented` and `<key>_prevention_action` on
- * result rows; verdict copy, stage badges and the report iterate this list.
+ * `<key>_stage_detected`, `<key>_prevented`, `<key>_prevention_action` and
+ * `<key>_stage_prevented` on result rows; verdict copy, stage badges and the report iterate this list.
  *
  * Display names are verbatim from before the registry existed:
  * `name` verdict copy, `label` reports and emails, `productName` report
@@ -84,9 +84,12 @@ export function edrVendorName(key: string): string {
   return findEdrVendor(key)?.name ?? key;
 }
 
-/** The per-vendor enrichment flags on a result row. */
+/**
+ * The per-vendor enrichment flags on a result row. `<key>_stage_prevented` is
+ * absent (not false) on rows enriched before it existed.
+ */
 export type EdrResultFlags =
-  { [K in EdrVendorKey as `${K}_detected` | `${K}_stage_detected` | `${K}_prevented`]?: boolean }
+  { [K in EdrVendorKey as `${K}_detected` | `${K}_stage_detected` | `${K}_prevented` | `${K}_stage_prevented`]?: boolean }
   & { [K in EdrVendorKey as `${K}_prevention_action`]?: string };
 
 /** Bundle-group rollups of the vendor flags (e.g. `crowdstrikePrevented`). */

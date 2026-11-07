@@ -71,6 +71,11 @@ function LegacyTestRedirect() {
   return <Navigate to={`/tests/${uuid}`} replace />;
 }
 
+function LegacyCampaignRunRedirect() {
+  const { runId } = useParams();
+  return <Navigate to={`/tasks/campaigns/runs/${runId}`} replace />;
+}
+
 function LegacyAgentRedirect() {
   const { agentId } = useParams();
   return <Navigate to={`/agents/${agentId}`} replace />;
@@ -138,9 +143,11 @@ export default function AppRouter() {
         <Route element={<RequireModule module="endpoints"><Outlet /></RequireModule>}>
           <Route path="agents" element={<AgentsPage />} />
           <Route path="agents/:agentId" element={<AgentDetailPage />} />
+          {/* Tasks sections: Runs, Schedules, Campaigns (TasksSectionTabs) */}
           <Route path="tasks" element={<TasksPage />} />
-          <Route path="campaigns" element={<RequireCapability capability="campaigns"><CampaignsPage /></RequireCapability>} />
-          <Route path="campaigns/runs/:runId" element={<RequireCapability capability="campaigns"><CampaignRunPage /></RequireCapability>} />
+          <Route path="tasks/schedules" element={<TasksPage />} />
+          <Route path="tasks/campaigns" element={<RequireCapability capability="campaigns"><CampaignsPage /></RequireCapability>} />
+          <Route path="tasks/campaigns/runs/:runId" element={<RequireCapability capability="campaigns"><CampaignRunPage /></RequireCapability>} />
         </Route>
 
         {/* Settings */}
@@ -158,6 +165,9 @@ export default function AppRouter() {
           <Route path="agents/:agentId" element={<LegacyAgentRedirect />} />
           <Route path="tasks" element={<RedirectWithSearch to="/tasks" />} />
         </Route>
+        {/* Campaigns moved under Tasks; old links (bookmarks, emails) keep working */}
+        <Route path="campaigns" element={<Navigate to="/tasks/campaigns" replace />} />
+        <Route path="campaigns/runs/:runId" element={<LegacyCampaignRunRedirect />} />
 
         {/* Fallback */}
         <Route path="*" element={<Navigate to="/dashboard" replace />} />

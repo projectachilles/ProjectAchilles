@@ -474,6 +474,35 @@ describe('tasks routes', () => {
     });
   });
 
+  describe('GET /admin/tasks/grouped breakdown', () => {
+    const seedExit = (id: string, exit: number) =>
+      testDb.prepare(`
+        INSERT INTO tasks (id, agent_id, org_id, type, status, payload, created_by, ttl, batch_id, completed_at, result)
+        VALUES (?, 'agent-001', 'org-001', 'execute_test', 'completed', '{}', 'u', 604800, ?, datetime('now', '-1 day'), ?)
+      `).run(id, id, JSON.stringify({ exit_code: exit, stdout: '', stderr: '', execution_duration_ms: 1 }));
+
+    it('passes breakdown=exit:260 through', async () => {
+      seedExit('x1', 260);
+      seedExit('x2', 126);
+      const res = await request(createApp()).get('/admin/tasks/grouped?breakdown=exit:260');
+      expect(res.status).toBe(200);
+      expect(res.body.data.groups.map((g: { batch_id: string }) => g.batch_id)).toEqual(['x1']);
+    });
+
+    it.each(['exit:3221225477', 'exit:-1073741819'])('accepts %s', async (key) => {
+      seedExit('x1', Number(key.slice(5)));
+      const res = await request(createApp()).get(`/admin/tasks/grouped?breakdown=${key}`);
+      expect(res.status).toBe(200);
+      expect(res.body.data.total).toBe(1);
+    });
+
+    it.each(['drop table', 'exit:12345678901', 'stage:', 'failed:nope'])('rejects %s', async (key) => {
+      const res = await request(createApp()).get(`/admin/tasks/grouped?breakdown=${encodeURIComponent(key)}`);
+      expect(res.status).toBe(400);
+      expect(res.body).toEqual({ success: false, error: 'Invalid breakdown' });
+    });
+  });
+
   describe('GET /admin/tasks/grouped requester', () => {
     it('names who requested each task instead of returning the raw id', async () => {
       testDb.prepare(
@@ -518,11 +547,11 @@ describe('tasks routes', () => {
       insertTestTask(testDb, { id: 't-other', batch_id: 'b-other', agent_id: 'agent-b', org_id: 'org-002', created_by: 'user_jane' });
     });
 
-    it('shows user admins the name and email, for their own org only', async () => {
+    it('shows user admins the name and email; another org\'s tasks are not listed', async () => {
       const res = await request(appAs({ orgId: 'org-001' })).get('/admin/tasks/grouped');
       expect(res.status).toBe(200);
       expect(labels(res)['t-own']).toBe('Jane Doe (jane@example.com)');
-      expect(labels(res)['t-other']).toBeNull();
+      expect(labels(res)).not.toHaveProperty('t-other');
     });
 
     it('shows the name without the email to callers who cannot manage users', async () => {

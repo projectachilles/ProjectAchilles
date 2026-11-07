@@ -14,12 +14,14 @@ import { alertDocs, alertFacets, allOf, LINKED, firstString, severityFilter, sou
 import type { AlertFacetCounts, AlertSource, TimeWindow } from '../analytics/integration-window.js';
 import { resolveTestNames } from '../analytics/test-name-lookup.js';
 import { getTechniqueCoverage } from '../analytics/technique-coverage.js';
+import { resolveVendorHostScope } from '../edr/vendor-host-scope.js';
 import type { TechniqueCoverageResponse } from '../analytics/technique-coverage.js';
 import type { Client } from '@elastic/elasticsearch';
 import type {
   QueryDslQueryContainer,
 } from '@elastic/elasticsearch/lib/api/types.js';
 import type { DetectionRateResponse, RelatedAlertsResponse } from '../../types/defender.js';
+import { techniqueMatchClauses } from '../../data/techniqueAliases.js';
 
 // ---------------------------------------------------------------------------
 // Response types
@@ -167,10 +169,7 @@ function recentAlertClauses(days: number): QueryDslQueryContainer[] {
 function techniqueMatch(techniques: string[]): QueryDslQueryContainer {
   return {
     bool: {
-      should: techniques.flatMap((t) => [
-        { term: { mitre_techniques: t } },
-        { prefix: { mitre_techniques: `${t}.` } },
-      ]),
+      should: techniqueMatchClauses('mitre_techniques', techniques),
       minimum_should_match: 1,
     },
   };
@@ -400,10 +399,8 @@ export class DefenderAnalyticsService {
     if (techniques && techniques.length > 0) {
       // Match exact technique (e.g. T1059) and any sub-technique (T1059.001, T1059.003 …)
       // without false-positives like T10590. The trailing dot in the prefix is load-bearing.
-      const should: QueryDslQueryContainer[] = techniques.flatMap((t) => [
-        { term: { mitre_techniques: t } },
-        { prefix: { mitre_techniques: `${t}.` } },
-      ]);
+      // ATT&CK renumbering counts as the same technique (data/techniqueAliases.ts).
+      const should: QueryDslQueryContainer[] = techniqueMatchClauses('mitre_techniques', techniques);
       must.push({ bool: { should, minimum_should_match: 1 } });
     }
 
@@ -794,11 +791,14 @@ export class DefenderAnalyticsService {
    */
   async getTechniqueCoverage(window: TimeWindow): Promise<TechniqueCoverageResponse> {
     const { client, settings } = this.getEsContext();
+    // Count only the hosts this EDR covers (see edr/vendor-host-scope.ts).
+    const hostScope = await resolveVendorHostScope(client, 'defender', DEFENDER_INDEX);
     return getTechniqueCoverage(client, {
       vendor: 'defender',
       resultsIndex: settings.indexPattern,
       alertIndex: DEFENDER_INDEX,
       window,
+      hostScope,
     });
   }
 

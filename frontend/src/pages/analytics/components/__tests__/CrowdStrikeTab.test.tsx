@@ -87,6 +87,7 @@ const coverage = {
     { technique: 'T1059', name: 'Command and Scripting Interpreter', executions: 10, prevented: 5, detectedOnly: 3, missed: 2, alerts: 8 },
     { technique: 'T1003', name: null, executions: 5, prevented: 0, detectedOnly: 0, missed: 5, alerts: 0 },
   ],
+  scope: { source: 'alerts', hosts: 4 },
 };
 
 function mockHappyPath() {
@@ -231,8 +232,9 @@ describe('CrowdStrikeTab', () => {
     expect(screen.getByText('5.1')).toBeInTheDocument();
     expect(screen.getByText('% prevented')).toBeInTheDocument();
     expect(
-      screen.getByText('8 / 98 executions raised an alert · 5 were stopped'),
+      screen.getByText('8 / 98 test results raised an alert · 5 were stopped'),
     ).toBeInTheDocument();
+    expect(screen.getByText('on 4 hosts with a CrowdStrike alert in 90 days')).toBeInTheDocument();
     expect(screen.getByRole('img', { name: '1 of 2 techniques detected' })).toBeInTheDocument();
   });
 

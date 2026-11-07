@@ -1,0 +1,130 @@
+---
+title: "Achilles 2.9: 3,000 Agents on Half a CPU"
+description: "How we found and removed the limits that kept Achilles fleets small, and how to reproduce the numbers on your own hardware."
+date: "2026-11-02"
+tags:
+  - release
+  - performance
+  - scale
+  - agents
+  - elasticsearch
+author: james
+lang: en
+translationKey: release-2-9-performance-scale
+---
+
+## TL;DR
+
+- Before 2.9, a backend on the smallest hosted instance (0.5 CPU) started losing agents after every deploy at about 110 agents.
+- In 2.9, the same instance serves 3,000 simulated agents at p95 3 ms, and restarting it with all of them connected marks none offline.
+- On live installs, an agent poll went from 728 ms to 2–3 ms.
+- We also fixed the next four limits we were about to hit: per-IP throttling behind a NAT, a SQLite database that only grew, shards piling up on single-node Elasticsearch clusters, and test-binary download bursts.
+- The load test ships with the release, so you can check every number in this post on your own hardware.
+
+---
+
+## The Question That Started It
+
+We were growing agent counts on the installs we run (Docker on-prem, Render and Fly.io) and wanted to know how far each one could grow and what resources it would need.
+
+Answering that honestly meant measuring, not guessing. An agent is cheap: it asks for work every 30 seconds and sends a heartbeat every 60, about 3 requests a minute. At steady state, a thousand agents are only about 50 requests a second. Steady state was never the problem.
+
+## The Restart Storm
+
+Every agent request is authenticated with the agent's API key, stored as a bcrypt hash (cost 12). bcrypt is slow on purpose: 0.4 to 0.7 seconds of CPU on half a core. The backend remembered a verified key in memory for 30 seconds, exactly the poll interval, so in practice nearly every poll re-ran bcrypt. Worse, after every restart or deploy the cache was empty, and the next request from **every** agent ran bcrypt at the same moment.
+
+bcrypt runs on Node's main thread. While a few hundred compares queue up, nothing else is served, heartbeats included. An agent that isn't heard from for 180 seconds is marked offline. The deploy itself knocked the fleet offline, and the bigger the fleet, the longer the outage. On the smallest hosted instance our estimate put the ceiling at about 110 agents.
+
+The load test made it concrete. 1,000 agents with bcrypt-only keys, on a container capped at 0.5 CPU / 512 MB:
+
+| Minute | p95 latency | Agents silent > 180 s |
+|---:|---:|---:|
+| 1 | 47 s | 0 |
+| 3 | 118 s | 571 |
+| 5 | 182 s | 323 |
+| 7 | 113 s | 0 |
+| 8 | 3 ms | 0 |
+
+For about six minutes, up to 571 of the 1,000 agents showed offline at once.
+
+### The Fix
+
+Once an agent's key passes bcrypt, the backend stores an HMAC-SHA256 digest of it in a new table, bound to the exact bcrypt hash it was proven against. Later requests, including those after a restart, check the digest, which costs microseconds. If the key is rotated, the bcrypt hash changes and the old digest stops matching; while a rotation is pending, the digest isn't used. Concurrent requests from the same agent also share one bcrypt compare instead of each starting their own.
+
+The bcrypt hash is untouched, which keeps the upgrade reversible: roll back to 2.8 and agents keep authenticating.
+
+There was a second hidden cost in every poll. Agent keys start with `ak_`, which is also the prefix of Clerk's API keys, and Clerk's middleware sent every poll to Clerk to verify it (about 140 ms each time). Clerk now only sees JWT-shaped tokens. Together, the two fixes took a poll from 728 ms to 2–3 ms on live installs.
+
+The result with 3,000 agents (about 150 requests a second), on the same 0.5 CPU container, restarted mid-run:
+
+| Minute | Requests | p95 | Max | Agents silent > 180 s |
+|---:|---:|---:|---:|---:|
+| 1 (cold start) | 8,979 | 494 ms | 6.7 s | 0 |
+| 3 | 9,040 | 3 ms | 93 ms | 0 |
+| 4 (restart) | 8,988 | 3 ms | 502 ms | 0 |
+| 5 | 8,984 | 3 ms | 86 ms | 0 |
+
+The only errors were the 307 requests refused during the few seconds the process was down.
+
+---
+
+## The Next Four Walls
+
+Fixing the storm moves the bottleneck somewhere else, so we went looking for what would break next.
+
+**Agents behind one NAT.** A rate limiter meant for CLI tokens (60 requests a minute per IP) also counted agent traffic. At about 3 requests a minute per agent, more than about 20 agents behind one office NAT, proxy or VPN started getting 429s and went offline. The load test found it on its first attempt. Agent routes now skip that limiter. They keep their per-agent limiter, and a new per-IP guard counts only authentication failures from agent IDs the server doesn't know: a burst of fake keys is still capped at 60 a minute per IP, without punishing a real office.
+
+**A database that only grew.** Every task result kept its full output (about 15 KB) forever, and every agent logged about ten events a day. Now, every hour, finished tasks older than 90 days (`TASK_OUTPUT_RETENTION_DAYS`) drop their stdout, but only once the result is in Elasticsearch. Old agent events are pruned (`AGENT_EVENT_RETENTION_DAYS`). Admin shell-command output is never compacted.
+
+**Shards on single-node clusters.** Achilles created its indices with Elasticsearch's default of 1 replica. On a one-node cluster that replica can never be assigned: the cluster stays yellow and the shard count grows with every index. With daily rollover (one index per testing day) the problem multiplies; on one install we folded 30 daily indices into 3 monthly ones. New indices are created with `auto_expand_replicas: 0-1`: no replica on one node, one replica when a second data node exists.
+
+**Download bursts.** When a schedule targeted many agents, every one of them downloaded its test binary in the same poll window. There is now a per-minute budget (`AGENT_DOWNLOAD_BUDGET_MB_PER_MIN`, 1,500 MB by default). An agent over the budget gets "no task" and picks it up at its next poll. At the default, a 30-minute window covers about 2,600 agents with a 17 MB binary.
+
+---
+
+## Upgrading to 2.9
+
+- **First start:** each agent's next request runs one bcrypt to record its digest; after that, restarts cost nothing. Small fleets finish in seconds. About 1,000 agents on half a CPU take about 6 minutes, and some may briefly show offline. Upgrade large fleets off-hours.
+- **Existing indices:** they keep their replica setting. Run this once to turn a single-node cluster green:
+
+```
+PUT achilles-*,archived-achilles*/_settings
+{"index.auto_expand_replicas":"0-1"}
+```
+
+- **Rollover:** on small or shared clusters, choose **Monthly** or **None** in Analytics settings.
+- **Agents:** no update needed; they stay on 0.7.2.
+- **Known limitation:** *Update All* doesn't pace updates yet. On large fleets, update in batches.
+
+---
+
+## Check It Yourself
+
+The load test is `backend/scripts/load/agent-fleet-sim.ts`. It simulates N agents at the real poll and heartbeat cadence, and every minute it reports latency, errors and agents silent for more than 180 s. It needs no Elasticsearch, Clerk or real agents.
+
+```bash
+cd backend
+# 1. Seed a FRESH database (never ~/.projectachilles)
+npx tsx scripts/load/agent-fleet-sim.ts --base http://localhost:3000 \
+  --db /tmp/sim/agents.db --agents 1000 --minutes 1 --seed-only
+
+# 2. Start the backend capped like a small instance
+docker build -t achilles-sim-backend .
+docker run -d --name sim-backend --cpus=0.5 --memory=512m \
+  --user "$(id -u):$(id -g)" -e HOME=/home/sim --env-file sim.env \
+  -v /tmp/sim:/home/sim/.projectachilles -p 3000:3000 achilles-sim-backend
+
+# 3. Run the fleet (also try: docker restart sim-backend)
+npx tsx scripts/load/agent-fleet-sim.ts --base http://localhost:3000 \
+  --db /tmp/sim/agents.db --agents 1000 --minutes 15
+```
+
+The [load-test README](https://github.com/projectachilles/ProjectAchilles/blob/main/backend/scripts/load/README.md) explains what goes in `sim.env` and has the full tables. The [release notes](https://github.com/projectachilles/ProjectAchilles/releases/tag/v2.9.0) have the complete list of changes.
+
+---
+
+## What We Learned
+
+- **Measure the restart, not just the steady state.** At 3 requests a minute per agent, steady state looked solved. The failure was in the minute after every deploy.
+- **A slow hash on the hot path works until something empties the cache.** A 30-second in-memory cache hid bcrypt's cost right up to the moment it mattered most.
+- **Every fix moves the bottleneck.** Without the load test, we would have shipped the storm fix with the NAT limit still in it.

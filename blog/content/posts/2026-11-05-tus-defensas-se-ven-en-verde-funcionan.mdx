@@ -1,0 +1,124 @@
+---
+title: "Tus defensas se ven en verde. ¿Funcionan?"
+description: "Cómo Project Achilles ejecuta técnicas de ataque reales en tus propios endpoints cada día, y convierte los resultados en evidencia que tu SOC y los responsables de riesgo pueden usar."
+date: "2026-11-05"
+tags:
+  - purple-team
+  - continuous-validation
+  - edr
+  - mitre-attack
+  - risk-management
+author: james
+lang: es
+translationKey: how-achilles-works
+---
+
+## TL;DR
+
+- Los paneles de seguridad muestran lo que está instalado y habilitado. No pueden decirte si una cadena de ransomware sería detenida hoy en un equipo concreto.
+- Project Achilles responde esa pregunta ejecutando técnicas reales de MITRE ATT&CK en tus propios endpoints, de forma programada, y registrando lo que pasó: bloqueada, vista o ignorada.
+- Cada ejecución termina en uno de cinco veredictos. Cada veredicto combina el código de salida de la prueba con las alertas obtenidas de Microsoft Defender, CrowdStrike, SentinelOne y Sophos.
+- El Defense Score conserva solo el resultado más reciente de cada prueba en cada equipo, así que una corrección se refleja en cuanto la prueba vuelve a ejecutarse.
+- Construimos una explicación interactiva que muestra el ciclo completo en movimiento: **[docs.projectachilles.io/how-it-works](https://docs.projectachilles.io/how-it-works/)** (en inglés).
+
+---
+
+## Un patrón que vemos una y otra vez
+
+Suele ocurrir así. Hay un EDR desplegado en todos los endpoints, su consola muestra todos los agentes sanos y el informe trimestral dice que la cobertura está bien. Entonces alguien ejecuta una prueba de volcado de credenciales contra un servidor de archivos, y termina sin un solo bloqueo.
+
+Nadie hizo nada mal. Meses antes, durante una caída, la política de ese servidor se pasó a solo detección "por un día" y nunca se revirtió. La consola siguió en verde todo ese tiempo, porque informa que el sensor está instalado y funcionando. No informa si el sensor detiene algo.
+
+Esa brecha, entre la cobertura que supones y la que realmente tienes, es lo que mide Project Achilles.
+
+## Los controles se desvían, y nada lo anuncia
+
+![La cobertura supuesta se mantiene plana cerca del 95% todo el año, mientras que la cobertura medida cae tras un cambio de política en marzo, una exclusión de carpeta en junio y una nueva técnica de ransomware en septiembre. El pentest anual solo ve enero.](/how-it-works/drift.png)
+
+*Datos ilustrativos.*
+
+Tres tipos de cambio causan la mayor parte del daño:
+
+- **Cambios de política.** El modo de bloqueo pasa a solo detección durante un incidente o tras una queja de rendimiento.
+- **Exclusiones.** Una exclusión amplia de carpeta resuelve una aplicación lenta, y cada binario en esa carpeta se vuelve invisible para el sensor.
+- **Técnicas nuevas.** Un grupo de ransomware empieza a cargar un driver firmado vulnerable (BYOVD) para matar el sensor, una técnica para la que tu política nunca se ajustó.
+
+Una prueba de penetración anual describe el entorno el día en que se hizo. Todo lo que cambia después queda sin medir hasta la siguiente. La validación continua vuelve a ejecutar las mismas técnicas de forma programada, así que la desviación aparece en un día y no en un año.
+
+## Mide lo que pasa, no lo que está instalado
+
+Achilles tiene tres partes:
+
+- **Una biblioteca de pruebas** de unas 65 pruebas mapeadas a ATT&CK, sincronizada desde Git. La mayoría (44) son cadenas de varias etapas construidas a partir de inteligencia de amenazas publicada, como la cadena BYOVD de Akira, el bypass de UAC de SafePay, EDRSilencer y un infostealer para macOS. Otras 10 cubren las 10 técnicas de ransomware más comunes según MITRE, desde la ejecución con PowerShell y WMI hasta borrar copias de seguridad y cifrar archivos. Los 12 restantes son paquetes de configuración que verifican líneas base de CIS e identidad, control por control.
+- **Un agente pequeño en Go** para Windows, Linux y macOS. Nunca escucha en un puerto, así que funciona detrás de NAT y de firewalls estrictos. Antes de ejecutar una prueba, comprueba el SHA-256 y el tamaño del binario contra el registro de la consola; en Windows, además, los binarios se firman con Authenticode usando tu certificado cuando hay uno configurado.
+- **Una consola** que programa las ejecuciones, guarda cada resultado en Elasticsearch y obtiene las alertas de tu EDR.
+
+Cada prueba ejecuta la técnica de verdad, de forma controlada, y termina con un código. 101 significa que se ejecutó por completo; 105, 126 y 127 significan que algo la puso en cuarentena o la bloqueó. Las pruebas de varias etapas reportan cada etapa por separado, así que ves hasta dónde llega un ataque, no solo si alguien lo notó.
+
+![Una cadena de ransomware de cinco etapas contra un EDR en modo solo detección: todas las etapas se ejecutaron, tres generaron alertas y la cadena llegó al cifrado de archivos.](/how-it-works/chain.png)
+
+Este ejemplo ilustrativo es una cadena de ransomware de cinco etapas contra un EDR en modo solo detección. Todas las etapas se ejecutaron. Tres generaron alertas, así que el SOC las habría visto, pero nada detuvo la cadena antes de llegar al cifrado. Con el mismo EDR en modo de bloqueo, esta cadena se detiene en la etapa 2. Es el mismo producto y la misma prueba; la única diferencia es una configuración.
+
+## “Detectado” no es “bloqueado”
+
+![Los cinco veredictos, del más fuerte al más débil: Protected, Prevented, Detected, Unprotected y Error.](/how-it-works/verdicts.png)
+
+El código de salida dice qué pasó en el endpoint. Las alertas del EDR dicen qué vio el SOC. Achilles combina ambos y se queda con el resultado más fuerte, así que cada ejecución termina en exactamente un veredicto.
+
+La línea entre Detected y Protected importa. Una detección le da a un analista la oportunidad de responder, y eso es mejor que el silencio. Pero depende de que alguien actúe a tiempo, sobre la alerta correcta, quizás a las 3 de la mañana. Por eso el Defense Score, que cuenta tanto los resultados bloqueados como los confirmados por el EDR, viene acompañado de una puntuación más estricta que solo cuenta bloqueos. Cuando los dos números están muy separados, tu defensa depende más de las personas que de los controles.
+
+Los errores, como un tiempo de espera agotado o un requisito previo que falta, se reportan pero nunca se puntúan, así que una prueba rota no puede hacerte ver mejor ni peor de lo que estás.
+
+## Vincular una alerta con la prueba que la causó
+
+![Un árbol de procesos: el agente de Achilles inicia el binario de la prueba, que inicia cmd.exe, que inicia rundll32.exe. La alerta del EDR se dispara en rundll32.exe, y el binario de la prueba, con su UUID en el nombre, aparece en su evidencia y la vincula con la prueba.](/how-it-works/edr.png)
+
+Las alertas del EDR rara vez se disparan sobre el binario de la prueba. Se disparan sobre el programa de Windows que este inició: `cmd.exe`, `rundll32.exe`, `powershell.exe`. Los binarios de prueba llevan el UUID de la prueba en su nombre, así que Achilles busca ese nombre en la evidencia que el EDR adjunta a la alerta: el proceso que la disparó, su padre y su abuelo cuando el EDR los reporta, y las rutas de archivo. Una alerta se vincula cuando está en el mismo equipo, dentro de la ventana de tiempo de la ejecución, y ese UUID aparece en su evidencia.
+
+Una vez vinculada la alerta, pasan tres cosas:
+
+1. El veredicto de la ejecución sube, por ejemplo de Unprotected a Detected. Una etapa recibe su propia etiqueta Detected cuando la evidencia nombra el binario de esa etapa.
+2. La técnica que etiquetó el EDR se compara con la que la prueba realmente ejecutó.
+3. Si lo activas, la alerta se cierra en la consola del EDR como prueba de seguridad autorizada, para que un calendario diario no inunde la cola del SOC. El cierre automático tiene un modo de simulación y nunca modifica los resultados de las pruebas.
+
+## Puntuado sobre tu estado actual
+
+![La simulación inicial de la explicación interactiva: una prueba enviada a cuatro equipos con distintas configuraciones de EDR, cuyos resultados alimentan un Defense Score y una matriz de pruebas por equipo.](/how-it-works/hero.png)
+
+El Defense Score conserva solo el resultado concluyente más reciente de cada par prueba-equipo. Corrige una brecha y la puntuación se mueve la próxima vez que esa prueba se ejecute, en lugar de diluirse entre meses de fallos antiguos. Alrededor de la puntuación, Analytics desglosa los resultados por táctica de ATT&CK, por hasta dónde llegó cada cadena de ataque, por actor de amenazas y en el tiempo, junto a Microsoft Secure Score o la puntuación de postura de tu propio EDR.
+
+Cuando el negocio decide aceptar una brecha, puedes excluirla de la puntuación principal. La serie sin ajustar se mantiene al lado, así que un riesgo aceptado queda como una decisión registrada, no como una brecha que desapareció.
+
+## Principios de red team, todos los días
+
+| Principio | Qué hace Achilles |
+|---|---|
+| Emular al adversario | Las cadenas basadas en inteligencia reproducen las técnicas de grupos actuales etapa por etapa, incluido el abuso de drivers y la manipulación del EDR. |
+| Asumir la brecha | Las pruebas parten de código que ya se ejecuta en un endpoint, donde el EDR es la última línea de defensa. |
+| Medir resultados | Cada ejecución termina en un veredicto, a partir de códigos de salida más evidencia vinculada del EDR. |
+| Repetir de forma continua | Los calendarios y las campañas vuelven a ejecutar la biblioteca; la puntuación refleja el resultado más reciente por equipo. |
+| Cerrar el ciclo con el blue team | Los avisos previos, la correlación de alertas y el cierre automático ponen la actividad roja y la telemetría azul lado a lado. |
+
+## Qué cambia para el SOC y para los responsables de riesgo
+
+**Para operaciones de seguridad:**
+
+- Cada técnica Unprotected es una brecha de detección concreta, con el equipo, el binario y la hora exactos para reproducirla.
+- Una corrección se demuestra, no se supone: cambia la política, vuelve a ejecutar la prueba y mira cómo cambia el veredicto el mismo día.
+- Las regresiones por una actualización del sensor, una nueva exclusión o una política revertida aparecen como una caída de la puntuación, con alertas por Slack o correo cuando cruza un umbral.
+
+**Para los responsables de riesgo:**
+
+- La efectividad de los controles se vuelve una afirmación medida ("las cadenas de ransomware se detienen antes del cifrado en el 85% de los equipos"), que se vuelve a medir cada semana.
+- La cobertura por actor de amenazas muestra, para cada grupo que emula tu biblioteca de pruebas, cuántas de sus pruebas pasaron hoy en tus equipos.
+- Las campañas producen una matriz de evidencia de pruebas por equipos, exportaciones CSV e informes de ejecución listos para imprimir, para auditores y la junta directiva.
+
+## Ejecutar ataques en producción, de forma segura
+
+Ejecutar técnicas ofensivas en endpoints reales solo funciona si la plataforma es segura de operar. Con los avisos previos a la ejecución activados, las pruebas se retienen en el servidor hasta que el correo al equipo de seguridad ha sido aceptado, más un margen que tú eliges. El hash de cada binario de prueba se verifica contra el registro de la consola antes de ejecutarlo, desde una carpeta de trabajo restringida a SYSTEM y Administradores. Cuatro roles separan a quienes solo consultan de quienes operan y administran. Dentro de una instalación, los resultados se limitan a cada organización; para una separación completa, usa una instalación por organización. Ninguna API key puede crear usuarios ni más claves.
+
+## Míralo en movimiento
+
+Las imágenes de arriba son fotogramas de una explicación interactiva que recorre el ciclo completo: pruebas ejecutándose contra endpoints, una cadena de ransomware que puedes repetir contra tres configuraciones de EDR, veredictos, analítica de postura y vinculación de alertas. **[Ábrela en el sitio de documentación](https://docs.projectachilles.io/how-it-works/)** (en inglés).
+
+Cuando quieras medir tu propio entorno, [Instala Project Achilles en 30 minutos](/posts/2026-07-07-instala-project-achilles-en-30-minutos) te guía desde cero.

@@ -131,7 +131,6 @@ export interface OrganizationInfo {
 // New Types for Enhanced Analytics
 // ============================================
 
-export type SeverityLevel = 'critical' | 'high' | 'medium' | 'low' | 'info';
 export type CategoryType = 'intel-driven' | 'mitre-top10' | 'cyber-hygiene' | 'phase-aligned';
 
 /**
@@ -141,13 +140,13 @@ export type CategoryType = 'intel-driven' | 'mitre-top10' | 'cyber-hygiene' | 'p
  * `<key>_stage_detected` (the alert names THIS stage's own binary; drives the
  * per-stage "Detected" badge; may be undefined on old docs, the UI then falls
  * back to the bundle flag), `<key>_prevented` (vendor-confirmed prevention,
- * subset of detected; drives "Prevented") and `<key>_prevention_action`
- * ('quarantined' | 'process_killed' | 'blocked').
+ * subset of detected; drives "Prevented"), `<key>_prevention_action`
+ * ('quarantined' | 'process_killed' | 'blocked') and `<key>_stage_prevented`
+ * (the action came from an alert naming THIS stage; absent on older rows).
  */
 export interface EnrichedTestExecution extends TestExecution, EdrResultFlags {
   category?: CategoryType;
   subcategory?: string;
-  severity?: SeverityLevel;
   techniques?: string[];
   tactics?: string[];
   target?: string;
@@ -205,20 +204,11 @@ export interface FilterOptionsResponse {
   techniques: string[];
   hostnames: FilterOption[];
   categories: FilterOption[];
-  severities: FilterOption[];
   threatActors: FilterOption[];
   tags: FilterOption[];
   errorNames: FilterOption[];
   errorCodes: FilterOption[];
   bundleNames: FilterOption[];
-}
-
-export interface SeverityBreakdownItem {
-  severity: SeverityLevel;
-  score: number;
-  count: number;
-  protected: number;
-  unprotected: number;
 }
 
 export interface CategoryBreakdownItem {
@@ -342,7 +332,6 @@ export interface ExtendedFilterParams {
   techniques?: string;
   hostnames?: string;
   categories?: string;
-  severities?: string;
   threatActors?: string;
   tags?: string;
   errorNames?: string;
@@ -352,7 +341,22 @@ export interface ExtendedFilterParams {
   scoringMode?: 'all-stages' | 'any-stage';
 }
 
+/** Verdict filter for the executions table (latest-basis outcome breakdown rows). */
+export type ExecutionVerdict = 'protected' | 'prevented' | 'detected' | 'silent';
+
+export interface OutcomeBreakdown {
+  pairCount: number;
+  protected: number;
+  prevented: number;
+  detected: number;
+  silent: number;
+  noConclusive: number;
+  riskAccepted: number;
+  windowLabel: string;
+}
+
 export interface PaginatedExecutionsParams extends ExtendedFilterParams {
+  verdict?: ExecutionVerdict;
   page?: number;
   pageSize?: number;
   sortField?: string;
@@ -428,6 +432,23 @@ export interface AcceptRiskRequest {
   hostname?: string;
   scope?: RiskScope;
   justification: string;
+}
+
+export interface TestFleetStage {
+  controlId: string;
+  validator?: string;
+  description?: string;
+  blocked: number;
+  detected: number;
+  through: number;
+  hosts: number;
+  lastRunAt: string;
+}
+
+export interface TestFleetResponse {
+  headline: { hostCount: number; pairCount: number; stoppedCount: number; lastRunAt: string | null };
+  stages: TestFleetStage[];
+  stoppedBeforeStage: number;
 }
 
 export const analyticsApi = {
@@ -627,11 +648,6 @@ export const analyticsApi = {
     return response.data;
   },
 
-  async getAvailableSeverities(params?: { org?: string; from?: string; to?: string }): Promise<FilterOption[]> {
-    const response = await apiClient.get('/analytics/available-severities', { params });
-    return response.data;
-  },
-
   async getAvailableThreatActors(params?: { org?: string; from?: string; to?: string }): Promise<FilterOption[]> {
     const response = await apiClient.get('/analytics/available-threat-actors', { params });
     return response.data;
@@ -662,11 +678,6 @@ export const analyticsApi = {
     return response.data;
   },
 
-  async getDefenseScoreBySeverity(params?: { org?: string; from?: string; to?: string }): Promise<SeverityBreakdownItem[]> {
-    const response = await apiClient.get('/analytics/defense-score/by-severity', { params });
-    return response.data;
-  },
-
   async getDefenseScoreByCategory(params?: { org?: string; from?: string; to?: string }): Promise<CategoryBreakdownItem[]> {
     const response = await apiClient.get('/analytics/defense-score/by-category', { params });
     return response.data;
@@ -689,6 +700,12 @@ export const analyticsApi = {
     return response.data;
   },
 
+  /** Per-stage fleet split for one test (latest pair per host, 90 days). */
+  async getTestFleet(uuid: string): Promise<TestFleetResponse> {
+    const response = await apiClient.get(`/analytics/test-results/${encodeURIComponent(uuid)}/stages`);
+    return response.data;
+  },
+
   async getTechniqueOutcomes(params?: { org?: string; from?: string; to?: string }): Promise<TechniqueOutcomeItem[]> {
     const response = await apiClient.get('/analytics/technique-outcomes', { params });
     return response.data;
@@ -697,6 +714,13 @@ export const analyticsApi = {
   /** Always latest-result posture; takes every filter-bar param. */
   async getChainDepth(params?: ExtendedFilterParams & { basis?: 'latest' | 'executions' }): Promise<ChainDepthResponse> {
     const response = await apiClient.get('/analytics/chain-depth', { params });
+    return response.data;
+  },
+
+  async getOutcomeBreakdown(
+    params?: ExtendedFilterParams & { scoringMode?: 'all-stages' | 'any-stage'; basis?: 'latest' },
+  ): Promise<OutcomeBreakdown> {
+    const response = await apiClient.get('/analytics/outcome-breakdown', { params });
     return response.data;
   },
 

@@ -79,7 +79,7 @@ export default function ScheduleList({ schedules, onTogglePause, onDelete }: Sch
     return (
       <div className="border border-border rounded-lg bg-card p-8 text-center">
         <Calendar className="w-8 h-8 mx-auto mb-2 text-muted-foreground" />
-        <p className="text-sm text-muted-foreground">No scheduled tasks</p>
+        <p className="text-sm text-muted-foreground">No schedules yet. Use Create Task, then Schedule, to repeat a run.</p>
       </div>
     );
   }

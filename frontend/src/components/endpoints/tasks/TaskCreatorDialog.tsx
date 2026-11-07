@@ -33,7 +33,6 @@ interface TaskCreatorDialogProps {
 const EMPTY_METADATA: TaskTestMetadata = {
   category: '',
   subcategory: '',
-  severity: '',
   techniques: [],
   tactics: [],
   threat_actor: '',

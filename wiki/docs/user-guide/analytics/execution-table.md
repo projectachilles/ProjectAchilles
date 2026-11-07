@@ -11,7 +11,7 @@ The Execution Table provides a paginated, filterable view of all test execution 
 ## Features
 
 - **Pagination** — Navigate through results with configurable page size
-- **Sorting** — Sort by timestamp, test name, hostname, exit code, or severity
+- **Sorting** — Sort by timestamp, test name, hostname, or exit code
 - **Advanced filtering** — Filter by technique, hostname, threat actor, tags, error codes, and date range
 
 ## Shared FilterBar

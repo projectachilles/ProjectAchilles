@@ -24,6 +24,7 @@ interface GoldenCase {
   category?: string;
   flags?: Partial<Record<
     | 'defender_detected' | 'defender_stage_detected' | 'defender_prevented'
+    | 'defender_stage_prevented' | 'crowdstrike_stage_prevented'
     | 'crowdstrike_detected' | 'crowdstrike_stage_detected' | 'crowdstrike_prevented'
     | 'sentinelone_detected' | 'sentinelone_stage_detected' | 'sentinelone_prevented',
     boolean
@@ -102,6 +103,27 @@ const GOLDEN: GoldenCase[] = [
   {
     name: 'Falcon kill code 0xE0000027 + stage alert + process_killed → prevented', exit: 3758096423,
     flags: { crowdstrike_stage_detected: true }, actions: { crowdstrike_prevention_action: 'process_killed' }, expected: 'prevented',
+  },
+  // Provenance (`_stage_prevented`, written by the enrichment pass): when set, it alone decides
+  // whether THIS stage's own alert carried the action; unset (older docs) keeps the rule above.
+  {
+    name: 'exit 999 + Falcon stage alert + process_killed from a wide alert (stage_prevented false) → detected', exit: 999,
+    flags: { crowdstrike_stage_detected: true, crowdstrike_prevented: true, crowdstrike_stage_prevented: false },
+    actions: { crowdstrike_prevention_action: 'process_killed' }, expected: 'detected',
+  },
+  {
+    name: 'exit 999 + Falcon stage_prevented → prevented', exit: 999,
+    flags: { crowdstrike_detected: true, crowdstrike_stage_detected: true, crowdstrike_prevented: true, crowdstrike_stage_prevented: true },
+    actions: { crowdstrike_prevention_action: 'process_killed' }, expected: 'prevented',
+  },
+  {
+    name: 'exit 999 + Defender stage_prevented → prevented', exit: 999,
+    flags: { defender_stage_detected: true, defender_prevented: true, defender_stage_prevented: true },
+    actions: { defender_prevention_action: 'blocked' }, expected: 'prevented',
+  },
+  {
+    name: 'exit 101 + Defender stage alert, stage_prevented false, not prevented → detected', exit: 101,
+    flags: { defender_stage_detected: true, defender_stage_prevented: false }, actions: { defender_prevention_action: 'quarantined' }, expected: 'detected',
   },
   { name: 'exit 0 + Defender stage alert → inconclusive (exit 0 ran, never an EDR block)', exit: 0, flags: { defender_stage_detected: true }, expected: 'inconclusive' },
   { name: 'missing exit code + Defender stage alert → inconclusive (no code, no upgrade)', flags: { defender_stage_detected: true }, expected: 'inconclusive' },

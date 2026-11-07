@@ -1,12 +1,15 @@
 import { useEffect, useState, useCallback, useRef } from 'react';
 import { usePolling } from '@/hooks/usePolling';
-import { useSearchParams } from 'react-router-dom';
-import { Plus, RefreshCw, Search, X, Trash2, ChevronsLeft, ChevronLeft, ChevronRight, ChevronsRight, ChevronDown } from 'lucide-react';
+import { useViewportFill } from '@/hooks/useViewportFill';
+import { useLocation, useNavigate, useSearchParams } from 'react-router-dom';
+import { Plus, RefreshCw, Search, X, Trash2, ChevronsLeft, ChevronLeft, ChevronRight, ChevronsRight } from 'lucide-react';
 import { agentApi } from '@/services/api/agent';
-import type { AgentMetrics, AgentTask, TaskGroup, TaskStatus, TaskType, Schedule } from '@/types/agent';
+import type { AgentMetrics, AgentTask, TaskBreakdownRow, TaskGroup, TaskStatus, TaskType, Schedule } from '@/types/agent';
 import { PageContainer, PageHeader } from '@/components/endpoints/Layout';
 import TaskStream from '@/components/endpoints/tasks/TaskStream';
+import { TaskStatLine } from '@/components/endpoints/tasks/TaskStatLine';
 import ScheduleList from '@/components/endpoints/tasks/ScheduleList';
+import { TASKS_SECTION_PATHS, TasksSectionTabs, tasksSectionFromPath } from '@/components/endpoints/tasks/TasksSectionTabs';
 import TaskCreatorDialog from '@/components/endpoints/tasks/TaskCreatorDialog';
 import TaskNotesDialog from '@/components/endpoints/tasks/TaskNotesDialog';
 import { Button } from '@/components/shared/ui/Button';
@@ -16,16 +19,30 @@ import { Toast } from '@/components/shared/ui/Alert';
 import { useHasPermission } from '@/hooks/useAppRole';
 import { fieldControlClass } from '@/components/shared/ui/formStyles';
 import { cn } from '@/lib/utils';
-import { taskTiles } from './utils/taskTiles';
+import { taskTiles, BREAKDOWN_TILE_LABEL } from './utils/taskTiles';
+import type { BreakdownTile } from './utils/taskTiles';
 import { DEFAULT_TASK_KIND, TASK_KINDS, kindCount, typesForKind, type TaskKind } from './utils/taskKinds';
 import { pillClass } from '@/components/shared/ui/pillStyles';
+
+/** Task statuses DELETE /tasks/:id accepts; an active task is cancelled instead. */
+const DELETABLE_TASK_STATUSES = new Set(['completed', 'failed', 'expired']);
 
 const TOAST_DURATION_MS = 4000;
 const PAGE_SIZE_OPTIONS = [25, 50, 100];
 const SEARCH_DEBOUNCE_MS = 300;
 
+interface BreakdownFilter {
+  key: string;
+  label: string;
+}
+
 export default function TasksPage() {
   const [searchParams, setSearchParams] = useSearchParams();
+  const { pathname } = useLocation();
+  const navigate = useNavigate();
+  // Runs and Schedules are two routes of this page (/tasks, /tasks/schedules);
+  // the section tabs beside the title switch between them.
+  const view: 'tasks' | 'schedules' = tasksSectionFromPath(pathname) === 'schedules' ? 'schedules' : 'tasks';
   const initialSearch = searchParams.get('search') || '';
 
   // Clear ?search= from URL after consuming it (keeps address bar clean)
@@ -34,6 +51,15 @@ export default function TasksPage() {
       setSearchParams({}, { replace: true });
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  useEffect(() => {
+    const mq = window.matchMedia?.('(min-width: 1024px)');
+    if (!mq) return;
+    const onChange = () => setWide(mq.matches);
+    onChange();
+    mq.addEventListener('change', onChange);
+    return () => mq.removeEventListener('change', onChange);
   }, []);
 
   const [groups, setGroups] = useState<TaskGroup[]>([]);
@@ -46,9 +72,14 @@ export default function TasksPage() {
   const [taskKind, setTaskKind] = useState<TaskKind>(DEFAULT_TASK_KIND);
   const [typeCounts, setTypeCounts] = useState<Partial<Record<TaskType, number>> | undefined>(undefined);
   const [successMessage, setSuccessMessage] = useState<string | null>(null);
+  const [toastVariant, setToastVariant] = useState<'success' | 'destructive'>('success');
   const [schedules, setSchedules] = useState<Schedule[]>([]);
-  // Collapsed by default — schedules are configuration, the stream is the page
-  const [schedulesCollapsed, setSchedulesCollapsed] = useState(true);
+  const [breakdownFilter, setBreakdownFilter] = useState<BreakdownFilter | null>(null);
+  // Which breakdown key the rows on screen were fetched with, so a failed
+  // fetch never leaves unfiltered rows under the chip.
+  const listBreakdown = useRef<string | null>(null);
+  const [wide, setWide] = useState(() => window.matchMedia?.('(min-width: 1024px)').matches ?? false);
+  const { ref: fillRef, height: fillHeight } = useViewportFill<HTMLDivElement>(wide);
   const [page, setPage] = useState(1);
   const [pageSize, setPageSize] = useState(25);
   const [searchTerm, setSearchTerm] = useState(initialSearch);
@@ -64,11 +95,17 @@ export default function TasksPage() {
 
   const totalPages = Math.max(1, Math.ceil(totalGroups / pageSize));
 
+  // The total can shrink under the current page (bulk delete, a poll): fall back to the last page.
+  useEffect(() => {
+    if (page > totalPages) setPage(totalPages);
+  }, [page, totalPages]);
+
   function buildFilters() {
     return {
       ...(statusFilter ? { status: statusFilter } : {}),
       ...(typesForKind(taskKind).length ? { types: typesForKind(taskKind) } : {}),
       ...(debouncedSearch ? { search: debouncedSearch } : {}),
+      ...(breakdownFilter ? { breakdown: breakdownFilter.key } : {}),
       limit: pageSize,
       offset: (page - 1) * pageSize,
     };
@@ -78,17 +115,36 @@ export default function TasksPage() {
     setLoading(true);
     setSelectedTasks([]);
     try {
-      const result = await agentApi.listTasksGrouped(buildFilters());
+      const filters = buildFilters();
+      const result = await agentApi.listTasksGrouped(filters);
       setGroups(result.groups);
       setTotalGroups(result.total);
       setTypeCounts(result.typeCounts);
+      listBreakdown.current = filters.breakdown ?? null;
     } catch (err) {
       console.error('Failed to fetch tasks:', err);
+      if (breakdownFilter) {
+        const status = (err as { response?: { status?: number } } | null)?.response?.status;
+        if (status === 400) {
+          // The backend rejected the key itself: the filter can never work.
+          setBreakdownFilter(null);
+          setPage(1);
+          showToast("Couldn't filter the task list.", 'destructive');
+        } else {
+          // Transient (network, 5xx): keep the filter, the poll retries. Rows
+          // fetched without this key must not sit under its chip.
+          if (listBreakdown.current !== breakdownFilter.key) {
+            setGroups([]);
+            setTotalGroups(0);
+          }
+          showToast("Couldn't load the task list. It will retry.", 'destructive');
+        }
+      }
     } finally {
       setLoading(false);
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [statusFilter, taskKind, debouncedSearch, page, pageSize]);
+  }, [statusFilter, taskKind, breakdownFilter, debouncedSearch, page, pageSize]);
 
   const fetchSchedules = useCallback(async () => {
     try {
@@ -117,13 +173,14 @@ export default function TasksPage() {
       setGroups(taskResult.groups);
       setTotalGroups(taskResult.total);
       setTypeCounts(taskResult.typeCounts);
+      listBreakdown.current = filters.breakdown ?? null;
       setSchedules(scheduleResult);
       if (metricsResult) setMetrics(metricsResult);
     } catch {
       // Silent — don't surface transient poll failures
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [statusFilter, taskKind, debouncedSearch, page, pageSize]);
+  }, [statusFilter, taskKind, breakdownFilter, debouncedSearch, page, pageSize]);
 
   usePolling(poll, 10_000);
 
@@ -152,6 +209,23 @@ export default function TasksPage() {
 
   function handleTaskKindChange(kind: TaskKind): void {
     setTaskKind(kind);
+    if (kind !== 'tests') setBreakdownFilter(null);
+    setPage(1);
+  }
+
+  function handleSelectBreakdown(row: TaskBreakdownRow, tile: BreakdownTile): void {
+    if (view !== 'tasks') navigate(TASKS_SECTION_PATHS.runs);
+    setTaskKind('tests');
+    setBreakdownFilter({
+      key: row.key,
+      // Exit-101 rows are already named "Unprotected…"; don't repeat the tile.
+      label: `${row.name.startsWith(BREAKDOWN_TILE_LABEL[tile]) ? row.name : `${BREAKDOWN_TILE_LABEL[tile]} › ${row.name}`} · last 7 days`,
+    });
+    setPage(1);
+  }
+
+  function clearBreakdownFilter(): void {
+    setBreakdownFilter(null);
     setPage(1);
   }
 
@@ -194,7 +268,8 @@ export default function TasksPage() {
 
   // --- Toasts ---
 
-  function showToast(message: string): void {
+  function showToast(message: string, variant: 'success' | 'destructive' = 'success'): void {
+    setToastVariant(variant);
     setSuccessMessage(message);
     globalThis.setTimeout(() => setSuccessMessage(null), TOAST_DURATION_MS);
   }
@@ -250,7 +325,7 @@ export default function TasksPage() {
 
   async function handleBulkDelete(): Promise<void> {
     let count = 0;
-    for (const taskId of selectedTasks) {
+    for (const taskId of deletableSelected.map((t) => t.id)) {
       try {
         await agentApi.deleteTask(taskId);
         count++;
@@ -270,7 +345,9 @@ export default function TasksPage() {
   const canBulkCancel = selectedTaskObjects.length > 0 && selectedTaskObjects.every(
     (t) => t.status === 'pending' || t.status === 'assigned'
   );
-  const canBulkDelete = selectedTaskObjects.length > 0;
+  // Only finished tasks can be deleted (the backend archives them; 409 otherwise).
+  const deletableSelected = selectedTaskObjects.filter((t) => DELETABLE_TASK_STATUSES.has(t.status));
+  const canBulkDelete = deletableSelected.length > 0;
 
   // --- Schedules ---
 
@@ -304,12 +381,53 @@ export default function TasksPage() {
 
   const tiles = metrics ? taskTiles(metrics) : null;
 
+  const pagination = view === 'tasks' && !loading && totalGroups > 0 ? (
+    <div className="flex flex-wrap gap-y-2 items-center justify-between text-sm text-muted-foreground">
+      <div className="flex items-center gap-3">
+        <span>Showing {rangeStart}&ndash;{rangeEnd} of {totalGroups}</span>
+        <select
+          className={cn(fieldControlClass, 'h-8 w-auto px-2')}
+          value={pageSize}
+          onChange={(e) => handlePageSizeChange(Number(e.target.value))}
+        >
+          {PAGE_SIZE_OPTIONS.map((size) => (
+            <option key={size} value={size}>{size} / page</option>
+          ))}
+        </select>
+      </div>
+      <div className="flex flex-wrap items-center gap-1">
+        <Button variant="outline" size="sm" disabled={page <= 1} onClick={() => setPage(1)}>
+          <ChevronsLeft className="w-4 h-4 mr-1" />
+          Newest
+        </Button>
+        <Button variant="outline" size="sm" disabled={page <= 1} onClick={() => setPage(page - 1)}>
+          <ChevronLeft className="w-4 h-4 mr-1" />
+          Newer
+        </Button>
+        <span className="px-3 font-mono text-xs text-faint">
+          {page} / {totalPages}
+        </span>
+        <Button variant="outline" size="sm" disabled={page >= totalPages} onClick={() => setPage(page + 1)}>
+          Older
+          <ChevronRight className="w-4 h-4 ml-1" />
+        </Button>
+        <Button variant="outline" size="sm" disabled={page >= totalPages} onClick={() => setPage(totalPages)}>
+          Oldest
+          <ChevronsRight className="w-4 h-4 ml-1" />
+        </Button>
+      </div>
+    </div>
+  ) : null;
+
   return (
     <>
       <PageContainer>
         <PageHeader
           title="Tasks"
-          description={`Task activity across the fleet — ${tiles?.window ?? 'last 7 days'}`}
+          titleAside={<TasksSectionTabs />}
+          description={tiles
+            ? <TaskStatLine tiles={tiles} outcomes={metrics?.task_outcomes_7d} onSelectBreakdown={handleSelectBreakdown} />
+            : 'Task activity across the fleet — last 7 days'}
           actions={canCreateTask ? (
             <Button onClick={() => setDialogOpen(true)}>
               <Plus className="w-4 h-4 mr-2" />
@@ -318,41 +436,8 @@ export default function TasksPage() {
           ) : undefined}
         />
 
-        {/* KPI tiles: 7-day test outcomes (falls back to 24h lifecycle counts) */}
-        {tiles && (
-          <div className="mb-6 grid grid-cols-2 gap-4 md:grid-cols-4">
-            {tiles.tiles.map((kpi) => (
-              <div key={kpi.label} className="rounded-lg border border-border bg-surface p-4">
-                <div className="text-[11px] uppercase tracking-wider text-faint">{kpi.label}</div>
-                <div className={`mt-2 text-2xl font-semibold tracking-tight ${kpi.cls}`}>{kpi.value}</div>
-                {kpi.sub && <div className="mt-1 truncate text-xs text-muted" title={kpi.sub}>{kpi.sub}</div>}
-              </div>
-            ))}
-          </div>
-        )}
-
-        {/* Schedules section (collapsible) */}
-        {schedules.length > 0 && (
-          <div className="mb-6">
-            <button
-              type="button"
-              onClick={() => setSchedulesCollapsed(prev => !prev)}
-              className="flex items-center gap-1.5 text-sm font-medium text-muted-foreground mb-2 hover:text-foreground transition-colors"
-            >
-              <ChevronDown className={`w-4 h-4 transition-transform ${schedulesCollapsed ? '-rotate-90' : ''}`} />
-              Scheduled Tasks ({schedules.length})
-            </button>
-            {!schedulesCollapsed && (
-              <ScheduleList
-                schedules={schedules}
-                onTogglePause={canWriteSchedule ? handleTogglePause : undefined}
-                onDelete={canDeleteSchedule ? handleDeleteSchedule : undefined}
-              />
-            )}
-          </div>
-        )}
-
-        {/* Filter bar */}
+        {/* Filter bar (Runs only) */}
+        {view === 'tasks' && (
         <div className="border border-border rounded-lg bg-card p-4 mb-4">
           <div className="flex flex-wrap items-center gap-4">
             {/* Type pills: Security tests by default, so agent upkeep doesn't bury test runs */}
@@ -392,7 +477,7 @@ export default function TasksPage() {
                 <option value="expired">Expired</option>
               </select>
             </div>
-            <div className="flex-grow max-w-sm max-lg:min-w-0 max-lg:basis-48">
+            <div className="min-w-32 max-w-sm flex-1 basis-32 max-lg:min-w-0 max-lg:basis-48">
               <Input
                 placeholder="Search tasks..."
                 value={searchTerm}
@@ -400,16 +485,25 @@ export default function TasksPage() {
                 leftIcon={<Search className="w-4 h-4" />}
               />
             </div>
+            {breakdownFilter && (
+              <span className="inline-flex shrink-0 items-center gap-1.5 rounded-full border border-accent/25 bg-accent-dim px-3 py-1 text-xs text-accent">
+                {breakdownFilter.label}
+                <button type="button" aria-label="Clear breakdown filter" onClick={clearBreakdownFilter} className="rounded-sm hover:text-foreground">
+                  <X className="h-3 w-3" />
+                </button>
+              </span>
+            )}
             <div className="flex-grow" />
-            <Button variant="outline" onClick={() => { fetchTasks(); fetchSchedules(); }}>
+            <Button variant="outline" className="shrink-0" onClick={() => { fetchTasks(); fetchSchedules(); }}>
               <RefreshCw className="w-4 h-4 mr-2" />
               Refresh
             </Button>
           </div>
         </div>
+        )}
 
         {/* Bulk actions bar */}
-        {canSelectTasks && selectedTasks.length > 0 && (
+        {view === 'tasks' && canSelectTasks && selectedTasks.length > 0 && (
           <div className="mb-4 flex items-center justify-between rounded-md border border-accent/25 bg-accent-dim px-4 py-3">
             <span className="text-sm font-medium">
               <span className="text-accent">{selectedTasks.length} selected</span>
@@ -441,59 +535,30 @@ export default function TasksPage() {
           </div>
         )}
 
-        {loading ? (
+        {view === 'schedules' ? (
+          <ScheduleList
+            schedules={schedules}
+            onTogglePause={canWriteSchedule ? handleTogglePause : undefined}
+            onDelete={canDeleteSchedule ? handleDeleteSchedule : undefined}
+          />
+        ) : loading ? (
           <Loading message="Loading tasks..." />
         ) : (
-          <TaskStream
-            groups={groups}
-            loading={loading}
-            selectedTasks={canSelectTasks ? selectedTasks : []}
-            onToggleSelect={canSelectTasks ? handleToggleSelect : undefined}
-            onToggleSelectAll={canSelectTasks ? handleToggleSelectAll : undefined}
-            onToggleGroupSelect={canSelectTasks ? handleToggleGroupSelect : undefined}
-            onCancel={canCancelTask ? handleCancel : undefined}
-            onRetry={canCreateTask ? handleRetry : undefined}
-            onDelete={canDeleteTask ? handleDelete : undefined}
-            onOpenNotes={setNotesTask}
-          />
-        )}
-
-        {/* Pagination controls */}
-        {!loading && totalGroups > 0 && (
-          <div className="flex flex-wrap gap-y-2 items-center justify-between mt-4 text-sm text-muted-foreground">
-            <div className="flex items-center gap-3">
-              <span>Showing {rangeStart}&ndash;{rangeEnd} of {totalGroups}</span>
-              <select
-                className={cn(fieldControlClass, 'h-8 w-auto px-2')}
-                value={pageSize}
-                onChange={(e) => handlePageSizeChange(Number(e.target.value))}
-              >
-                {PAGE_SIZE_OPTIONS.map((size) => (
-                  <option key={size} value={size}>{size} / page</option>
-                ))}
-              </select>
-            </div>
-            <div className="flex flex-wrap items-center gap-1">
-              <Button variant="outline" size="sm" disabled={page <= 1} onClick={() => setPage(1)}>
-                <ChevronsLeft className="w-4 h-4 mr-1" />
-                Newest
-              </Button>
-              <Button variant="outline" size="sm" disabled={page <= 1} onClick={() => setPage(page - 1)}>
-                <ChevronLeft className="w-4 h-4 mr-1" />
-                Newer
-              </Button>
-              <span className="px-3 font-mono text-xs text-faint">
-                {page} / {totalPages}
-              </span>
-              <Button variant="outline" size="sm" disabled={page >= totalPages} onClick={() => setPage(page + 1)}>
-                Older
-                <ChevronRight className="w-4 h-4 ml-1" />
-              </Button>
-              <Button variant="outline" size="sm" disabled={page >= totalPages} onClick={() => setPage(totalPages)}>
-                Oldest
-                <ChevronsRight className="w-4 h-4 ml-1" />
-              </Button>
-            </div>
+          <div ref={fillRef} style={fillHeight ? { height: fillHeight } : undefined}>
+            <TaskStream
+              fill={wide}
+              footer={pagination}
+              groups={groups}
+              loading={loading}
+              selectedTasks={canSelectTasks ? selectedTasks : []}
+              onToggleSelect={canSelectTasks ? handleToggleSelect : undefined}
+              onToggleSelectAll={canSelectTasks ? handleToggleSelectAll : undefined}
+              onToggleGroupSelect={canSelectTasks ? handleToggleGroupSelect : undefined}
+              onCancel={canCancelTask ? handleCancel : undefined}
+              onRetry={canCreateTask ? handleRetry : undefined}
+              onDelete={canDeleteTask ? handleDelete : undefined}
+              onOpenNotes={setNotesTask}
+            />
           </div>
         )}
 
@@ -514,7 +579,7 @@ export default function TasksPage() {
 
         {successMessage && (
           <div className="fixed bottom-4 right-4 z-50">
-            <Toast variant="success" message={successMessage} onClose={() => setSuccessMessage(null)} />
+            <Toast variant={toastVariant} message={successMessage} onClose={() => setSuccessMessage(null)} />
           </div>
         )}
       </PageContainer>

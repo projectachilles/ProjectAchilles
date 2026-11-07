@@ -6,7 +6,7 @@ import type { Schedule, ScheduleConfig } from '@/types/agent';
 const schedule = (config: ScheduleConfig): Schedule => ({
   id: 's1', name: 'Thursday run', agent_ids: ['a1'], org_id: 'default', test_uuid: 'u', test_name: 'T',
   binary_name: 't.exe', execution_timeout: 300, priority: 1,
-  metadata: { category: '', subcategory: '', severity: '', techniques: [], tactics: [], threat_actor: '', target: [], complexity: '', tags: [], score: null, integrations: [] },
+  metadata: { category: '', subcategory: '', techniques: [], tactics: [], threat_actor: '', target: [], complexity: '', tags: [], score: null, integrations: [] },
   schedule_type: 'once', schedule_config: config, timezone: 'Europe/London',
   next_run_at: null, last_run_at: null, status: 'active', created_by: 'u1', created_at: '', updated_at: '',
 });

@@ -27,6 +27,15 @@ This page consolidates all environment variables used across all deployment targ
 | `CLI_AUTH_SECRET` | JWT signing key for CLI device-flow auth | `openssl rand -base64 32` |
 | `AGENT_SERVER_URL` | External URL for agent communication | Must include `https://` |
 
+### Retention
+
+| Variable | Description |
+|----------|-------------|
+| `TASK_OUTPUT_RETENTION_DAYS` | Days to keep full task output in SQLite. After that, finished tasks lose their stdout, keep the last 400 characters of stderr, and lose each stage's `details`; exit code, error and stage results are kept, and the Tasks page says the output was removed. Test results are compacted only once they are in Elasticsearch; agent update and uninstall output (never in Elasticsearch) is compacted after the window; admin shell-command (`execute_command`) output is never compacted. `0` disables. Default `90` |
+| `AGENT_EVENT_RETENTION_DAYS` | Days to keep agent events (online/offline, task, key and version events). Each agent's latest went-offline event is always kept, so a long-offline agent is not reported offline again. `0` disables. Default `90` |
+
+The SQLite file does not shrink (no VACUUM); freed pages are reused, so growth stops. Both jobs run hourly.
+
 ### Elasticsearch
 
 | Variable | Description |
@@ -80,6 +89,7 @@ For local development, `start.sh` creates this key automatically from the `elast
 |----------|-------------|---------|
 | `PORT` | Server port | `3000` |
 | `NODE_ENV` | Node environment | `development` |
+| `AGENT_DOWNLOAD_BUDGET_MB_PER_MIN` | Test binary handouts per minute, in MB. Once a minute's worth of test binaries has been handed out, other agents get "no task" and pick theirs up at the next poll (agent update tasks are not paced). At 1500 MB/min, a 30-minute pre-execution notice pickup window covers about 2,600 agents with a 17 MB binary (about 1,100 with 40 MB); raise the budget or the window beyond that. `0` disables pacing. Read once at startup. Not used on Vercel. | `1500` |
 
 ### Organization
 
@@ -89,6 +99,7 @@ For local development, `start.sh` creates this key automatically from the `elast
 | `ORG_NAMES` | Display names for organization UUIDs (`routing.oid`) in Analytics, the execution report and the compliance export. JSON keyed by org UUID; each value is a short name or `{"shortName": "...", "fullName": "..."}`, for example `{"<org-uuid>": {"shortName": "ACME", "fullName": "Acme Corporation"}}`. | Unset: organizations show the first 8 characters of their UUID |
 | `CONSOLE_ORG_CODE` | Organization code (2-6 letters or digits, uppercased) shown in the sidebar, page headers, colour ribbon, browser tab and favicon. See [console identity](../user-guide/settings/console-identity). A code saved in Settings → General replaces these three variables. Not supported on Vercel. | Unset: no console identity |
 | `CONSOLE_ORG_NAME` | Optional full name shown beside the code (up to 80 characters), and printed as the organization name on the execution report. Falls back to `ORGANIZATION_NAME`. See [console identity](../user-guide/settings/console-identity). | Unset: no name |
+| `REQUIRE_ORG_ISOLATION` | `true` rejects (403) every signed-in user or API key that belongs to no Clerk organization, on every organization-scoped route: agents, tasks, schedules, Analytics and reports, enrollment tokens, campaigns, pre-execution notices and alert settings. It also makes the shared EDR settings read-only from the UI. Users and keys that belong to an organization only ever see and act on their own organization's agents, tasks, schedules and results, whether this is set or not. Install-wide configuration (agent versions, the Elasticsearch connection and index creation, agent key auto-rotation) can only be changed by users without an organization, and they keep that access when this is set. This is defense in depth, not a tenant boundary: sharing one install between organizations is not supported (one install per organization is). | Unset: users without an organization see the whole install (single-organization installs) |
 | `CONSOLE_ORG_COLOR` | Identity colour preset: `violet`, `indigo`, `blue`, `cyan`, `fuchsia`, `pink`, `orange`, `silver` or `none`. See [console identity](../user-guide/settings/console-identity). | `none` |
 
 ### Vercel-Only

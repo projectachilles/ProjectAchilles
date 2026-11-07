@@ -91,7 +91,7 @@ export function RunCampaignDialog({ open, campaign, onClose }: Props) {
       const result = await campaignsApi.startRun(campaign.id, body);
       inFlight.current = false;
       onClose();
-      navigate(`/campaigns/runs/${result.run_id}`);
+      navigate(`/tasks/campaigns/runs/${result.run_id}`);
     } catch (err) {
       inFlight.current = false;
       const skipped = partialSkipped(err);

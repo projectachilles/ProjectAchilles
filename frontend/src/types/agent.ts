@@ -61,7 +61,6 @@ export interface Agent {
 export interface TaskTestMetadata {
   category: string;
   subcategory: string;
-  severity: string;
   techniques: string[];
   tactics: string[];
   threat_actor: string;
@@ -88,6 +87,8 @@ export interface TaskResult {
     bundle_category?: string;
     controls?: Array<{ control_id: string; exit_code: number; skipped?: boolean; compliant?: boolean }>;
   };
+  /** ISO time the retention job removed the full output; set only on compacted results. */
+  compacted_at?: string;
 }
 
 export interface TaskNoteEntry {
@@ -210,6 +211,8 @@ export interface ListTasksRequest {
   /** Several types at once (sent as a comma list in `type`). */
   types?: TaskType[];
   search?: string;
+  /** 7-day outcome breakdown key (e.g. `exit:260`); implies execute_test. */
+  breakdown?: string;
   limit?: number;
   offset?: number;
 }
@@ -226,6 +229,16 @@ export interface TaskOutcomes7d {
     inconclusive: number;
   };
   other: { total: number; failed: number };
+  /** Exit codes / failure reasons behind `tests`; absent on older backends. */
+  breakdown?: TaskBreakdownRow[];
+}
+
+export interface TaskBreakdownRow {
+  key: string;
+  outcome: 'protected' | 'unprotected' | 'not-run' | 'run-failed' | 'test-error' | 'inconclusive';
+  code: number | null;
+  name: string;
+  count: number;
 }
 
 export interface AgentMetrics {

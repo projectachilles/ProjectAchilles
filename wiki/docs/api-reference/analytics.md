@@ -20,7 +20,7 @@ Most endpoints accept the same filter vocabulary. Pass any combination:
 |-------|------|-------------|
 | `from` | string | Start of window. Accepts ISO-8601 (`2026-04-23T00:00:00Z`), calendar dates (`2026-04-23`), or Elasticsearch date math (`now-30d`). |
 | `to` | string | End of window. Same formats as `from`. |
-| `org` | string | Filter by organization UUID (Clerk org id). |
+| `org` | string | Organization whose results to include (the `routing.oid` of the results: the org of the task that produced them). For a user or API key in a Clerk organization it is always that organization: omitted means its own, any other value returns `403`. Users without an organization can pass any org, or omit it for all. |
 | `tests` | string | Comma-separated test UUIDs. |
 | `techniques` | string | Comma-separated MITRE ATT&CK technique IDs (e.g. `T1486,T1059`). |
 | `hostnames` | string | Comma-separated hostnames. |
@@ -53,7 +53,7 @@ Under `latest`:
 - The server keeps each fetched pair set for up to 30 seconds and reuses it across requests with the same filters (outcome filters aside), so a relative range such as `now-7d` can be up to 30 seconds stale.
 - Under `latest`, `from`/`to` accept `now`, `now-<n><unit>` (units `d`, `h`, `w`, `m` or `M`, where `m`/`M` = 30 days) and ISO dates. ES date math such as `now/d` is rejected, as is an unparseable or reversed range, with `400 Invalid date range`.
 - `result=inconclusive` yields no pairs under `latest`, because only conclusive results are scored.
-- These endpoints accept `basis=latest`: `/defense-score`, `/defense-score/trend`, `/defense-score/by-category-subcategory`, `/defense-score/by-hostname`, `/technique-distribution`, `/test-coverage`. Their counts become pairs. For `test-coverage`, pairs are grouped by test name; each pair is one host × test, so each count is a number of hosts. `technique-distribution` always scores **per stage**, even with `scoringMode=any-stage`. Each bundle control is its own pair, judged by its own latest result, so a technique shows unprotected when its own stage got through, even if another stage of the same bundle was stopped.
+- These endpoints accept `basis=latest`: `/defense-score`, `/defense-score/trend`, `/defense-score/by-category-subcategory`, `/defense-score/by-hostname`, `/technique-distribution`, `/test-coverage`. Their counts become pairs. For `test-coverage`, pairs are grouped by test name; each pair is one host × test, so each count is a number of hosts. `technique-distribution` always scores **per stage**, even with `scoringMode=any-stage`. Each bundle control is its own pair, judged by its own latest result, so a technique shows unprotected when its own stage got through, even if another stage of the same bundle was stopped. An EDR detection counts for a stage only when the EDR's alert matched that stage itself (`<vendor>_stage_detected`); an alert that named only the bundle, or another of its stages, does not make the stage detected.
 - These endpoints are executions-only and ignore `basis=latest`: `by-test`, `by-technique`, `by-severity`, `by-category`, `by-org`, `threat-actor-coverage`.
 
 ## Endpoints
@@ -165,6 +165,7 @@ Filtered, grouped, paginated execution results. Accepts every shared filter plus
 | `sortField` | string | Field to sort by. |
 | `sortOrder` | string | `asc` or `desc`. |
 | `grouped` | boolean | If true, groups results by bundle/standalone identity. |
+| `verdict` | string | `protected`, `prevented`, `detected` or `silent`: keeps only rows with that outcome, for attack tests only (cyber-hygiene bundles are excluded, matching the Outcome breakdown card; any other value is a 400 `Invalid verdict`). Read only by this endpoint. It is what the Outcome breakdown card's legend rows open on the Executions tab. |
 
 **Response shape** depends on the `grouped` parameter:
 
@@ -230,13 +231,34 @@ GET /api/analytics/technique-outcomes
 
 Accepts the shared filter parameters. Returns one entry per technique with `protected`, `detected`, `unprotected` and `lastTestedAt`. It always uses the latest-result basis, scores each stage on its own (like `technique-distribution`), and is not capped. The `basis` parameter is ignored. It feeds the ATT&CK outcome matrix on the Security Dashboard.
 
+### Outcome Breakdown
+
+```
+GET /api/analytics/outcome-breakdown
+```
+
+Splits the latest result of each test x endpoint pair into the four outcomes the Analytics dashboard's Outcome breakdown card shows. It accepts the shared filter parameters, always uses the latest-result basis (the `basis` parameter is ignored), and ignores the outcome filters (`result`, `errorCodes`, `errorNames`), because narrowing a breakdown by outcome would only hide slices. Cyber-hygiene bundles are excluded: the card covers attack tests only. Response fields:
+
+| Field | Description |
+|-------|-------------|
+| `pairCount` | Pairs with a conclusive latest result; always `protected + prevented + detected + silent`. |
+| `protected` | The control blocked the test. |
+| `prevented` | The test ran and the EDR stopped it. |
+| `detected` | The test ran and the EDR raised an alert, without stopping it. |
+| `silent` | The test ran and nothing alerted. |
+| `noConclusive` | Pairs that have results in the window but none conclusive (all errors); not part of `pairCount`. |
+| `riskAccepted` | Pairs left out of the counts because a risk acceptance covers them. |
+| `windowLabel` | Active window, for example `30d`, or `last 365d` when the window is capped. |
+
+`protected + prevented + detected` equals the Defense Score's protected pairs when the window holds no cyber-hygiene data.
+
 ### Chain Depth
 
 ```
 GET /api/analytics/chain-depth
 ```
 
-Accepts the shared filter parameters. For each multi-stage (non-cyber-hygiene) chain, it takes the latest run on each host and reports the stage where it was blocked. Response fields: `chains`, `buckets` (`[{ stage, blocked, alertedNotBlocked, bundleNames }]`), `endToEnd`, `endToEndAlerted`, `endToEndBundleNames`, `endToEndAlertedBundleNames`, `endToEndUndetectedBundleNames`, `inconclusive`, `blockedBeforeRun`, `blockedBeforeRunBundleNames`, and `stageErrors`. There are always four buckets, `stage` 1, 2, 3 and 4, where 4 means "4+" (blocked at stage 4 or later). `alertedNotBlocked` counts the bucket's chains where an EDR (Defender or CrowdStrike) detected a stage without blocking it. `endToEndAlerted` has the same alerted-not-blocked meaning for the chains that ran end to end. `endToEndAlertedBundleNames` and `endToEndUndetectedBundleNames` list the bundles behind those two groups; a bundle appears in both when its chains differ by host. Chains whose latest run had a stage error or a pre-execution block are counted in `inconclusive` only, which splits into `blockedBeforeRun` (a stage was blocked before it ran, exit 260; the technique was not evaluated; `blockedBeforeRunBundleNames` lists the bundles) and `stageErrors` (for example exit 999). A run with both counts as `blockedBeforeRun`. Runs where an EDR killed the agent mid-test (see [Exit Codes & Outcomes](../user-guide/analytics/exit-codes-and-outcomes.md#6-agent-terminated-by-the-edr)) carry no stages: they are counted in `chains` and in the new `agentTerminated` count, with `agentTerminatedBundleNames` listing their bundles, and are never placed in a stage bucket (the UI shows "Stopped by EDR, stage unknown: N"). A blocked chain's stage is its lowest-numbered blocked stage (from the `Stage N` validator), so a chain that keeps running after a block, such as LockBit `298cc137`, counts where it was first stopped, and `alertedNotBlocked` counts only detections on stages before that one. Runs without stage numbers fall back to the number of stages that ran, which gives the same stage for chains that stop at the first block.
+Accepts the shared filter parameters. For each multi-stage (non-cyber-hygiene) chain, it takes the latest run on each host and reports the stage where it was blocked (by the endpoint, exit 105/126/127, or by the EDR's own action on an error-coded stage, which the Executions view labels Prevented). Response fields: `chains`, `buckets` (`[{ stage, blocked, alertedNotBlocked, bundleNames }]`), `endToEnd`, `endToEndAlerted`, `endToEndBundleNames`, `endToEndAlertedBundleNames`, `endToEndUndetectedBundleNames`, `inconclusive`, `blockedBeforeRun`, `blockedBeforeRunBundleNames`, and `stageErrors`. There are always four buckets, `stage` 1, 2, 3 and 4, where 4 means "4+" (blocked at stage 4 or later). `alertedNotBlocked` counts the bucket's chains where an EDR (Defender or CrowdStrike) detected a stage without blocking it. `endToEndAlerted` has the same alerted-not-blocked meaning for the chains that ran end to end. `endToEndAlertedBundleNames` and `endToEndUndetectedBundleNames` list the bundles behind those two groups; a bundle appears in both when its chains differ by host. Chains whose latest run had a stage error or a pre-execution block are counted in `inconclusive` only, which splits into `blockedBeforeRun` (a stage was blocked before it ran, exit 260; the technique was not evaluated; `blockedBeforeRunBundleNames` lists the bundles) and `stageErrors` (for example exit 999). A run with both counts as `blockedBeforeRun`. Runs where an EDR killed the agent mid-test (see [Exit Codes & Outcomes](../user-guide/analytics/exit-codes-and-outcomes.md#6-agent-terminated-by-the-edr)) carry no stages: they are counted in `chains` and in the new `agentTerminated` count, with `agentTerminatedBundleNames` listing their bundles, and are never placed in a stage bucket (the UI shows "Stopped by EDR, stage unknown: N"). A blocked chain's stage is its lowest-numbered blocked stage (from the `Stage N` validator), so a chain that keeps running after a block, such as LockBit `298cc137`, counts where it was first stopped, and `alertedNotBlocked` counts only detections on stages before that one. Runs without stage numbers fall back to the number of stages that ran, which gives the same stage for chains that stop at the first block.
 
 The row endpoints (`GET /api/analytics/executions` and `/executions/paginated`) add `edr_terminated` (`true` for a run proven to be killed by the EDR), `edr_terminated_vendors` (`defender`, `crowdstrike`, `sentinelone`), `edr_terminated_alert_ids` (the alert ids that are the evidence) and `stages_unknown`. These rows are Protected as a whole and are excluded from the technique endpoints.
 
@@ -247,6 +269,29 @@ GET /api/analytics/test-results
 ```
 
 Accepts the shared filter parameters, except that the date range, `basis` and `scoringMode` are fixed. For each test (or bundle) it takes the latest result on each host over the last 90 days and scores it like the Defense Score tile in any-stage mode (blocked or detected counts as protected). Returns an array of `{ testUuid, pairCount, protectedCount, hostCount, lastRunAt }`. `pairCount` is the number of test x host pairs, `protectedCount` how many of them are protected, and `hostCount` the distinct hosts. Cyber-hygiene control results are folded into their bundle's `testUuid`. It feeds the Fleet result column of the test library.
+
+### Test Results by Stage
+
+```
+GET /api/analytics/test-results/:uuid/stages
+```
+
+One test's fleet results, for the test detail page. `:uuid` is the test (or bundle) UUID; a malformed one returns 400. Accepts the shared filter parameters with the same fixed window as `test-results`: the latest result on each host over the last 90 days. Returns:
+
+```json
+{
+  "headline": { "hostCount": 12, "pairCount": 12, "stoppedCount": 10, "lastRunAt": "2026-11-03T09:00:00.000Z" },
+  "stages": [
+    { "controlId": "T1055", "validator": "Stage 1", "description": "…",
+      "blocked": 9, "detected": 2, "through": 1, "hosts": 12, "lastRunAt": "2026-11-03T09:00:00.000Z" }
+  ],
+  "stoppedBeforeStage": 2
+}
+```
+
+- `headline` is scored like `test-results` and the Defense Score tile in any-stage mode: `hostCount` is the distinct hosts, `pairCount` the test x host pairs, `stoppedCount` how many of those pairs are protected (blocked or detected), and `lastRunAt` the newest result (`null` with no results). A multi-stage chain or standalone test has one pair per host, so `pairCount` equals `hostCount`; a cyber-hygiene bundle has one pair per control on each host, so compare `stoppedCount` with `pairCount`, not `hostCount`. Runs where an EDR killed the agent or blocked the test at launch count as protected here.
+- `stages` has one entry per control or stage ID (`f0rtika.control_id`; intel-driven chains use the stage's technique), scored like `technique-outcomes`: each host's latest result for that stage is `blocked` (`is_protected`), `detected` (an EDR detected it but did not block it) or `through` (neither). Runs with no stages (EDR-killed agent, launch block) are left out, as in the technique views. `validator` and `description` come from the newest control document and are omitted when empty. A standalone single-binary test has no stages (`[]`).
+- `stoppedBeforeStage` is the number of hosts whose latest result is such a stageless run, so they appear in the headline but in no stage.
 
 ### Execution Activity
 

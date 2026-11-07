@@ -16,7 +16,6 @@ export const FILTER_LABELS: Record<string, string> = {
   tests: 'Tests',
   techniques: 'Techniques',
   categories: 'Categories',
-  severities: 'Severities',
   threatActors: 'Threat actors',
   tags: 'Tags',
   errorNames: 'Error names',

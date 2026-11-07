@@ -1,6 +1,6 @@
 // An in-memory localStorage for tests. Node 25 ships a global `localStorage` that
-// shadows jsdom's and has no working methods, so the report tests stub their own
-// (as CollapsibleSection.test.tsx does). Undo with vi.unstubAllGlobals().
+// shadows jsdom's and has no working methods, so the report tests stub their own.
+// Undo with vi.unstubAllGlobals().
 import { vi } from 'vitest';
 
 export function stubMemoryStorage(): Storage {

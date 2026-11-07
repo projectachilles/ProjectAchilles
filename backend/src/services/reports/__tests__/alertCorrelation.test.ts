@@ -63,6 +63,16 @@ describe('correlateRuns', () => {
     expect(res.alerts.get(run(1).key)?.[0].preventionAction).toBeNull();
   });
 
+  it('leaves out an alert naming several tests that singles out none of this run\'s files', async () => {
+    const listing = alertHit('A suspicious file was observed');
+    (listing._source as Record<string, unknown>).evidence_filenames = [`${BUNDLE}-T1486.exe`, '26a8b54e-b51c-489d-beae-295e1eecc524.exe'];
+    msearch
+      .mockResolvedValueOnce({ responses: [{ hits: { hits: [listing, alertHit('ProcRansomware')] } }] });
+    const res = await correlateRuns(client, DEFENDER_ADAPTER, [run(1)], { deadline: far() });
+    expect(msearch.mock.calls[0][0].searches[1]._source).toEqual(expect.arrayContaining(['evidence_file_verdicts']));
+    expect(res.alerts.get(run(1).key)?.map((a) => a.title)).toEqual(['ProcRansomware']);
+  });
+
   it('runs the technique+host fallback only for runs with no evidence match', async () => {
     msearch
       .mockResolvedValueOnce({ responses: [{ hits: { hits: [] } }, { hits: { hits: [alertHit('Matched')] } }] })
@@ -177,5 +187,10 @@ describe('buildHostTechniqueQuery', () => {
     expect(q.bool.must).toContainEqual({ term: { doc_type: 'alert' } });
     expect(q.bool.must).toContainEqual({ terms: { mitre_techniques: ['T1486'] } });
     expect(JSON.stringify(q)).toContain('HOST1*');
+  });
+
+  it('also matches the id ATT&CK renumbered a technique to (T1562.001 -> T1685)', () => {
+    const q = buildHostTechniqueQuery(DEFENDER_ADAPTER, run(1, ['T1562.001'])) as { bool: { must: unknown[] } };
+    expect(q.bool.must).toContainEqual({ terms: { mitre_techniques: ['T1562.001', 'T1685'] } });
   });
 });

@@ -73,9 +73,35 @@ When a task fails, the failure reason is displayed in the Tasks page:
 
 - **Expanded view** — A red error banner shows the specific failure reason (e.g., "SHA256 mismatch: expected abc, got def", "download binary: connection timeout", "Agent went offline during execution")
 - **Collapsed view** — A truncated failure reason appears below the task name in the task list row
-- **Exit code** — Failed tasks show exit code `-1` for pre-execution failures (download errors, verification failures) and `259` for execution timeouts
+- **Exit code** — Failed tasks show exit code `-1` for pre-execution failures (download errors, verification failures) and `259` when the agent stopped a test that ran past its time limit
 
 The agent sends failure context for all error types: binary download failures, SHA256/size mismatches, execution errors, update failures, and uninstall failures. For tasks that fail because the agent went offline, the backend generates a structured error result automatically.
+
+## The Tasks Page
+
+The header shows a one-line summary of the last 7 days: for example `last 7 days · 38 protected · 36 unprotected · 16 no verdict · 0 in progress`. The numbers use the same outcome rules as the task rows.
+
+### Outcome breakdown
+
+**Protected** and **No verdict** open a menu that lists the exit codes behind the number, for example `126 ExecutionPrevented` or `259 StillActive` (names come from the exit-code table), with a bar and a count for each. Runs that failed without an exit code get their own rows: **Agent offline**, **Timeout** and **Other failure**. **Timeout** means the server gave up waiting for a result (the task exceeded its execution timeout and the agent never reported back); a test the agent itself stopped at its time limit shows as `259 StillActive` instead. No verdict is split into groups (the test did not run, the run failed, the test reported an error, inconclusive).
+
+Choosing a row filters the task list to that outcome. A chip next to the search box names the filter and its **x** clears it. Press **Esc** to close the menu without choosing. The filter covers security-test tasks from the last 7 days, the same window as the numbers, so the list shows exactly the tasks counted in that row. The pager counts batches, so its total can be lower than the number you clicked. A batch shows only its matching tasks, and its header says how many of the batch's agents are listed, for example `1 of 5 agents`.
+
+If the list can't load while a filter is on (a network error, or the server is restarting), the filter stays and the list retries on its next refresh; rows fetched without the filter are never shown under its chip. Only if the server rejects the filter itself is it cleared, with a "Couldn't filter the task list." message.
+
+### Sections: Runs, Schedules, Campaigns
+
+Next to the **Tasks** title are three sections, the three ways tests reach agents:
+
+- **Runs** (`/tasks`): the task list described on this page, with its type pills, status filter and search.
+- **Schedules** (`/tasks/schedules`): the recurring and one-off schedules. It is always shown, even with no schedules yet. See [Managing Schedules](./task-scheduling#managing-schedules).
+- **Campaigns** (`/tasks/campaigns`): saved tests × hosts plans and their evidence. Hidden on deployments without campaigns (Vercel). See [Campaigns](./campaigns).
+
+The sections sit on the title row, so they take no space from the list. The 7-day numbers under the title stay on Runs and Schedules; choosing a breakdown row from Schedules switches to Runs with that filter.
+
+### List and detail layout
+
+On a large screen the task list and the detail of the selected task fill the rest of the window and scroll independently, so the detail never scrolls out of view while you move down the list. Pagination sits at the bottom of the list pane. On a small screen the page scrolls as a whole.
 
 ## Task Results
 
@@ -243,7 +269,13 @@ Task tables render *honest* status: a task the agent marked `completed` whose re
 Select multiple tasks using checkboxes, then use bulk actions to:
 
 - **Cancel** all selected pending/assigned tasks
-- **Delete** selected tasks from the list
+- **Delete** the selected finished tasks (completed, failed or expired) from the list
+
+Only finished tasks can be deleted; cancel an active one instead. A deleted task
+leaves every list, but ProjectAchilles keeps an archived copy with who deleted it
+and when. Results already in Analytics stay there, and a run that failed because
+the agent went offline can still be recorded as **Protected** when an EDR's
+alert later proves it stopped the test.
 
 ### Pagination
 
@@ -255,7 +287,7 @@ The task list polls every 10 seconds for status changes. Polling is silent -- it
 
 ## Schedule Management
 
-Below the task list, the **Schedules** section displays all recurring schedules:
+The **Schedules** section of the Tasks page displays all schedules:
 
 - Human-readable schedule descriptions (e.g., "Every weekday at 09:30 UTC")
 - Next and last run timestamps with relative formatting

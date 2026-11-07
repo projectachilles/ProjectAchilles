@@ -4,6 +4,7 @@
 import { SettingsService } from '../analytics/settings.js';
 import { createEsClient } from '../analytics/client.js';
 import type { IndexInfo } from '../analytics/index-management.service.js';
+import { createAchillesIndex } from '../shared/esIndexCreate.js';
 
 export const DEFENDER_INDEX = 'achilles-defender';
 
@@ -81,6 +82,9 @@ export const DEFENDER_INDEX_MAPPING = {
         type: 'text' as const,
         fields: { keyword: { type: 'keyword' as const, ignore_above: 1024 } },
       },
+      // Defender's per-file verdict + action (edr/multiTestEvidence.ts). Read
+      // from _source only, so stored without indexing.
+      evidence_file_verdicts: { type: 'object' as const, enabled: false },
 
       // Achilles correlation + auto-resolve fields.
       // Populated on ALERT docs by:
@@ -119,10 +123,7 @@ export async function createDefenderIndex(): Promise<{ created: boolean; message
   const client = createEsClient(settings);
 
   try {
-    await client.indices.create({
-      index: DEFENDER_INDEX,
-      ...DEFENDER_INDEX_MAPPING,
-    });
+    await createAchillesIndex(client, DEFENDER_INDEX, DEFENDER_INDEX_MAPPING);
     return { created: true, message: `Index "${DEFENDER_INDEX}" created successfully` };
   } catch (err: unknown) {
     if (err && typeof err === 'object' && 'statusCode' in err && (err as { statusCode: number }).statusCode === 400) {

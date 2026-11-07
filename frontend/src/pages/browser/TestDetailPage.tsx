@@ -1,28 +1,33 @@
-import { useState, useEffect, useRef, useCallback } from 'react';
-import { useParams, useNavigate, useLocation } from 'react-router-dom';
+import { useState, useEffect, useRef, useCallback, useMemo } from 'react';
+import { useParams, useNavigate, useLocation, useSearchParams } from 'react-router-dom';
 import DOMPurify from 'dompurify';
+import { Loader2 } from 'lucide-react';
 import { browserApi } from '@/services/api/browser';
-import type { TestDetails, FileContent } from '@/types/test';
-import TechniqueBadge from '@/components/browser/TechniqueBadge';
-import FileViewer from '@/components/browser/FileViewer';
+import type { TestDetails } from '@/types/test';
 import { useTheme } from '@/hooks/useTheme';
-import BuildSection from '@/components/browser/BuildSection';
-import CollapsibleSection from '@/components/browser/CollapsibleSection';
 import { useTestPreferences } from '@/hooks/useTestPreferences';
 import { useHasPermission } from '@/hooks/useAppRole';
-import { ArrowLeft, Calendar, Layers, Star, Loader2, FileText, Code, Shield, AlertTriangle, Workflow, ShieldCheck, Minimize2, Heart, Tag, User, Clock, Monitor, Crosshair, Play, Hammer, BookOpen } from 'lucide-react';
-import { formatRelativeDate, formatFullDate } from '@/utils/dateFormatters';
-import { targetLabel } from '@/utils/platformLabels';
 import { ExecutionDrawer } from '@/components/browser/execution';
-import { useIsDesktop } from '@/hooks/useMediaQuery';
-import { Sheet, SheetContent, SheetTitle } from '@/components/ui/sheet';
-import { cn } from '@/lib/utils';
-import { IdentityPill } from '@/components/layout/ConsoleIdentity';
+import { pillClass } from '@/components/shared/ui/pillStyles';
+import TestDetailHeader from '@/components/browser/detail/TestDetailHeader';
+import DocumentTab from '@/components/browser/detail/DocumentTab';
+import OverviewTab from '@/components/browser/detail/overview/OverviewTab';
+import { useBuildInfo } from '@/components/browser/detail/useBuildInfo';
+import { buildTestTabs, resolveTabSelection, type TestTabId } from '@/components/browser/detail/testTabs';
+
+const TAB_PANEL_ID = 'test-detail-tabpanel';
 
 export default function TestDetailPage() {
   const { uuid } = useParams<{ uuid: string }>();
+  if (!uuid) return null;
+  // Keyed so every piece of per-test state (diagrams, build, drawer) resets.
+  return <TestDetailView key={uuid} uuid={uuid} />;
+}
+
+function TestDetailView({ uuid }: { uuid: string }) {
   const navigate = useNavigate();
   const location = useLocation();
+  const [searchParams, setSearchParams] = useSearchParams();
   // The Tests list passes its own URL (filters, view) so Back restores it.
   const fromList = (location.state as { backTo?: unknown } | null)?.backTo;
   const backTo = typeof fromList === 'string' && fromList.startsWith('/tests') ? fromList : '/tests';
@@ -30,21 +35,46 @@ export default function TestDetailPage() {
   const attackFlowIframeRef = useRef<HTMLIFrameElement>(null);
   const killChainIframeRef = useRef<HTMLIFrameElement>(null);
   const [test, setTest] = useState<TestDetails | null>(null);
-  const [selectedFile, setSelectedFile] = useState<string | null>(null);
-  const [fileContent, setFileContent] = useState<FileContent | null>(null);
   const [attackFlowHtml, setAttackFlowHtml] = useState<string | null>(null);
   const [killChainHtml, setKillChainHtml] = useState<string | null>(null);
+  // Diagrams whose fetch failed (until then their tab shows a spinner).
+  const [diagramFailed, setDiagramFailed] = useState<Partial<Record<'attack-flow' | 'kill-chain', true>>>({});
   const [loading, setLoading] = useState(true);
-  const [fileLoading, setFileLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [activeView, setActiveView] = useState<'file' | 'attack-flow' | 'kill-chain'>('file');
-  const [hasUserInteracted, setHasUserInteracted] = useState(false); // Track if user clicked something
-  const { isFavorite, toggleFavorite, trackView } = useTestPreferences();
+  const { trackView } = useTestPreferences();
   const canBuild = useHasPermission('tests:builds:create');
   const canCreateTasks = useHasPermission('endpoints:tasks:create');
   const [executionDrawerOpen, setExecutionDrawerOpen] = useState(false);
-  const isDesktop = useIsDesktop();
-  const [filesOpen, setFilesOpen] = useState(false);
+  // The page's only build state: the header's Download and the Deploy panel share it.
+  // Fetched only for builders of a test with source (the build route needs
+  // tests:builds:read, which read-only roles lack); otherwise inert.
+  const hasSource = !!test?.files?.some(f => f.category === 'source');
+  const build = useBuildInfo(canBuild && hasSource ? uuid : null);
+
+  const tabs = useMemo(() => (test ? buildTestTabs(test) : []), [test]);
+  const selection = resolveTabSelection(tabs, searchParams.get('tab'), searchParams.get('file'));
+  const activeTab = tabs.find(t => t.id === selection.tab);
+
+  // A tab or file click is a real history entry (browser Back works). The
+  // router state rides along so the breadcrumb keeps the list's `backTo`.
+  // Re-clicking the active tab (or the open file) adds no entry.
+  const openTab = useCallback((tab: TestTabId, file?: string | null) => {
+    if (tab === selection.tab && (!file || file === selection.file)) return;
+    const next = new URLSearchParams();
+    if (tab !== 'overview') next.set('tab', tab);
+    if (file) next.set('file', file);
+    setSearchParams(next, { replace: false, state: location.state });
+  }, [setSearchParams, location.state, selection.tab, selection.file]);
+
+  // A deep link to a file the tab doesn't have shows the tab's first file;
+  // rewrite the URL to match (replace, so Back still leaves the page).
+  const requestedFile = searchParams.get('file');
+  useEffect(() => {
+    if (!test || !selection.file || requestedFile === null || requestedFile === selection.file) return;
+    const next = new URLSearchParams(searchParams);
+    next.set('file', selection.file);
+    setSearchParams(next, { replace: true, state: location.state });
+  }, [test, selection.file, requestedFile, searchParams, setSearchParams, location.state]);
 
   // Sync theme to visualization iframes via postMessage
   const syncThemeToIframe = useCallback(() => {
@@ -63,22 +93,21 @@ export default function TestDetailPage() {
   }, [theme, attackFlowHtml, killChainHtml, syncThemeToIframe]);
 
   useEffect(() => {
-    if (uuid) {
-      loadTestDetails(uuid);
-      setHasUserInteracted(false); // Reset on test change
-    }
+    loadTestDetails(uuid);
   }, [uuid]);
 
+  // A diagram is fetched once, the first time its tab is shown.
+  const diagramRequested = useRef(new Set<string>());
   useEffect(() => {
-    if (selectedFile && uuid && activeView === 'file') {
-      const controller = new AbortController();
-      loadFileContent(uuid, selectedFile);
-
-      return () => {
-        controller.abort();
-      };
+    if (!test || diagramRequested.current.has(selection.tab)) return;
+    if (selection.tab === 'attack-flow') {
+      diagramRequested.current.add(selection.tab);
+      loadAttackFlow();
+    } else if (selection.tab === 'kill-chain') {
+      diagramRequested.current.add(selection.tab);
+      loadKillChain();
     }
-  }, [selectedFile, uuid, activeView]);
+  }, [selection.tab, test]);
 
   async function loadTestDetails(testUuid: string) {
     try {
@@ -86,13 +115,6 @@ export default function TestDetailPage() {
       const data = await browserApi.getTestDetails(testUuid);
       setTest(data);
       trackView(testUuid, data.name);
-
-      // Auto-select README if available
-      if (data.hasReadme) {
-        setSelectedFile('README.md');
-      } else if (data.files.length > 0) {
-        setSelectedFile(data.files[0].name);
-      }
     } catch (err) {
       setError('Failed to load test details');
       console.error(err);
@@ -101,24 +123,10 @@ export default function TestDetailPage() {
     }
   }
 
-  async function loadFileContent(testUuid: string, filename: string) {
-    try {
-      setFileLoading(true);
-      const content = await browserApi.getFileContent(testUuid, filename);
-      setFileContent(content);
-    } catch (err) {
-      console.error('Failed to load file content:', err);
-      setFileContent(null);
-    } finally {
-      setFileLoading(false);
-    }
-  }
-
   async function loadAttackFlow() {
     if (!uuid || !test?.hasAttackFlow) return;
 
     try {
-      setFileLoading(true);
       const html = await browserApi.getAttackFlow(uuid);
       const sanitized = DOMPurify.sanitize(html, {
         ADD_TAGS: ['style'],
@@ -126,11 +134,9 @@ export default function TestDetailPage() {
         WHOLE_DOCUMENT: true,
       });
       setAttackFlowHtml(sanitized);
-      setActiveView('attack-flow');
     } catch (err) {
       console.error('Failed to load attack flow:', err);
-    } finally {
-      setFileLoading(false);
+      setDiagramFailed(prev => ({ ...prev, 'attack-flow': true }));
     }
   }
 
@@ -138,7 +144,6 @@ export default function TestDetailPage() {
     if (!uuid || !test?.hasKillChain) return;
 
     try {
-      setFileLoading(true);
       const html = await browserApi.getKillChain(uuid);
       // Kill chain diagrams use Cytoscape.js (loaded from CDN via <script src>).
       // Allow external script src but strip inline scripts and event handlers.
@@ -149,62 +154,17 @@ export default function TestDetailPage() {
         WHOLE_DOCUMENT: true,
       });
       setKillChainHtml(sanitized);
-      setActiveView('kill-chain');
     } catch (err) {
       console.error('Failed to load kill chain:', err);
-    } finally {
-      setFileLoading(false);
+      setDiagramFailed(prev => ({ ...prev, 'kill-chain': true }));
     }
-  }
-
-  function handleFileSelect(filename: string) {
-    setSelectedFile(filename);
-    setActiveView('file');
-    setHasUserInteracted(true); // User clicked a file
-    setFilesOpen(false);
-  }
-
-  function handleAttackFlowClick() {
-    setHasUserInteracted(true); // User clicked attack flow
-    setFilesOpen(false);
-    if (!attackFlowHtml) {
-      loadAttackFlow();
-    } else {
-      setActiveView('attack-flow');
-    }
-  }
-
-  function handleKillChainClick() {
-    setHasUserInteracted(true);
-    setFilesOpen(false);
-    if (!killChainHtml) {
-      loadKillChain();
-    } else {
-      setActiveView('kill-chain');
-    }
-  }
-
-  // Helper to get clean display name for defense files
-  function getDefenseFileDisplayName(filename: string): string {
-    if (filename.includes('DEFENSE_GUIDANCE')) return 'Defense Guide';
-    if (filename.includes('_dr_rules')) return 'D&R Rules';
-    if (filename.includes('_hardening')) {
-      if (filename.includes('_hardening_linux')) return 'Hardening (Linux)';
-      if (filename.includes('_hardening_macos')) return 'Hardening (macOS)';
-      return 'Hardening (Windows)';
-    }
-    if (filename.includes('_detections.kql')) return 'KQL Detections';
-    if (filename.includes('_rules.yar')) return 'YARA Rules';
-    // Fallback: get extension
-    const ext = filename.split('.').pop() || '';
-    return ext.toUpperCase() + ' File';
   }
 
   if (loading) {
     return (
-      <div className="flex items-center justify-center h-full">
-        <div className="flex items-center gap-2 text-muted-foreground">
-          <Loader2 className="w-6 h-6 animate-spin" />
+      <div className="flex items-center justify-center py-24">
+        <div className="flex items-center gap-2 text-sm text-muted">
+          <Loader2 className="h-5 w-5 animate-spin" />
           <span>Loading test details...</span>
         </div>
       </div>
@@ -213,12 +173,13 @@ export default function TestDetailPage() {
 
   if (error || !test) {
     return (
-      <div className="flex items-center justify-center h-full">
+      <div className="flex items-center justify-center py-24">
         <div className="text-center">
-          <p className="text-red-500 mb-4">{error || 'Test not found'}</p>
+          <p className="mb-4 text-sm text-danger">{error || 'Test not found'}</p>
           <button
+            type="button"
             onClick={() => navigate(backTo)}
-            className="px-4 py-2 bg-primary text-primary-foreground rounded-lg hover:opacity-90"
+            className="inline-flex h-8 items-center rounded-md bg-accent px-3 text-[13px] font-medium text-accent-foreground hover:opacity-90 transition-opacity"
           >
             Back to Tests
           </button>
@@ -227,436 +188,112 @@ export default function TestDetailPage() {
     );
   }
 
-  // Categorize files
-  const documentationFiles = test.files.filter(f => f.category === 'documentation');
-  const defenseFiles = test.files.filter(f => f.category === 'defense');
-  const sourceFiles = test.files.filter(f => f.category === 'source');
-  const detectionFiles = test.files.filter(f => f.category === 'detection');
-  const configFiles = test.files.filter(f => f.category === 'config');
-  const referenceFiles = test.files.filter(f => f.category === 'references');
-
-  // Sidebar section active state for auto-expand
-  const isDocActive = activeView === 'file' && selectedFile !== null && documentationFiles.some(f => f.name === selectedFile);
-  const isVisualsActive = activeView === 'attack-flow' || activeView === 'kill-chain';
-  const isDefenseActive = activeView === 'file' && selectedFile !== null && defenseFiles.some(f => f.name === selectedFile);
-  const isSourceActive = activeView === 'file' && selectedFile !== null && sourceFiles.some(f => f.name === selectedFile);
-  const isRulesActive = activeView === 'file' && selectedFile !== null && detectionFiles.some(f => f.name === selectedFile);
-  const isConfigActive = activeView === 'file' && selectedFile !== null && configFiles.some(f => f.name === selectedFile);
-  const isReferencesActive = referenceFiles.some(f => f.name === selectedFile) && activeView === 'file';
-
-  // Determine if we should use compact header
-  // Show compact header after user clicks any file/view (not on initial load)
-  const isCompactMode = hasUserInteracted;
-
-  // Function to exit compact mode and show full header again
-  function handleExitCompactMode() {
-    setHasUserInteracted(false);
-  }
-
-  const railBody = (
-    <div className="p-4 space-y-4">
-      {/* Documentation */}
-      {documentationFiles.length > 0 && (
-        <CollapsibleSection icon={FileText} label="Documentation" sectionKey="docs"
-          itemCount={documentationFiles.length} defaultOpen isActive={isDocActive}>
-          <div className="space-y-1">
-            {documentationFiles.map(file => (
-              <button key={file.name} onClick={() => handleFileSelect(file.name)}
-                className={`w-full text-left px-3 py-2 rounded-md text-sm transition-colors ${
-                  selectedFile === file.name && activeView === 'file'
-                    ? 'bg-primary text-primary-foreground'
-                    : 'text-foreground hover:bg-raised'
-                }`}>
-                {file.name === 'SAFETY.md' && <AlertTriangle className="w-3 h-3 inline mr-2 text-orange-500" />}
-                {file.name}
-              </button>
-            ))}
-          </div>
-        </CollapsibleSection>
-      )}
-
-      {/* Build */}
-      {canBuild && sourceFiles.length > 0 && uuid && (
-        <CollapsibleSection icon={Hammer} label="Build" sectionKey="build" defaultOpen>
-          <BuildSection uuid={uuid} />
-        </CollapsibleSection>
-      )}
-
-      {/* Visualization */}
-      {(test.hasAttackFlow || test.hasKillChain) && (
-        <CollapsibleSection icon={Workflow} label="Visualization" sectionKey="visuals"
-          itemCount={(test.hasAttackFlow ? 1 : 0) + (test.hasKillChain ? 1 : 0)}
-          isActive={isVisualsActive}>
-          <div className="space-y-1">
-            {test.hasAttackFlow && (
-              <button onClick={handleAttackFlowClick}
-                className={`w-full text-left px-3 py-2 rounded-md text-sm transition-colors ${
-                  activeView === 'attack-flow' ? 'bg-primary text-primary-foreground' : 'text-foreground hover:bg-raised'
-                }`}>
-                Attack Flow Diagram
-              </button>
-            )}
-            {test.hasKillChain && (
-              <button onClick={handleKillChainClick}
-                className={`w-full text-left px-3 py-2 rounded-md text-sm transition-colors ${
-                  activeView === 'kill-chain' ? 'bg-primary text-primary-foreground' : 'text-foreground hover:bg-raised'
-                }`}>
-                Kill Chain Diagram
-              </button>
-            )}
-          </div>
-        </CollapsibleSection>
-      )}
-
-      {/* Defense Guidance */}
-      {defenseFiles.length > 0 && (
-        <CollapsibleSection icon={ShieldCheck} label="Defense Guidance" sectionKey="defense"
-          itemCount={defenseFiles.length} isActive={isDefenseActive}>
-          <div className="space-y-1">
-            {defenseFiles.map(file => (
-              <button key={file.name} onClick={() => handleFileSelect(file.name)}
-                className={`w-full text-left px-3 py-2 rounded-md text-sm transition-colors flex items-center gap-2 ${
-                  selectedFile === file.name && activeView === 'file'
-                    ? 'bg-primary text-primary-foreground'
-                    : 'text-foreground hover:bg-raised'
-                }`}>
-                {file.name.includes('DEFENSE_GUIDANCE') && <span className="w-2 h-2 rounded-full bg-green-500 flex-shrink-0" />}
-                {file.name.includes('_dr_rules') && <span className="w-2 h-2 rounded-full bg-cyan-500 flex-shrink-0" />}
-                {file.name.includes('_hardening') && <span className="w-2 h-2 rounded-full bg-orange-500 flex-shrink-0" />}
-                {getDefenseFileDisplayName(file.name)}
-              </button>
-            ))}
-          </div>
-        </CollapsibleSection>
-      )}
-
-
-      {/* References & Sources */}
-      {referenceFiles.length > 0 && (
-        <CollapsibleSection icon={BookOpen} label="References" sectionKey="references"
-          itemCount={referenceFiles.length} isActive={isReferencesActive}>
-          <div className="space-y-1">
-            {referenceFiles.map(file => (
-              <button key={file.name} onClick={() => handleFileSelect(file.name)}
-                className={`w-full text-left px-3 py-2 rounded-md text-sm transition-colors ${
-                  selectedFile === file.name && activeView === 'file'
-                    ? 'bg-primary text-primary-foreground'
-                    : 'text-foreground hover:bg-raised'
-                }`}>
-                {file.name}
-              </button>
-            ))}
-          </div>
-        </CollapsibleSection>
-      )}
-
-      {/* Source Code */}
-      {sourceFiles.length > 0 && (
-        <CollapsibleSection icon={Code} label="Source Code" sectionKey="source"
-          itemCount={sourceFiles.length} isActive={isSourceActive}>
-          <div className="space-y-1">
-            {sourceFiles.map(file => (
-              <button key={file.name} onClick={() => handleFileSelect(file.name)}
-                className={`w-full text-left px-3 py-2 rounded-md text-sm font-mono transition-colors ${
-                  selectedFile === file.name && activeView === 'file'
-                    ? 'bg-primary text-primary-foreground'
-                    : 'text-foreground hover:bg-raised'
-                }`}>
-                {file.name}
-              </button>
-            ))}
-          </div>
-        </CollapsibleSection>
-      )}
-
-      {/* Detection Rules */}
-      {detectionFiles.length > 0 && (
-        <CollapsibleSection icon={Shield} label="Detection Rules" sectionKey="rules"
-          itemCount={detectionFiles.length} isActive={isRulesActive}>
-          <div className="space-y-1">
-            {detectionFiles.map(file => (
-              <button key={file.name} onClick={() => handleFileSelect(file.name)}
-                className={`w-full text-left px-3 py-2 rounded-md text-sm font-mono transition-colors ${
-                  selectedFile === file.name && activeView === 'file'
-                    ? 'bg-primary text-primary-foreground'
-                    : 'text-foreground hover:bg-raised'
-                }`}>
-                {file.type === 'kql' && <span className="text-xs text-blue-500 mr-2">KQL</span>}
-                {file.type === 'yara' && <span className="text-xs text-purple-500 mr-2">YARA</span>}
-                {file.type === 'sigma' && <span className="text-xs text-yellow-500 mr-2">SIGMA</span>}
-                {file.type === 'ndjson' && <span className="text-xs text-green-500 mr-2">ELASTIC</span>}
-                {file.name}
-              </button>
-            ))}
-          </div>
-        </CollapsibleSection>
-      )}
-
-      {/* Configuration */}
-      {configFiles.length > 0 && (
-        <CollapsibleSection icon={Shield} label="Configuration" sectionKey="config"
-          itemCount={configFiles.length} isActive={isConfigActive}>
-          <div className="space-y-1">
-            {configFiles.map(file => (
-              <button key={file.name} onClick={() => handleFileSelect(file.name)}
-                className={`w-full text-left px-3 py-2 rounded-md text-sm font-mono transition-colors ${
-                  selectedFile === file.name && activeView === 'file'
-                    ? 'bg-primary text-primary-foreground'
-                    : 'text-foreground hover:bg-raised'
-                }`}>
-                {file.name}
-              </button>
-            ))}
-          </div>
-        </CollapsibleSection>
-      )}
+  const diagramFallback = diagramFailed[selection.tab as 'attack-flow' | 'kill-chain'] ? (
+    <p className="py-12 text-sm text-muted">The diagram could not be loaded.</p>
+  ) : (
+    <div className="flex items-center gap-2 py-12 text-sm text-muted">
+      <Loader2 className="h-4 w-4 animate-spin" />
+      <span>Loading...</span>
     </div>
   );
 
+  let content = null;
+  if (selection.tab === 'overview') {
+    content = <OverviewTab test={test} canBuild={canBuild} build={build} onOpenFile={openTab} />;
+  } else if (selection.tab === 'attack-flow') {
+    content = attackFlowHtml ? (
+      <div className="h-[75vh] overflow-hidden rounded-lg border border-border">
+        <iframe
+          ref={attackFlowIframeRef}
+          srcDoc={attackFlowHtml}
+          className="w-full h-full min-h-[60vh] border-0 lg:min-h-0"
+          title="Attack Flow Diagram"
+          sandbox=""
+          onLoad={syncThemeToIframe}
+        />
+      </div>
+    ) : diagramFallback;
+  } else if (selection.tab === 'kill-chain') {
+    content = killChainHtml ? (
+      <div className="h-[75vh] overflow-hidden rounded-lg border border-border">
+        <iframe
+          ref={killChainIframeRef}
+          srcDoc={killChainHtml}
+          className="w-full h-full min-h-[60vh] border-0 lg:min-h-0"
+          title="Kill Chain Diagram"
+          sandbox="allow-scripts"
+          onLoad={syncThemeToIframe}
+        />
+      </div>
+    ) : diagramFallback;
+  } else if (activeTab && selection.file) {
+    content = (
+      <DocumentTab
+        uuid={uuid}
+        testName={test.name}
+        tab={activeTab}
+        file={selection.file}
+        onSelectFile={(file) => openTab(activeTab.id, file)}
+      />
+    );
+  }
+
   return (
-    <div className="h-full flex flex-col">
-      {/* Header - Compact or Full */}
-      {isCompactMode ? (
-        /* Compact Header for Attack Flow View */
-        <div className="border-b border-border bg-background/95 backdrop-blur">
-          <div className="container mx-auto px-4 py-2 flex items-center justify-between">
-            <div className="flex items-center gap-4">
-              <button
-                onClick={() => navigate(backTo)}
-                className="flex items-center gap-2 text-sm text-muted-foreground hover:text-foreground"
-              >
-                <ArrowLeft className="w-4 h-4" />
-                <span className="hidden sm:inline">Back</span>
-              </button>
-              <div className="h-4 w-px bg-border" />
-              <h1 className="text-lg font-semibold truncate max-w-md lg:max-w-xl text-foreground">{test.name}</h1>
-              <span className="hidden md:inline text-xs font-mono text-muted-foreground">
-                {test.uuid.slice(0, 8)}...
-              </span>
-            </div>
-            <div className="flex items-center gap-3">
-              <button
-                onClick={() => toggleFavorite(test.uuid)}
-                className="p-1.5 rounded-md hover:bg-raised transition-colors"
-                title={isFavorite(test.uuid) ? 'Remove from favorites' : 'Add to favorites'}
-              >
-                <Heart className={`w-4 h-4 transition-colors ${isFavorite(test.uuid) ? 'fill-red-500 text-red-500' : 'text-muted-foreground hover:text-red-400'}`} />
-              </button>
-              {canCreateTasks && (
-                <button
-                  onClick={() => setExecutionDrawerOpen(true)}
-                  className="p-1.5 rounded-md hover:bg-raised transition-colors"
-                  title="Execute test"
-                >
-                  <Play className="w-4 h-4 text-primary" />
-                </button>
-              )}
-              {test.score && (
-                <div className="flex items-center gap-1 text-amber-500">
-                  <Star className="w-4 h-4 fill-current" />
-                  <span className="font-bold">{test.score.toFixed(1)}</span>
-                </div>
-              )}
-              <button
-                onClick={handleExitCompactMode}
-                className="flex items-center gap-1.5 text-sm text-muted-foreground hover:text-foreground px-2 py-1 rounded hover:bg-raised transition-colors"
-                title="Exit fullscreen view"
-              >
-                <Minimize2 className="w-4 h-4" />
-                <span className="hidden sm:inline">Exit</span>
-              </button>
-            </div>
-          </div>
-        </div>
-      ) : (
-        /* Full Header for File/Document Views */
-        <div className="border-b border-border bg-background/95 backdrop-blur">
-          <div className="container mx-auto px-4 py-4">
-            <button
-              onClick={() => navigate(backTo)}
-              className="flex items-center gap-2 text-sm text-muted-foreground hover:text-foreground mb-3"
-            >
-              <ArrowLeft className="w-4 h-4" />
-              Back to tests
-            </button>
+    <div>
+      <TestDetailHeader
+        test={test}
+        backTo={backTo}
+        canRun={canCreateTasks}
+        onRun={() => setExecutionDrawerOpen(true)}
+        canBuild={canBuild}
+        hasBuild={!!build.buildInfo?.exists}
+        onDownload={() => { void build.download(); }}
+      />
 
-            <div className="mb-3 flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between sm:gap-4">
-              <div className="flex-1">
-                <h1 className="mb-2 break-words text-xl font-bold text-foreground sm:text-2xl">{test.name}</h1>
-                <div className="flex items-center gap-4 text-sm text-muted-foreground flex-wrap">
-                  {test.severity && (
-                    <span className="font-medium uppercase text-orange-500">
-                      {test.severity}
-                    </span>
-                  )}
-                  {test.isMultiStage && (
-                    <div className="flex items-center gap-1">
-                      <Layers className="w-4 h-4" />
-                      <span>{test.stages.length} stages</span>
-                    </div>
-                  )}
-                  {test.version && (
-                    <div className="flex items-center gap-1">
-                      <Tag className="w-4 h-4" />
-                      <span>v{test.version}</span>
-                    </div>
-                  )}
-                  {test.author && (
-                    <div className="flex items-center gap-1">
-                      <User className="w-4 h-4" />
-                      <span>{test.author}</span>
-                    </div>
-                  )}
-                  {test.createdDate && (
-                    <div className="flex items-center gap-1">
-                      <Calendar className="w-4 h-4" />
-                      <span>{test.createdDate}</span>
-                    </div>
-                  )}
-                  {test.lastModifiedDate && (
-                    <div
-                      className="flex items-center gap-1"
-                      title={test.lastCommitMessage
-                        ? `${formatFullDate(test.lastModifiedDate)} — ${test.lastCommitMessage}`
-                        : formatFullDate(test.lastModifiedDate)}
-                    >
-                      <Clock className="w-4 h-4" />
-                      <span>Modified {formatRelativeDate(test.lastModifiedDate)}</span>
-                    </div>
-                  )}
-                  {test.target && test.target.length > 0 && (
-                    <div className="flex items-center gap-1">
-                      <Monitor className="w-4 h-4" />
-                      <span>{test.target.map(t => targetLabel(t)).join(', ')}</span>
-                    </div>
-                  )}
-                  {test.threatActor && (
-                    <div className="flex items-center gap-1">
-                      <Crosshair className="w-4 h-4" />
-                      <span>{test.threatActor}</span>
-                    </div>
-                  )}
-                  <span className="font-mono text-xs">{test.uuid}</span>
-                </div>
-              </div>
-
-              <div className="flex shrink-0 flex-wrap items-center gap-2 sm:gap-3">
-                <IdentityPill />
-                <button
-                  onClick={() => toggleFavorite(test.uuid)}
-                  className="p-2 rounded-lg hover:bg-raised transition-colors"
-                  title={isFavorite(test.uuid) ? 'Remove from favorites' : 'Add to favorites'}
-                >
-                  <Heart className={`w-5 h-5 transition-colors ${isFavorite(test.uuid) ? 'fill-red-500 text-red-500' : 'text-muted-foreground hover:text-red-400'}`} />
-                </button>
-                {canCreateTasks && (
-                  <button
-                    onClick={() => setExecutionDrawerOpen(true)}
-                    className="p-2 rounded-lg hover:bg-raised transition-colors"
-                    title="Execute test"
-                  >
-                    <Play className="w-5 h-5 text-primary" />
-                  </button>
+      {/* Same container as the header, so the title, tabs and content line up. */}
+      <div className="border-b border-border">
+        {/* Scrolls sideways on narrow screens instead of wrapping. */}
+        <div role="tablist" aria-label="Test sections" className="container mx-auto flex gap-2 overflow-x-auto px-4 py-3">
+          {tabs.map(tab => {
+            const active = tab.id === selection.tab;
+            return (
+              <button
+                key={tab.id}
+                id={`test-tab-${tab.id}`}
+                type="button"
+                role="tab"
+                aria-selected={active}
+                aria-controls={active ? TAB_PANEL_ID : undefined}
+                onClick={() => openTab(tab.id)}
+                className={pillClass(active, 'shrink-0')}
+              >
+                {tab.label}
+                {tab.count !== undefined && (
+                  <>
+                    <span aria-hidden="true" className="rounded bg-overlay px-1 font-mono text-[10px] leading-4 text-faint">{tab.count}</span>
+                    <span className="sr-only">{`, ${tab.count} files`}</span>
+                  </>
                 )}
-                {test.score && (
-                  <div className="flex items-center gap-2 px-4 py-2 rounded-lg bg-amber-500/10 border border-amber-500/20">
-                    <Star className="w-5 h-5 text-amber-500 fill-current" />
-                    <div>
-                      <div className="text-2xl font-bold text-amber-500">{test.score.toFixed(1)}</div>
-                      <div className="text-xs text-muted-foreground">Test Score</div>
-                    </div>
-                  </div>
-                )}
-              </div>
-            </div>
-
-            {/* Techniques */}
-            <div className="flex flex-wrap gap-2 mb-3">
-              {test.techniques.map(technique => (
-                <TechniqueBadge key={technique} technique={technique} />
-              ))}
-            </div>
-
-            {/* Description */}
-            {test.description && (
-              <p className="text-sm text-muted-foreground">{test.description}</p>
-            )}
-          </div>
-        </div>
-      )}
-
-      {/* Main Content */}
-      <div className={cn('flex-1', isDesktop ? 'flex overflow-hidden' : 'flex flex-col')}>
-        {/* Left Sidebar - File Browser (bottom sheet below lg) */}
-        {isDesktop ? (
-          <div className="w-80 border-r border-border bg-raised/30 overflow-y-auto">{railBody}</div>
-        ) : (
-          <Sheet open={filesOpen} onOpenChange={setFilesOpen}>
-            <SheetContent side="bottom" className="max-h-[85vh] overflow-y-auto border-border bg-background p-0">
-              <SheetTitle className="px-4 pt-4 text-sm font-semibold">Files and build</SheetTitle>
-              {railBody}
-            </SheetContent>
-          </Sheet>
-        )}
-
-        {/* Right Panel - Content Viewer */}
-        <div className={cn('flex flex-1 flex-col', isDesktop ? 'overflow-hidden' : 'min-h-[60vh]')}>
-          {/* Main Content Area */}
-          <div className={cn('flex-1', isDesktop && 'overflow-hidden')}>
-            {fileLoading ? (
-              <div className="flex items-center justify-center h-full">
-                <div className="flex items-center gap-2 text-muted-foreground">
-                  <Loader2 className="w-6 h-6 animate-spin" />
-                  <span>Loading...</span>
-                </div>
-              </div>
-            ) : activeView === 'attack-flow' && attackFlowHtml ? (
-              <iframe
-                ref={attackFlowIframeRef}
-                srcDoc={attackFlowHtml}
-                className="w-full h-full min-h-[60vh] border-0 lg:min-h-0"
-                title="Attack Flow Diagram"
-                sandbox=""
-                onLoad={syncThemeToIframe}
-              />
-            ) : activeView === 'kill-chain' && killChainHtml ? (
-              <iframe
-                ref={killChainIframeRef}
-                srcDoc={killChainHtml}
-                className="w-full h-full min-h-[60vh] border-0 lg:min-h-0"
-                title="Kill Chain Diagram"
-                sandbox="allow-scripts"
-                onLoad={syncThemeToIframe}
-              />
-            ) : fileContent ? (
-              <FileViewer file={fileContent} />
-            ) : (
-              <div className="flex items-center justify-center h-full text-muted-foreground">
-                Select a file to view its content
-              </div>
-            )}
-          </div>
+              </button>
+            );
+          })}
         </div>
       </div>
 
-      {!isDesktop && (
-        <button
-          type="button"
-          onClick={() => setFilesOpen(true)}
-          className="fixed bottom-4 right-4 z-30 flex h-11 items-center gap-2 rounded-full border border-border-strong bg-raised px-4 text-sm font-medium text-foreground shadow-lg"
-        >
-          <FileText className="h-4 w-4" />
-          Files and build
-        </button>
-      )}
+      <div
+        role="tabpanel"
+        id={TAB_PANEL_ID}
+        aria-labelledby={`test-tab-${selection.tab}`}
+        className="container mx-auto px-4 py-5"
+      >
+        {content}
+      </div>
 
-      {test && (
-        <ExecutionDrawer
-          open={executionDrawerOpen}
-          onClose={() => setExecutionDrawerOpen(false)}
-          tests={[test]}
-        />
-      )}
+      <ExecutionDrawer
+        open={executionDrawerOpen}
+        onClose={() => setExecutionDrawerOpen(false)}
+        tests={[test]}
+      />
     </div>
   );
 }

@@ -1,8 +1,8 @@
 import { Router } from 'express';
-import type { Request } from 'express';
 import rateLimit from 'express-rate-limit';
 import { asyncHandler, AppError } from '../../middleware/error.middleware.js';
-import { getUserId, getUserOrgId, requirePermission, validateRequestOrgId } from '../../middleware/clerk.middleware.js';
+import { getUserId, requirePermission, validateRequestOrgId } from '../../middleware/clerk.middleware.js';
+import { callerOrg } from '../../middleware/orgScope.js';
 import {
   createToken,
   enrollAgent,
@@ -111,20 +111,6 @@ agentEnrollmentRouter.get(
 // ============================================================================
 // Admin router (Clerk auth required)
 // ============================================================================
-
-/**
- * The caller's Clerk org, or undefined in legacy single-org mode. A no-org
- * caller is rejected when REQUIRE_ORG_ISOLATION=true (same rule as campaigns
- * and notices), so token routes never fall back to "any org" in multi-tenant.
- */
-function callerOrg(req: Request): string | undefined {
-  const orgId = getUserOrgId(req.auth);
-  if (orgId) return orgId;
-  if (process.env.REQUIRE_ORG_ISOLATION === 'true') {
-    throw new AppError('Organization isolation required. Configure Clerk Organizations.', 403);
-  }
-  return undefined;
-}
 
 export const adminEnrollmentRouter = Router();
 

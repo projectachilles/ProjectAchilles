@@ -240,6 +240,7 @@ export default function SophosTab({ dateRange }: SophosTabProps) {
         </div>
         <div>
           <CoverageHeroTile
+            vendor={vendor}
             coverage={data?.coverage ?? null}
             loading={loading}
             failed={!!data?.coverageFailed}

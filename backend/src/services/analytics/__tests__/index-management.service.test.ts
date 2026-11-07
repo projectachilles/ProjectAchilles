@@ -14,6 +14,8 @@ vi.mock('../settings.js', () => ({
 
 const mockIndicesExists = vi.fn();
 const mockIndicesCreate = vi.fn();
+const mockIndicesPutMapping = vi.fn();
+const mockIndicesGetMapping = vi.fn();
 const mockCatIndices = vi.fn();
 const mockIndex = vi.fn();
 
@@ -22,6 +24,8 @@ vi.mock('../client.js', () => ({
     indices: {
       exists: mockIndicesExists,
       create: mockIndicesCreate,
+      putMapping: mockIndicesPutMapping,
+      getMapping: mockIndicesGetMapping,
     },
     cat: {
       indices: mockCatIndices,
@@ -30,7 +34,7 @@ vi.mock('../client.js', () => ({
   })),
 }));
 
-const { createResultsIndex, listResultsIndices, RESULTS_INDEX_MAPPING } =
+const { createResultsIndex, listResultsIndices, RESULTS_INDEX_MAPPING, missingMappingProperties } =
   await import('../index-management.service.js');
 
 // ── Helpers ──────────────────────────────────────────────────────────
@@ -50,6 +54,8 @@ function configuredSettings() {
 describe('index-management.service', () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    mockIndicesPutMapping.mockResolvedValue({});
+    mockIndicesGetMapping.mockResolvedValue({});
     mockGetSettings.mockReturnValue(configuredSettings());
   });
 
@@ -85,6 +91,33 @@ describe('index-management.service', () => {
     });
   });
 
+  // ── missingMappingProperties ───────────────────────────────
+
+  describe('missingMappingProperties', () => {
+    it('returns nested fields missing from the live mapping, keeping existing ones out', () => {
+      const { missing, conflicts } = missingMappingProperties(
+        { a: { type: 'keyword' }, obj: { properties: { x: { type: 'keyword' } } } },
+        { a: { type: 'keyword' }, b: { type: 'boolean' }, obj: { properties: { x: { type: 'keyword' }, y: { type: 'date' } } } },
+      );
+      expect(missing).toEqual({ b: { type: 'boolean' }, obj: { properties: { y: { type: 'date' } } } });
+      expect(conflicts).toEqual([]);
+    });
+
+    it('reports a type conflict and skips the field', () => {
+      const { missing, conflicts } = missingMappingProperties(
+        { n: { type: 'integer' }, leaf: { type: 'text' } },
+        { n: { type: 'long' }, leaf: { properties: { k: { type: 'keyword' } } } },
+      );
+      expect(missing).toEqual({});
+      expect(conflicts).toEqual(['n: integer (wanted long)', 'leaf: text (wanted object)']);
+    });
+
+    it('returns nothing when the live mapping matches', () => {
+      const props = RESULTS_INDEX_MAPPING.mappings.properties;
+      expect(missingMappingProperties(props, props)).toEqual({ missing: {}, conflicts: [] });
+    });
+  });
+
   // ── createResultsIndex ─────────────────────────────────────
 
   describe('createResultsIndex', () => {
@@ -95,13 +128,108 @@ describe('index-management.service', () => {
         .rejects.toThrow('Elasticsearch is not configured');
     });
 
-    it('returns created=false when index already exists (ES 400)', async () => {
+    it('adds the full mapping to an existing results index that has no fields yet', async () => {
       mockIndicesCreate.mockRejectedValue({ statusCode: 400, message: 'resource_already_exists_exception' });
+      mockIndicesGetMapping.mockResolvedValue({ 'achilles-results-existing': { mappings: {} } });
 
-      const result = await createResultsIndex('existing-index');
+      const result = await createResultsIndex('achilles-results-existing');
 
       expect(result.created).toBe(false);
-      expect(result.message).toContain('already exists');
+      expect(result.message).toContain('mappings updated');
+      expect(mockIndicesPutMapping).toHaveBeenCalledWith({
+        index: 'achilles-results-existing', properties: RESULTS_INDEX_MAPPING.mappings.properties,
+      });
+    });
+
+    // An install whose single results index predates the canonical mapping was
+    // dynamically mapped: event.ERROR integer, defender_prevention_action text.
+    // ES rejects a putMapping that changes a type (illegal_argument_exception,
+    // all-or-nothing), which used to abort every result write.
+    const legacyLiveMapping = {
+      'achilles-results-': {
+        mappings: {
+          properties: {
+            routing: { properties: { event_time: { type: 'date' }, oid: { type: 'keyword' }, hostname: { type: 'keyword' } } },
+            event: { properties: { ERROR: { type: 'integer' } } },
+            f0rtika: {
+              properties: {
+                test_uuid: { type: 'keyword' },
+                control_description: { type: 'text', fields: { keyword: { type: 'keyword', ignore_above: 256 } } },
+                defender_prevention_action: { type: 'text', fields: { keyword: { type: 'keyword', ignore_above: 256 } } },
+              },
+            },
+          },
+        },
+      },
+    };
+
+    it('adds only missing fields to a legacy index and never re-sends conflicting ones', async () => {
+      mockIndicesCreate.mockRejectedValue({ statusCode: 400, message: 'resource_already_exists_exception' });
+      mockIndicesGetMapping.mockResolvedValue(legacyLiveMapping);
+      const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+
+      const result = await createResultsIndex('achilles-results-');
+
+      expect(result.created).toBe(false);
+      expect(mockIndicesPutMapping).toHaveBeenCalledTimes(1);
+      const sent = mockIndicesPutMapping.mock.calls[0][0].properties;
+      // Existing fields are never re-sent, whatever their type.
+      expect(sent.event.properties.ERROR).toBeUndefined();
+      expect(sent.event.properties.ERROR_raw).toEqual({ type: 'keyword' });
+      expect(sent.f0rtika.properties.test_uuid).toBeUndefined();
+      expect(sent.f0rtika.properties.control_description).toBeUndefined();
+      expect(sent.f0rtika.properties.defender_prevention_action).toBeUndefined();
+      expect(sent.f0rtika.properties.compliant).toEqual({ type: 'boolean' });
+      expect(sent.routing).toBeUndefined();
+      // The type conflicts are reported once, not fixed.
+      expect(warn.mock.calls.flat().join(' ')).toMatch(/event\.ERROR.*integer.*long/);
+      warn.mockRestore();
+    });
+
+    it('skips putMapping when the existing index already has every field', async () => {
+      mockIndicesCreate.mockRejectedValue({ statusCode: 400, message: 'resource_already_exists_exception' });
+      mockIndicesGetMapping.mockResolvedValue({ 'achilles-results-2026.11': RESULTS_INDEX_MAPPING });
+
+      const result = await createResultsIndex('achilles-results-2026.11');
+
+      expect(result).toEqual({ created: false, message: 'Index "achilles-results-2026.11" already exists; mappings up to date' });
+      expect(mockIndicesPutMapping).not.toHaveBeenCalled();
+    });
+
+    it('does not fail when the mapping update is rejected (the index stays writable)', async () => {
+      mockIndicesCreate.mockRejectedValue({ statusCode: 400, message: 'resource_already_exists_exception' });
+      mockIndicesGetMapping.mockResolvedValue({ 'achilles-results-': { mappings: {} } });
+      mockIndicesPutMapping.mockRejectedValue(Object.assign(new Error('illegal_argument_exception'), { statusCode: 400 }));
+      const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+
+      const result = await createResultsIndex('achilles-results-');
+
+      expect(result.created).toBe(false);
+      expect(result.message).toContain('mapping update failed');
+      expect(warn).toHaveBeenCalled();
+      warn.mockRestore();
+    });
+
+    it('does not fail when the live mapping cannot be read', async () => {
+      mockIndicesCreate.mockRejectedValue({ statusCode: 400, message: 'resource_already_exists_exception' });
+      mockIndicesGetMapping.mockRejectedValue(Object.assign(new Error('security_exception'), { statusCode: 403 }));
+      const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+
+      const result = await createResultsIndex('achilles-results-');
+
+      expect(result.created).toBe(false);
+      expect(result.message).toContain('mapping update failed');
+      expect(mockIndicesPutMapping).not.toHaveBeenCalled();
+      warn.mockRestore();
+    });
+
+    it('does not update mappings on an existing non-results index', async () => {
+      mockIndicesCreate.mockRejectedValue({ statusCode: 400, message: 'resource_already_exists_exception' });
+
+      const result = await createResultsIndex('achilles-sophos');
+
+      expect(result).toEqual({ created: false, message: 'Index "achilles-sophos" already exists' });
+      expect(mockIndicesPutMapping).not.toHaveBeenCalled();
     });
 
     it('creates index with correct mapping when it does not exist', async () => {
@@ -114,6 +242,7 @@ describe('index-management.service', () => {
       expect(mockIndicesCreate).toHaveBeenCalledWith({
         index: 'new-index',
         ...RESULTS_INDEX_MAPPING,
+        settings: { 'index.auto_expand_replicas': '0-1' },
       });
     });
 

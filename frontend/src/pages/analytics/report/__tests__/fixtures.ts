@@ -28,7 +28,6 @@ export function makeTest(over: Partial<ReportTest> = {}): ReportTest {
     isBundle: true,
     category: 'intel-driven',
     subcategory: 'ransomware',
-    severity: 'critical',
     score: 8.8,
     target: ['windows-endpoint'],
     complexity: 'high',

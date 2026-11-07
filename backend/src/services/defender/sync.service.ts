@@ -11,6 +11,7 @@ import { DefenderAutoResolveService } from './auto-resolve.service.js';
 import { runAgentKillReconciliation, failedAgentKillPass } from '../edr/agent-kill-reconcile.service.js';
 import { runLaunchBlockReconciliation, failedLaunchBlockPass } from '../edr/launch-block-reconcile.service.js';
 import type { Client } from '@elastic/elasticsearch';
+import type { EvidenceFileVerdict } from '../edr/multiTestEvidence.js';
 import type {
   GraphSecureScore,
   GraphControlProfile,
@@ -26,6 +27,9 @@ import type {
   AutoResolvePassResult,
 } from '../../types/defender.js';
 
+/** Alerts per bulk write during an alert sync. */
+const ALERT_BULK_BATCH = 500;
+
 /** Days of alert history to fetch on first sync (no persisted lastAlertSync). */
 const INITIAL_ALERT_LOOKBACK_DAYS = 90;
 
@@ -34,7 +38,7 @@ const INITIAL_ALERT_LOOKBACK_DAYS = 90;
  * force a full re-sync on all deployments. The persisted sync_version is
  * compared against this; a mismatch clears lastAlertSync.
  */
-const ALERT_SYNC_VERSION = 4; // v4: + prevention_action / remediation_status / portal_url (docs/defender-prevention-action-detection.md)
+const ALERT_SYNC_VERSION = 6; // v6: full 90 days (the re-sync used to stop at the 500 newest alerts); v5: + evidence_file_verdicts (edr/multiTestEvidence.ts); v4: + prevention_action / remediation_status / portal_url
 
 export class DefenderSyncService {
   private graphClient: MicrosoftGraphClient | null = null;
@@ -214,6 +218,12 @@ export class DefenderSyncService {
     };
     const fileEvidenceStatuses: string[] = [];
     const otherStatuses: string[] = [];
+    // Defender's own verdict per evidence file (file + process evidence; a
+    // parent process carries no verdict of its own). One file can appear as
+    // both file and process evidence: malicious wins, then the strongest action.
+    const VERDICT_RANK: Record<string, number> = { malicious: 3, suspicious: 2 };
+    const ACTION_RANK: Record<string, number> = { quarantined: 3, process_killed: 2, blocked: 1 };
+    const fileVerdicts = new Map<string, EvidenceFileVerdict>();
 
     for (const ev of alert.evidence ?? []) {
       // Device evidence → hostname
@@ -239,6 +249,21 @@ export class DefenderSyncService {
       }
       if (ev.fileDetails?.filePath) {
         filepaths.add(ev.fileDetails.filePath.toLowerCase());
+      }
+
+      const evFile = ev.fileDetails ?? ev.imageFile;
+      const evName = (evFile?.fileName || evFile?.filePath?.split(/[\\/]/).pop() || '').toLowerCase();
+      if (evName && typeof ev.verdict === 'string') {
+        const status = ev.remediationStatus;
+        const action = typeof status === 'string' && status in PREVENTIONISH_RANK ? NORMALIZE[status] : null;
+        const prev = fileVerdicts.get(evName);
+        const rank = (v: string) => VERDICT_RANK[v] ?? 0;
+        const actionRank = (x: string | null) => (x ? ACTION_RANK[x] ?? 0 : 0);
+        fileVerdicts.set(evName, {
+          file: evName,
+          verdict: prev && rank(prev.verdict) >= rank(ev.verdict) ? prev.verdict : ev.verdict,
+          action: prev && actionRank(prev.action) >= actionRank(action) ? prev.action : action,
+        });
       }
 
       const status = ev.remediationStatus;
@@ -273,6 +298,7 @@ export class DefenderSyncService {
       evidence_hostnames: Array.from(hostnames),
       evidence_filenames: Array.from(filenames),
       evidence_filepaths: Array.from(filepaths),
+      evidence_file_verdicts: Array.from(fileVerdicts.values()),
       ...(winningStatus ? {
         prevention_action: NORMALIZE[winningStatus],
         remediation_status: winningStatus,
@@ -429,21 +455,25 @@ export class DefenderSyncService {
         // A plain `index` op replaces the whole doc and would wipe them whenever
         // Defender re-emits the alert (which it does whenever lastUpdateDateTime
         // ticks — common for "new"/"in progress" alerts as evidence evolves).
-        const operations = alerts.flatMap((alert) => {
-          const doc = this.transformAlert(alert, creds.tenant_id);
-          return [
-            { update: { _index: DEFENDER_INDEX, _id: `alert-${alert.id}`, retry_on_conflict: 3 } },
-            { doc, doc_as_upsert: true },
-          ];
-        });
+        // A 90-day (re-)sync can return thousands of alerts: write them in
+        // batches so one bulk request stays a reasonable size.
+        for (let i = 0; i < alerts.length; i += ALERT_BULK_BATCH) {
+          const operations = alerts.slice(i, i + ALERT_BULK_BATCH).flatMap((alert) => {
+            const doc = this.transformAlert(alert, creds.tenant_id);
+            return [
+              { update: { _index: DEFENDER_INDEX, _id: `alert-${alert.id}`, retry_on_conflict: 3 } },
+              { doc, doc_as_upsert: true },
+            ];
+          });
 
-        const result = await es.bulk({ operations, refresh: 'wait_for' });
+          const result = await es.bulk({ operations, refresh: 'wait_for' });
 
-        if (result.errors) {
-          for (const item of result.items) {
-            const op = item.update;
-            if (op?.error) {
-              errors.push(`Alert ${op._id}: ${op.error.reason}`);
+          if (result.errors) {
+            for (const item of result.items) {
+              const op = item.update;
+              if (op?.error) {
+                errors.push(`Alert ${op._id}: ${op.error.reason}`);
+              }
             }
           }
         }

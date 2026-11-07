@@ -1,5 +1,6 @@
 import { Router, type Request } from 'express';
 import { requireClerkAuth, requirePermission, getUserOrgId, validateRequestOrgId, hasRequestPermission } from '../middleware/clerk.middleware.js';
+import { scopeResultsToCallerOrg } from '../middleware/orgScope.js';
 import { asyncHandler, AppError } from '../middleware/error.middleware.js';
 import { SettingsService } from '../services/analytics/settings.js';
 import { IntegrationsSettingsService } from '../services/integrations/settings.js';
@@ -10,6 +11,9 @@ const router = Router();
 
 // Protect all report routes with Clerk authentication
 router.use(requireClerkAuth());
+
+// A caller in an organization only reports on its own organization's results.
+router.use(scopeResultsToCallerOrg());
 
 const settingsService = new SettingsService();
 
@@ -62,8 +66,9 @@ function queryParam(query: Request['query'], name: string): string | undefined {
 // Query params: the All executions filter-bar params (org, from, to, result,
 // hostnames, tests, techniques, categories, severities, threatActors, tags,
 // errorNames, errorCodes, bundleNames) plus tz (IANA zone, default UTC).
-// org is never defaulted from the JWT (same as the analytics routes): ES
-// routing.oid holds agent-org UUIDs, so a Clerk org id could filter to zero docs.
+// For a caller in an organization, scopeResultsToCallerOrg has already set org
+// to its own Clerk org (its results carry that id in routing.oid, because it
+// can only create tasks under it). A caller without one may pass any org.
 // Accepted risks are included only for callers with analytics:risk:read.
 router.get('/executions', requirePermission('analytics:dashboards:read'), asyncHandler(async (req, res) => {
   const settings = await settingsService.getSettings();

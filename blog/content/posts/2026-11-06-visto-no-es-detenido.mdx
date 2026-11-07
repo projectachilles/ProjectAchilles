@@ -1,0 +1,211 @@
+---
+title: "Visto no es detenido: 30 días de simulaciones de ataque contra cuatro EDR"
+description: "Durante un mes ejecutamos seis cadenas de ataque basadas en inteligencia de amenazas en endpoints protegidos por cuatro EDR distintos. Casi todos los ataques fueron vistos. Muchos menos fueron detenidos, y ninguna de las razones aparecía en un panel."
+date: "2026-11-06"
+tags:
+  - continuous-validation
+  - edr
+  - purple-team
+  - mitre-attack
+  - detection-engineering
+author: james
+lang: es
+translationKey: edr-study-30-days
+---
+
+> **Actualización, 7 de noviembre de 2026.** Al principio describimos la tasa de detención de cada EDR como la proporción de ataques que el EDR detuvo. En realidad es la proporción detenida en los equipos con ese EDR, y una parte la detuvo el propio Windows. Una etapa de robo de credenciales no pudo acceder a LSASS en equipos de los cuatro EDR sin rastro de ningún EDR, lo que apunta a la protección LSA de Windows. La nueva sección 3 da las dos cifras, con dos gráficos sobre el paso de robo de credenciales, y el primer gráfico y la sección de confianza ahora también las muestran. El EDR que va primero no cambia. Lo encontramos al contrastar el estudio con los paneles de Project Achilles.
+
+> **Actualización posterior, 7 de noviembre de 2026.** Project Achilles ahora registra la prevención de un EDR que llega a la alerta más tarde, y de qué alerta vino. Al volver a calcular el estudio con eso, las cifras de EDR C subieron al 53% de ataques detenidos en sus equipos y al 39% con su propia evidencia, y algunas otras cifras se movieron uno o dos puntos. EDR C ahora detiene claramente más ataques que EDR D incluso contando cualquier bloqueo. El EDR que va primero no cambia. Después de la sección de confianza hay ahora una tabla de clasificación.
+
+## TL;DR
+
+- Durante 30 días, Project Achilles ejecutó seis cadenas de ataque de varias etapas, construidas a partir de inteligencia de amenazas publicada, en 27 endpoints Windows de una organización. Cada endpoint tenía uno de cuatro productos EDR en modo activo. Los llamamos EDR A a D.
+- Cada EDR generó una alerta en el 81% al 100% de las ejecuciones en sus equipos. La proporción de ataques detenidos en esos equipos fue del 30% al 90%. La que el propio EDR detuvo de forma demostrable fue del 4% al 76%.
+- El EDR que más detuvo lo hizo sobre todo bloqueando los binarios de prueba antes de que se ejecutaran. Es una protección real, pero también significa que nunca vimos cómo maneja las etapas posteriores de un ataque.
+- Un EDR, con todos sus agentes en modo "protect", detuvo el 9% de las etapas de ataque que se ejecutaron, pero solo el 2% con su propia evidencia. Windows bloqueó la mayoría del resto. Generó alertas en muchas más.
+- Tres técnicas superaron a todos los EDR que las enfrentaron: suplantación de binarios (T1036), exfiltración por el canal de comando y control (T1041) y robo de credenciales de almacenes de contraseñas (T1555).
+- Cuatro diferencias entre EDR parecían estadísticamente sólidas hasta que quitamos una sola prueba. Entonces casi desaparecieron. Si contamos solo las detenciones que cada EDR demostró, una de ellas sí se sostiene. Una sola foto no es una medición.
+
+---
+
+## Por qué hicimos esto
+
+En [Tus defensas se ven en verde. ¿Funcionan?](/posts/2026-11-05-tus-defensas-se-ven-en-verde-funcionan) explicamos cómo funciona la validación continua con datos ilustrativos. Este artículo muestra lo que encontró en una flota real durante un mes.
+
+Teníamos un escenario poco común. La organización usa cuatro productos EDR distintos, cada uno activo en un grupo diferente de endpoints Windows. En 13 de los 27 endpoints también funciona un segundo producto EDR en modo pasivo. Durante 30 días, Project Achilles ejecutó las mismas seis cadenas de ataque en todos ellos:
+
+| Cadena de ataque | Qué hace |
+|---|---|
+| Kothamine Tailcat | Canal cifrado de comando y control y exfiltración de datos |
+| LockBit 3.0 | Cadena de ransomware de doble extorsión |
+| Qilin (Agenda) | Desactivación del EDR con un driver vulnerable (BYOVD) e inyección en `svchost` |
+| Infostealer tipo Lumma | Robo de credenciales del navegador mediante inyección de procesos |
+| The Gentlemen | Intrusión mediante GPO y herramientas del propio sistema (living off the land) |
+| Star Blizzard | Cadena de espionaje RedFlick/CosmicPulse |
+
+Eso nos dio 177 ejecuciones analizables, cada una dividida en sus etapas, más todas las alertas que generaron los cuatro EDR en esos equipos durante el período.
+
+No nombramos los productos. Varias licencias de EDR restringen la publicación de resultados comparativos. Y, sobre todo, la mayor parte de lo que encontramos depende de la configuración y del diseño de las pruebas, no de la marca. Toma las letras como cuatro despliegues reales, no como un ranking de productos.
+
+## 1. Casi todo fue visto. Mucho menos fue detenido.
+
+![Para cada EDR, la proporción de ejecuciones en las que generó una alerta o una prevención, la proporción de ataques detenidos en sus equipos y la que detuvo con su propia evidencia. EDR A: 100%, 48% y 38%. EDR B: 91%, 90% y 76%. EDR C: 81%, 53% y 39%. EDR D: 94%, 30% y 4%.](/edr-study-30-days/seen-vs-stopped.png)
+
+*Gráficos en inglés: "EDR raised an alert or a prevention" = el EDR generó una alerta o una prevención; "Attack stopped" = ataque detenido.*
+
+Todos los EDR generaron algo en la mayoría de las ejecuciones: entre el 81% y el 100%. Medidos por visibilidad, todos se ven bien. Pero en tres de los cuatro hay una diferencia de 28 a 64 puntos porcentuales entre "generó una alerta" y "detuvo el ataque".
+
+Esa diferencia no es una falla del panel. El panel hace lo que fue diseñado para hacer: muestra que el sensor funciona y genera alertas. No muestra si el ataque se completó, y un ataque en el que cada etapa genera una alerta igual puede llegar a su objetivo. Una detección solo sirve si alguien actúa a tiempo.
+
+## 2. Dónde un EDR detiene un ataque decide qué puedes aprender
+
+![Para cada EDR, cómo terminaron las ejecuciones en sus equipos. En los equipos de EDR B, el 54% se bloqueó al inicio y el 36% se detuvo durante la cadena. En los de EDR A, el 48% se detuvo durante la cadena y el 52% se vio sin detenerse. En los de EDR C, el 53% se detuvo, el 32% se vio sin detenerse y el 15% terminó en un error de la prueba. En los de EDR D, el 30% se detuvo y el 68% se vio sin detenerse. Estas detenciones incluyen algunas que ningún EDR demostró; ver la sección 3.](/edr-study-30-days/where-stopped.png)
+
+*"Blocked at launch" = bloqueado al inicio; "Stopped during the chain" = detenido durante la cadena; "Seen, not stopped" = visto, no detenido; "Not seen, or the test errored" = no visto, o la prueba falló.*
+
+EDR B detuvo el 90% de los ataques, con diferencia el que más. Más de la mitad de esas detenciones vinieron de bloquear el binario de prueba al inicio, antes de que se ejecutara ninguna técnica. Es protección genuina: los atacantes también usan binarios nuevos, y negarse a ejecutarlos es una defensa fuerte.
+
+También tiene un efecto secundario. En tres de las seis cadenas, los equipos de EDR B no produjeron ningún resultado de etapa utilizable. Sabemos que EDR B bloquea esos binarios. No sabemos cómo manejaría las etapas en memoria y con herramientas del sistema si un binario sí llegara a ejecutarse, por ejemplo uno entregado de una forma que sus controles de inicio no cubren. En las tres cadenas donde sí se ejecutaron etapas, EDR B detuvo o detectó el 54%.
+
+La manera de cubrir ese hueco es una variante de la prueba que el EDR no detenga al inicio, como una cadena lanzada desde un script o una herramienta integrada de Windows, dejando la política de producción exactamente como está. Nunca debilites una protección para poder medirla.
+
+## 3. ¿Quién detuvo el ataque?
+
+Una prueba puede saber que una etapa fue bloqueada. No siempre puede saber qué la bloqueó. En la primera versión de este estudio contamos cada detención en un equipo como una detención del EDR activo en ese equipo. Al volver a la evidencia por etapa, 36 detenciones no tenían evidencia de ningún EDR en la etapa bloqueada: ningún EDR marcó una prevención ahí y el EDR activo no generó alerta sobre ella.
+
+Casi todas eran la misma etapa. Un paso de robo de credenciales le pide a Windows acceso para leer la memoria de LSASS, con privilegios de depuración activados. En equipos de los cuatro EDR, Windows lo negó. Una negativa idéntica bajo cuatro productos EDR distintos, sin evidencia de ningún EDR, apunta a la protección LSA de Windows: LSASS ejecutándose como proceso protegido. Es un control real haciendo su trabajo. Solo que no es el EDR.
+
+Si contamos solo las detenciones que cada EDR demostró por sí mismo (un bloqueo al inicio o la terminación del agente con su propia alerta, o su propia marca de prevención en la etapa bloqueada):
+
+| EDR | Ataques detenidos en sus equipos | Detenidos por el EDR, con su propia evidencia |
+|---|---|---|
+| EDR A | 48% | 38% |
+| EDR B | 90% | 76% |
+| EDR C | 53% | 39% |
+| EDR D | 30% | 4% |
+
+EDR B sigue a la cabeza, por entre 37 y 73 puntos porcentuales, y esa ventaja pasa todas las comprobaciones de "¿Qué tan seguros podemos estar?" más abajo. La mayoría de las detenciones de EDR D las hizo Windows. Para EDR C la segunda cifra es un piso: muchos de sus bloqueos no generan alerta, así que no dejan evidencia que contar.
+
+El paso de robo de credenciales por sí solo muestra cuánto pesa el efecto. Si cuenta cualquier bloqueo en el equipo, los cuatro EDR detuvieron o detectaron entre el 87% y el 100% de esas etapas. Si solo cuenta lo que cada EDR bloqueó o alertó por sí mismo, EDR B y EDR D quedan en 0%, EDR A en 20% y EDR C en 67%.
+
+![Etapas de robo de credenciales detenidas o detectadas por cada EDR, contando cualquier bloqueo en el equipo frente a solo la evidencia propia del EDR. EDR A: 87% frente a 20%. EDR B: 100% frente a 0%. EDR C: 95% frente a 67%. EDR D: 100% frente a 0%.](/edr-study-30-days/credential-dumping.png)
+
+Seguir una cadena de ataque etapa por etapa cuenta lo mismo. En LockBit, el robo de credenciales es la segunda etapa. Si cuenta cualquier bloqueo, como mucho el 17% de las ejecuciones de LockBit en los equipos de cada EDR pasó esa etapa sin bloqueo. Si solo cuentan los bloqueos propios del EDR, entre el 62% y el 100% de las ejecuciones en equipos de EDR A, B y D seguían sin ser bloqueadas por el EDR después de ella; EDR C detuvo ahí la mayoría de sus ejecuciones por sí mismo (quedó el 31%). Cada panel se apoya en 8 a 15 ejecuciones.
+
+![Proporción de ejecuciones de LockBit aún no bloqueadas, etapa por etapa, para cada EDR, contando cualquier bloqueo en el equipo frente a solo la evidencia propia del EDR. Si cuenta cualquier bloqueo, todas las curvas caen en la etapa 2, robo de credenciales. Con la evidencia propia del EDR, al final de la cadena: EDR A 62% en vez de 12%, EDR B 33% en vez de 8%, EDR C 0% en ambos casos, EDR D 75% en vez de 17%.](/edr-study-30-days/lockbit-survival.png)
+
+Antes de atribuirle una detención a un EDR, o de decidir qué control seguir pagando, averigua qué control la hizo. Aquí, la mayoría de las detenciones atribuidas a los EDR sin evidencia vino de una configuración de Windows.
+
+## 4. El modo "protect" no es una garantía
+
+Todos los agentes de EDR D reportaban estar en modo protect. Aun así, EDR D detuvo solo el 30% de los ataques en sus equipos y el 9% de las etapas que se ejecutaron. Con su propia evidencia, eso es el 4% de los ataques y el 2% de las etapas (sección 3). En el 68% de sus ejecuciones generó alertas y dejó que la cadena continuara.
+
+Una causa probable: los EDR modernos tienen varios motores de detección (reglas de comportamiento, reglas personalizadas, analítica en la nube), y cada motor tiene su propia configuración de respuesta. El agente puede estar en modo protect mientras los motores que realmente se activaron están configurados solo para alertar. Revísalo motor por motor, no agente por agente.
+
+EDR A muestra otro patrón. Detectó todas las ejecuciones y detuvo el 48%, pero de forma todo o nada según la cadena de ataque. Detuvo todas las ejecuciones de Kothamine y ninguna de Lumma, The Gentlemen o Star Blizzard, aunque generó alertas en todas. Su política bloquea algunos comportamientos y solo reporta otros.
+
+## 5. El tiempo de alerta no es el tiempo de bloqueo
+
+Mediana del tiempo entre el inicio de una ejecución y la primera alerta del EDR:
+
+| EDR | Mediana hasta la primera alerta | Ejecuciones con alerta |
+|---|---|---|
+| EDR A | 24 s | 30 |
+| EDR B | 64 s | 41 |
+| EDR D | 73 s | 34 |
+| EDR C | 2,3 min | 46 |
+
+Estas cifras miden qué tan rápido llega la alerta a la consola, no qué tan rápido se bloqueó el ataque. EDR B bloquea binarios al inicio, en el primer segundo, y aun así sus alertas por esos bloqueos aparecieron cerca de un minuto después. Para tu SOC lo que importa es el tiempo de alerta: es cuánto tarda alguien en poder responder. Para el ataque, lo que importa es el tiempo de bloqueo. Mídelos por separado, y desconfía de cualquier cifra de un fabricante que no diga cuál de los dos es.
+
+Una cosa más que vale la pena medir: la técnica ATT&CK de la alerta coincidió con la técnica que la prueba realmente ejecutó solo en el 14% al 51% de las alertas, según el EDR. Si tu SOC clasifica o reporta por técnica ATT&CK, está trabajando con etiquetas que a menudo están mal.
+
+## 6. Un segundo sensor ayuda a unos grupos y a otros no
+
+![En los equipos de tres EDR, cómo vieron cada etapa ejecutada el EDR activo y el segundo producto EDR en modo pasivo. En los equipos de EDR A, el sensor pasivo marcó por sí solo el 4% de las etapas. En los de EDR B, el 22%. En los de EDR D, el 17%.](/edr-study-30-days/second-sensor.png)
+
+*"Both raised an alert" = ambos generaron alerta; "Only the active EDR" = solo el EDR activo; "Only the passive sensor" = solo el sensor pasivo; "Stopped, no alert from either" = detenida, sin alerta de ninguno; "Neither" = ninguno.*
+
+En 13 equipos, un segundo producto EDR funcionaba en modo pasivo junto al activo, así que ambos observaron exactamente los mismos ataques. Lo que aportó el segundo sensor dependió por completo de su compañero:
+
+- En los equipos de **EDR B**, el sensor pasivo generó alertas en 18 etapas que EDR B no alertó, frente a 8 al revés.
+- En los de **EDR D**, quedaron casi parejos: 23 frente a 28.
+- En los de **EDR A**, casi no aportó nada: 4 frente a 30.
+
+Algunas de esas etapas pudieron haber sido detenidas por el EDR activo sin generar alerta, así que esto mide visibilidad, no protección. Aun así responde con datos, no con opiniones, una pregunta frecuente de licenciamiento: un segundo sensor vale lo que aporta en tus equipos, junto a tu EDR principal, y eso se puede medir.
+
+## 7. Tres técnicas que nadie detectó
+
+Tres técnicas pasaron sin detección en al menos el 80% de sus etapas frente a todos los EDR que las enfrentaron:
+
+- **T1036, Masquerading**: binarios disfrazados de programas legítimos.
+- **T1041, Exfiltración por el canal C2**: datos robados que salen por la propia conexión del atacante.
+- **T1555, Credenciales de almacenes de contraseñas**: recolección de credenciales guardadas.
+
+No son razones para elegir un EDR sobre otro, porque ninguno las detectó. Son un backlog de ingeniería de detección: reglas propias, monitoreo de red para datos que salen por el canal C2 y endurecimiento de los almacenes de credenciales. Un backlog así solo se descubre ejecutando las técnicas.
+
+## ¿Qué tan seguros podemos estar?
+
+Con 4 a 14 equipos por EDR, es fácil ver un patrón que no existe. Usamos el equipo, no la ejecución, como unidad de análisis, y le pusimos a cada comparación una etiqueta de confianza basada en un bootstrap sobre los equipos. Una diferencia se etiqueta como **clara** solo si se cumple todo esto:
+
+- el intervalo del 95% excluye el cero,
+- cada EDR tiene al menos tres equipos,
+- la diferencia se mantiene al quitar cualquier equipo,
+- la diferencia se mantiene al quitar cualquier cadena de ataque,
+- la comparación se apoya en al menos tres cadenas de ataque que ambos EDR enfrentaron.
+
+**Lo que se sostuvo.** EDR B detuvo entre 37 y 60 puntos porcentuales más ataques que cada uno de los otros tres. Esa diferencia es clara y sobrevive a quitar cualquier equipo o cualquier prueba. Si solo cuenta la evidencia propia de cada EDR (sección 3), la ventaja es de 37 a 73 puntos e igual de clara. EDR C también detuvo claramente más ataques que EDR D: 23 puntos más en sus equipos (12 sin Lumma, su prueba más fuerte) y 36 puntos más con su propia evidencia. EDR A y EDR C detuvieron más o menos la misma proporción de ataques (48% y 53%, y 38% y 39% con su propia evidencia), así que ahí no hay ganador.
+
+**Lo que no.** Cuatro diferencias pasaron todas las comprobaciones excepto la de quitar una sola cadena de ataque:
+
+| Diferencia | Brecha | Sin esa prueba | Con la evidencia propia del EDR |
+|---|---|---|---|
+| EDR A detiene más ataques que EDR D | +18 pp | +2 pp sin Kothamine | **+35 pp, clara** |
+| EDR A detiene más etapas que EDR D | +23 pp | +4 pp sin Kothamine | +26 pp, +7 pp sin Kothamine |
+| EDR C ve más etapas que EDR B | +14 pp | +1 pp sin LockBit | (no trata de detener) |
+| EDR A ve más etapas que EDR C | +12 pp | +2 pp sin Kothamine | (no trata de detener) |
+
+La primera se sostiene al apartar las detenciones del propio Windows. Esas detenciones cayeron en equipos de todos los EDR y contaban para el EDR que hubiera en cada uno, lo que achicaba las diferencias entre ellos. Si contamos solo lo que cada EDR demostró, EDR A detiene claramente más ataques que EDR D, y la brecha se mantiene sin cualquier prueba.
+
+Las otras tres son reales, pero cada una habla de una cadena de ataque, no del EDR en general. "EDR A ve más que EDR C" en realidad significa "EDR A manejó Kothamine mucho mejor", que es algo más concreto y más útil para actuar.
+
+Otros tres efectos hacen poco confiables las mediciones aisladas:
+
+- **La misma prueba en el mismo equipo no siempre da el mismo resultado.** Entre ejecuciones repetidas, el resultado fue idéntico solo del 50% al 75% de las veces, según el EDR. Una sola ejecución dice poco.
+- **Los binarios de prueba cambian.** Las cadenas de ataque se recompilaron durante el mes, y no todos los EDR vieron todas las versiones. Si recalculamos solo con la versión que vieron todos los EDR (cinco de las seis cadenas), las tasas de detención son 58% para A, 90% para B, 60% para C y 38% para D, o 46%, 70%, 45% y 0% si solo cuenta la evidencia propia de cada EDR. EDR B sigue a la cabeza, pero por menos.
+- **Las integraciones empiezan en momentos distintos.** Los datos de alertas de un EDR solo cubrían los últimos ocho días del período, así que sus ejecuciones anteriores se dejaron fuera en lugar de contarse como fallos.
+
+## La clasificación de un vistazo
+
+En resumen: los EDR ordenados por la proporción de ataques que cada uno detuvo con su propia evidencia, la medida de la sección 3. Cada EDR se compara con el siguiente usando las etiquetas de arriba, y dos EDR que no se pueden distinguir comparten puesto. Las demás columnas son contexto; no deciden el orden.
+
+| Puesto | EDR | Ataques detenidos, evidencia propia | Ventaja sobre el siguiente | Ataques detenidos en sus equipos | Bloqueados al inicio |
+|---|---|---|---|---|---|
+| 1 | EDR B | 76% | +37 pp sobre EDR C, clara | 90% | 54% |
+| 2 (empate) | EDR C | 39% | +1 pp sobre EDR A, no distinguible | 53% | 0% |
+| 2 (empate) | EDR A | 38% | +35 pp sobre EDR D, clara | 48% | 0% |
+| 4 | EDR D | 4% | | 30% | 0% |
+
+| EDR | Generó una alerta en sus ejecuciones | Etapas detenidas o detectadas | Tiempo mediano hasta la primera alerta | La técnica ATT&CK de la alerta era correcta | Mismo resultado al repetir |
+|---|---|---|---|---|---|
+| EDR B | 91% | 54%* | 64 s | 14% | 75% |
+| EDR C | 81% | 64% | 2,3 min | 51% | 70% |
+| EDR A | 100% | 77% | 24 s | 34% | 50% |
+| EDR D | 94% | 53% | 73 s | 32% | 67% |
+
+\* De las tres cadenas de ataque en las que EDR B dejó correr etapas; en las otras tres bloqueó el binario al inicio. La cifra con evidencia propia de EDR C es un piso (sección 3), y el tiempo de alerta es cuándo llegó la alerta a la consola, no cuándo se bloqueó el ataque (sección 5).
+
+EDR B es claramente el primero. EDR A y EDR C están empatados en detener; en lo que se diferencian es en cómo reportan lo que ven. EDR D genera alertas en la mayoría de las ejecuciones, pero casi no demostró detenciones propias.
+
+## Qué significa para tu entorno
+
+Ninguno de estos hallazgos aparece en la consola de un EDR, y la mayoría tampoco aparecería en una prueba de penetración anual: una ejecución, con una sola versión, en unos pocos equipos, no puede distinguir "este EDR es mejor" de "a este EDR le fue mejor en esta prueba". Ese es el argumento práctico a favor de la validación continua:
+
+1. **Mide lo detenido por separado de lo visto.** Una alerta en cada etapa de un ataque que se completó no es protección.
+2. **Averigua qué control detuvo el ataque.** Un código de salida dice que una etapa fue bloqueada, no qué la bloqueó. Atribúyele a un EDR solo las detenciones que puede demostrar.
+3. **Revisa la configuración de respuesta de cada motor de detección**, no solo la del agente.
+4. **Mide la latencia de las alertas por separado del tiempo de bloqueo.**
+5. **Ejecuta las técnicas que nadie bloquea** y convierte los fallos en reglas de detección.
+6. **Repite en varios equipos y a lo largo del tiempo** antes de decidir nada, y acompaña cada comparación con una etiqueta de confianza.
+7. **Si pagas por un segundo sensor, mide lo que aporta** en cada grupo de equipos.
+
+Todas las cifras de este artículo salen de datos que Project Achilles ya recolecta: ejecuciones de pruebas, resultados por etapa y las alertas de EDR que correlaciona con ellas. Para medir tu propio entorno, [Instala Project Achilles en 30 minutos](/posts/2026-07-07-instala-project-achilles-en-30-minutos) te guía desde cero, y el [explicador interactivo](https://docs.projectachilles.io/how-it-works/) muestra el ciclo en movimiento.

@@ -3,6 +3,7 @@
 
 import { SettingsService } from '../analytics/settings.js';
 import { createEsClient } from '../analytics/client.js';
+import { createAchillesIndex } from '../shared/esIndexCreate.js';
 
 export const RISK_ACCEPTANCE_INDEX = 'achilles-risk-acceptances';
 
@@ -39,10 +40,7 @@ export async function createRiskAcceptanceIndex(): Promise<{ created: boolean; m
   const client = createEsClient(settings);
 
   try {
-    await client.indices.create({
-      index: RISK_ACCEPTANCE_INDEX,
-      ...RISK_ACCEPTANCE_MAPPING,
-    });
+    await createAchillesIndex(client, RISK_ACCEPTANCE_INDEX, RISK_ACCEPTANCE_MAPPING);
     return { created: true, message: `Index "${RISK_ACCEPTANCE_INDEX}" created successfully` };
   } catch (err: unknown) {
     if (err && typeof err === 'object' && 'statusCode' in err && (err as { statusCode: number }).statusCode === 400) {

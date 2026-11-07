@@ -42,7 +42,10 @@ import type {
 // v2: lowercase incident status / analyst verdict, resolved_at for detection
 //     alerts, evidence_filenames derived from file paths and process names.
 // v3: detection-alert evidence includes the source parent process.
-export const SENTINELONE_SYNC_VERSION = 3;
+// v4: threats record initiated_by; an analyst's Deep Visibility mitigation
+//     (dv_command) is not prevention, and prevention_action is written as
+//     null when absent so the partial-update re-sync clears a stored one.
+export const SENTINELONE_SYNC_VERSION = 4;
 /** Re-read this much before the checkpoint to absorb clock skew / late writes. */
 const CHECKPOINT_OVERLAP_MS = 2 * 60 * 1000;
 
@@ -150,7 +153,10 @@ export function transformThreat(t: S1Threat, baseUrl: string): SentinelOneAlertD
     classification: ti.classification,
     analyst_verdict: normalizeToken(ti.analystVerdict) || undefined,
     mitigation_status: ti.mitigationStatus,
-    ...(prevention ? { prevention_action: prevention } : {}),
+    initiated_by: normalizeToken(ti.initiatedBy) || undefined,
+    // Always written: docs are stored with update + doc_as_upsert, so an
+    // absent key would keep an action a previous version stored.
+    prevention_action: prevention ?? null,
     sha1: ti.sha1,
     sha256: ti.sha256,
     portal_url: `${baseUrl}/incidents/threats/${encodeURIComponent(t.id)}/overview`,

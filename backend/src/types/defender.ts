@@ -187,6 +187,13 @@ export interface DefenderAlertDoc {
    */
   evidence_filepaths: string[];
   /**
+   * Defender's verdict on each evidence file (file + process evidence), with
+   * that file's own normalized prevention action. Decides what an alert naming
+   * several Achilles tests proves (edr/multiTestEvidence.ts). Absent on alerts
+   * synced before sync v5.
+   */
+  evidence_file_verdicts?: Array<{ file: string; verdict: string; action: string | null }>;
+  /**
    * Derived prevention action from evidence[].remediationStatus:
    * 'process_killed' | 'blocked' | 'quarantined'. Absent on detection-only
    * alerts. See docs/defender-prevention-action-detection.md.
@@ -310,7 +317,7 @@ export interface RelatedAlertsResponse {
      * found, attribution is `'stage'` and `attributed_control_id` carries the
      * technique token (lowercased). Otherwise `'bundle'`.
      */
-    attribution: 'stage' | 'bundle';
+    attribution: 'stage' | 'bundle' | 'multi_test';
     /**
      * Lowercased technique token from a stage-attributable evidence binary
      * (e.g. `'t1211-cfapi'`). Frontend matches this case-insensitively

@@ -279,6 +279,38 @@ describe('threatPreventionAction: only SentinelOne\'s own, immediate response co
   });
 });
 
+describe("threatPreventionAction: an analyst's Deep Visibility mitigation is not SentinelOne prevention", () => {
+  // Live: a SOC analyst mitigated the Achilles agent process from Deep Visibility
+  // (threatInfo.initiatedBy "dv_command", engine "Manual"). The Threat is created
+  // by that action, so its kill starts with the detection and passes the 15-minute rule.
+  const threat = (initiatedBy: string) => ({
+    id: 't-dv',
+    threatInfo: { initiatedBy, identifiedAt: '2026-10-29T17:52:38.000Z', createdAt: '2026-10-29T17:52:38.000Z', mitigationStatus: 'mitigated', engines: ['Manual'] },
+    mitigationStatus: [{ action: 'kill', status: 'success', mitigationStartedAt: '2026-10-29T17:52:38.500Z' }],
+  }) as never;
+
+  it('a Deep Visibility command (dv_command) is a human response: no prevention action', () => {
+    expect(threatPreventionAction(threat('dv_command'))).toBeUndefined();
+  });
+
+  it("SentinelOne's own policy and the organization's STAR active rules still count", () => {
+    expect(threatPreventionAction(threat('agent_policy'))).toBe('process_killed');
+    expect(threatPreventionAction(threat('star_active'))).toBe('process_killed');
+  });
+
+  it('transformThreat records initiated_by and clears a stored action (partial-update re-sync)', () => {
+    const doc = transformThreat(threat('dv_command'), 'https://acme.sentinelone.net');
+    expect(doc.initiated_by).toBe('dv_command');
+    // The sync writes update + doc_as_upsert: an absent key would leave an old action in place.
+    expect(doc.prevention_action).toBeNull();
+    expect(transformThreat(threat('agent_policy'), 'https://acme.sentinelone.net').prevention_action).toBe('process_killed');
+  });
+
+  it('bumps the sync version past 3 so stored Threats are re-normalized', () => {
+    expect(SENTINELONE_SYNC_VERSION).toBeGreaterThanOrEqual(4);
+  });
+});
+
 describe('SentinelOneSyncService', () => {
   beforeEach(() => {
     vi.clearAllMocks();

@@ -86,7 +86,7 @@ export interface CrowdStrikeAlertItem {
    * etc.). Drives whether the alert renders inside a stage drill-down or in
    * the bundle parent's bundle-level callout.
    */
-  attribution?: 'stage' | 'bundle';
+  attribution?: 'stage' | 'bundle' | 'multi_test';
   /**
    * Lowercased technique token from a stage-attributable evidence binary.
    * Frontend matches case-insensitively against `f0rtika.control_id`.
@@ -99,6 +99,8 @@ export interface CrowdStrikeAlertItem {
    * Absent on detection-only alerts.
    */
   prevention_action?: 'quarantined' | 'process_killed' | 'blocked' | 'kill_failed';
+  /** Who raised it, when the vendor says (SentinelOne: agent_policy, dv_command = analyst, star_active, ...). */
+  initiated_by?: string;
   /** Raw CrowdStrike disposition text, e.g. "Prevention, process killed." — display/audit. */
   pattern_disposition_description?: string;
   /** Exact per-alert Falcon console deep link (from falcon_host_link). */

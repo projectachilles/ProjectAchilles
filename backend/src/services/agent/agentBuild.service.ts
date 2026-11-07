@@ -2,6 +2,7 @@
 // Mirrors patterns from tests/buildService.ts for the agent Go source.
 
 import * as fs from 'fs';
+import { readGitHead, readSourceVersion } from './sourceInfo.js';
 import * as path from 'path';
 import * as os from 'os';
 import { execFile } from 'child_process';
@@ -9,6 +10,7 @@ import { promisify } from 'util';
 import type { TestsSettingsService } from '../tests/settings.js';
 import type { AgentOS, AgentArch, AgentVersion } from '../../types/agent.js';
 import { registerVersion } from './update.service.js';
+import { describeCommandFailure } from '../shared/commandFailure.js';
 
 const execFileAsync = promisify(execFile);
 
@@ -27,7 +29,7 @@ class BuildError extends Error {
   }
 }
 
-/** Run execFileAsync and convert failures into BuildError with stderr context */
+/** Run execFileAsync and convert failures into BuildError with stderr (or stdout) context */
 async function runBuildCommand(
   cmd: string,
   args: string[],
@@ -36,10 +38,7 @@ async function runBuildCommand(
   try {
     await execFileAsync(cmd, args, opts);
   } catch (err: unknown) {
-    const stderr = (err as { stderr?: string }).stderr || '';
-    const message = (err as Error).message || 'Build command failed';
-    const detail = stderr.trim() || message;
-    throw new BuildError(`Command failed: ${cmd} ${args.join(' ')}\n${detail}`);
+    throw new BuildError(describeCommandFailure(cmd, args, err));
   }
 }
 
@@ -56,6 +55,8 @@ export class AgentBuildService {
   private settingsService: TestsSettingsService;
   private agentSourcePath: string;
   private sourceSync: AgentSourceSync | undefined;
+  /** The checkout's .git when the source is a mounted checkout (Docker: AGENT_SOURCE_GIT_DIR). */
+  private gitDir: string | undefined;
   // Serializes refresh+copy: concurrent builds must not run git on the same
   // checkout, or copy files out of it while another build is pulling.
   private sourceLock: Promise<unknown> = Promise.resolve();
@@ -67,17 +68,23 @@ export class AgentBuildService {
    *   (Render's buildFilter excludes agent/) was compiled from old code under
    *   a new version number.
    */
-  constructor(settingsService: TestsSettingsService, agentSourcePath: string, sourceSync?: AgentSourceSync) {
+  constructor(
+    settingsService: TestsSettingsService,
+    agentSourcePath: string,
+    sourceSync?: AgentSourceSync,
+    options: { gitDir?: string } = {},
+  ) {
     this.settingsService = settingsService;
     this.agentSourcePath = agentSourcePath;
     this.sourceSync = sourceSync;
+    this.gitDir = options.gitDir;
   }
 
   /**
    * Refresh the source (if git-synced) and copy it to a fresh work dir, under
    * the source lock. Returns the work dir and the commit it was built from.
    */
-  private prepareSource(): Promise<{ workDir: string; commit: string | null }> {
+  private prepareSource(): Promise<{ workDir: string; commit: string | null; sourceVersion: string | null }> {
     const run = async () => {
       let commit: string | null = null;
       if (this.sourceSync) {
@@ -89,6 +96,11 @@ export class AgentBuildService {
           );
         }
         commit = this.sourceSync.getStatus().commitHash;
+      } else {
+        // A mounted checkout (Docker): the code is whatever is checked out on
+        // the server right now, so record that commit. Building before a
+        // `git pull` then shows the old commit in the release notes.
+        commit = readGitHead(this.gitDir);
       }
 
       // Copy to a writable temp directory. The source may be on a read-only
@@ -99,7 +111,8 @@ export class AgentBuildService {
       } catch (err) {
         throw new Error(`Failed to copy agent source to temp dir: ${(err as Error).message}`);
       }
-      return { workDir, commit };
+      // Read together with the copy, under the lock: the source's own version.
+      return { workDir, commit, sourceVersion: readSourceVersion(this.agentSourcePath) };
     };
 
     const result = this.sourceLock.then(run, run);
@@ -128,7 +141,7 @@ export class AgentBuildService {
     }
 
     // 3. Refresh (if git-synced) and copy the source to a writable work dir.
-    const { workDir: buildWorkDir, commit: sourceCommit } = await this.prepareSource();
+    const { workDir: buildWorkDir, commit: sourceCommit, sourceVersion } = await this.prepareSource();
 
     // 4. Prepare output directory
     const binDir = path.join(os.homedir(), '.projectachilles', 'binaries', `${targetOs}-${arch}`);
@@ -250,11 +263,29 @@ export class AgentBuildService {
       targetOs,
       arch,
       outputPath,
-      `Built from source (${targetOs}/${arch})${sourceCommit ? ` at ${sourceCommit.slice(0, 7)}` : ''}`,
+      buildReleaseNotes(targetOs, arch, sourceCommit, version, sourceVersion),
       false, // not mandatory by default
       signed,
     );
 
     return result;
   }
+}
+
+/**
+ * "Built from source (<os>/<arch>) at <commit>", plus "(source says <v>)" when
+ * the agent's own version in the source differs from the version typed for the
+ * build: the binary is stamped with the typed one, so a stale checkout would
+ * otherwise look like the new release.
+ */
+export function buildReleaseNotes(
+  targetOs: string,
+  arch: string,
+  commit: string | null,
+  version: string,
+  sourceVersion: string | null,
+): string {
+  const at = commit ? ` at ${commit.slice(0, 7)}` : '';
+  const differs = sourceVersion && sourceVersion !== version ? ` (source says ${sourceVersion})` : '';
+  return `Built from source (${targetOs}/${arch})${at}${differs}`;
 }

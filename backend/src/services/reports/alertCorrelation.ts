@@ -33,6 +33,7 @@ import type { EdrVendorKey } from '../outcomes/vendors.js';
 import { projectAlertHit } from '../alerts/alertHit.js';
 import { isAchillesMitigated, ACHILLES_MITIGATION_FIELDS } from '../shared/achillesMitigation.js';
 import type { ReportAlert } from '../../types/reports.js';
+import { expandTechniqueAliases } from '../../data/techniqueAliases.js';
 
 /** Same lead and default post-window the console uses. */
 const PRE_WINDOW_MS = 5 * 60 * 1000;
@@ -42,7 +43,7 @@ const HITS_PER_RUN = 50;
 const ALERT_SOURCE_FIELDS = [
   'alert_id', 'alert_title', 'description', 'severity', 'status', 'category', 'service_source',
   'mitre_techniques', 'created_at', 'updated_at', 'resolved_at', 'recommended_actions',
-  'evidence_filenames', 'prevention_action', 'portal_url', 'f0rtika.auto_resolved_at',
+  'evidence_filenames', 'evidence_filepaths', 'evidence_file_verdicts', 'prevention_action', 'portal_url', 'f0rtika.auto_resolved_at',
   'f0rtika.auto_resolve_mode', 'f0rtika.auto_resolve_error', ...ACHILLES_MITIGATION_FIELDS,
 ];
 
@@ -128,7 +129,7 @@ export function buildHostTechniqueQuery(adapter: VendorAdapter, run: Correlation
     bool: {
       must: [
         { term: { doc_type: 'alert' } },
-        { terms: { mitre_techniques: run.techniques } },
+        { terms: { mitre_techniques: expandTechniqueAliases(run.techniques) } },
         {
           bool: {
             should: [
@@ -147,8 +148,10 @@ export function buildHostTechniqueQuery(adapter: VendorAdapter, run: Correlation
   };
 }
 
-function toReportAlert(adapter: VendorAdapter, source: Record<string, unknown>, run: CorrelationRun): ReportAlert {
+/** null for an alert naming several tests that singles out none of this run's files (edr/multiTestEvidence.ts). */
+function toReportAlert(adapter: VendorAdapter, source: Record<string, unknown>, run: CorrelationRun): ReportAlert | null {
   const p = projectAlertHit(source, run.testKey);
+  if (p.attribution === 'multi_test') return null;
   return {
     vendor: adapter.vendor,
     title: p.alert_title,
@@ -218,8 +221,10 @@ export async function correlateRuns(
       const outcome = outcomes[i];
       if (outcome.failure === 'failed') failed += 1;
       else searched.add(run.key);
-      const hits = outcome.sources;
-      if (hits.length > 0) alerts.set(run.key, hits.map((s) => toReportAlert(adapter, s, run)));
+      const hits = outcome.sources
+        .map((s) => toReportAlert(adapter, s, run))
+        .filter((a): a is ReportAlert => a !== null);
+      if (hits.length > 0) alerts.set(run.key, hits);
       else onEmpty?.(run);
     });
   };

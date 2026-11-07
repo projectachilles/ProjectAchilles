@@ -238,8 +238,13 @@ export interface ExtendedAnalyticsQueryParams extends AnalyticsQueryParams {
 }
 
 // Combined query params for paginated executions
+/** Executions-list outcome filter (the Outcome breakdown card's slices); not the shared `result` filter. */
+export type ExecutionVerdict = 'protected' | 'prevented' | 'detected' | 'silent';
+export const EXECUTION_VERDICTS: readonly ExecutionVerdict[] = ['protected', 'prevented', 'detected', 'silent'];
+
 export interface PaginatedExecutionsParams extends ExtendedAnalyticsQueryParams, PaginationParams {
   grouped?: boolean;
+  verdict?: ExecutionVerdict;
 }
 
 // Grouped execution result (one per collapsed display row)
@@ -418,4 +423,16 @@ export interface CanonicalTestCountResponse {
   count: number;
   tests: string[];
   days: number;
+}
+
+/** Latest-basis outcome split of non-cyber-hygiene pairs (GET /analytics/outcome-breakdown). */
+export interface OutcomeBreakdownResponse {
+  pairCount: number;
+  protected: number;      // strict: the test itself was blocked
+  prevented: number;      // detected and an EDR prevented it
+  detected: number;       // detected only
+  silent: number;         // nothing stopped or flagged it
+  noConclusive: number;   // pairs with docs but no conclusive result in the window
+  riskAccepted: number;   // pairs hidden by risk acceptance
+  windowLabel: string;
 }

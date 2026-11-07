@@ -1,5 +1,7 @@
 import { Router } from 'express';
 import { requireClerkAuth, requirePermission } from '../middleware/clerk.middleware.js';
+import { scopeResultsToCallerOrg } from '../middleware/orgScope.js';
+import { requireInstallOperator } from '../middleware/installScope.js';
 import { asyncHandler, AppError } from '../middleware/error.middleware.js';
 import { validateUrlForSSRF } from '../middleware/urlValidation.js';
 import { SettingsService } from '../services/analytics/settings.js';
@@ -7,9 +9,11 @@ import { ElasticsearchService } from '../services/analytics/elasticsearch.js';
 import { createResultsIndex, listResultsIndices } from '../services/analytics/index-management.service.js';
 import { resetClient as resetResultsClient } from '../services/agent/results.service.js';
 import { resolvePostureWindow } from '../services/analytics/posture.js';
+import { getTestFleet } from '../services/analytics/testFleet.js';
 import { validate } from '../middleware/validation.js';
 import { AnalyticsSettingsSchema, AnalyticsTestSchema, CreateIndexSchema, ArchiveByGroupKeysSchema, ArchiveByDateSchema } from '../schemas/analytics.schemas.js';
-import type { AnalyticsQueryParams, ExtendedAnalyticsQueryParams, PaginatedExecutionsParams } from '../types/analytics.js';
+import type { AnalyticsQueryParams, ExtendedAnalyticsQueryParams, PaginatedExecutionsParams, ExecutionVerdict } from '../types/analytics.js';
+import { EXECUTION_VERDICTS } from '../types/analytics.js';
 
 const router = Router();
 
@@ -44,7 +48,51 @@ function extractFilterParams(query: Record<string, any>): AnalyticsQueryParams &
 }
 
 // Protect all analytics routes with Clerk authentication
+
+/**
+ * Saved credentials (API key, username/password, CA certificate) belong to the
+ * saved cluster. A request reuses them only when it targets that same cluster:
+ * same connection type and, when it names one, the same Cloud ID or node URL.
+ * Otherwise anyone allowed to test or save settings could send the saved
+ * credentials to a host of their choosing just by changing the target.
+ */
+function targetsSavedCluster(
+  existing: { configured?: boolean; connectionType?: string; cloudId?: string; node?: string },
+  requested: { connectionType?: string; cloudId?: string; node?: string },
+): boolean {
+  if (!existing.configured) return false;
+  if (requested.connectionType && requested.connectionType !== existing.connectionType) return false;
+  if (requested.cloudId && requested.cloudId !== existing.cloudId) return false;
+  if (requested.node && normalizeNodeUrl(requested.node) !== normalizeNodeUrl(existing.node)) return false;
+  return true;
+}
+
+/** Comparable form of a node URL: parsed and without trailing slashes. */
+function normalizeNodeUrl(node: string | undefined): string {
+  const raw = (node ?? '').trim();
+  try {
+    return stripTrailingSlashes(new URL(raw).toString());
+  } catch {
+    return stripTrailingSlashes(raw);
+  }
+}
+
+/** Linear-time, unlike /\/+$/ (which backtracks on a long run of slashes). */
+function stripTrailingSlashes(value: string): string {
+  let end = value.length;
+  while (end > 0 && value.charCodeAt(end - 1) === 47 /* '/' */) end--;
+  return value.slice(0, end);
+}
+
+/** /indices lists Achilles indices only (results and archives), never the whole cluster. */
+const ACHILLES_INDEX_PATTERN = /^(archived-)?achilles[a-z0-9._*-]*$/;
+
 router.use(requireClerkAuth());
+
+// A caller in an organization only queries (and archives) its own
+// organization's results. The Elasticsearch connection and index management
+// are install configuration, not results.
+router.use(scopeResultsToCallerOrg(['/settings', '/settings/test', '/indices', '/index/create']));
 
 // Initialize services
 const settingsService = new SettingsService();
@@ -83,33 +131,28 @@ router.get('/settings', requirePermission('analytics:settings:read'), (_req, res
 });
 
 // POST /api/analytics/settings - Save settings
-router.post('/settings', requirePermission('analytics:settings:write'), validate(AnalyticsSettingsSchema), asyncHandler(async (req, res) => {
+router.post('/settings', requirePermission('analytics:settings:write'), requireInstallOperator, validate(AnalyticsSettingsSchema), asyncHandler(async (req, res) => {
   const { connectionType, cloudId, apiKey, node, username, password, indexPattern, caCert, tlsInsecureSkipVerify, writeIndexPrefix, writeIndexRollover } = req.body;
 
   // Load existing settings to merge with new values
   // This allows updating settings without providing all credentials
   const existingSettings = settingsService.getSettings();
 
-  // When the connection type changes (e.g., 'cloud' → 'self-hosted'), the existing
-  // credentials belong to a *different* cluster and must not be carried forward.
-  // Otherwise the merge below would happily reuse a stale cloudId/apiKey/etc. against
-  // a freshly entered URL — yielding silent auth failures. See PR introducing this guard.
-  const isModeSwitch =
-    !!existingSettings.configured &&
-    !!existingSettings.connectionType &&
-    !!connectionType &&
-    connectionType !== existingSettings.connectionType;
+  // Saved credentials are reused only against the saved cluster (targetsSavedCluster):
+  // a different connection type, Cloud ID or node URL starts from empty credentials,
+  // so they can never be sent to a host the request names.
+  const isNewTarget = !targetsSavedCluster(existingSettings, { connectionType, cloudId, node });
 
-  // On a mode switch, fall back to empty rather than the previous-cluster value.
-  const fallback = <T>(prev: T | undefined): T | string => (isModeSwitch ? '' : (prev ?? ''));
+  // For a new target, fall back to empty rather than the saved cluster's value.
+  const fallback = <T>(prev: T | undefined): T | string => (isNewTarget ? '' : (prev ?? ''));
 
   // Validate self-hosted ES node URL against SSRF before saving
-  const effectiveNode = node || (isModeSwitch ? '' : existingSettings.node);
+  const effectiveNode = node || (isNewTarget ? '' : existingSettings.node);
   if (connectionType === 'self-hosted' && effectiveNode) {
     await validateUrlForSSRF(effectiveNode);
   }
 
-  // Merge: use new values if provided, otherwise keep existing ones (unless mode switched).
+  // Merge: use new values if provided, otherwise keep existing ones (unless the target changed).
   const settingsToSave = {
     connectionType,
     cloudId: cloudId || fallback(existingSettings.cloudId),
@@ -117,19 +160,19 @@ router.post('/settings', requirePermission('analytics:settings:write'), validate
     node: effectiveNode,
     username: username || fallback(existingSettings.username),
     password: password || fallback(existingSettings.password),
-    // indexPattern survives mode switches — it's a query-shape concern, not a credential
+    // indexPattern survives target changes — it's a query-shape concern, not a credential
     indexPattern: indexPattern || existingSettings.indexPattern || 'achilles-results-*',
     writeIndexPrefix: writeIndexPrefix ?? existingSettings.writeIndexPrefix ?? 'achilles-results-',
     writeIndexRollover: writeIndexRollover ?? existingSettings.writeIndexRollover ?? 'none',
     configured: true,
     // TLS overrides: caCert blank-string keeps existing (matches credential-merge semantics);
     // tlsInsecureSkipVerify is an explicit boolean so we accept the new value when defined.
-    // Both are direct-mode-only, so on mode-switch they're cleared.
+    // Both are direct-mode-only, so for a new target they're cleared.
     caCert: caCert || fallback(existingSettings.caCert),
     tlsInsecureSkipVerify:
       typeof tlsInsecureSkipVerify === 'boolean'
         ? tlsInsecureSkipVerify
-        : isModeSwitch ? false : existingSettings.tlsInsecureSkipVerify,
+        : isNewTarget ? false : existingSettings.tlsInsecureSkipVerify,
   };
 
   settingsService.saveSettings(settingsToSave);
@@ -144,26 +187,21 @@ router.post('/settings', requirePermission('analytics:settings:write'), validate
 }));
 
 // POST /api/analytics/settings/test - Test connection
-router.post('/settings/test', requirePermission('analytics:settings:read'), validate(AnalyticsTestSchema), asyncHandler(async (req, res) => {
+router.post('/settings/test', requirePermission('analytics:settings:write'), validate(AnalyticsTestSchema), asyncHandler(async (req, res) => {
   const { connectionType, cloudId, apiKey, node, username, password, caCert, tlsInsecureSkipVerify } = req.body;
 
   // Merge with existing settings so edit-mode tests work with blank credentials
   const existingSettings = settingsService.getSettings();
 
-  // Mirror the save handler's mode-switch guard: when the user is testing a different
-  // connection type than what's saved, the saved credentials are for a different cluster
-  // and must not leak into the test request.
+  // Same rule as the save handler: saved credentials only ever go to the saved
+  // cluster, never to a node or Cloud ID the request supplies.
   const effectiveType = connectionType || existingSettings.connectionType;
-  const isModeSwitch =
-    !!existingSettings.configured &&
-    !!existingSettings.connectionType &&
-    !!connectionType &&
-    connectionType !== existingSettings.connectionType;
-  const fallback = <T>(prev: T | undefined): T | string => (isModeSwitch ? '' : (prev ?? ''));
+  const isNewTarget = !targetsSavedCluster(existingSettings, { connectionType, cloudId, node });
+  const fallback = <T>(prev: T | undefined): T | string => (isNewTarget ? '' : (prev ?? ''));
 
   try {
     // Validate self-hosted ES node URL against SSRF (cloud IDs are safe — they resolve to *.elastic-cloud.com)
-    const effectiveNode = node || (isModeSwitch ? '' : existingSettings.node);
+    const effectiveNode = node || (isNewTarget ? '' : existingSettings.node);
     if (effectiveType === 'self-hosted' && effectiveNode) {
       await validateUrlForSSRF(effectiveNode);
     }
@@ -181,7 +219,7 @@ router.post('/settings/test', requirePermission('analytics:settings:read'), vali
       tlsInsecureSkipVerify:
         typeof tlsInsecureSkipVerify === 'boolean'
           ? tlsInsecureSkipVerify
-          : isModeSwitch ? false : existingSettings.tlsInsecureSkipVerify,
+          : isNewTarget ? false : existingSettings.tlsInsecureSkipVerify,
     });
 
     const version = await testService.testConnection();
@@ -280,9 +318,9 @@ router.get('/executions', asyncHandler(async (req, res) => {
 }));
 
 // GET /api/analytics/organizations - List organizations
-router.get('/organizations', asyncHandler(async (_req, res) => {
+router.get('/organizations', asyncHandler(async (req, res) => {
   const es = await getEsService();
-  const result = await es.getOrganizations();
+  const result = await es.getOrganizations(req.query.org as string | undefined);
   res.json(result);
 }));
 
@@ -335,32 +373,35 @@ router.get('/host-test-matrix', asyncHandler(async (req, res) => {
 }));
 
 // GET /api/analytics/available-tests - List all available tests
-router.get('/available-tests', asyncHandler(async (_req, res) => {
+router.get('/available-tests', asyncHandler(async (req, res) => {
   const es = await getEsService();
-  const tests = await es.getAvailableTests();
+  const tests = await es.getAvailableTests(req.query.org as string | undefined);
   res.json(tests);
 }));
 
 // GET /api/analytics/executed-test-uuids - List all test UUIDs that have been executed
-router.get('/executed-test-uuids', asyncHandler(async (_req, res) => {
+router.get('/executed-test-uuids', asyncHandler(async (req, res) => {
   const es = await getEsService();
-  const uuids = await es.getExecutedTestUuids();
+  const uuids = await es.getExecutedTestUuids(req.query.org as string | undefined);
   res.json({ success: true, uuids });
 }));
 
 // GET /api/analytics/available-techniques - List all available techniques
-router.get('/available-techniques', asyncHandler(async (_req, res) => {
+router.get('/available-techniques', asyncHandler(async (req, res) => {
   const es = await getEsService();
-  const techniques = await es.getAvailableTechniques();
+  const techniques = await es.getAvailableTechniques(req.query.org as string | undefined);
   res.json(techniques);
 }));
 
 // GET /api/analytics/defense-score/by-org - Score by organization (optional)
 router.get('/defense-score/by-org', asyncHandler(async (req, res) => {
   const es = await getEsService();
-  const { from, to } = req.query;
+  const { org, from, to } = req.query;
 
+  // For a caller in an organization, org is its own (scopeResultsToCallerOrg):
+  // one bucket, never every organization's score.
   const result = await es.getDefenseScoreByOrg({
+    org: org as string,
     from: from as string,
     to: to as string,
   });
@@ -379,8 +420,12 @@ router.get('/executions/paginated', asyncHandler(async (req, res) => {
     org, from, to, tests, techniques,
     hostnames, categories, severities, threatActors, tags,
     errorNames, errorCodes, bundleNames, result,
-    page, pageSize, sortField, sortOrder, grouped
+    page, pageSize, sortField, sortOrder, grouped, verdict
   } = req.query;
+
+  if (verdict !== undefined && !EXECUTION_VERDICTS.includes(verdict as ExecutionVerdict)) {
+    throw new AppError('Invalid verdict', 400);
+  }
 
   const params: PaginatedExecutionsParams = {
     org: org as string,
@@ -402,6 +447,7 @@ router.get('/executions/paginated', asyncHandler(async (req, res) => {
     sortField: sortField as string,
     sortOrder: sortOrder as 'asc' | 'desc',
     grouped: grouped === 'true',
+    verdict: verdict as ExecutionVerdict | undefined,
   };
 
   if (params.grouped) {
@@ -582,6 +628,19 @@ router.get('/test-results', asyncHandler(async (req, res) => {
   res.json(result);
 }));
 
+// GET /api/analytics/test-results/:uuid/stages - One test's fleet results: the
+// any-stage headline plus the per-stage split (same fixed window as above).
+router.get('/test-results/:uuid/stages', asyncHandler(async (req, res) => {
+  // Lower-cased: library UUIDs are, and the ES term match is case-sensitive.
+  const uuid = String(req.params.uuid).toLowerCase();
+  if (!/^[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}$/.test(uuid)) {
+    throw new AppError('Invalid test UUID format', 400);
+  }
+  const es = await getEsService();
+  const result = await getTestFleet(es, uuid, extractFilterParams(req.query));
+  res.json(result);
+}));
+
 // GET /api/analytics/technique-outcomes - Blocked / detected-only / got-through
 // per technique. Always latest-result posture (per-stage pairs); basis is ignored.
 router.get('/technique-outcomes', asyncHandler(async (req, res) => {
@@ -597,6 +656,15 @@ router.get('/chain-depth', asyncHandler(async (req, res) => {
   const es = await getEsService();
   const { basis: _basis, ...query } = req.query;
   const result = await es.getChainDepth(extractFilterParams(query));
+  res.json(result);
+}));
+
+// GET /api/analytics/outcome-breakdown - Protected / prevented / detected / silent
+// split of the latest-basis pairs. Basis is ignored; outcome filters are ignored by the service.
+router.get('/outcome-breakdown', asyncHandler(async (req, res) => {
+  const es = await getEsService();
+  const { basis: _basis, ...query } = req.query;
+  const result = await es.getOutcomeBreakdown(extractFilterParams(query));
   res.json(result);
 }));
 
@@ -676,13 +744,16 @@ router.get('/indices', asyncHandler(async (req, res) => {
   // Always default to all results indices — the configured indexPattern scopes
   // analytics queries, not the management view.
   const indexPattern = (pattern as string | undefined) || 'achilles-results-*';
+  if (typeof indexPattern !== 'string' || !ACHILLES_INDEX_PATTERN.test(indexPattern)) {
+    throw new AppError('pattern must name Achilles indices (achilles-* or archived-achilles*)', 400);
+  }
 
   const indices = await listResultsIndices(indexPattern);
   res.json({ success: true, indices });
 }));
 
 // POST /api/analytics/index/create - Create an ES index with the results mapping
-router.post('/index/create', requirePermission('analytics:index:create'), validate(CreateIndexSchema), asyncHandler(async (req, res) => {
+router.post('/index/create', requirePermission('analytics:index:create'), requireInstallOperator, validate(CreateIndexSchema), asyncHandler(async (req, res) => {
   const { index_name } = req.body as { index_name: string };
 
   const result = await createResultsIndex(index_name);
@@ -699,7 +770,8 @@ router.post('/executions/archive', requirePermission('analytics:executions:archi
   const { groupKeys } = req.body as { groupKeys: string[] };
 
   const es = await getEsService();
-  const result = await es.archiveByGroupKeys(groupKeys);
+  // Only the caller org's results when it has one (set by scopeResultsToCallerOrg).
+  const result = await es.archiveByGroupKeys(groupKeys, req.query.org as string | undefined);
   res.json({ success: true, archived: result.archived, errors: result.errors });
 }));
 
@@ -708,7 +780,7 @@ router.post('/executions/archive-by-date', requirePermission('analytics:executio
   const { before } = req.body as { before: string };
 
   const es = await getEsService();
-  const result = await es.archiveByDateRange(before);
+  const result = await es.archiveByDateRange(before, req.query.org as string | undefined);
   res.json({ success: true, archived: result.archived, errors: result.errors });
 }));
 

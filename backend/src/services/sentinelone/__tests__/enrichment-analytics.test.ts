@@ -57,9 +57,12 @@ describe('SentinelOne enrichment (shared pass, sentinelone target)', () => {
     const ops = bulk.mock.calls[0][0].operations;
     expect(ops[1]).toEqual({ doc: { f0rtika: {
       sentinelone_detected: true,
+      sentinelone_evidence_rule: 'file_verdict',
       sentinelone_stage_detected: true,
       sentinelone_prevented: true,
       sentinelone_prevention_action: 'process_killed',
+      sentinelone_stage_prevented: true,
+      sentinelone_stage_rule: 'single_test',
     } } });
     expect(ops[2]).toEqual({ update: { _index: 'achilles-sentinelone', _id: 'threat-1' } });
     expect(ops[3].doc.f0rtika).toMatchObject({ achilles_correlated: true, achilles_test_uuid: 'b1' });
@@ -76,7 +79,9 @@ describe('SentinelOne enrichment (shared pass, sentinelone target)', () => {
     await svc.runEnrichmentPass({ batchSize: 200 });
 
     expect(msearch.mock.calls[0][0].searches[1]._source).toContain('f0rtika.auto_mitigated');
-    expect(bulk.mock.calls[0][0].operations[1]).toEqual({ doc: { f0rtika: { sentinelone_detected: true, sentinelone_stage_detected: true } } });
+    expect(bulk.mock.calls[0][0].operations[1]).toEqual({ doc: { f0rtika: { sentinelone_detected: true, sentinelone_stage_detected: true, sentinelone_stage_prevented: false, sentinelone_stage_rule: 'single_test', sentinelone_evidence_rule: 'file_verdict' } } });
+    // The action aggregation leaves Achilles-mitigated alerts out too.
+    expect(JSON.stringify(msearch.mock.calls[0][0].searches[1].aggs.prevention.filter)).toContain('f0rtika.auto_mitigated');
   });
 
   it('a dry-run or failed auto-mitigation receipt does not hide a real SentinelOne prevention', async () => {
@@ -113,6 +118,17 @@ describe('SentinelOneAnalyticsService', () => {
     const all = JSON.stringify(mockSearch.mock.calls.map((c) => c[0]));
     expect(all).toContain('f0rtika.sentinelone_stage_detected');
     expect(all).not.toContain('crowdstrike_');
+  });
+
+  it("rows carry initiated_by, so the drawer can label an analyst's Deep Visibility response", async () => {
+    mockSearch.mockResolvedValue({ hits: { total: { value: 2 }, hits: [
+      { _source: { alert_id: 't1', initiated_by: 'dv_command', prevention_action: null } },
+      { _source: { alert_id: 't2', initiated_by: 'agent_policy', prevention_action: 'process_killed' } },
+    ] }, aggregations: {} });
+    const res = await new SentinelOneAnalyticsService().getAlerts({});
+    expect(res.data.find((a) => a.alert_id === 't1')).toMatchObject({ initiated_by: 'dv_command' });
+    expect(res.data.find((a) => a.alert_id === 't1')?.prevention_action).toBeUndefined();
+    expect(res.data.find((a) => a.alert_id === 't2')).toMatchObject({ initiated_by: 'agent_policy', prevention_action: 'process_killed' });
   });
 
   it('an alert Achilles mitigated reads as detected only: no prevention badge, not in the prevented facet', async () => {

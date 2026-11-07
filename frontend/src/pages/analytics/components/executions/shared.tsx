@@ -4,7 +4,6 @@ import type {
   CategoryType,
   EnrichedTestExecution,
   ExecutionGroup,
-  SeverityLevel,
 } from '@/services/api/analytics';
 import { EDR_VENDOR_KEYS, PREVENTION_ACTION_PRECEDENCE, type EdrGroupRollup, type EdrVendorKey } from '@/lib/edrVendors';
 import {
@@ -94,15 +93,7 @@ export function alertRunTimeAnnotation(runTimestamp: string, alert: AlertTimingF
   return relativeToRun(runMs, createdMs);
 }
 
-// ── Severity / error-code semantics ────────────────────────────────
-
-export const SEVERITY_VARIANTS: Record<SeverityLevel, string> = {
-  critical: 'bg-danger-dim text-danger border-danger/30',
-  high: 'bg-warning-dim text-warning border-warning/30',
-  medium: 'bg-warning-dim text-warning border-warning/30',
-  low: 'bg-info-dim text-info border-info/30',
-  info: 'bg-raised text-muted border-border',
-};
+// ── Error-code semantics ────────────────────────────────
 
 export const ALERT_SEVERITY_CLASSES: Record<string, string> = {
   critical: 'bg-danger-dim text-danger border-danger/30',
@@ -218,11 +209,21 @@ function stageOnlyDetected(exec: EnrichedTestExecution): boolean {
   return EDR_VENDOR_KEYS.some((k) => Boolean(exec[`${k}_stage_detected`]));
 }
 
-/** This stage was detected AND the EDR took a confirmed prevention action on it. */
+/**
+ * Vendor `k`'s own alert on THIS stage carried a confirmed prevention action.
+ * `<k>_stage_prevented` decides when present; rows enriched before it existed
+ * fall back to stage detection + a confirmed action (which can't tell a stage
+ * alert's action from a bundle-wide one).
+ */
+export function stageOwnPrevented(exec: EnrichedTestExecution, k: EdrVendorKey): boolean {
+  const own = exec[`${k}_stage_prevented`];
+  if (own !== undefined && own !== null) return own === true;
+  return Boolean(exec[`${k}_stage_detected`]) && isConfirmedPrevention(exec[`${k}_prevention_action`]);
+}
+
+/** Some vendor's own alert on this stage carried a confirmed prevention action. */
 function stageOnlyPrevented(exec: EnrichedTestExecution): boolean {
-  return EDR_VENDOR_KEYS.some(
-    (k) => Boolean(exec[`${k}_stage_detected`]) && isConfirmedPrevention(exec[`${k}_prevention_action`]),
-  );
+  return EDR_VENDOR_KEYS.some((k) => stageOwnPrevented(exec, k));
 }
 
 export function classifyExecution(exec: EnrichedTestExecution): ExecutionOutcome {
@@ -244,9 +245,12 @@ export function classifyExecution(exec: EnrichedTestExecution): ExecutionOutcome
   }
   // Per-stage flag, falling back to the bundle-level flag for older documents.
   const detected = (k: EdrVendorKey) => Boolean(exec[`${k}_stage_detected`] ?? exec[`${k}_detected`]);
-  const isPrevented = EDR_VENDOR_KEYS.some(
-    (k) => Boolean(exec[`${k}_prevented`]) || (detected(k) && isConfirmedPrevention(exec[`${k}_prevention_action`])),
-  );
+  const ownAction = (k: EdrVendorKey) => {
+    const own = exec[`${k}_stage_prevented`];
+    if (own !== undefined && own !== null) return own === true;
+    return detected(k) && isConfirmedPrevention(exec[`${k}_prevention_action`]);
+  };
+  const isPrevented = EDR_VENDOR_KEYS.some((k) => Boolean(exec[`${k}_prevented`]) || ownAction(k));
   if (isPrevented) return 'prevented';
   if (EDR_VENDOR_KEYS.some(detected)) return 'detected';
   return 'unprotected';
@@ -283,8 +287,11 @@ export function ExecResultLabel({ exec, compact }: { exec: EnrichedTestExecution
         </span>
       );
     case 'prevented': {
+      // The stage's own action first (stageOwnPrevented), then any vendor's.
+      const own = PREVENTION_ACTION_PRECEDENCE.find((k) => stageOwnPrevented(exec, k));
       const action = formatPreventionAction(
-        PREVENTION_ACTION_PRECEDENCE.map((k) => exec[`${k}_prevention_action`]).find((a) => a !== undefined && a !== null),
+        (own ? exec[`${own}_prevention_action`] : undefined)
+          ?? PREVENTION_ACTION_PRECEDENCE.map((k) => exec[`${k}_prevention_action`]).find((a) => a !== undefined && a !== null),
       );
       return (
         <span className="inline-flex items-center gap-1.5 text-accent">
@@ -382,7 +389,6 @@ export const EXPORT_COLUMNS: Array<{ key: string; label: string }> = [
   { key: 'test_name', label: 'Test Name' },
   { key: 'hostname', label: 'Hostname' },
   { key: 'result', label: 'Result' },
-  { key: 'severity', label: 'Severity' },
   { key: 'category', label: 'Category' },
   { key: 'subcategory', label: 'Subcategory' },
   { key: 'threat_actor', label: 'Threat Actor' },
@@ -405,7 +411,6 @@ export function getCellValue(exec: EnrichedTestExecution, key: string): string |
       const r = getResultFromErrorCode(exec.error_code);
       return r === 'protected' ? 'Protected' : r === 'unprotected' ? 'Unprotected' : 'Inconclusive';
     }
-    case 'severity': return exec.severity;
     case 'category': return exec.category;
     case 'subcategory': return exec.subcategory;
     case 'threat_actor': return exec.threat_actor;
@@ -432,7 +437,6 @@ export const SORT_FIELDS: Array<{ field: string; label: string }> = [
   { field: 'f0rtika.test_name', label: 'Test name' },
   { field: 'routing.hostname', label: 'Hostname' },
   { field: 'f0rtika.is_protected', label: 'Result' },
-  { field: 'f0rtika.severity', label: 'Severity' },
   { field: 'f0rtika.category', label: 'Category' },
   { field: 'f0rtika.score', label: 'Score' },
 ];

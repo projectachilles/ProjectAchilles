@@ -98,6 +98,39 @@ This route is registered **before** `/agents/:id`, otherwise Express captures
 `heartbeats` as an agent id and the endpoint 404s.
 :::
 
+### List Tasks (Grouped)
+
+```
+GET /api/agent/admin/tasks/grouped
+```
+
+Returns tasks grouped by batch, newest first, for the Tasks page. Besides the usual
+status, type, search and paging filters it accepts:
+
+| Query | Notes |
+|-------|-------|
+| `breakdown` | Only tasks whose finished outcome matches one key of the 7-day breakdown. Implies `execute_test` tasks and the last 7 days. An unknown shape returns `400 — Invalid breakdown` |
+
+Breakdown keys:
+
+| Key | Matches |
+|-----|---------|
+| `exit:<code>` | Finished runs that ended with that exit code |
+| `stage:<code>` | Multi-stage runs whose result is decided by a stage with that code |
+| `edr-stopped` | Runs ended by an EDR that stopped the agent |
+| `failed:offline`, `failed:timeout`, `failed:other` | Failed runs, by reason |
+
+`<code>` is an integer of up to 10 digits and may be negative (`exit:-1`).
+
+The metrics response (`GET /api/agent/admin/metrics`) carries the same keys in
+`task_outcomes_7d.breakdown`, one row per breakdown key (several rows can share an outcome):
+
+```json
+{ "key": "exit:126", "outcome": "protected", "code": 126, "name": "ExecutionPrevented", "count": 12 }
+```
+
+Pass a row's `key` back as `breakdown` to list the tasks behind its `count`. The type-pill counts (`type_counts`) ignore `breakdown`.
+
 ### Retry a Task
 
 ```

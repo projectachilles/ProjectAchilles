@@ -13,12 +13,12 @@ A **campaign** is a saved test plan: a set of tests crossed with a set of agents
 Use campaigns when you need repeatable, auditable proof of what was tested and what the controls did, for example for a compliance review or a quarterly validation. A campaign is also optionally labelled with a **framework label** (for example `ISO 27001 A.8`) that is carried onto the evidence page.
 
 :::info[Availability]
-Campaigns are available on self-hosted deployments (Docker, Render, Fly.io, Railway, public and on-prem servers). They are not available on Vercel; the **Campaigns** menu entry is hidden when the deployment does not support them.
+Campaigns are available on self-hosted deployments (Docker, Render, Fly.io, Railway, public and on-prem servers). They are not available on Vercel; the **Campaigns** section of the Tasks page is hidden when the deployment does not support them.
 :::
 
 ## Creating a Campaign
 
-1. Open **Campaigns** in the navigation
+1. Open **Tasks**, then the **Campaigns** section next to the title (`/tasks/campaigns`; the old `/campaigns` links redirect there)
 2. Click **New campaign**
 3. Fill in:
    - **Name** (required, 1-120 characters, unique within your organization)
@@ -145,7 +145,7 @@ Every export carries the **as-of** time: the moment the evidence was read. A run
 ## Run history
 
 - **Per campaign**: click **Runs** on a campaign to list its runs, newest first, with the start time, who started it, the task count and % protected. Each run links to its evidence page.
-- **All runs**: the **All runs** tab on the Campaigns page lists every run in your organization, newest first, including runs of campaigns that have since been deleted. Those carry a **deleted campaign** marker, and this tab is how you reach their evidence.
+- **All runs**: the **All runs** tab of the Campaigns section lists every run in your organization, newest first, including runs of campaigns that have since been deleted. Those carry a **deleted campaign** marker, and this tab is how you reach their evidence.
 
 Both lists show 25 runs at a time; **Show more** loads the next page.
 

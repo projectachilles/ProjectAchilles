@@ -60,11 +60,18 @@ function stageDetected(source: Record<string, unknown>): boolean {
   return EDR_VENDOR_KEYS.some((v) => flag(source, `${v}_stage_detected`));
 }
 
-/** This stage was detected AND the EDR took a confirmed prevention action on it. */
+/**
+ * The EDR's own alert on THIS stage carried a confirmed prevention action.
+ * `<v>_stage_prevented` (written by the enrichment pass) decides when present;
+ * docs enriched before it existed fall back to stage detection + a confirmed
+ * action, which can't tell a stage alert's action from a bundle-wide one.
+ */
 function stagePrevented(source: Record<string, unknown>): boolean {
-  return EDR_VENDOR_KEYS.some(
-    (v) => flag(source, `${v}_stage_detected`) && confirmedAction(source, `${v}_prevention_action`),
-  );
+  return EDR_VENDOR_KEYS.some((v) => {
+    const own = getSourceField(source, `f0rtika.${v}_stage_prevented`);
+    if (own !== undefined && own !== null) return own === true;
+    return flag(source, `${v}_stage_detected`) && confirmedAction(source, `${v}_prevention_action`);
+  });
 }
 
 /** Classify one stage or standalone-test result exactly like the console's ExecResultLabel. */
@@ -112,13 +119,22 @@ const SKIPPED: Clause = {
   },
 };
 
-/** Stage-level detection plus a confirmed prevention action, for one vendor. */
-const stagePreventionClause = (v: EdrVendorKey): Clause => ({
+/** stagePrevented() for one vendor: `_stage_prevented`, else (older docs) stage detection + a confirmed action. */
+export const stagePreventionClause = (v: EdrVendorKey): Clause => ({
   bool: {
-    filter: [
-      term(edrFlagField(v, 'stage_detected'), true),
-      { terms: { [edrFlagField(v, 'prevention_action')]: CONFIRMED_PREVENTION_ACTIONS } },
+    should: [
+      term(edrFlagField(v, 'stage_prevented'), true),
+      {
+        bool: {
+          filter: [
+            term(edrFlagField(v, 'stage_detected'), true),
+            { terms: { [edrFlagField(v, 'prevention_action')]: CONFIRMED_PREVENTION_ACTIONS } },
+          ],
+          must_not: [{ exists: { field: edrFlagField(v, 'stage_prevented') } }],
+        },
+      },
     ],
+    minimum_should_match: 1,
   },
 });
 
@@ -156,6 +172,16 @@ const ERROR_CODED: Clause = {
   },
 };
 
+/**
+ * An error-coded stage (e.g. 999, or Falcon's 0xE0000027) that the EDR's own
+ * alert on that stage says it killed, quarantined or blocked: classifyStage's
+ * Prevented for an error code. The Defense Score, outcome breakdown, chain
+ * depth and error rate count it as a scored (conclusive) result.
+ */
+export const EDR_PREVENTED_ERROR_STAGE: Clause = {
+  bool: { filter: [ERROR_CODED, STAGE_PREVENTION_SIGNAL] },
+};
+
 const UNPROTECTED: Clause = {
   bool: { filter: [term('event.ERROR', UNPROTECTED_EXIT_CODE)], must_not: [PREVENTION_SIGNAL, STAGE_DETECTED] },
 };
@@ -168,7 +194,7 @@ export const OUTCOME_FILTERS: Record<StageOutcome, Clause> = {
     bool: {
       should: [
         { bool: { filter: [term('event.ERROR', UNPROTECTED_EXIT_CODE), PREVENTION_SIGNAL] } },
-        { bool: { filter: [ERROR_CODED, STAGE_PREVENTION_SIGNAL] } },
+        EDR_PREVENTED_ERROR_STAGE,
       ],
       minimum_should_match: 1,
     },

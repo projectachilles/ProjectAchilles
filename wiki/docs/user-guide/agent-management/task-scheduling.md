@@ -8,8 +8,8 @@ description: "Automate recurring test execution with flexible scheduling options
 
 ## Creating a Schedule
 
-1. Navigate to **Scheduling**
-2. Click **Create Schedule**
+1. Navigate to **Tasks** and click **Create Task**
+2. Choose the **Schedule** tab, configure the schedule (below), and click **Create Schedule**
 3. Configure:
    - **Test** to execute
    - **Target agents** (specific agents or all)
@@ -61,11 +61,17 @@ When [pre-execution notices](../integrations/pre-execution-notices) are on, sche
 
 Tests are held until the notice is accepted, so a scheduled run can start a few minutes after its scheduled time.
 
+## Large Fleets
+
+When a schedule or Run Now targets many agents, the backend paces how fast test binaries are handed out, at 1500 MB per minute by default (about 90 binaries of 17 MB). Agents over the budget are told there is no task yet and receive it at their next poll (30 seconds later), so a big run starts over a few minutes instead of all at once. Agent update tasks are not paced. With pre-execution notices on, the default covers about 2,600 agents with a 17 MB binary (about 1,100 with 40 MB) within the 30-minute pickup window; for a larger run, raise the budget or the window. Set `AGENT_DOWNLOAD_BUDGET_MB_PER_MIN` on the backend to change the rate, or `0` to turn pacing off.
+
 ## Priority Queue
 
 Higher-priority tasks are assigned before lower-priority ones when multiple tasks are pending for the same agent.
 
 ## Managing Schedules
+
+Existing schedules are listed in the **Schedules** section of the Tasks page (`/tasks/schedules`). New schedules are created from **Create Task**, not from that view.
 
 - **Pause/Resume** — Temporarily disable a schedule without deleting it
 - **Edit** — Modify any schedule parameter

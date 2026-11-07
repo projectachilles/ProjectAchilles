@@ -2,13 +2,17 @@ import { useState, useEffect, useRef, useCallback } from 'react';
 import { put } from '@vercel/blob/client';
 import { testsApi } from '@/services/api/tests';
 import { useCapabilities } from '@/hooks/useCapabilities';
-import type { BuildInfo, EmbedDependency } from '@/types/test';
+import type { EmbedDependency } from '@/types/test';
+import { useBuildInfo, type BuildInfoState } from '@/components/browser/detail/useBuildInfo';
+import { embedDisplayName } from '@/components/browser/detail/testTabs';
 import { Badge } from '@/components/shared/ui/Badge';
 import { Button } from '@/components/shared/ui/Button';
 import { Loader2, Download, RotateCw, Trash2, Upload, Check, X, Wrench } from 'lucide-react';
 
 interface BuildSectionProps {
   uuid: string;
+  /** Build state owned by the page; omit to let the section fetch its own. */
+  build?: BuildInfoState;
 }
 
 function formatBytes(bytes: number): string {
@@ -25,10 +29,13 @@ function formatDate(iso: string): string {
   });
 }
 
-export default function BuildSection({ uuid }: BuildSectionProps) {
-  const [buildInfo, setBuildInfo] = useState<BuildInfo | null>(null);
+export default function BuildSection({ uuid, build }: BuildSectionProps) {
+  // Hooks stay unconditional: the own instance is inert when state is shared.
+  const own = useBuildInfo(build ? null : uuid);
+  const { buildInfo, setBuildInfo, loading: infoLoading, download: handleDownload } = build ?? own;
   const [deps, setDeps] = useState<EmbedDependency[]>([]);
-  const [loading, setLoading] = useState(true);
+  const [depsLoadedFor, setDepsLoadedFor] = useState<string | null>(null);
+  const loading = infoLoading || depsLoadedFor !== uuid;
   const [building, setBuilding] = useState(false);
   const [uploading, setUploading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -56,8 +63,10 @@ export default function BuildSection({ uuid }: BuildSectionProps) {
     } catch (err: unknown) {
       if (controller.signal.aborted) return;
       const msg = err instanceof Error ? err.message : 'Build failed';
-      const axiosErr = err as { response?: { data?: { error?: string } } };
-      setError(axiosErr?.response?.data?.error || msg);
+      const data = (err as { response?: { data?: { error?: string; message?: string } } })?.response?.data;
+      // Prefer the server's `message` ("Cannot POST /api/…") over the bland
+      // `error` ("Not Found") so a routing/404 failure names the failing route.
+      setError(data?.message || data?.error || msg);
     } finally {
       // Only the build still being followed may clear the spinner.
       if (followRef.current === controller) {
@@ -76,36 +85,34 @@ export default function BuildSection({ uuid }: BuildSectionProps) {
     setError(null);
   }, [uuid]);
 
-  const fetchData = useCallback(async () => {
-    try {
-      setLoading(true);
-      const promises: [Promise<BuildInfo>, Promise<EmbedDependency[]>] = [
-        testsApi.getBuildInfo(uuid),
-        // Only fetch deps if build system is available (needs Go source analysis)
-        capabilities.build
-          ? testsApi.getEmbedDependencies(uuid)
-          : Promise.resolve([]),
-      ];
-      const [info, embedDeps] = await Promise.all(promises);
-      setBuildInfo(info);
-      setDeps(embedDeps);
-      // The build survives page refreshes on the server: pick it back up, or
-      // show why the last attempt failed.
-      if (info.job?.status === 'running') {
-        void followBuild(false);
-      } else if (info.job?.status === 'failed' && !info.exists) {
-        setError(info.job.error || 'Build failed');
-      }
-    } catch {
-      // Non-critical — just show empty state
-    } finally {
-      setLoading(false);
-    }
-  }, [uuid, capabilities.build, followBuild]);
-
+  // Once the build info for this test has loaded, load its embed
+  // dependencies and resume / explain the last build attempt.
   useEffect(() => {
-    fetchData();
-  }, [fetchData]);
+    if (infoLoading) return;
+    let stale = false;
+    (async () => {
+      try {
+        // Only fetch deps if build system is available (needs Go source analysis)
+        const embedDeps = capabilities.build ? await testsApi.getEmbedDependencies(uuid) : [];
+        if (stale) return;
+        setDeps(embedDeps);
+        // The build survives page refreshes on the server: pick it back up, or
+        // show why the last attempt failed.
+        if (buildInfo?.job?.status === 'running') {
+          void followBuild(false);
+        } else if (buildInfo?.job?.status === 'failed' && !buildInfo.exists) {
+          setError(buildInfo.job.error || 'Build failed');
+        }
+      } catch {
+        // Non-critical — just show empty state
+      } finally {
+        if (!stale) setDepsLoadedFor(uuid);
+      }
+    })();
+    return () => { stale = true; };
+    // buildInfo intentionally omitted: react only to the load finishing
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [uuid, infoLoading, capabilities.build, followBuild]);
 
   async function handleBuild() {
     await followBuild(true);
@@ -115,14 +122,6 @@ export default function BuildSection({ uuid }: BuildSectionProps) {
     try {
       await testsApi.deleteBuild(uuid);
       setBuildInfo({ exists: false });
-    } catch {
-      // ignore
-    }
-  }
-
-  async function handleDownload() {
-    try {
-      await testsApi.downloadBuild(uuid);
     } catch {
       // ignore
     }
@@ -187,8 +186,8 @@ export default function BuildSection({ uuid }: BuildSectionProps) {
       }
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : 'Upload failed';
-      const axiosErr = err as { response?: { data?: { error?: string } } };
-      setError(axiosErr?.response?.data?.error || msg);
+      const data = (err as { response?: { data?: { error?: string; message?: string } } })?.response?.data;
+      setError(data?.message || data?.error || msg);
     } finally {
       setUploading(false);
       if (binaryInputRef.current) binaryInputRef.current.value = '';
@@ -231,7 +230,7 @@ export default function BuildSection({ uuid }: BuildSectionProps) {
         <div className="mb-2 space-y-1">
           {deps.map(dep => (
             <div key={dep.filename} className="flex items-center justify-between text-xs">
-              <span className="flex items-center gap-1.5 font-mono truncate">
+              <span className="flex items-center gap-1.5 font-mono truncate" title={dep.filename}>
                 {dep.exists ? (
                   <Check className="w-3 h-3 text-green-500 flex-shrink-0" />
                 ) : dep.sourceBuilt ? (
@@ -239,7 +238,7 @@ export default function BuildSection({ uuid }: BuildSectionProps) {
                 ) : (
                   <X className="w-3 h-3 text-red-500 flex-shrink-0" />
                 )}
-                {dep.filename}
+                {embedDisplayName(dep.filename, uuid)}
                 {!dep.exists && dep.sourceBuilt && (
                   <span className="text-muted-foreground ml-1">Auto-built</span>
                 )}

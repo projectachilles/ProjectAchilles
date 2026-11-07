@@ -5,6 +5,7 @@ import {
   findAlertsForTests,
   parseAlertsForTestsBody,
   answerAlertsForTests,
+  toAlertsForTestResult,
   type AlertsForTestDeps,
   type AlertsForTestRequest,
 } from '../alertsForTest.js';
@@ -48,6 +49,16 @@ describe('alertsForTestTiers', () => {
     const tiers = alertsForTestTiers({ ...STAGE, hostname: undefined, binaryName: undefined }, deps);
     expect(tiers).toHaveLength(1);
     expect(JSON.stringify(tiers[0].query)).not.toContain('evidence_hostnames');
+  });
+
+  it('the technique tier also matches the id ATT&CK renumbered a technique to', () => {
+    const tiers = alertsForTestTiers({ ...STAGE, techniques: ['T1562.001'], binaryName: undefined }, deps);
+    expect(JSON.stringify(tiers[0].query)).toContain('{"terms":{"mitre_techniques":["T1562.001","T1685"]}}');
+  });
+
+  it('reports an alert tagged with the new id as matching the test\'s own technique', () => {
+    const res = toAlertsForTestResult({ ...STAGE, techniques: ['T1562.001'] }, page(1, [hit('a1', ['T1685'])]) as Parameters<typeof toAlertsForTestResult>[1]);
+    expect(res.matchedTechniques).toEqual(['T1562.001']);
   });
 
   it('skips the evidence tier when the builder returns null', () => {

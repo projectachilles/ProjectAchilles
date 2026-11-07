@@ -1,5 +1,5 @@
 import type { EnrichedTestExecution } from '@/services/api/analytics';
-import { classifyExecution, type ExecutionOutcome } from './shared';
+import { classifyExecution, stageOwnPrevented, type ExecutionOutcome } from './shared';
 import { EDR_VENDOR_KEYS, PREVENTION_ACTION_PRECEDENCE, edrVendor, edrVendorName, findEdrVendor, type EdrVendorKey } from '@/lib/edrVendors';
 
 export type StageKind = ExecutionOutcome | 'not-run';
@@ -90,8 +90,16 @@ export function stageVendors(exec: EnrichedTestExecution): { label: string; shor
   return { label, short: vendors.map((k) => edrVendor(k).abbrev).join(' + ') };
 }
 
-/** "<vendor> reports it <action>." naming only the vendor whose action is used (PREVENTION_ACTION_PRECEDENCE). */
+/**
+ * "<vendor> reports it <action>." naming only the vendor whose action is used:
+ * a vendor whose own alert on this stage carried it first, then any vendor
+ * that reported the stage, each in PREVENTION_ACTION_PRECEDENCE order.
+ */
 function preventionSentence(exec: EnrichedTestExecution): string | null {
+  for (const k of PREVENTION_ACTION_PRECEDENCE) {
+    const action = stageOwnPrevented(exec, k) ? ACTION_COPY[exec[`${k}_prevention_action`] ?? ''] : undefined;
+    if (action) return `${edrVendor(k).name} reports it ${action}.`;
+  }
   const reported = new Set(stageEdr(exec));
   for (const k of PREVENTION_ACTION_PRECEDENCE) {
     const action = reported.has(k) ? ACTION_COPY[exec[`${k}_prevention_action`] ?? ''] : undefined;

@@ -4,6 +4,7 @@ import { Router } from 'express';
 import rateLimit from 'express-rate-limit';
 import { requireAgentAuth } from '../../middleware/agentAuth.middleware.js';
 import { agentDeviceKey } from '../../middleware/rateLimitKeys.js';
+import { agentFailedAuthGuard } from '../../middleware/agentFailedAuthLimiter.js';
 import { requireClerkAuth, requireOrgAccess } from '../../middleware/clerk.middleware.js';
 import { agentEnrollmentRouter, adminEnrollmentRouter } from './enrollment.routes.js';
 import { agentHeartbeatRouter, adminAgentRouter } from './heartbeat.routes.js';
@@ -22,6 +23,8 @@ export function createAgentRouter(options: {
   testsSourcePath: string;
   agentSourcePath: string;
   agentSourceSync?: AgentSourceSync;
+  /** The checkout's .git when the source is a local / mounted checkout (no AGENT_REPO_URL). */
+  agentSourceGitDir?: string;
 }): Router {
   const router = Router();
 
@@ -29,7 +32,9 @@ export function createAgentRouter(options: {
   let buildService: AgentBuildService | null = null;
   if (options.agentSourcePath && fs.existsSync(path.join(options.agentSourcePath, 'go.mod'))) {
     const settingsService = new TestsSettingsService();
-    buildService = new AgentBuildService(settingsService, options.agentSourcePath, options.agentSourceSync);
+    buildService = new AgentBuildService(settingsService, options.agentSourcePath, options.agentSourceSync, {
+      gitDir: options.agentSourceSync ? undefined : options.agentSourceGitDir,
+    });
     console.log(`  Agent build-from-source enabled (source: ${options.agentSourcePath})`);
   }
 
@@ -67,6 +72,14 @@ export function createAgentRouter(options: {
     keyGenerator: agentDeviceKey,
     message: { success: false, error: 'Too many agent requests, try again later' },
   });
+
+  // Per-IP bound on agent authentication failures by UNKNOWN agent IDs (see
+  // middleware/agentFailedAuthLimiter.ts). The guard only reads the IP's count;
+  // requireAgentAuth records each unknown-agent failure. Successful, in-flight
+  // and known-agent requests never count, so open downloads can't fill it.
+  //
+  // Order matters: both limiters, then requireAgentAuth, then the routers.
+  router.use(agentFailedAuthGuard);
   router.use(agentDeviceLimiter);
 
   // Agent-authenticated endpoints

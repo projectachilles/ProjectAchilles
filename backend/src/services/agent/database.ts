@@ -174,6 +174,10 @@ export function initializeTables(database: Database.Database): void {
       FOREIGN KEY (agent_id) REFERENCES agents(id)
     );
     CREATE INDEX IF NOT EXISTS idx_agent_events_agent_ts ON agent_events(agent_id, created_at);
+    CREATE INDEX IF NOT EXISTS idx_agent_events_created ON agent_events(created_at);
+    -- Each agent's newest went_offline, which retention keeps (retention.service.ts).
+    -- Without it pruneAgentEvents walks every event of each agent it checks.
+    CREATE INDEX IF NOT EXISTS idx_agent_events_went_offline ON agent_events(agent_id, created_at) WHERE event_type = 'went_offline';
 
     CREATE TABLE IF NOT EXISTS run_notices (
       id TEXT PRIMARY KEY,
@@ -312,6 +316,16 @@ export function initializeTables(database: Database.Database): void {
     database.exec(`ALTER TABLE tasks ADD COLUMN campaign_run_id TEXT DEFAULT NULL`);
   }
   database.exec('CREATE INDEX IF NOT EXISTS idx_tasks_campaign_run ON tasks(campaign_run_id)');
+  // Retention: marks results whose bulky output was compacted (see retention.service.ts).
+  if (!colNames.has('result_compacted_at')) {
+    database.exec(`ALTER TABLE tasks ADD COLUMN result_compacted_at TEXT DEFAULT NULL`);
+  }
+  database.exec(
+    'CREATE INDEX IF NOT EXISTS idx_tasks_compactable ON tasks(completed_at) WHERE result_compacted_at IS NULL',
+  );
+  // Tasks page 7-day scans (outcomeWindowSql: status IN (...) AND completed_at > ...),
+  // run on every metrics poll and by the grouped-list breakdown filter.
+  database.exec('CREATE INDEX IF NOT EXISTS idx_tasks_outcome_window ON tasks(status, completed_at)');
 
   // Migration: add api_key_rotated_at column to agents table
   const agentCols = database.prepare(`PRAGMA table_info(agents)`).all() as { name: string }[];
@@ -411,6 +425,41 @@ export function initializeTables(database: Database.Database): void {
       last_used_at TEXT,
       revoked_at TEXT
     );
+  `);
+
+  // Persisted agent-key digests (agentKeyDigest.ts): HMAC-SHA256 of an agent's
+  // bearer key, bound to the agents.api_key_hash it passed bcrypt against, so
+  // a restart doesn't make every agent re-run a cost-12 bcrypt compare.
+  // Deliberately a separate table with no FK: the agents table is recreated
+  // by CHECK-constraint migrations (with FKs off), and agents.api_key_hash
+  // keeps its meaning, so an older build can ignore this table entirely.
+  database.exec(`
+    CREATE TABLE IF NOT EXISTS agent_key_digests (
+      agent_id TEXT PRIMARY KEY,
+      api_key_hash TEXT NOT NULL,
+      key_digest TEXT NOT NULL,
+      verified_at TEXT NOT NULL
+    );
+  `);
+
+  // Deleted tasks (tasks.service.ts deleteTask). A delete moves the row here
+  // instead of discarding it: who deleted it and when, plus the full row as
+  // JSON, so a column added to `tasks` later is kept without a migration and
+  // the tasks-table recreate migrations never touch this table. Rows here are
+  // invisible to every task list; the EDR agent-kill pass still reads them,
+  // because a run an EDR stopped stays proven after its row is deleted.
+  database.exec(`
+    CREATE TABLE IF NOT EXISTS deleted_tasks (
+      id TEXT PRIMARY KEY,
+      agent_id TEXT,
+      org_id TEXT,
+      type TEXT NOT NULL,
+      status TEXT NOT NULL,
+      row TEXT NOT NULL,
+      deleted_at TEXT NOT NULL,
+      deleted_by TEXT
+    );
+    CREATE INDEX IF NOT EXISTS idx_deleted_tasks_deleted_at ON deleted_tasks(deleted_at);
   `);
 
   // Migration: expand api_keys.scope CHECK constraint to include 'admin'.
@@ -597,6 +646,7 @@ function migrateExecuteCommandType(database: Database.Database): void {
     colSet.has('last_ingest_attempt_at') ? 'last_ingest_attempt_at TEXT DEFAULT NULL' : null,
     colSet.has('notice_id') ? 'notice_id TEXT DEFAULT NULL' : null,
     colSet.has('campaign_run_id') ? 'campaign_run_id TEXT DEFAULT NULL' : null,
+    colSet.has('result_compacted_at') ? 'result_compacted_at TEXT DEFAULT NULL' : null,
   ].filter(Boolean);
 
   database.exec(`DROP TABLE IF EXISTS tasks_new`);
@@ -625,8 +675,10 @@ function migrateExecuteCommandType(database: Database.Database): void {
     CREATE INDEX IF NOT EXISTS idx_tasks_status ON tasks(status);
     CREATE INDEX IF NOT EXISTS idx_tasks_org ON tasks(org_id);
     CREATE INDEX IF NOT EXISTS idx_tasks_batch ON tasks(batch_id);
+    CREATE INDEX IF NOT EXISTS idx_tasks_outcome_window ON tasks(status, completed_at);
     ${colSet.has('notice_id') ? 'CREATE INDEX IF NOT EXISTS idx_tasks_notice ON tasks(notice_id);' : ''}
     ${colSet.has('campaign_run_id') ? 'CREATE INDEX IF NOT EXISTS idx_tasks_campaign_run ON tasks(campaign_run_id);' : ''}
+    ${colSet.has('result_compacted_at') ? 'CREATE INDEX IF NOT EXISTS idx_tasks_compactable ON tasks(completed_at) WHERE result_compacted_at IS NULL;' : ''}
   `);
 
   database.pragma('foreign_keys = ON');
@@ -675,6 +727,8 @@ function migrateKeyRotationCancelledEvent(database: Database.Database): void {
     DROP TABLE agent_events;
     ALTER TABLE agent_events_new RENAME TO agent_events;
     CREATE INDEX IF NOT EXISTS idx_agent_events_agent_ts ON agent_events(agent_id, created_at);
+    CREATE INDEX IF NOT EXISTS idx_agent_events_created ON agent_events(created_at);
+    CREATE INDEX IF NOT EXISTS idx_agent_events_went_offline ON agent_events(agent_id, created_at) WHERE event_type = 'went_offline';
   `);
 
   database.pragma('foreign_keys = ON');

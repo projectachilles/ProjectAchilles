@@ -168,8 +168,8 @@ even when the two arrive in different polls. A SIEM event with no matching alert
 becomes its own row; when its alert arrives later, the row is folded into it and
 any link to an Achilles test the row already had moves with it, so auto-resolve
 still sees the alert. When the prevention evidence arrives after a test was
-already marked **Detected**, Achilles re-checks that test for 24 hours and
-upgrades it to **Prevented**. Legacy cleanup events (`Threat::CleanedUp`) never become
+already marked **Detected**, Achilles re-checks that test for 72 hours and
+upgrades it to **Prevented** (the same re-check runs for every EDR). Legacy cleanup events (`Threat::CleanedUp`) never become
 rows; they only enrich a detection within 15 minutes of it.
 
 XDR detections are their own rows, and they absorb SIEM events too. When Sophos

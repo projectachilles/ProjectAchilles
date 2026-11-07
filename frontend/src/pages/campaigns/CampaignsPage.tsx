@@ -2,6 +2,7 @@ import { useCallback, useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { Plus, Pencil, Trash2, Play, ChevronDown, ChevronRight } from 'lucide-react';
 import { PageContainer, PageHeader } from '@/components/endpoints/Layout';
+import { TasksSectionTabs } from '@/components/endpoints/tasks/TasksSectionTabs';
 import { Button } from '@/components/shared/ui/Button';
 import { Badge } from '@/components/shared/ui/Badge';
 import { Alert } from '@/components/shared/ui/Alert';
@@ -73,7 +74,8 @@ export default function CampaignsPage() {
   return (
     <PageContainer>
       <PageHeader
-        title="Campaigns"
+        title="Tasks"
+        titleAside={<TasksSectionTabs />}
         description="Saved test plans: run a set of tests against a set of hosts and collect the evidence"
         actions={canWrite ? (
           <Button onClick={() => { setEditing(null); setEditorOpen(true); }}>
@@ -118,7 +120,7 @@ export default function CampaignsPage() {
                       </div>
                       <div className="flex flex-wrap items-center gap-3 text-sm">
                         {c.last_run ? (
-                          <Link to={`/campaigns/runs/${c.last_run.id}`} className="text-accent hover:underline">
+                          <Link to={`/tasks/campaigns/runs/${c.last_run.id}`} className="text-accent hover:underline">
                             {c.last_run.percent_protected === null
                               ? 'No conclusive results · '
                               : `${c.last_run.percent_protected}% protected · `}

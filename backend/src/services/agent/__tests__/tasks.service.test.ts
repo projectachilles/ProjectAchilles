@@ -80,6 +80,7 @@ const {
   sanitizeTaskForAdmin,
   TerminalStateRejection,
 } = await import('../tasks.service.js');
+const { getAgentMetrics } = await import('../heartbeat.service.js');
 
 describe('tasks.service', () => {
   beforeEach(() => {
@@ -498,6 +499,15 @@ describe('tasks.service', () => {
       expect(JSON.parse(row.result)).toEqual({ error: 'Agent went offline during execution', exit_code: -1, stdout: '', stderr: 'Agent went offline during execution', execution_duration_ms: 0 });
     });
 
+    it('watchdog offline failure classifies as failed:offline (pins OFFLINE_ERROR)', async () => {
+      const { taskBreakdown } = await import('../../outcomes/taskOutcome.js');
+      const staleHeartbeat = new Date(Date.now() - 600_000).toISOString();
+      insertTestAgent(testDb, { id: 'offline-agent', last_heartbeat: staleHeartbeat });
+      insertTestTask(testDb, { id: 't-pin-off', agent_id: 'offline-agent', status: 'executing' });
+      expireStaleTasks();
+      expect(taskBreakdown(getTask('t-pin-off'))?.key).toBe('failed:offline');
+    });
+
     it('fails downloading tasks when agent is offline', () => {
       const staleHeartbeat = new Date(Date.now() - 600_000).toISOString();
       insertTestAgent(testDb, { id: 'offline-agent', last_heartbeat: staleHeartbeat });
@@ -643,6 +653,14 @@ describe('tasks.service', () => {
       const row = testDb.prepare('SELECT status, result FROM tasks WHERE id = ?').get('t-overdue') as any;
       expect(row.status).toBe('failed');
       expect(JSON.parse(row.result).error).toBe('Task exceeded execution timeout');
+    });
+
+    it('watchdog timeout failure classifies as failed:timeout (pins TIMEOUT_ERROR)', async () => {
+      const { taskBreakdown } = await import('../../outcomes/taskOutcome.js');
+      const assignedAt = new Date(Date.now() - 600_000).toISOString().replace('T', ' ').slice(0, 19);
+      insertTestTask(testDb, { id: 't-pin-to', status: 'executing', assigned_at: assignedAt });
+      expireOverdueTasks();
+      expect(taskBreakdown(getTask('t-pin-to'))?.key).toBe('failed:timeout');
     });
 
     it('does not fail tasks still within timeout + buffer', () => {
@@ -1004,63 +1022,44 @@ describe('tasks.service', () => {
     });
   });
 
-  describe('deleteTask', () => {
-    it('deletes a completed task', () => {
-      insertTestTask(testDb, { id: 't1', status: 'completed' });
+  describe('deleteTask (archives, never loses the row)', () => {
+    const archived = (id: string) =>
+      testDb.prepare('SELECT * FROM deleted_tasks WHERE id = ?').get(id) as
+        { id: string; agent_id: string; type: string; status: string; row: string; deleted_at: string; deleted_by: string | null } | undefined;
 
-      deleteTask('t1');
+    it.each(['completed', 'failed', 'expired'])('a %s task leaves the task list and is archived with who and when', (status) => {
+      insertTestTask(testDb, { id: 't1', status });
+      testDb.prepare(`UPDATE tasks SET result = ? WHERE id = 't1'`).run(JSON.stringify({ error: 'Agent went offline during execution', exit_code: -1 }));
 
-      const row = testDb.prepare('SELECT * FROM tasks WHERE id = ?').get('t1');
-      expect(row).toBeUndefined();
+      deleteTask('t1', 'user_abc');
+
+      expect(testDb.prepare('SELECT * FROM tasks WHERE id = ?').get('t1')).toBeUndefined();
+      const a = archived('t1');
+      expect(a).toMatchObject({ id: 't1', agent_id: 'agent-001', type: 'execute_test', status, deleted_by: 'user_abc' });
+      expect(Date.parse(a!.deleted_at)).not.toBeNaN();
+      // The full row is kept, so any later column survives too.
+      const row = JSON.parse(a!.row);
+      expect(row).toMatchObject({ id: 't1', status, agent_id: 'agent-001' });
+      expect(JSON.parse(row.result)).toMatchObject({ error: 'Agent went offline during execution' });
     });
 
-    it('deletes a failed task', () => {
+    it.each(['pending', 'assigned', 'downloading', 'executing'])('refuses a %s task (409): cancel it instead', (status) => {
+      insertTestTask(testDb, { id: 't1', status });
+      expect(() => deleteTask('t1', 'user_abc')).toThrow(expect.objectContaining({ statusCode: 409 }));
+      expect(testDb.prepare('SELECT status FROM tasks WHERE id = ?').get('t1')).toEqual({ status });
+      expect(archived('t1')).toBeUndefined();
+    });
+
+    it('logs who deleted which task', () => {
+      const log = vi.spyOn(console, 'log').mockImplementation(() => {});
       insertTestTask(testDb, { id: 't1', status: 'failed' });
-
-      deleteTask('t1');
-
-      const row = testDb.prepare('SELECT * FROM tasks WHERE id = ?').get('t1');
-      expect(row).toBeUndefined();
-    });
-
-    it('deletes an expired task', () => {
-      insertTestTask(testDb, { id: 't1', status: 'expired' });
-
-      deleteTask('t1');
-
-      const row = testDb.prepare('SELECT * FROM tasks WHERE id = ?').get('t1');
-      expect(row).toBeUndefined();
-    });
-
-    it('deletes a pending task', () => {
-      insertTestTask(testDb, { id: 't1', status: 'pending' });
-
-      deleteTask('t1');
-
-      const row = testDb.prepare('SELECT * FROM tasks WHERE id = ?').get('t1');
-      expect(row).toBeUndefined();
-    });
-
-    it('deletes an assigned task', () => {
-      insertTestTask(testDb, { id: 't1', status: 'assigned' });
-
-      deleteTask('t1');
-
-      const row = testDb.prepare('SELECT * FROM tasks WHERE id = ?').get('t1');
-      expect(row).toBeUndefined();
-    });
-
-    it('deletes an executing task', () => {
-      insertTestTask(testDb, { id: 't1', status: 'executing' });
-
-      deleteTask('t1');
-
-      const row = testDb.prepare('SELECT * FROM tasks WHERE id = ?').get('t1');
-      expect(row).toBeUndefined();
+      deleteTask('t1', 'user_abc');
+      expect(log.mock.calls.flat().join(' ')).toMatch(/Deleted task t1 \(execute_test, failed\) by user_abc/);
+      log.mockRestore();
     });
 
     it('throws 404 for nonexistent task', () => {
-      expect(() => deleteTask('nonexistent')).toThrow('Task not found');
+      expect(() => deleteTask('nonexistent', 'user_abc')).toThrow('Task not found');
     });
   });
 
@@ -1247,6 +1246,95 @@ describe('tasks.service', () => {
     });
   });
 
+  describe('listTasksGrouped breakdown filter', () => {
+    const fmt = (ms: number) => new Date(Date.now() - ms).toISOString().replace('T', ' ').slice(0, 19);
+    const recent = () => fmt(3 * 86400 * 1000);
+    const res = (exit_code: number, extra: Record<string, unknown> = {}) =>
+      JSON.stringify({ exit_code, stdout: '', stderr: '', execution_duration_ms: 1, ...extra });
+    const seed = (id: string, batch: string, status: string, result: string, completedAt = recent(), type = 'execute_test') =>
+      testDb.prepare(`
+        INSERT INTO tasks (id, agent_id, org_id, type, status, payload, created_by, ttl, batch_id, completed_at, result)
+        VALUES (?, 'agent-001', 'org-001', ?, ?, '{}', 'user', 604800, ?, ?, ?)
+      `).run(id, type, status, batch, completedAt, result);
+    const offline = () => res(-1, { error: 'Agent went offline during execution' });
+
+    it('ignores stdout/stderr size and skips a malformed result', () => {
+      const big = 'x'.repeat(50_000);
+      seed('p1', 'b1', 'completed', res(126, { stdout: big, stderr: big }));
+      seed('bad', 'b2', 'completed', '{not json');
+      const out = listTasksGrouped({ breakdown: 'exit:126' }, { kind: 'all' });
+      expect(out.groups.flatMap((g) => g.tasks.map((t) => t.id))).toEqual(['p1']);
+      // the listed task still carries its full result
+      expect(out.groups[0].tasks[0].result?.stdout).toHaveLength(50_000);
+      expect(getAgentMetrics().task_outcomes_7d.breakdown.find((r) => r.key === 'exit:126')?.count).toBe(1);
+    });
+
+    it('lists exactly the tasks the breakdown row counted', () => {
+      seed('p1', 'b1', 'completed', res(126));
+      seed('p2', 'b2', 'completed', res(126));
+      seed('f1', 'b3', 'failed', offline());
+      seed('f2', 'b4', 'failed', offline());
+      seed('old', 'b5', 'failed', offline(), fmt(9 * 86400 * 1000));
+      seed('c1', 'b6', 'failed', offline(), recent(), 'execute_command');
+
+      const row = getAgentMetrics().task_outcomes_7d.breakdown.find((r) => r.key === 'failed:offline');
+      expect(row?.count).toBe(2);
+      const out = listTasksGrouped({ breakdown: 'failed:offline' }, { kind: 'all' });
+      const n = out.groups.reduce((sum, g) => sum + g.tasks.length, 0);
+      expect(n).toBe(row?.count);
+      expect(out.total).toBe(2);
+    });
+
+    it('keeps only matching tasks in a mixed batch but counts statuses of the whole batch', () => {
+      insertTestAgent(testDb, { id: 'agent-002', hostname: 'host-2' });
+      insertTestAgent(testDb, { id: 'agent-003', hostname: 'host-3' });
+      const ins = (id: string, agent: string, status: string, result: string) =>
+        testDb.prepare(`
+          INSERT INTO tasks (id, agent_id, org_id, type, status, payload, created_by, ttl, batch_id, completed_at, result)
+          VALUES (?, ?, 'org-001', 'execute_test', ?, '{}', 'user', 604800, 'mixed', ?, ?)
+        `).run(id, agent, status, recent(), result);
+      ins('m1', 'agent-001', 'failed', offline());
+      ins('m2', 'agent-002', 'completed', res(126));
+      ins('m3', 'agent-003', 'completed', res(126));
+
+      const out = listTasksGrouped({ breakdown: 'failed:offline' }, { kind: 'all' });
+      expect(out.groups).toHaveLength(1);
+      expect(out.groups[0].tasks.map((t) => t.id)).toEqual(['m1']);
+      expect(out.groups[0].status_counts).toEqual({ failed: 1, completed: 2 });
+      expect(out.groups[0].agent_count).toBe(3);
+    });
+
+    it('returns nothing when the breakdown contradicts another filter', () => {
+      seed('f1', 'b1', 'failed', offline());
+      const out = listTasksGrouped({ breakdown: 'failed:offline', status: 'pending' }, { kind: 'all' });
+      expect(out.groups).toEqual([]);
+      expect(out.total).toBe(0);
+    });
+
+    it('returns nothing when no task matches', () => {
+      seed('p1', 'b1', 'completed', res(126));
+      const out = listTasksGrouped({ breakdown: 'exit:260' }, { kind: 'all' });
+      expect(out.groups).toEqual([]);
+      expect(out.total).toBe(0);
+    });
+
+    it('handles more matches than the SQLite variable limit', () => {
+      const ins = testDb.prepare(`
+        INSERT INTO tasks (id, agent_id, org_id, type, status, payload, created_by, ttl, batch_id, completed_at, result)
+        VALUES (?, 'agent-001', 'org-001', 'execute_test', 'failed', '{}', 'user', 604800, ?, ?, ?)
+      `);
+      const when = recent();
+      const result = offline();
+      const N = 40000;
+      testDb.transaction(() => {
+        for (let i = 0; i < N; i++) ins.run(`big-${i}`, `bb-${i}`, when, result);
+      })();
+      const out = listTasksGrouped({ breakdown: 'failed:offline', limit: 10 }, { kind: 'all' });
+      expect(out.total).toBe(N);
+      expect(out.groups).toHaveLength(10);
+    });
+  });
+
   describe('listTasksGrouped', () => {
     it('returns correct group structure for multi-agent batch', () => {
       insertTestAgent(testDb, { id: 'agent-002', hostname: 'host-2' });
@@ -1264,6 +1352,19 @@ describe('tasks.service', () => {
       expect(result.groups[0].batch_id).toBe(batchId);
       expect(result.groups[0].agent_count).toBe(3);
       expect(result.groups[0].tasks).toHaveLength(3);
+    });
+
+    it('counts distinct agents, not tasks, when a batch holds a retry', () => {
+      insertTestAgent(testDb, { id: 'agent-002', hostname: 'host-2' });
+      const batchId = 'batch-retry';
+      insertTestTask(testDb, { id: 'r1', agent_id: 'agent-001', batch_id: batchId, created_at: '2026-02-01 10:00:00' });
+      insertTestTask(testDb, { id: 'r2', agent_id: 'agent-002', batch_id: batchId, created_at: '2026-02-01 10:00:00' });
+      insertTestTask(testDb, { id: 'r1-retry', agent_id: 'agent-001', batch_id: batchId, created_at: '2026-02-01 10:05:00' });
+
+      const result = listTasksGrouped({}, { kind: 'all' });
+
+      expect(result.groups[0].tasks).toHaveLength(3);
+      expect(result.groups[0].agent_count).toBe(2);
     });
 
     it('returns single-agent tasks as groups of 1', () => {

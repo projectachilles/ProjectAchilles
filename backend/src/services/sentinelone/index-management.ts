@@ -7,6 +7,7 @@
 
 import { SettingsService } from '../analytics/settings.js';
 import { createEsClient } from '../analytics/client.js';
+import { createAchillesIndex } from '../shared/esIndexCreate.js';
 
 export const SENTINELONE_INDEX = 'achilles-sentinelone';
 
@@ -51,6 +52,8 @@ export const SENTINELONE_INDEX_MAPPING = {
       confidence_level: { type: 'keyword' as const },
       classification: { type: 'keyword' as const },
       analyst_verdict: { type: 'keyword' as const },
+      // threatInfo.initiatedBy: dv_command (analyst) is never prevention.
+      initiated_by: { type: 'keyword' as const },
       mitigation_status: { type: 'keyword' as const },
       sha1: { type: 'keyword' as const },
       sha256: { type: 'keyword' as const },
@@ -114,7 +117,7 @@ export async function ensureSentinelOneIndex(): Promise<void> {
     return;
   }
   try {
-    await client.indices.create({ index: SENTINELONE_INDEX, ...SENTINELONE_INDEX_MAPPING });
+    await createAchillesIndex(client, SENTINELONE_INDEX, SENTINELONE_INDEX_MAPPING);
   } catch (err: unknown) {
     // 400 resource_already_exists (race with another sync) is fine.
     if (err && typeof err === 'object' && 'statusCode' in err && (err as { statusCode: number }).statusCode === 400) return;
@@ -222,7 +225,7 @@ export async function ensureSentinelOnePostureIndex(): Promise<void> {
     return;
   }
   try {
-    await client.indices.create({ index: SENTINELONE_POSTURE_INDEX, ...SENTINELONE_POSTURE_MAPPING });
+    await createAchillesIndex(client, SENTINELONE_POSTURE_INDEX, SENTINELONE_POSTURE_MAPPING);
   } catch (err: unknown) {
     if (err && typeof err === 'object' && 'statusCode' in err && (err as { statusCode: number }).statusCode === 400) return;
     throw err;

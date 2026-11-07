@@ -10,6 +10,12 @@ description: ProjectAchilles is an open-source continuous security validation pl
 
 You don't need a red team certification to use it. You don't need to write exploit code. You need to know what threats matter to your organization, and whether you're defended against them.
 
+:::tip[See it in motion]
+
+The **[interactive explainer](pathname:///how-it-works/)** walks through the whole loop with live animations: tests running against endpoints, EDR verdicts, the Defense Score, and how EDR alerts are matched back to the test that caused them.
+
+:::
+
 ## Why ProjectAchilles?
 
 Most organizations invest heavily in security tools but struggle to answer a simple question: *are our defenses actually working?*
