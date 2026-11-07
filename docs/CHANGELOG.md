@@ -11,6 +11,9 @@ This project uses two version streams:
 
 ## [Unreleased]
 
+### Fixed
+- **An agent built from source on a Docker or server install now records the commit it compiled.** These installs build from the server's own checkout, which is mounted into the backend, and the release notes said only `Built from source (windows/amd64)`. A build made before `git pull` therefore compiled the old code under the new version number with nothing to show it. The repository's `.git` is now mounted read-only (`AGENT_SOURCE_GIT_DIR`), the notes read `… at <commit>` like Render and Fly builds, and they add `(source says <version>)` when the agent version in the source differs from the version typed for the build. Re-run `deploy-server.sh` / `docker compose up -d` after pulling so the new mount applies.
+
 ## [2.10.0] - 2026-11-07
 
 **Evidence You Can Defend.** Every verdict in this release rests on the EDR's own evidence about that exact stage of that exact run, in both directions. Achilles now credits only what the evidence proves: a stage is detected only on its own alert, never a sibling's or an alert that lists several tests' leftover files, and a SentinelOne analyst's manual mitigation is not EDR prevention. It also counts everything the evidence proves: stages an EDR killed count in the Defense Score even when the test errored, actions an EDR reports minutes later are picked up for every EDR, a renumbered ATT&CK technique still matches, and a deleted run keeps its evidence. Expect some numbers to move: per-stage and technique detection for Defender (and a little for Sophos) goes down where alerts only listed leftover files, and the Defense Score goes up where EDRs stopped stages mid-run. You can see where each number comes from in the new Outcome breakdown card, EDR tabs scoped to the hosts each EDR covers, and test pages with a briefing and per-stage fleet results.

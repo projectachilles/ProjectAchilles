@@ -23,6 +23,8 @@ export function createAgentRouter(options: {
   testsSourcePath: string;
   agentSourcePath: string;
   agentSourceSync?: AgentSourceSync;
+  /** The checkout's .git when the source is a local / mounted checkout (no AGENT_REPO_URL). */
+  agentSourceGitDir?: string;
 }): Router {
   const router = Router();
 
@@ -30,7 +32,9 @@ export function createAgentRouter(options: {
   let buildService: AgentBuildService | null = null;
   if (options.agentSourcePath && fs.existsSync(path.join(options.agentSourcePath, 'go.mod'))) {
     const settingsService = new TestsSettingsService();
-    buildService = new AgentBuildService(settingsService, options.agentSourcePath, options.agentSourceSync);
+    buildService = new AgentBuildService(settingsService, options.agentSourcePath, options.agentSourceSync, {
+      gitDir: options.agentSourceSync ? undefined : options.agentSourceGitDir,
+    });
     console.log(`  Agent build-from-source enabled (source: ${options.agentSourcePath})`);
   }
 

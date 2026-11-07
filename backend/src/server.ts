@@ -357,7 +357,11 @@ async function startServer() {
   app.use('/api/tests', testsRouter);
 
   // Agent module - Achilles Agent management
-  app.use('/api/agent', createAgentRouter({ testSources, testsSourcePath, agentSourcePath, agentSourceSync }));
+  // A local or mounted checkout (no AGENT_REPO_URL): builds record its commit
+  // from this .git. Docker mounts it at AGENT_SOURCE_GIT_DIR; a plain checkout
+  // has it next to agent/.
+  const agentSourceGitDir = process.env.AGENT_SOURCE_GIT_DIR || path.resolve(agentSourcePath, '..', '.git');
+  app.use('/api/agent', createAgentRouter({ testSources, testsSourcePath, agentSourcePath, agentSourceSync, agentSourceGitDir }));
 
   // User management - RBAC role assignment (admin-only)
   app.use('/api/users', usersRoutes);
