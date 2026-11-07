@@ -13,7 +13,7 @@ lang: en
 translationKey: edr-study-30-days
 ---
 
-> **Update, November 7, 2026.** We first described each EDR's stop rate as the share of attacks the EDR stopped. It is really the share stopped on hosts running that EDR, and some of those stops were Windows itself. A credential-dumping stage was refused access to LSASS on hosts of all four EDRs with no sign of any EDR, which points to Windows LSA protection. The new section 3 gives both figures, and the first chart and the confidence section now show both too. The EDR on top doesn't change. We found this by checking the study against the Project Achilles dashboards.
+> **Update, November 7, 2026.** We first described each EDR's stop rate as the share of attacks the EDR stopped. It is really the share stopped on hosts running that EDR, and some of those stops were Windows itself. A credential-dumping stage was refused access to LSASS on hosts of all four EDRs with no sign of any EDR, which points to Windows LSA protection. The new section 3 gives both figures, with two charts on the credential-dumping step, and the first chart and the confidence section now show both too. The EDR on top doesn't change. We found this by checking the study against the Project Achilles dashboards.
 
 ## TL;DR
 
@@ -79,6 +79,14 @@ Counting only the stops each EDR proved itself (a launch block or an agent kill 
 | EDR D | 30% | 4% |
 
 EDR B still leads, by 38 to 73 percentage points, and that lead passes every check in "How Sure Can We Be?" below. Windows did most of EDR D's stopping. For EDR C, the second figure is a floor: many of its blocks raise no alert, so they leave no evidence to count.
+
+The credential-dumping step on its own shows how big the effect is. Counting any block on the host, the four EDRs stopped or detected 87% to 100% of those stages. Counting only what each EDR blocked or alerted on itself, EDR B and EDR D are at 0%, EDR A at 20% and EDR C at 67%.
+
+![Credential-dumping stages stopped or detected, per EDR, counting any block on the host versus only the EDR's own evidence. EDR A: 87% versus 20%. EDR B: 100% versus 0%. EDR C: 95% versus 67%. EDR D: 100% versus 0%.](/edr-study-30-days/credential-dumping.png)
+
+Following one attack chain stage by stage tells the same story. In LockBit, credential dumping is the second stage. Counting any block, at most 17% of LockBit runs on each EDR's hosts got past that stage unblocked. Counting only the EDR's own blocks, 62% to 100% of runs on EDR A, B and D hosts were still not blocked by the EDR after it; EDR C stopped most of its runs there itself (31% left). Each panel rests on 8 to 15 runs.
+
+![Share of LockBit runs not yet blocked, stage by stage, for each EDR, counting any block on the host versus only the EDR's own evidence. When any block counts, every curve drops at stage 2, credential dumping. On the EDR's own evidence, at the end of the chain: EDR A 62% instead of 12%, EDR B 33% instead of 8%, EDR C 8% instead of 0%, EDR D 75% instead of 17%.](/edr-study-30-days/lockbit-survival.png)
 
 Before you give an EDR credit for a stop, or decide which control to keep paying for, find out which control did it. Here, most of the stops credited to the EDRs without evidence came from a Windows setting.
 
