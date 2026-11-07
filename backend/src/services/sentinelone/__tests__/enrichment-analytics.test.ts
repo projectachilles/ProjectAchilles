@@ -61,6 +61,7 @@ describe('SentinelOne enrichment (shared pass, sentinelone target)', () => {
       sentinelone_prevented: true,
       sentinelone_prevention_action: 'process_killed',
       sentinelone_stage_prevented: true,
+      sentinelone_stage_rule: 'single_test',
     } } });
     expect(ops[2]).toEqual({ update: { _index: 'achilles-sentinelone', _id: 'threat-1' } });
     expect(ops[3].doc.f0rtika).toMatchObject({ achilles_correlated: true, achilles_test_uuid: 'b1' });
@@ -77,7 +78,7 @@ describe('SentinelOne enrichment (shared pass, sentinelone target)', () => {
     await svc.runEnrichmentPass({ batchSize: 200 });
 
     expect(msearch.mock.calls[0][0].searches[1]._source).toContain('f0rtika.auto_mitigated');
-    expect(bulk.mock.calls[0][0].operations[1]).toEqual({ doc: { f0rtika: { sentinelone_detected: true, sentinelone_stage_detected: true, sentinelone_stage_prevented: false } } });
+    expect(bulk.mock.calls[0][0].operations[1]).toEqual({ doc: { f0rtika: { sentinelone_detected: true, sentinelone_stage_detected: true, sentinelone_stage_prevented: false, sentinelone_stage_rule: 'single_test' } } });
     // The action aggregation leaves Achilles-mitigated alerts out too.
     expect(JSON.stringify(msearch.mock.calls[0][0].searches[1].aggs.prevention.filter)).toContain('f0rtika.auto_mitigated');
   });

@@ -513,9 +513,9 @@ describe('CrowdStrikeEnrichmentService', () => {
     // searches[0] is the header, searches[1] is the body
     expect(searches[1].size).toBeGreaterThan(0);
     // Full _source is not pulled — only prevention_action (needed to flip
-    // the prevention flags) and the correlation receipt (re-check dedup);
-    // nothing else.
-    expect(searches[1]._source).toEqual(['prevention_action', 'f0rtika.achilles_correlated']);
+    // the prevention flags), the correlation receipt (re-check dedup) and
+    // the evidence lists (multi-test alerts are no stage evidence); nothing else.
+    expect(searches[1]._source).toEqual(['prevention_action', 'f0rtika.achilles_correlated', 'evidence_filenames', 'evidence_filepaths']);
   });
 
   // ──────────────────────────────────────────────────────────────────────────
@@ -556,8 +556,9 @@ describe('CrowdStrikeEnrichmentService', () => {
 
     // First sub-query should reference filepath wildcards (wide query feature).
     // Second sub-query should reference the stage-binary prefix and NOT filepath.
-    const firstBody  = JSON.stringify(searches[1]);
-    const secondBody = JSON.stringify(searches[3]);
+    // The queries themselves (the request _source lists evidence fields for every sub-query).
+    const firstBody  = JSON.stringify(searches[1].query);
+    const secondBody = JSON.stringify(searches[3].query);
     expect(firstBody).toContain('evidence_filepaths');
     expect(secondBody).not.toContain('evidence_filepaths');
     expect(secondBody).toContain('6a2351ac-654a-4112-b378-e6919beef70d-t1562.001');
