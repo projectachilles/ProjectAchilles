@@ -8,8 +8,8 @@ import {
   getTechniqueCoverage,
   preventedClause,
 } from '../technique-coverage.js';
-import type { CoverageVendor } from '../technique-coverage.js';
-import { enrichmentEligibleClauses } from '../enrichment-eligibility.js';
+import type { CoverageHostScope, CoverageVendor } from '../technique-coverage.js';
+import { ENRICHMENT_ELIGIBLE_ERROR_CODES } from '../enrichment-eligibility.js';
 import { attackSimulationExclusions } from '../attack-simulation-filter.js';
 
 const mockSearch = vi.fn();
@@ -23,19 +23,35 @@ function opts(vendor: CoverageVendor = 'crowdstrike') {
 
 interface TechniqueFixture { key: string; doc_count: number; prevented: number; detected: number }
 
-function resultsResponse(total: number, overall: { prevented: number; detected: number }, techniques: TechniqueFixture[]) {
+function resultsResponse(
+  total: number,
+  overall: { prevented: number; detected: number },
+  techniques: TechniqueFixture[],
+  hosts = 0,
+) {
   return {
     hits: { total: { value: total, relation: 'eq' }, hits: [] },
     aggregations: {
       overall: { buckets: { prevented: { doc_count: overall.prevented }, detected: { doc_count: overall.detected } } },
+      host_count: { value: hosts },
       techniques: {
-        buckets: techniques.map((t) => ({
-          key: t.key,
-          doc_count: t.doc_count,
-          outcome: { buckets: { prevented: { doc_count: t.prevented }, detected: { doc_count: t.detected } } },
-        })),
+        list: {
+          buckets: techniques.map((t) => ({
+            key: t.key,
+            doc_count: t.doc_count,
+            outcome: { buckets: { prevented: { doc_count: t.prevented }, detected: { doc_count: t.detected } } },
+          })),
+        },
       },
     },
+  };
+}
+
+/** The host-scope lookup: distinct routing.hostname values among the counted results. */
+function hostValuesResponse(hostnames: string[]) {
+  return {
+    hits: { total: { value: 0, relation: 'eq' }, hits: [] },
+    aggregations: { hosts: { buckets: hostnames.map((key) => ({ key, doc_count: 1 })) } },
   };
 }
 
@@ -93,6 +109,7 @@ describe('technique coverage', () => {
     const stage = `f0rtika.${v}_stage_detected`;
     const wide = `f0rtika.${v}_detected`;
     const prev = `f0rtika.${v}_prevented`;
+    const killed = { term: { 'f0rtika.edr_terminated_vendors': v } };
 
     const bundle = 'f0rtika.is_bundle_control';
 
@@ -103,11 +120,22 @@ describe('technique coverage', () => {
             { term: { [stage]: true } },
             { bool: { filter: [{ term: { [wide]: true } }], must_not: [{ term: { [bundle]: true } }] } },
             { term: { [prev]: true } },
+            killed,
           ],
           minimum_should_match: 1,
         },
       });
-      expect(preventedClause(v)).toEqual({ term: { [prev]: true } });
+      expect(preventedClause(v)).toEqual({ bool: { should: [{ term: { [prev]: true } }, killed], minimum_should_match: 1 } });
+    });
+
+    // An agent-killed run's whole-test doc carries no vendor flags, only the vendors that killed it.
+    it('an agent this vendor killed counts as prevented and detected; another vendor\'s kill does not', () => {
+      const other = v === 'crowdstrike' ? 'defender' : 'crowdstrike';
+      const kill = (vendors: string[]) => ({ 'f0rtika.edr_terminated': true, 'f0rtika.edr_terminated_vendors': vendors });
+      expect(matches(preventedClause(v), kill([v]))).toBe(true);
+      expect(matches(detectedClause(v), kill([other, v]))).toBe(true);
+      expect(matches(preventedClause(v), kill([other]))).toBe(false);
+      expect(matches(detectedClause(v), kill([other]))).toBe(false);
     });
 
     // Enrichment only ever writes the flags as `true`; a missing flag means "not matched".
@@ -146,8 +174,8 @@ describe('technique coverage', () => {
       const req = mockSearch.mock.calls[0][0];
       const expected = { filters: { prevented: preventedClause(v), detected: detectedClause(v) } };
       expect(req.aggs.overall.filters).toEqual(expected);
-      expect(req.aggs.techniques.terms).toEqual({ field: 'f0rtika.techniques', size: 500 });
-      expect(req.aggs.techniques.aggs.outcome.filters).toEqual(expected);
+      expect(req.aggs.techniques.aggs.list.terms).toEqual({ field: 'f0rtika.techniques', size: 500 });
+      expect(req.aggs.techniques.aggs.list.aggs.outcome.filters).toEqual(expected);
       const other = v === 'crowdstrike' ? 'defender' : 'crowdstrike';
       expect(JSON.stringify(req)).not.toContain(other);
     });
@@ -165,9 +193,72 @@ describe('technique coverage', () => {
     expect(req.track_total_hits).toBe(true);
     expect(req.query.bool.filter).toEqual([
       { range: { 'routing.event_time': { gte: WINDOW.from, lte: WINDOW.to } } },
-      ...enrichmentEligibleClauses(),
+      { terms: { 'event.ERROR': ENRICHMENT_ELIGIBLE_ERROR_CODES } },
     ]);
     expect(req.query.bool.must_not).toEqual(attackSimulationExclusions());
+    expect(req.aggs.host_count).toEqual({ cardinality: { field: 'routing.hostname' } });
+  });
+
+  it('counts stageless runs (launch-blocked, agent-killed) in the totals but never under a technique', async () => {
+    mockSearch
+      .mockResolvedValueOnce(resultsResponse(1, { prevented: 0, detected: 0 }, []))
+      .mockResolvedValueOnce(alertResponse({}));
+    await getTechniqueCoverage(client, opts());
+
+    const req = mockSearch.mock.calls[0][0];
+    // Nothing in the query itself drops them, so `overall` and hits.total include them...
+    expect(JSON.stringify(req.query)).not.toContain('edr_launch_blocked');
+    expect(JSON.stringify(req.query)).not.toContain('edr_terminated');
+    // ...while the technique rows only see docs where stages ran.
+    const rowFilter = req.aggs.techniques.filter as QueryDslQueryContainer;
+    const staged: Doc = { 'f0rtika.techniques': ['T1486'] };
+    expect(matches(rowFilter, staged)).toBe(true);
+    expect(matches(rowFilter, { ...staged, 'f0rtika.edr_launch_blocked': true })).toBe(false);
+    expect(matches(rowFilter, { ...staged, 'f0rtika.edr_terminated': true })).toBe(false);
+  });
+
+  describe('host scope', () => {
+    const scope = (hostnames: string[]): CoverageHostScope => ({ source: 'inventory', hostnames });
+
+    it('without a host scope counts every host and says so', async () => {
+      mockSearch
+        .mockResolvedValueOnce(resultsResponse(4, { prevented: 0, detected: 1 }, [{ key: 'T1486', doc_count: 4, prevented: 0, detected: 1 }], 3))
+        .mockResolvedValueOnce(alertResponse({}));
+      const res = await getTechniqueCoverage(client, opts());
+      expect(res.scope).toEqual({ source: 'fleet', hosts: 3 });
+      expect(JSON.stringify(mockSearch.mock.calls[0][0].query)).not.toContain('routing.hostname');
+    });
+
+    it('limits the results to the scope\'s hosts, matching short names case-insensitively', async () => {
+      mockSearch
+        .mockResolvedValueOnce(hostValuesResponse(['WS-01.corp.example', 'ws-02', 'OTHER-HOST', 'WS-010']))
+        .mockResolvedValueOnce(resultsResponse(2, { prevented: 0, detected: 1 }, [{ key: 'T1486', doc_count: 2, prevented: 0, detected: 1 }], 2))
+        .mockResolvedValueOnce(alertResponse({}));
+      const res = await getTechniqueCoverage(client, {
+        ...opts('sentinelone'),
+        hostScope: scope(['ws-01', 'WS-02.corp.example', 'never-tested']),
+      });
+
+      const hostQuery = mockSearch.mock.calls[0][0];
+      expect(hostQuery.size).toBe(0);
+      expect(hostQuery.aggs.hosts.terms.field).toBe('routing.hostname');
+      const results = mockSearch.mock.calls[1][0];
+      // Same counted set as the results query, before the host filter.
+      expect(hostQuery.query).toEqual({ bool: { ...results.query.bool, filter: results.query.bool.filter.slice(0, -1) } });
+      expect(results.query.bool.filter.at(-1)).toEqual({ terms: { 'routing.hostname': ['WS-01.corp.example', 'ws-02'] } });
+      expect(res.scope).toEqual({ source: 'inventory', hosts: 2 });
+      expect(res.overall.executions).toBe(2);
+    });
+
+    it('a scope none of whose hosts ran a test counts nothing (an empty terms filter matches no doc)', async () => {
+      mockSearch
+        .mockResolvedValueOnce(hostValuesResponse(['OTHER-HOST']))
+        .mockResolvedValueOnce({ hits: { total: { value: 0, relation: 'eq' }, hits: [] }, aggregations: undefined });
+      const res = await getTechniqueCoverage(client, { ...opts('sophos'), hostScope: { source: 'alerts', hostnames: ['ws-01'] } });
+      expect(mockSearch.mock.calls[1][0].query.bool.filter.at(-1)).toEqual({ terms: { 'routing.hostname': [] } });
+      expect(res.scope).toEqual({ source: 'alerts', hosts: 0 });
+      expect(res.overall.executions).toBe(0);
+    });
   });
 
   const rowFilter = (t: string) => ({
@@ -267,6 +358,7 @@ describe('technique coverage', () => {
         detectionRate: 0, preventionRate: 0, testedTechniques: 0, detectedTechniques: 0,
       },
       byTechnique: [],
+      scope: { source: 'fleet', hosts: 0 },
     });
     // No tested techniques → nothing to count alerts for.
     expect(mockSearch).toHaveBeenCalledTimes(1);

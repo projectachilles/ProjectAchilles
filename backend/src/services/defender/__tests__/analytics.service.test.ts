@@ -1627,3 +1627,25 @@ describe('DefenderAnalyticsService', () => {
     });
   });
 });
+
+describe('DefenderAnalyticsService.getTechniqueCoverage host scope', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    mockSearch.mockReset();
+  });
+
+  it('counts only the hosts that raised a Defender alert in the last 90 days', async () => {
+    mockSearch
+      // 1. hosts with a Defender alert (no stored inventory for Defender)
+      .mockResolvedValueOnce({ hits: { hits: [] }, aggregations: { hosts: { buckets: [{ key: 'WS-01.corp.example' }] } } })
+      // 2. the counted results' host names
+      .mockResolvedValueOnce({ hits: { hits: [] }, aggregations: { hosts: { buckets: [{ key: 'ws-01' }, { key: 'ws-09' }] } } })
+      // 3. the coverage counts (no techniques, so no alert-count request)
+      .mockResolvedValueOnce({ hits: { total: { value: 2 }, hits: [] }, aggregations: { host_count: { value: 1 } } });
+    const res = await new DefenderAnalyticsService().getTechniqueCoverage({ from: '2026-10-08T00:00:00Z', to: '2026-11-07T00:00:00Z' });
+
+    expect(mockSearch.mock.calls[0][0].index).toBe('achilles-defender');
+    expect(mockSearch.mock.calls[2][0].query.bool.filter).toContainEqual({ terms: { 'routing.hostname': ['ws-01'] } });
+    expect(res.scope).toEqual({ source: 'alerts', hosts: 1 });
+  });
+});

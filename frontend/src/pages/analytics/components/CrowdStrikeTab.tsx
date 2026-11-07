@@ -192,6 +192,7 @@ export default function CrowdStrikeTab({ dateRange }: CrowdStrikeTabProps) {
         </div>
         <div className="col-span-12 sm:col-span-6 md:col-span-3">
           <CoverageHeroTile
+            vendor={vendor}
             coverage={data?.coverage ?? null}
             loading={loading}
             failed={!!data?.coverageFailed}

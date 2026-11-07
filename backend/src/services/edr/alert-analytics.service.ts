@@ -15,6 +15,7 @@ import { alertDocs, alertFacets, allOf, LINKED, firstString, severityFilter, sou
 import type { AlertFacetCounts, AlertSource, TimeWindow } from '../analytics/integration-window.js';
 import { resolveTestNames } from '../analytics/test-name-lookup.js';
 import { getTechniqueCoverage } from '../analytics/technique-coverage.js';
+import { resolveVendorHostScope } from './vendor-host-scope.js';
 import type { CoverageVendor, TechniqueCoverageResponse } from '../analytics/technique-coverage.js';
 import type { Client } from '@elastic/elasticsearch';
 import type {
@@ -570,11 +571,14 @@ export class EdrAlertAnalyticsService {
    */
   async getTechniqueCoverage(window: TimeWindow): Promise<TechniqueCoverageResponse> {
     const { client, settings } = this.getEsContext();
+    // Count only the hosts this EDR covers (see edr/vendor-host-scope.ts).
+    const hostScope = await resolveVendorHostScope(client, this.vendor, this.alertIndex);
     return getTechniqueCoverage(client, {
       vendor: this.vendor,
       resultsIndex: settings.indexPattern,
       alertIndex: this.alertIndex,
       window,
+      hostScope,
     });
   }
 

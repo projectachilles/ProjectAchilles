@@ -145,8 +145,19 @@ Rate tile and the Technique Coverage card, so they cannot disagree.
 **Execution set.** Results documents with `routing.event_time` in the window,
 excluding the attack-simulation exclusions (cyber-hygiene controls and skipped
 bundle stages) and any result whose exit code is not in
-`0, 1, 101, 105, 126, 127, 259, 999`. These are the same eligibility clauses
-the enrichment pass uses.
+`0, 1, 101, 105, 126, 127, 259, 999`, the codes the enrichment pass handles.
+A run the EDR blocked at launch or stopped by killing the agent is one
+whole-test result: it counts in `overall` but never in a `byTechnique` row,
+because no stage exercised a technique.
+
+**Host scope.** Only the hosts the EDR covers are counted, so in a fleet where
+each EDR protects its own group of hosts, the rate is not divided by hosts the
+EDR never saw. The hosts come from the EDR's own host list where the
+integration stores one (SentinelOne agents, Sophos endpoints), otherwise from
+the hosts that raised one of its alerts in the last 90 days (CrowdStrike,
+Defender). A host where the EDR is installed but has never alerted is left out
+of that second kind. With neither, every tested host counts. `scope` says which
+applied.
 
 **Evidence rule.** The enrichment pass only ever writes these flags as `true`;
 a missing flag means no match. Per execution, detected is any of:
@@ -158,10 +169,13 @@ a missing flag means no match. Per execution, detected is any of:
   means the bundle was matched, so a stage counts only by its own stage flag and
   is never credited because a sibling stage was caught;
 - `f0rtika.crowdstrike_prevented: true` — a vendor-confirmed prevention counts as
-  detected.
+  detected;
+- `f0rtika.edr_terminated_vendors` contains `crowdstrike` — CrowdStrike killed the
+  agent mid-run.
 
-Prevented is `f0rtika.crowdstrike_prevented: true`; detected-only is detected and
-not prevented; missed is the rest.
+Prevented is `f0rtika.crowdstrike_prevented: true` (a launch block's result
+carries it) or a CrowdStrike agent kill; detected-only is detected and not
+prevented; missed is the rest.
 
 ```jsonc
 {
@@ -178,7 +192,8 @@ not prevented; missed is the rest.
   "byTechnique": [
     { "technique": "T1574.002", "name": "DLL Side-Loading", "executions": 5,
       "prevented": 3, "detectedOnly": 1, "missed": 1, "alerts": 6 }
-  ]
+  ],
+  "scope": { "source": "alerts", "hosts": 4 } // inventory | alerts | fleet; hosts with a counted result
 }
 ```
 

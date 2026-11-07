@@ -190,6 +190,7 @@ export default function DefenderTab({ dateRange }: DefenderTabProps) {
         </div>
         <div className="col-span-12 sm:col-span-6 md:col-span-3">
           <CoverageHeroTile
+            vendor={vendor}
             coverage={data?.coverage ?? null}
             loading={loading}
             failed={!!data?.coverageFailed}
