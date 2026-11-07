@@ -206,12 +206,17 @@ export class MicrosoftGraphClient {
     return this.graphRequest<GraphControlProfile>('/security/secureScoreControlProfiles');
   }
 
-  /** Fetch alerts (v2 unified alerts). Supports OData $filter. */
-  async getAlerts(filter?: string, top = 500): Promise<GraphAlert[]> {
+  /**
+   * Fetch alerts (v2 unified alerts). Supports OData $filter. `top` caps the
+   * WHOLE result: alerts_v2 returns no @odata.nextLink under $top (live: a
+   * 90-day query with $top=500 returned 500 of 1,839 alerts, no next page), so
+   * a sync must not pass it; without it Graph pages with nextLink.
+   */
+  async getAlerts(filter?: string, top?: number): Promise<GraphAlert[]> {
     const params: Record<string, string> = {
-      $top: String(top),
       $orderby: 'createdDateTime desc',
     };
+    if (top !== undefined) params.$top = String(top);
     if (filter) {
       params.$filter = filter;
     }

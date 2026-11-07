@@ -207,6 +207,21 @@ describe('DefenderSyncService', () => {
   // ── syncAlerts ─────────────────────────────────────────────────
 
   describe('syncAlerts', () => {
+    it('writes a full 90-day re-sync in bulk batches of 500 alerts', async () => {
+      mockGetAlerts.mockResolvedValue(Array.from({ length: 1200 }, (_, i) => ({
+        id: `a-${i}`, title: 't', description: '', severity: 'low', status: 'new', category: '',
+        serviceSource: '', createdDateTime: '2026-11-01T00:00:00Z', lastUpdateDateTime: '2026-11-01T00:00:00Z',
+        mitreTechniques: [], recommendedActions: '', evidence: [],
+      })));
+      mockBulk.mockImplementation(async ({ operations }: { operations: unknown[] }) => ({ errors: false, items: operations.filter((_, i) => i % 2 === 0).map(() => ({ update: {} })) }));
+
+      const result = await service.syncAlerts();
+
+      expect(mockBulk.mock.calls.map((c) => c[0].operations.length / 2)).toEqual([500, 500, 200]);
+      expect(result.synced).toBe(1200);
+      expect(mockGetAlerts.mock.calls[0]).toHaveLength(1); // no $top cap
+    });
+
     it('syncs alerts to ES', async () => {
       mockGetAlerts.mockResolvedValue([
         {
