@@ -42,7 +42,7 @@ export function RunList({ rows, selectedKey, onSelect, checkedKeys, onToggleChec
       aria-label="Execution runs"
       tabIndex={0}
       onKeyDown={handleKeyDown}
-      className="max-h-[70vh] overflow-y-auto outline-none focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-accent rounded-lg"
+      className="max-h-[70vh] overflow-y-auto lg:absolute lg:inset-0 lg:max-h-none outline-none focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-accent rounded-lg"
     >
       {rows.map((row) => {
         const selected = row.key === selectedKey;

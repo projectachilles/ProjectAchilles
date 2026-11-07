@@ -652,11 +652,14 @@ export default function ExecutionsDataTable({
           No executions found
         </Card>
       ) : (
-        <div className="grid grid-cols-[minmax(0,1fr)] items-start gap-4 lg:grid-cols-[minmax(0,5fr)_minmax(0,7fr)]">
+        <div className="grid grid-cols-[minmax(0,1fr)] items-start gap-4 lg:min-h-[30rem] lg:grid-cols-[minmax(0,5fr)_minmax(0,7fr)] lg:items-stretch">
           {/* minmax(0,1fr) below lg: the lone implicit `auto` column would otherwise
               grow to the detail panel's min-content (the attack-chain strip's full
-              width) and push the page wider than the screen. */}
-          <Card className="overflow-hidden">
+              width) and push the page wider than the screen.
+              From lg up the detail sets the row height (it shows every stage) and the
+              list matches it: the run list is absolutely positioned inside its card, so
+              it never adds to the row height, and scrolls within whatever height it gets. */}
+          <Card className="relative overflow-hidden">
             <RunList
               rows={displayRows}
               selectedKey={selectedKey}
