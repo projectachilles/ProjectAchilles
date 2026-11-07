@@ -25,8 +25,11 @@ Defense Score = (Protected Executions / Total Executions) × 100
 Each test execution is classified by its exit code: conclusive outcomes are
 `101` (attack succeeded — unprotected) and `105`/`126`/`127` (blocked or
 quarantined — protected); error/inconclusive codes are excluded from the
-score. EDR correlation flags (`defender_detected`, `crowdstrike_detected`)
-count as protected in the combined score.
+score, with one exception: a stage that ended with an error code (for example
+`999`) because the EDR's own alert on that stage killed, quarantined or blocked
+it counts as protected (the Executions view labels it **Prevented**). EDR
+correlation flags (`defender_detected`, `crowdstrike_detected`, …) count as
+protected in the combined score.
 
 See **[Exit Codes & Outcomes](./exit-codes-and-outcomes)** for the canonical
 reference covering every exit code, correlation flag, stage label, and SB

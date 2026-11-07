@@ -27,7 +27,9 @@ const settings: AnalyticsSettings = {
 const service = new ElasticsearchService(settings);
 const base = { from: '2025-01-01T00:00:00Z', to: '2025-01-31T00:00:00Z', org: 'org-a' };
 
-const CONCLUSIVE = { terms: { 'event.ERROR': [101, 105, 126, 127] } };
+const { EDR_PREVENTED_ERROR_STAGE } = await import('../../reports/stageOutcome.js');
+// The scored-results gate: a conclusive code, or an error stage the EDR's own alert says it stopped.
+const CONCLUSIVE = { bool: { should: [{ terms: { 'event.ERROR': [101, 105, 126, 127] } }, EDR_PREVENTED_ERROR_STAGE], minimum_should_match: 1 } };
 const PROTECTED = { term: { 'f0rtika.is_protected': true } };
 const DET = () => edrDetectedTerms();
 const PREV = () => edrPreventedTerms();

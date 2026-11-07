@@ -2,6 +2,10 @@ import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import type { AnalyticsSettings, AnalyticsQueryParams, ExtendedAnalyticsQueryParams, PaginatedExecutionsParams } from '../../../types/analytics.js';
 import { attackSimulationExclusions } from '../attack-simulation-filter.js';
 import { edrOwnDetectedClause } from '../../outcomes/vendors.js';
+import { EDR_PREVENTED_ERROR_STAGE } from '../../reports/stageOutcome.js';
+
+/** The scored-results gate: a conclusive code, or an error stage the EDR's own alert says it stopped. */
+const SCORED = { bool: { should: [{ terms: { 'event.ERROR': [101, 105, 126, 127] } }, EDR_PREVENTED_ERROR_STAGE], minimum_should_match: 1 } };
 
 // ─── Mock setup ───────────────────────────────────────────────────
 const mockSearch = vi.fn();
@@ -1692,7 +1696,7 @@ describe('elasticsearch.ts', () => {
       expect(dh.min_doc_count).toBe(0);
       expect(dh.extended_bounds).toEqual({ min: '2026-10-07', max: '2026-10-20' });
       expect(JSON.stringify(arg.aggs.per_day.aggs.protected)).toContain('f0rtika.crowdstrike_detected');
-      expect(arg.aggs.per_day.aggs.inconclusive.filter.bool.must_not[0].terms['event.ERROR']).toEqual([101, 105, 126, 127]);
+      expect(arg.aggs.per_day.aggs.inconclusive.filter.bool.must_not[0]).toEqual(SCORED);
       expect(arg.aggs.all_time.global).toEqual({});
       expect(JSON.stringify(arg.aggs.all_time.aggs.org.filter)).toContain('{"term":{"routing.oid":"org-1"}}');
       expect(arg.aggs.all_time.aggs.org.aggs.last.max.field).toBe('routing.event_time');
@@ -1722,7 +1726,7 @@ describe('elasticsearch.ts', () => {
       await createService().getExecutionActivity({ days: 14 });
       const arg = mockSearch.mock.calls[0][0];
       const unprotected = arg.aggs.per_day.aggs.unprotected.filter.bool;
-      expect(unprotected.filter).toEqual([{ terms: { 'event.ERROR': [101, 105, 126, 127] } }]);
+      expect(unprotected.filter).toEqual([SCORED]);
       expect(JSON.stringify(unprotected.must_not)).toContain('f0rtika.is_protected');
       expect(JSON.stringify(unprotected.must_not)).toContain('f0rtika.defender_detected');
       expect(JSON.stringify(unprotected.must_not)).toContain('f0rtika.crowdstrike_detected');
@@ -3118,7 +3122,7 @@ describe('elasticsearch.ts', () => {
         const adjusted = searchesWith('pairs').find((r: any) => JSON.stringify(r.query).includes('excluded-test'));
         expect(adjusted).toBeDefined();
         const filters = adjusted.query.bool.filter;
-        expect(filters).toContainEqual({ terms: { 'event.ERROR': [101, 105, 126, 127] } });
+        expect(filters).toContainEqual(SCORED);
         expect(filters).not.toContainEqual({ term: { 'event.ERROR': 101 } });
         expect(filters).not.toContainEqual({ terms: { 'event.ERROR': [101] } });
         expect(JSON.stringify(filters)).not.toContain('"f0rtika.error_name"');
@@ -3613,7 +3617,7 @@ describe('elasticsearch.ts', () => {
         expect(res.endToEnd).toBe(0);
         // Skipped stages carry exit code 0, which the conclusive filter drops.
         const bundleQuery = searchesWith('bundle_runs')[0];
-        expect(bundleQuery.query.bool.filter).toContainEqual({ terms: { 'event.ERROR': [101, 105, 126, 127] } });
+        expect(bundleQuery.query.bool.filter).toContainEqual(SCORED);
       });
 
       it('a chain with every stage unprotected ran end to end', async () => {
@@ -3787,18 +3791,20 @@ describe('elasticsearch.ts', () => {
                 { term: { 'f0rtika.sophos_detected': true } },
               ],
               minimum_should_match: 1,
-              must_not: [{ term: { 'f0rtika.is_protected': true } }],
+              must_not: [{ term: { 'f0rtika.is_protected': true } }, EDR_PREVENTED_ERROR_STAGE],
             },
           },
           aggs: stages,
         });
         expect(sub.strict).toEqual({ filter: { term: { 'f0rtika.is_protected': true } }, aggs: stages });
+        // Error-coded stages the EDR stopped itself stop the chain like a block.
+        expect(sub.edr_stopped).toEqual({ filter: EDR_PREVENTED_ERROR_STAGE, aggs: stages });
         // Stage numbers for "alerted before the block" come from each stage's own evidence.
         expect(sub.alerted_stages).toEqual({
           filter: {
             bool: {
               filter: [edrOwnDetectedClause()],
-              must_not: [{ term: { 'f0rtika.is_protected': true } }],
+              must_not: [{ term: { 'f0rtika.is_protected': true } }, EDR_PREVENTED_ERROR_STAGE],
             },
           },
           aggs: stages,
@@ -3945,8 +3951,9 @@ describe('elasticsearch.ts', () => {
           expect(filters).toContainEqual(exclusion);
           expect(filters).toContainEqual({ range: { 'routing.event_time': { gte: '2025-01-01T00:00:00.000Z', lte: '2025-01-31T00:00:00.000Z' } } });
           expect(JSON.stringify(filters)).toContain('APT29');
-          expect(JSON.stringify(filters)).not.toContain('"event.ERROR":[101');
-          expect(filters).toContainEqual({ bool: { must_not: [{ terms: { 'event.ERROR': [0, 101, 105, 126, 127, 200] } }] } });
+          expect(filters).not.toContainEqual(SCORED);
+          // An EDR-stopped error stage settles its run, so it never makes the run inconclusive.
+          expect(filters).toContainEqual({ bool: { must_not: [{ terms: { 'event.ERROR': [0, 101, 105, 126, 127, 200] } }, EDR_PREVENTED_ERROR_STAGE] } });
           expect(req.aggs.bundle_inconclusive.composite.sources).toEqual([
             { oid: { terms: { field: 'routing.oid', missing_bucket: true } } },
             { bundle: { terms: { field: 'f0rtika.bundle_id' } } },

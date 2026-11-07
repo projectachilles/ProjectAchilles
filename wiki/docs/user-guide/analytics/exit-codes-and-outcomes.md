@@ -109,12 +109,18 @@ Protected > Prevented > Detected > Unprotected.
 
 ### Defense Score (Analytics dashboards)
 
-- **Strict score**: `protected (105/126/127) / conclusive (101 + 105 + 126 + 127)`
+- **Scored results**: exit `101`, `105`, `126` or `127`, **plus** an error-coded
+  stage (e.g. `999`, `0xE0000027`) that the EDR's own alert on that stage says
+  it stopped (`*_stage_prevented`, or on older documents `*_stage_detected` + a
+  confirmed `*_prevention_action`). Such a stage is the **Prevented** label of
+  §3, and counts on the combined (protected) side, not the strict one.
+- **Strict score**: `protected (105/126/127) / scored results`
 - **Combined score** ("detected counts as protected"): adds
   `defender_detected OR crowdstrike_detected` to the protected side.
   `*_prevented` ⊆ `*_detected` for both vendors, so prevented stages are
   covered automatically.
-- Error codes (`0`, `1`, `259`, `999`) feed the **Error Rate**, not the score.
+- Error codes (`0`, `1`, `259`, `999`) feed the **Error Rate**, not the score,
+  except a stage the EDR stopped as above: it is scored, not an error.
 - `200` and `260` are excluded from both. A `260` that an EDR's own alert
   proves was the EDR blocking the launch is rewritten to `126` and counts as
   protected ([section 7](#7-test-blocked-at-launch-by-the-edr)).
@@ -156,8 +162,8 @@ per stage, not per technique.
 
 | Scenario | Exit | Evidence | Label / SB outcome |
 |---|---|---|---|
-| Falcon kills the ransomware stage at launch | `0xE0000027` → 999 | Stage-binary alert match, `process_killed` disposition | **Prevented (process killed)** / PREVENTED |
-| Defender blocks a stage binary mid-execution | 999 | Stage-binary alert match, `remediationStatus: blocked` | **Prevented (process killed)** / PREVENTED |
+| Falcon kills the ransomware stage at launch | `0xE0000027` → 999 | Stage-binary alert match, `process_killed` disposition | **Prevented (process killed)** / PREVENTED; counts in the Defense Score and stops the chain at that stage in chain depth |
+| Defender blocks a stage binary mid-execution | 999 | Stage-binary alert match, `remediationStatus: blocked` | **Prevented (process killed)** / PREVENTED; counts in the Defense Score |
 | Sibling stage already ran to completion before the kill | 101 | Bundle-wide alert match only | **Unprotected** / MISSED (EXPOSED for exfiltration/impact): the alert names another stage, and a succeeded stage is never upgraded to Prevented |
 | Stage runs, nothing reacts | 101, no alert | none | **Unprotected** / MISSED (or EXPOSED for exfiltration/impact tactics) |
 | Stage dies, no alert anywhere | 999, no alert | none | **Inconclusive** / ERROR — a kill is never assumed |
