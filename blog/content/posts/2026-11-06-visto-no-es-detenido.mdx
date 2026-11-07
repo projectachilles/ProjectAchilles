@@ -15,7 +15,7 @@ translationKey: edr-study-30-days
 
 > **Actualización, 7 de noviembre de 2026.** Al principio describimos la tasa de detención de cada EDR como la proporción de ataques que el EDR detuvo. En realidad es la proporción detenida en los equipos con ese EDR, y una parte la detuvo el propio Windows. Una etapa de robo de credenciales no pudo acceder a LSASS en equipos de los cuatro EDR sin rastro de ningún EDR, lo que apunta a la protección LSA de Windows. La nueva sección 3 da las dos cifras, con dos gráficos sobre el paso de robo de credenciales, y el primer gráfico y la sección de confianza ahora también las muestran. El EDR que va primero no cambia. Lo encontramos al contrastar el estudio con los paneles de Project Achilles.
 
-> **Actualización posterior, 7 de noviembre de 2026.** Project Achilles ahora registra la prevención de un EDR que llega a la alerta más tarde, y de qué alerta vino. Al volver a calcular el estudio con eso, las cifras de EDR C subieron al 53% de ataques detenidos en sus equipos y al 39% con su propia evidencia, y algunas otras cifras se movieron uno o dos puntos. EDR C ahora detiene claramente más ataques que EDR D incluso contando cualquier bloqueo. El EDR que va primero no cambia.
+> **Actualización posterior, 7 de noviembre de 2026.** Project Achilles ahora registra la prevención de un EDR que llega a la alerta más tarde, y de qué alerta vino. Al volver a calcular el estudio con eso, las cifras de EDR C subieron al 53% de ataques detenidos en sus equipos y al 39% con su propia evidencia, y algunas otras cifras se movieron uno o dos puntos. EDR C ahora detiene claramente más ataques que EDR D incluso contando cualquier bloqueo. El EDR que va primero no cambia. Después de la sección de confianza hay ahora una tabla de clasificación.
 
 ## TL;DR
 
@@ -173,6 +173,28 @@ Otros tres efectos hacen poco confiables las mediciones aisladas:
 - **La misma prueba en el mismo equipo no siempre da el mismo resultado.** Entre ejecuciones repetidas, el resultado fue idéntico solo del 50% al 75% de las veces, según el EDR. Una sola ejecución dice poco.
 - **Los binarios de prueba cambian.** Las cadenas de ataque se recompilaron durante el mes, y no todos los EDR vieron todas las versiones. Si recalculamos solo con la versión que vieron todos los EDR (cinco de las seis cadenas), las tasas de detención son 58% para A, 90% para B, 60% para C y 38% para D, o 46%, 70%, 45% y 0% si solo cuenta la evidencia propia de cada EDR. EDR B sigue a la cabeza, pero por menos.
 - **Las integraciones empiezan en momentos distintos.** Los datos de alertas de un EDR solo cubrían los últimos ocho días del período, así que sus ejecuciones anteriores se dejaron fuera en lugar de contarse como fallos.
+
+## La clasificación de un vistazo
+
+En resumen: los EDR ordenados por la proporción de ataques que cada uno detuvo con su propia evidencia, la medida de la sección 3. Cada EDR se compara con el siguiente usando las etiquetas de arriba, y dos EDR que no se pueden distinguir comparten puesto. Las demás columnas son contexto; no deciden el orden.
+
+| Puesto | EDR | Ataques detenidos, evidencia propia | Ventaja sobre el siguiente | Ataques detenidos en sus equipos | Bloqueados al inicio |
+|---|---|---|---|---|---|
+| 1 | EDR B | 76% | +37 pp sobre EDR C, clara | 90% | 54% |
+| 2 (empate) | EDR C | 39% | +1 pp sobre EDR A, no distinguible | 53% | 0% |
+| 2 (empate) | EDR A | 38% | +35 pp sobre EDR D, clara | 48% | 0% |
+| 4 | EDR D | 4% | | 30% | 0% |
+
+| EDR | Generó una alerta en sus ejecuciones | Etapas detenidas o detectadas | Tiempo mediano hasta la primera alerta | La técnica ATT&CK de la alerta era correcta | Mismo resultado al repetir |
+|---|---|---|---|---|---|
+| EDR B | 91% | 54%* | 64 s | 14% | 75% |
+| EDR C | 81% | 64% | 2,3 min | 51% | 70% |
+| EDR A | 100% | 77% | 24 s | 34% | 50% |
+| EDR D | 94% | 53% | 73 s | 32% | 67% |
+
+\* De las tres cadenas de ataque en las que EDR B dejó correr etapas; en las otras tres bloqueó el binario al inicio. La cifra con evidencia propia de EDR C es un piso (sección 3), y el tiempo de alerta es cuándo llegó la alerta a la consola, no cuándo se bloqueó el ataque (sección 5).
+
+EDR B es claramente el primero. EDR A y EDR C están empatados en detener; en lo que se diferencian es en cómo reportan lo que ven. EDR D genera alertas en la mayoría de las ejecuciones, pero casi no demostró detenciones propias.
 
 ## Qué significa para tu entorno
 
