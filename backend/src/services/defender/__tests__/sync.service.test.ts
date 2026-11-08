@@ -483,6 +483,37 @@ describe('DefenderSyncService', () => {
       expect(doc.prevention_action).toBe('process_killed');
     });
 
+    it('keeps a blocked child process\'s action under its parent file (alerts_v2 parentProcessImageFile)', async () => {
+      // Live alerts_v2 processEvidence keys (Nov 2026): imageFile,
+      // parentProcessImageFile, processCreationDateTime, ... (no parentProcess).
+      const doc = await syncOneAndGetDoc(alertWithEvidence([
+        { '@odata.type': '#microsoft.graph.security.processEvidence', verdict: 'malicious', remediationStatus: 'blocked', imageFile: { fileName: 'cmd.exe', filePath: 'C:\\Windows\\System32\\cmd.exe' }, parentProcessImageFile: { fileName: 'A-T1003.exe', filePath: 'C:\\F0\\A-T1003.exe' }, processCreationDateTime: '2026-11-04T12:48:12Z' },
+        { '@odata.type': '#microsoft.graph.security.processEvidence', verdict: 'malicious', remediationStatus: 'active', imageFile: { fileName: 'A-T1003.exe' }, parentProcessImageFile: { fileName: 'A.exe', filePath: null } },
+        { '@odata.type': '#microsoft.graph.security.fileEvidence', verdict: 'malicious', remediationStatus: 'prevented', fileDetails: { fileName: 'A-T1204.exe', filePath: 'C:\\F0' } },
+      ]));
+      // Parent files are not matched on yet (that changes detection; separate change).
+      expect(doc.evidence_filenames).toEqual(['cmd.exe', 'a-t1003.exe', 'a-t1204.exe']);
+      // The kill of cmd.exe belongs to the file that started it; a file
+      // evidence block has no parent.
+      expect(doc.evidence_child_actions).toEqual([{ parent: 'a-t1003.exe', action: 'process_killed' }]);
+    });
+
+    it('always writes evidence_child_actions (empty when nothing was blocked) and the alert\'s activity window', async () => {
+      const doc = await syncOneAndGetDoc(alertWithEvidence([fileEvidence('active')], {
+        firstActivityDateTime: '2026-11-04T12:48:12.7541221Z',
+        lastActivityDateTime: '2026-11-04T12:55:36.5542455Z',
+      }));
+      expect(doc.evidence_child_actions).toEqual([]);
+      expect(doc.first_activity_at).toBe('2026-11-04T12:48:12.7541221Z');
+      expect(doc.last_activity_at).toBe('2026-11-04T12:55:36.5542455Z');
+    });
+
+    it('an alert without activity times stores null (the time gate then uses created_at)', async () => {
+      const doc = await syncOneAndGetDoc(alertWithEvidence([fileEvidence('active')]));
+      expect(doc.first_activity_at).toBeNull();
+      expect(doc.last_activity_at).toBeNull();
+    });
+
     it('captures alertWebUrl as portal_url', async () => {
       const doc = await syncOneAndGetDoc(alertWithEvidence([], {
         alertWebUrl: 'https://security.microsoft.com/alerts/alert-prev?tid=abc',

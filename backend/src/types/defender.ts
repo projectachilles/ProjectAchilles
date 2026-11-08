@@ -56,7 +56,14 @@ export interface GraphAlertEvidence {
   mdeDeviceId?: string;
   // processEvidence fields
   imageFile?: { fileName: string; filePath: string; sha256?: string };
+  /** The file that started the process (alerts_v2 processEvidence). */
+  parentProcessImageFile?: { fileName?: string | null; filePath?: string | null } | null;
+  /**
+   * Older shape some code paths assumed; alerts_v2 does not send it (Nov 2026:
+   * processEvidence carries `parentProcessImageFile`). Read as a fallback only.
+   */
   parentProcess?: { imageFile?: { fileName: string; filePath: string } };
+  processCreationDateTime?: string;
   // fileEvidence fields
   fileDetails?: { fileName: string; filePath: string; sha256?: string };
 }
@@ -72,6 +79,9 @@ export interface GraphAlert {
   createdDateTime: string;
   lastUpdateDateTime: string;
   resolvedDateTime?: string;
+  /** Oldest / newest activity the alert covers (endpoint event times). */
+  firstActivityDateTime?: string;
+  lastActivityDateTime?: string;
   mitreTechniques: string[];
   recommendedActions: string;
   evidence: GraphAlertEvidence[];
@@ -193,6 +203,15 @@ export interface DefenderAlertDoc {
    * synced before sync v5.
    */
   evidence_file_verdicts?: Array<{ file: string; verdict: string; action: string | null }>;
+  /**
+   * Prevention actions on processes, keyed by the file that started each one
+   * (edr/multiTestEvidence.ts): a stage claims the kill of a child it launched.
+   * Always present (possibly empty) since sync v7, absent before.
+   */
+  evidence_child_actions?: Array<{ parent: string; action: string }>;
+  /** Oldest / newest activity the alert covers (Graph first/lastActivityDateTime; sync v7). */
+  first_activity_at?: string | null;
+  last_activity_at?: string | null;
   /**
    * Derived prevention action from evidence[].remediationStatus:
    * 'process_killed' | 'blocked' | 'quarantined'. Absent on detection-only

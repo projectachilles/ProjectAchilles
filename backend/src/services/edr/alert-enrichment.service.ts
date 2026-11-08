@@ -13,6 +13,7 @@ import {
 import type { EnrichmentPassOptions, EnrichmentPassResult } from '../../types/edr.js';
 import { isAchillesMitigated, ACHILLES_MITIGATION_FIELDS, ACHILLES_MITIGATED_QUERY } from '../shared/achillesMitigation.js';
 import { alertCredit, isStageFile, isTestFile, MULTI_TEST_EVIDENCE_FIELDS } from './multiTestEvidence.js';
+import { ACTION_TIME_FIELDS, actedInRun, actedInRunClause, inRunCutoff } from './preventionTiming.js';
 import { enrichmentEligibleClauses } from '../analytics/enrichment-eligibility.js';
 import type { EdrVendorKey } from '../outcomes/vendors.js';
 
@@ -56,6 +57,18 @@ export const STAGE_RULE = 'single_test';
  * `<vendor>_detected` when no alert still in the index counts for the test.
  */
 export const EVIDENCE_RULE = 'file_verdict';
+
+/**
+ * Marks a doc evaluated under the in-run prevention rules: on a stage that
+ * exited 101, an action counts only when it happened before the run ended
+ * (preventionTiming.ts), and a
+ * stage's own prevention comes only from actions on its own file or on a
+ * process it started, when the alert records actions per evidence item
+ * (multiTestEvidence.ts ownActions). Docs prevented before it are re-checked
+ * once and lose the prevention flags when their alerts are still in the
+ * index and no action qualifies.
+ */
+export const PREVENTION_RULE = 'in_run';
 
 /**
  * Prevention actions that count as vendor-confirmed PREVENTION (vs.
@@ -212,8 +225,14 @@ export class EdrAlertEnrichmentService {
         for (const q of queries) {
           searches.push({ index: this.target.alertIndex });
           const source = this.target.ignoreAchillesMitigated
-            ? ['prevention_action', ...ACHILLES_MITIGATION_FIELDS, 'f0rtika.achilles_correlated', ...MULTI_TEST_EVIDENCE_FIELDS]
-            : ['prevention_action', 'f0rtika.achilles_correlated', ...MULTI_TEST_EVIDENCE_FIELDS];
+            ? ['prevention_action', ...ACHILLES_MITIGATION_FIELDS, 'f0rtika.achilles_correlated', ...MULTI_TEST_EVIDENCE_FIELDS, ...ACTION_TIME_FIELDS]
+            : ['prevention_action', 'f0rtika.achilles_correlated', ...MULTI_TEST_EVIDENCE_FIELDS, ...ACTION_TIME_FIELDS];
+          // On a stage that exited 101, only actions taken before the run
+          // ended count (preventionTiming.ts).
+          const cutoff = this.inRunCutoffFor(q.hit);
+          const preventionFilter = this.target.ignoreAchillesMitigated
+            ? { bool: { must_not: [ACHILLES_MITIGATED_QUERY], filter: [actedInRunClause(cutoff)] } }
+            : actedInRunClause(cutoff);
           searches.push({
             size: EVIDENCE_HITS_PER_SUBQUERY,
             _source: source,
@@ -223,9 +242,7 @@ export class EdrAlertEnrichmentService {
             // kill / quarantine outside the first EVIDENCE_HITS_PER_SUBQUERY.
             aggs: {
               prevention: {
-                filter: this.target.ignoreAchillesMitigated
-                  ? { bool: { must_not: [ACHILLES_MITIGATED_QUERY] } }
-                  : { match_all: {} },
+                filter: preventionFilter,
                 aggs: { actions: { terms: { field: 'prevention_action', size: PREVENTION_ACTION_BUCKETS } } },
               },
             },
@@ -306,9 +323,12 @@ export class EdrAlertEnrichmentService {
           const mine = q.kind === 'stage'
             ? (f: string) => isStageFile(f, q.bundleUuid, q.controlId)
             : (f: string) => isTestFile(f, q.bundleUuid);
+          // A stage takes only its own file's actions (and its child
+          // processes') where the alert records them per evidence item.
           const credited = allHits
-            .map((h) => ({ h, credit: alertCredit(h._source ?? {}, mine) }))
+            .map((h) => ({ h, credit: alertCredit(h._source ?? {}, mine, { ownActionsOnly: q.kind === 'stage' }) }))
             .filter((c) => c.credit.counts);
+          const cutoff = this.inRunCutoffFor(q.hit);
           const alertHits = credited.map((c) => c.h);
           // Alerts beyond the hits read can't be classified: they count, as
           // every match did before the multi-test rules.
@@ -333,8 +353,10 @@ export class EdrAlertEnrichmentService {
           //     stages 1–4 had already exited 101).
           // A multi-test alert brings its credited files' own actions, never
           // the alert-wide one (one file blocked, another only detected).
+          // On an exit-101 stage, an action after the run ended is cleanup, not prevention.
           const hitActions = credited
             .filter((c) => !(this.target.ignoreAchillesMitigated && isAchillesMitigated(c.h._source)))
+            .filter((c) => actedInRun(c.h._source ?? {}, cutoff))
             .flatMap((c) => c.credit.actions ?? [c.h._source?.prevention_action]);
           // The aggregation can't tell multi-test alerts apart: it is used
           // only when more alerts matched than the query could read.
@@ -466,6 +488,37 @@ export class EdrAlertEnrichmentService {
               }
               if (wasWide || u.wideMatched) f0rtika[`${v}_evidence_rule`] = EVIDENCE_RULE;
             }
+            // In-run prevention rules (PREVENTION_RULE). A doc prevented under
+            // the older rules is checked once: when its alerts are still in the
+            // index and no action now qualifies (taken after the run, or on
+            // another file), the prevention flags go; detection stays. No
+            // visible alerts (aged out): nothing is downgraded.
+            if ((u.stageQueried || u.wideQueried) && existing[`${v}_prevention_rule`] !== PREVENTION_RULE) {
+              const now = (k: string) => (k in f0rtika ? f0rtika[k] : existing[k]);
+              const wasPrevented = now(`${v}_prevented`) === true;
+              const wasStagePrevented = now(`${v}_stage_prevented`) === true;
+              const qualifying = [...u.stageActions, ...u.wideActions];
+              const recheckable = existing[`${v}_prevented`] === true || existing[`${v}_stage_prevented`] === true;
+              if (recheckable) {
+                if (wasStagePrevented && u.stageQueried && u.stageHitsAll > 0 && u.stageActions.length === 0) {
+                  f0rtika[`${v}_stage_prevented`] = false;
+                }
+                // `_prevented` comes from the stage's alerts on a conclusive
+                // exit, else from the test-level ones too: those must be visible.
+                const code = u.hit._source?.event?.ERROR as number | undefined;
+                const conclusive = code !== undefined && CONCLUSIVE_OUTCOME_CODES.has(code);
+                const sourceVisible = conclusive ? u.stageHitsAll > 0 : u.wideHitsAll > 0;
+                if (wasPrevented && sourceVisible) {
+                  if (qualifying.length === 0) {
+                    f0rtika[`${v}_prevented`] = false;
+                    f0rtika[`${v}_prevention_action`] = null;
+                  } else if (!qualifying.includes(String(now(`${v}_prevention_action`)))) {
+                    f0rtika[`${v}_prevention_action`] = qualifying[0];
+                  }
+                }
+              }
+              if (recheckable || qualifying.length > 0) f0rtika[`${v}_prevention_rule`] = PREVENTION_RULE;
+            }
             if (Object.keys(f0rtika).length > 0) {
               operations.push({ update: { _index: u.hit._index, _id: u.hit._id } });
               operations.push({ doc: { f0rtika } });
@@ -565,6 +618,17 @@ export class EdrAlertEnrichmentService {
         must_not: [{ term: { [`f0rtika.${v}_evidence_rule`]: EVIDENCE_RULE } }],
       },
     });
+    // In-run prevention rules: a doc prevented before them is checked once.
+    eligible.push({
+      bool: {
+        should: [
+          { term: { [`f0rtika.${v}_prevented`]: true } },
+          { term: { [`f0rtika.${v}_stage_prevented`]: true } },
+        ],
+        minimum_should_match: 1,
+        must_not: [{ term: { [`f0rtika.${v}_prevention_rule`]: PREVENTION_RULE } }],
+      },
+    });
     // Single-test stage rule: a stage flagged before it is checked once.
     eligible.push({
       bool: {
@@ -594,6 +658,17 @@ export class EdrAlertEnrichmentService {
         ],
       },
     };
+  }
+
+  /**
+   * The in-run cut-off for a result that exited 101 (it ran to completion, so
+   * calling it Prevented needs an action taken during the run), else null (no
+   * gate). An error-coded stage keeps every action: the error itself fits the
+   * EDR having stopped it, and Defender keeps adding later activity to an
+   * alert for hours, so its last activity is no bound there.
+   */
+  private inRunCutoffFor(hit: any): number | null {
+    return hit._source?.event?.ERROR === 101 ? inRunCutoff(hit._source?.routing?.event_time) : null;
   }
 
   private get recheckHours(): number {

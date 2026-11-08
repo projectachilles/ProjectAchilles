@@ -11,7 +11,7 @@ import { DefenderAutoResolveService } from './auto-resolve.service.js';
 import { runAgentKillReconciliation, failedAgentKillPass } from '../edr/agent-kill-reconcile.service.js';
 import { runLaunchBlockReconciliation, failedLaunchBlockPass } from '../edr/launch-block-reconcile.service.js';
 import type { Client } from '@elastic/elasticsearch';
-import type { EvidenceFileVerdict } from '../edr/multiTestEvidence.js';
+import type { EvidenceChildAction, EvidenceFileVerdict } from '../edr/multiTestEvidence.js';
 import type {
   GraphSecureScore,
   GraphControlProfile,
@@ -38,7 +38,7 @@ const INITIAL_ALERT_LOOKBACK_DAYS = 90;
  * force a full re-sync on all deployments. The persisted sync_version is
  * compared against this; a mismatch clears lastAlertSync.
  */
-const ALERT_SYNC_VERSION = 6; // v6: full 90 days (the re-sync used to stop at the 500 newest alerts); v5: + evidence_file_verdicts (edr/multiTestEvidence.ts); v4: + prevention_action / remediation_status / portal_url
+const ALERT_SYNC_VERSION = 7; // v7: + evidence_child_actions (blocked child processes by parent file), first/last_activity_at (edr/preventionTiming.ts); v6: full 90 days (the re-sync used to stop at the 500 newest alerts); v5: + evidence_file_verdicts (edr/multiTestEvidence.ts); v4: + prevention_action / remediation_status / portal_url
 
 export class DefenderSyncService {
   private graphClient: MicrosoftGraphClient | null = null;
@@ -224,6 +224,8 @@ export class DefenderSyncService {
     const VERDICT_RANK: Record<string, number> = { malicious: 3, suspicious: 2 };
     const ACTION_RANK: Record<string, number> = { quarantined: 3, process_killed: 2, blocked: 1 };
     const fileVerdicts = new Map<string, EvidenceFileVerdict>();
+    const childActions: EvidenceChildAction[] = [];
+    const childActionKeys = new Set<string>();
 
     for (const ev of alert.evidence ?? []) {
       // Device evidence → hostname
@@ -243,6 +245,13 @@ export class DefenderSyncService {
       if (ev.parentProcess?.imageFile?.filePath) {
         filepaths.add(ev.parentProcess.imageFile.filePath.toLowerCase());
       }
+      // The file that started the process. alerts_v2 sends it as
+      // `parentProcessImageFile` (live, Nov 2026), not the `parentProcess`
+      // read above, so parent files are not in evidence_filenames yet:
+      // matching alerts on them changes detection and is a separate change.
+      // Here it only attributes a blocked child process to its parent.
+      const parentFile = ev.parentProcessImageFile ?? ev.parentProcess?.imageFile;
+      const parentName = (parentFile?.fileName || parentFile?.filePath?.split(/[\\/]/).pop() || '').toLowerCase();
       // File evidence → filename + path
       if (ev.fileDetails?.fileName) {
         filenames.add(ev.fileDetails.fileName.toLowerCase());
@@ -268,6 +277,15 @@ export class DefenderSyncService {
 
       const status = ev.remediationStatus;
       if (typeof status !== 'string' || !(status in PREVENTIONISH_RANK)) continue;
+      // A process blocked here was started by `parentName`: that file's
+      // own prevention too (a stage claims the kill of a child it launched).
+      if (parentName && ev.imageFile) {
+        const key = `${parentName}|${NORMALIZE[status]}`;
+        if (!childActionKeys.has(key)) {
+          childActionKeys.add(key);
+          childActions.push({ parent: parentName, action: NORMALIZE[status] });
+        }
+      }
       const hasFile = !!(
         ev.imageFile?.fileName || ev.imageFile?.filePath
         || ev.parentProcess?.imageFile?.fileName || ev.parentProcess?.imageFile?.filePath
@@ -299,6 +317,9 @@ export class DefenderSyncService {
       evidence_filenames: Array.from(filenames),
       evidence_filepaths: Array.from(filepaths),
       evidence_file_verdicts: Array.from(fileVerdicts.values()),
+      evidence_child_actions: childActions,
+      first_activity_at: alert.firstActivityDateTime ?? null,
+      last_activity_at: alert.lastActivityDateTime ?? null,
       ...(winningStatus ? {
         prevention_action: NORMALIZE[winningStatus],
         remediation_status: winningStatus,

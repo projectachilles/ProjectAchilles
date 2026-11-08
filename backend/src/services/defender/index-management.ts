@@ -85,6 +85,12 @@ export const DEFENDER_INDEX_MAPPING = {
       // Defender's per-file verdict + action (edr/multiTestEvidence.ts). Read
       // from _source only, so stored without indexing.
       evidence_file_verdicts: { type: 'object' as const, enabled: false },
+      // Child-process actions keyed by the parent file (same module).
+      evidence_child_actions: { type: 'object' as const, enabled: false },
+      // Activity the alert covers; last_activity_at bounds when its action
+      // happened (edr/preventionTiming.ts).
+      first_activity_at: { type: 'date' as const },
+      last_activity_at: { type: 'date' as const },
 
       // Achilles correlation + auto-resolve fields.
       // Populated on ALERT docs by:

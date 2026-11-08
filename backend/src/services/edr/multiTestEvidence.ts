@@ -39,10 +39,31 @@ export interface EvidenceFileVerdict {
 /** Alert doc field holding the per-file verdicts (stored, not indexed). */
 export const FILE_VERDICTS_FIELD = 'evidence_file_verdicts';
 
+/**
+ * A prevention action on a process, keyed by the file that started it (the
+ * parent's image file). Lets a stage claim the kill of a child it launched
+ * (`cmd.exe`, `rundll32.exe`) without claiming another file's block.
+ */
+export interface EvidenceChildAction {
+  /** Lower-case file name (no path) of the parent process. */
+  parent: string;
+  /** Normalized action on the child (`process_killed` | `blocked` | `quarantined`). */
+  action: string;
+}
+
+/**
+ * Alert doc field holding the child-process actions (stored, not indexed).
+ * Present (possibly empty) on every alert of a vendor that records actions
+ * per evidence item: its presence says the alert's actions can be attributed
+ * per file (Defender sync v7).
+ */
+export const CHILD_ACTIONS_FIELD = 'evidence_child_actions';
+
 export interface EvidenceFields {
   evidence_filenames?: unknown;
   evidence_filepaths?: unknown;
   evidence_file_verdicts?: unknown;
+  evidence_child_actions?: unknown;
 }
 
 const strings = (v: unknown): string[] => (Array.isArray(v) ? v.filter((x): x is string => typeof x === 'string') : []);
@@ -83,6 +104,32 @@ export function fileVerdicts(src: EvidenceFields): EvidenceFileVerdict[] | null 
   );
 }
 
+/** Child-process actions, or null when the alert doesn't record actions per evidence item. */
+export function childActions(src: EvidenceFields): EvidenceChildAction[] | null {
+  const raw = src.evidence_child_actions;
+  if (!Array.isArray(raw)) return null;
+  return raw.filter(
+    (c): c is EvidenceChildAction =>
+      typeof c === 'object' && c !== null && typeof (c as EvidenceChildAction).parent === 'string'
+      && typeof (c as EvidenceChildAction).action === 'string',
+  );
+}
+
+/**
+ * The actions an alert took on the files `mine` selects: on the file itself,
+ * or on a process that file started. Null when the alert doesn't record
+ * actions per evidence item (other vendors, Defender alerts synced before v7).
+ */
+export function ownActions(src: EvidenceFields, mine: (file: string) => boolean): string[] | null {
+  const verdicts = fileVerdicts(src);
+  const children = childActions(src);
+  if (!verdicts || !children) return null;
+  return [
+    ...verdicts.filter((v) => mine(v.file)).map((v) => v.action),
+    ...children.filter((c) => mine(c.parent)).map((c) => c.action),
+  ].filter((a): a is string => typeof a === 'string');
+}
+
 /** A file of test `uuid` (orchestrator or any stage). */
 export function isTestFile(file: string, uuid: string): boolean {
   return !!uuid && testOfFile(file) === uuid.toLowerCase();
@@ -111,21 +158,42 @@ export interface AlertCredit {
   actions: string[] | null;
 }
 
+export interface AlertCreditOptions {
+  /**
+   * Also for a single-test alert, take only the selected files' own actions
+   * (and those of processes they started) when the alert records actions per
+   * evidence item. Used for a stage: in an alert naming only this test, a
+   * block of a sibling stage's file is not this stage's prevention.
+   */
+  ownActionsOnly?: boolean;
+}
+
 /**
- * Single-test alert: evidence, with its own prevention action. Multi-test
- * alert: evidence only for the selected files the vendor marked malicious,
- * with those files' own actions; no per-file verdicts: no evidence.
+ * Single-test alert: evidence, with its own prevention action (or, with
+ * `ownActionsOnly`, the selected files' own actions when the alert records
+ * them). Multi-test alert: evidence only for the selected files the vendor
+ * marked malicious, with those files' own actions (and their child
+ * processes'); no per-file verdicts: no evidence.
  */
-export function alertCredit(src: EvidenceFields, mine: (file: string) => boolean): AlertCredit {
-  if (!isMultiTestAlert(src)) return { counts: true, actions: null };
+export function alertCredit(
+  src: EvidenceFields,
+  mine: (file: string) => boolean,
+  options: AlertCreditOptions = {},
+): AlertCredit {
+  if (!isMultiTestAlert(src)) {
+    return { counts: true, actions: options.ownActionsOnly ? ownActions(src, mine) : null };
+  }
   const verdicts = fileVerdicts(src);
   if (!verdicts) return { counts: false, actions: [] };
   const marked = verdicts.filter((v) => v.verdict === 'malicious' && mine(v.file));
+  if (marked.length === 0) return { counts: false, actions: [] };
+  const markedFiles = new Set(marked.map((v) => v.file));
+  const children = (childActions(src) ?? []).filter((c) => markedFiles.has(c.parent)).map((c) => c.action);
   return {
-    counts: marked.length > 0,
-    actions: marked.map((v) => v.action).filter((a): a is string => typeof a === 'string'),
+    counts: true,
+    actions: [...marked.map((v) => v.action), ...children].filter((a): a is string => typeof a === 'string'),
   };
 }
 
 /** `_source` fields isMultiTestAlert and alertCredit read. */
-export const MULTI_TEST_EVIDENCE_FIELDS = ['evidence_filenames', 'evidence_filepaths', FILE_VERDICTS_FIELD];
+export const MULTI_TEST_EVIDENCE_FIELDS = ['evidence_filenames', 'evidence_filepaths', FILE_VERDICTS_FIELD, CHILD_ACTIONS_FIELD];
