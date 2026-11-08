@@ -63,6 +63,7 @@ describe('SentinelOne enrichment (shared pass, sentinelone target)', () => {
       sentinelone_prevention_action: 'process_killed',
       sentinelone_stage_prevented: true,
       sentinelone_stage_rule: 'single_test',
+      sentinelone_prevention_rule: 'in_run',
     } } });
     expect(ops[2]).toEqual({ update: { _index: 'achilles-sentinelone', _id: 'threat-1' } });
     expect(ops[3].doc.f0rtika).toMatchObject({ achilles_correlated: true, achilles_test_uuid: 'b1' });

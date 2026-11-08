@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { achillesTestsInEvidence, alertCredit, isMultiTestAlert, isStageFile, isTestFile } from '../multiTestEvidence.js';
+import { achillesTestsInEvidence, alertCredit, isMultiTestAlert, isStageFile, isTestFile, ownActions } from '../multiTestEvidence.js';
 
 // Live: Defender "A suspicious file was observed" alerts list every flagged file
 // on the disk, i.e. the leftover binaries of several Achilles tests at once.
@@ -84,5 +84,59 @@ describe('alertCredit', () => {
       { file: `${LUMMA}-t1055.exe`, verdict: 'suspicious', action: null },
     ] };
     expect(alertCredit(listing, mine).counts).toBe(false);
+  });
+});
+
+// A stage's own prevention (Defender sync v7 records actions per evidence
+// item). Live, Nov 2026: Lumma T1055.003 on one host was "Prevented" because
+// the single-test alert's action came from the T1204.002 stage's file.
+describe('own actions (ownActionsOnly)', () => {
+  const stage = (f: string) => isStageFile(f, LUMMA, 'T1055.003');
+  const alert = (extra: Record<string, unknown> = {}) => ({
+    prevention_action: 'process_killed',
+    evidence_filenames: [`${LUMMA}-t1055.003.exe`, `${LUMMA}-t1204.002.exe`, `${LUMMA}.exe`],
+    evidence_file_verdicts: [
+      { file: `${LUMMA}-t1055.003.exe`, verdict: 'malicious', action: null },
+      { file: `${LUMMA}-t1204.002.exe`, verdict: 'malicious', action: 'process_killed' },
+    ],
+    evidence_child_actions: [] as unknown[],
+    ...extra,
+  });
+
+  it('a sibling stage\'s blocked file is not this stage\'s prevention', () => {
+    expect(alertCredit(alert(), stage, { ownActionsOnly: true })).toEqual({ counts: true, actions: [] });
+  });
+
+  it('this stage\'s own blocked file is', () => {
+    const a = alert({ evidence_file_verdicts: [{ file: `${LUMMA}-t1055.003.exe`, verdict: 'malicious', action: 'blocked' }] });
+    expect(alertCredit(a, stage, { ownActionsOnly: true })).toEqual({ counts: true, actions: ['blocked'] });
+  });
+
+  it('so is a killed process this stage started (cmd.exe, rundll32.exe)', () => {
+    const a = alert({ evidence_child_actions: [{ parent: `${LUMMA}-t1055.003.exe`, action: 'process_killed' }, { parent: `${LUMMA}.exe`, action: 'blocked' }] });
+    expect(alertCredit(a, stage, { ownActionsOnly: true })).toEqual({ counts: true, actions: ['process_killed'] });
+  });
+
+  it('an alert synced before per-item actions (no evidence_child_actions) keeps the alert-wide action', () => {
+    const { evidence_child_actions: _drop, ...old } = alert();
+    expect(alertCredit(old, stage, { ownActionsOnly: true })).toEqual({ counts: true, actions: null });
+    expect(ownActions(old, stage)).toBeNull();
+  });
+
+  it('without ownActionsOnly (test level) a single-test alert keeps the alert-wide action', () => {
+    expect(alertCredit(alert(), (f) => isTestFile(f, LUMMA))).toEqual({ counts: true, actions: null });
+  });
+
+  it('a multi-test alert also takes the actions on processes its marked file started', () => {
+    const a = {
+      evidence_filenames: [`${LOCKBIT}-t1486.exe`, `${LUMMA}-t1055.003.exe`],
+      evidence_file_verdicts: [
+        { file: `${LOCKBIT}-t1486.exe`, verdict: 'malicious', action: null },
+        { file: `${LUMMA}-t1055.003.exe`, verdict: 'malicious', action: null },
+      ],
+      evidence_child_actions: [{ parent: `${LUMMA}-t1055.003.exe`, action: 'process_killed' }],
+    };
+    expect(alertCredit(a, stage)).toEqual({ counts: true, actions: ['process_killed'] });
+    expect(alertCredit(a, (f) => isTestFile(f, LOCKBIT))).toEqual({ counts: true, actions: [] });
   });
 });
