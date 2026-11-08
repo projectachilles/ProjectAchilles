@@ -7,10 +7,11 @@
 // ingested ES docs can observe:
 //
 //   exit 126/105/127                                  -> PREVENTED
-//   *_prevented flag (vendor-confirmed)               -> PREVENTED
-//      (defender_prevented: remediationStatus on the correlated alert;
-//       crowdstrike_prevented: pattern_disposition on the correlated alert;
-//       sentinelone_prevented: mitigation status on the correlated threat)
+//   the stage's own vendor-confirmed prevention         -> PREVENTED
+//      (<vendor>_stage_prevented; on docs enriched before it existed,
+//       <vendor>_stage_detected + a confirmed <vendor>_prevention_action:
+//       the same rule as Analytics' classifyStage. The test-level
+//       <vendor>_prevented can come from a sibling stage's alert.)
 //   exit 101 (or 0) + EDR <vendor>_stage_detected     -> DETECTED
 //      (any registry vendor; the run-wide <vendor>_detected flag, set on
 //       every stage when an alert names the run, is never stage evidence —
@@ -28,7 +29,9 @@
 // technique the test library declares for that stage (info card `Stage N`
 // heading, via the test catalog). `detectedTechniques` (an additional field,
 // which SB accepts and doesn't evaluate) = the ATT&CK techniques on the alerts
-// that matched this stage's own binary, for each vendor that detected it.
+// that matched this stage's own binary AND count for it (a multi-test listing
+// doesn't: edr/multiTestEvidence.ts alertCredit), for each vendor that
+// detected it.
 
 import type { Client } from '@elastic/elasticsearch';
 import { createEsClient } from '../analytics/client.js';
@@ -42,6 +45,8 @@ import { getTestMetadata } from '../agent/test-catalog.service.js';
 import { VENDOR_INDICES } from '../edr/edr-configured.js';
 import { buildStageDefenderEvidenceQuery } from '../defender/evidence-correlation.js';
 import { buildStageCrowdStrikeEvidenceQuery } from '../edr/evidence-correlation.js';
+import { alertCredit, isStageFile, MULTI_TEST_EVIDENCE_FIELDS } from '../edr/multiTestEvidence.js';
+import { CONFIRMED_PREVENTION_ACTIONS } from './stageOutcome.js';
 
 export const SB_BUNDLE_ID = 'SB-PC-2026-001';
 export const SB_BUNDLE_NAME = 'Ransomware con doble extorsión — LockBit 3.0';
@@ -352,7 +357,7 @@ export class SbReportService {
    * Optional data: a failed search is logged and leaves the stage empty.
    */
   private async stageAlertTechniques(hits: any[]): Promise<Map<string, string[]>> {
-    const lookups: Array<{ id: string; index: string; query: Record<string, unknown> }> = [];
+    const lookups: Array<{ id: string; index: string; query: Record<string, unknown>; mine: (file: string) => boolean }> = [];
     for (const hit of hits) {
       const source = hit._source ?? {};
       const input = {
@@ -366,7 +371,9 @@ export class SbReportService {
         const query = vendor === 'defender'
           ? buildStageDefenderEvidenceQuery(input)
           : buildStageCrowdStrikeEvidenceQuery(input);
-        if (query) lookups.push({ id: String(hit._id ?? ''), index, query });
+        const uuid = String(input.test_uuid).split('::')[0];
+        const controlId = String(input.control_id);
+        if (query) lookups.push({ id: String(hit._id ?? ''), index, query, mine: (f) => isStageFile(f, uuid, controlId) });
       }
     }
 
@@ -377,7 +384,7 @@ export class SbReportService {
         const response: any = await this.client.msearch({
           searches: chunk.flatMap((l) => [
             { index: l.index },
-            { size: ALERTS_PER_STAGE, _source: ['mitre_techniques'], query: l.query },
+            { size: ALERTS_PER_STAGE, _source: ['mitre_techniques', ...MULTI_TEST_EVIDENCE_FIELDS], query: l.query },
           ]),
         });
         (response.responses ?? []).forEach((r: any, i: number) => {
@@ -387,6 +394,8 @@ export class SbReportService {
           }
           const set = found.get(chunk[i].id) ?? new Set<string>();
           for (const alert of r?.hits?.hits ?? []) {
+            // Only alerts that are evidence for this stage (the enrichment pass's rule).
+            if (!alertCredit(alert._source ?? {}, chunk[i].mine).counts) continue;
             for (const t of alert._source?.mitre_techniques ?? []) {
               if (typeof t === 'string' && ATTACK_TECHNIQUE_ID.test(t)) set.add(t);
             }
@@ -440,7 +449,13 @@ export class SbReportService {
       // correlated alert (e.g. Defender remediationStatus / Falcon
       // pattern_disposition), not inference.
       const detected = (k: EdrVendorKey) => getField(source, edrFlagField(k, 'stage_detected')) === true;
-      const prevented = (k: EdrVendorKey) => Boolean(getField(source, edrFlagField(k, 'prevented')));
+      // The stage's own prevention, as Analytics (stageOutcome.ts stagePrevented):
+      // never the test-level <vendor>_prevented, which a sibling stage can set.
+      const prevented = (k: EdrVendorKey) => {
+        const own = getField(source, edrFlagField(k, 'stage_prevented'));
+        if (own !== undefined && own !== null) return own === true;
+        return detected(k) && CONFIRMED_PREVENTION_ACTIONS.includes(String(getField(source, edrFlagField(k, 'prevention_action')) ?? ''));
+      };
       // Vendor attribution — when several vendors detected the stage, list them all.
       const detectingVendors = EDR_VENDOR_KEYS.filter(detected).map((k) => edrVendor(k).productName);
       // preventedBy lists each vendor whose prevented flag is set. Defender

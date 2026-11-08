@@ -1,7 +1,7 @@
 import type { ExecutionReport, ReportRun, ReportTest } from '@/services/api/reports';
 import { conclusive, defended } from '../lib/outcomes';
 import { fmtDate, fmtDuration, fmtLatency, fmtTime, timeOf } from '../lib/format';
-import { agentKillText, alertStageText, countStages, testOf, vendorName } from '../lib/runs';
+import { agentKillText, alertActionText, alertStageText, countStages, testOf, vendorName } from '../lib/runs';
 import { RunStrip } from '../diagrams/RunStrip';
 import { OutcomeLegend } from '../diagrams/StageGlyph';
 import { Sheet, type SheetHead } from './Sheet';
@@ -39,7 +39,7 @@ function RunBlock({ run, tests, tz, edrVendors }: { run: ReportRun; tests: Repor
           t,
           text: [
             vendorName(a.vendor), a.severity, a.title, alertStageText(tests, run, a.stageControlId),
-            timing, a.status, a.preventionAction ? a.preventionAction.replace(/_/g, ' ') : null,
+            timing, a.status, alertActionText(tests, run, a),
           ].filter(Boolean).join(' · '),
         };
       })

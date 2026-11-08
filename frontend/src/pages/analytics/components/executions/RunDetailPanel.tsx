@@ -113,7 +113,7 @@ function ExecDetailBody({
                   return (
                     <li key={id}>
                       {loaded?.alert ? (
-                        <EndpointAlertRow alert={loaded.alert} runTimestamp={exec.timestamp} vendor={loaded.v} />
+                        <EndpointAlertRow alert={loaded.alert} runTimestamp={exec.timestamp} vendor={loaded.v} ranToCompletion={exec.error_code === 101} />
                       ) : (
                         <span className="break-all font-mono text-[11px] text-muted">{id}</span>
                       )}
@@ -203,7 +203,7 @@ function ExecDetailBody({
           ) : defender.alerts.length > 0 ? (
             <div className="mt-2 space-y-2">
               {defender.alerts.map((alert) => (
-                <DefenderAlertRow key={alert.alert_id} alert={alert} runTimestamp={exec.timestamp} />
+                <DefenderAlertRow key={alert.alert_id} alert={alert} runTimestamp={exec.timestamp} ranToCompletion={exec.error_code === 101} />
               ))}
             </div>
           ) : (
@@ -244,7 +244,7 @@ function ExecDetailBody({
             ) : state.alerts.length > 0 ? (
               <div className="mt-2 space-y-2">
                 {state.alerts.map((alert) => (
-                  <EndpointAlertRow key={alert.alert_id} alert={alert} runTimestamp={exec.timestamp} vendor={id} />
+                  <EndpointAlertRow key={alert.alert_id} alert={alert} runTimestamp={exec.timestamp} vendor={id} ranToCompletion={exec.error_code === 101} />
                 ))}
               </div>
             ) : (

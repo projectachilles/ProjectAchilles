@@ -132,7 +132,7 @@ export function toAlertsForTestResult(req: AlertsForTestRequest, page: HitsPage)
     for (const t of (source.mitre_techniques as string[] | undefined) ?? []) {
       for (const r of req.techniques) if (techniqueAliases(r).includes(t)) matched.add(r);
     }
-    return projectAlertHit(source, bundleUuid);
+    return projectAlertHit(source, bundleUuid, { resultTime: req.timestamp });
   });
   alerts.sort(
     (a, b) =>

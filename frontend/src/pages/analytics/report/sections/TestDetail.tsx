@@ -1,7 +1,7 @@
 import type { ExecutionReport, ReportRun, ReportTest } from '@/services/api/reports';
 import { OUTCOME_LABEL, conclusive, defended, protectionRate } from '../lib/outcomes';
 import { fmtAlertCount, fmtCount, fmtDateTime, fmtLatency, fmtPct, fmtShortDate, fmtTime, plural, timeOf } from '../lib/format';
-import { alertStageText, vendorName } from '../lib/runs';
+import { alertActionText, alertStageText, vendorName } from '../lib/runs';
 import { KillChainFlow } from '../diagrams/KillChainFlow';
 import { OutcomeBar } from '../diagrams/OutcomeBar';
 import { GlyphIcon, GlyphRow, OutcomeLegend } from '../diagrams/StageGlyph';
@@ -176,7 +176,7 @@ export function TestDetail({ report, test, head }: { report: ExecutionReport; te
                   <td>{vendorName(a.vendor)}</td>
                   <td><span className="rp-chip">{a.severity}</span> {a.title}</td>
                   <td className="rp-num">{t === null ? '—' : fmtLatency((t - Date.parse(r.completedAt)) / 1000)}</td>
-                  <td>{a.status}{a.preventionAction ? ` · ${a.preventionAction.replace(/_/g, ' ')}` : ''}{a.autoResolvedAt ? ' · auto-resolved' : ''}</td>
+                  <td>{a.status}{alertActionText([test], r, a) ? ` · ${alertActionText([test], r, a)}` : ''}{a.autoResolvedAt ? ' · auto-resolved' : ''}</td>
                 </tr>
               ))}
             </tbody>

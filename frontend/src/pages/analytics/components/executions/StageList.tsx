@@ -61,11 +61,11 @@ function StageEvidence({ exec, ...props }: StageViewProps & { exec: EnrichedTest
         <div className="flex flex-col gap-1.5">
           {configuredEndpoints.flatMap((id) =>
             endpoint[id].alerts.map((alert) => (
-              <EndpointAlertRow key={`${id}:${alert.alert_id}`} alert={alert} runTimestamp={exec.timestamp} vendor={id} showVendor />
+              <EndpointAlertRow key={`${id}:${alert.alert_id}`} alert={alert} runTimestamp={exec.timestamp} vendor={id} showVendor ranToCompletion={exec.error_code === 101} />
             )),
           )}
           {defAlerts.map((alert) => (
-            <DefenderAlertRow key={alert.alert_id} alert={alert} runTimestamp={exec.timestamp} vendor="Defender" />
+            <DefenderAlertRow key={alert.alert_id} alert={alert} runTimestamp={exec.timestamp} vendor="Defender" ranToCompletion={exec.error_code === 101} />
           ))}
         </div>
       )}
