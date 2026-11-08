@@ -1,0 +1,6 @@
+# Build context for deploy/lab-endpoint/Dockerfile is the repo root;
+# send only the agent source and this folder.
+*
+!agent/
+agent/dist/
+!deploy/lab-endpoint/
