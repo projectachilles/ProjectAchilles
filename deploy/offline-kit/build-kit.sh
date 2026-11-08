@@ -82,12 +82,22 @@ bake() {
     docker buildx bake --builder "$BUILDER" -f "$HERE/docker-bake.hcl" "${@:2}"
 }
 
+# One image at a time, each retried: in parallel, several `npm ci` runs on a
+# slow connection time out (seen at about 0.7 MB/s). A retry reuses every
+# step that already finished (buildx cache).
+build_image() { # ARCH TARGET
+  local attempt
+  for attempt in 1 2 3; do
+    log "Building $2 ($1), attempt $attempt"
+    bake "$1" "$2" && return 0
+  done
+  die "$2 ($1) failed 3 times"
+}
+
 for a in "${ARCH_LIST[@]}"; do
-  log "Building the $a images"
-  bake "$a"
+  for t in elasticsearch es-seed backend frontend wiki; do build_image "$a" "$t"; done
 done
-log "Building the lab endpoint (amd64)"
-bake amd64 lab-endpoint
+build_image amd64 lab-endpoint
 
 cat >"$KIT/images/IMAGES" <<EOF
 $PROJECT-backend:latest
