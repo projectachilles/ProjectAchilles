@@ -30,6 +30,10 @@
 .PARAMETER NoOpen
     Don't open the browser when setup completes.
 
+.PARAMETER NoBuild
+    Start the images already loaded (for example from the offline kit)
+    instead of rebuilding them. Docker still builds any image that is missing.
+
 .EXAMPLE
     .\scripts\Install-ProjectAchilles.ps1
 
@@ -44,7 +48,8 @@ param(
     [string]$ClerkSecretKey,
     [switch]$WithElasticsearch,
     [switch]$Force,
-    [switch]$NoOpen
+    [switch]$NoOpen,
+    [switch]$NoBuild
 )
 
 Set-StrictMode -Version Latest
@@ -854,14 +859,24 @@ function Invoke-PhaseWriteConfig {
 # -----------------------------------------------------------------------------
 
 function Invoke-PhaseBuild {
-    Write-Step 8 "Building and launching Docker containers..."
-    Write-Host ""
-    Write-Info "This may take 5-10 minutes on the first run."
+    if ($NoBuild) {
+        Write-Step 8 "Launching Docker containers from the loaded images..."
+    }
+    else {
+        Write-Step 8 "Building and launching Docker containers..."
+        Write-Host ""
+        Write-Info "This may take 5-10 minutes on the first run."
+    }
     Write-Host ""
 
-    $composeArgs = @('up', '-d', '--build')
+    $composeArgs = @('up', '-d')
     if ($script:EsMode -eq 'local') {
-        $composeArgs = @('--profile', 'elasticsearch', 'up', '-d', '--build')
+        $composeArgs = @('--profile', 'elasticsearch') + $composeArgs
+    }
+    # -NoBuild: reuse loaded images (offline kit). Without --build, compose
+    # still builds an image that is missing, so this never skips a first build.
+    if (-not $NoBuild) {
+        $composeArgs += '--build'
     }
 
     # Build and launch
