@@ -1,0 +1,44 @@
+# Lab endpoint overlay: adds a throwaway Linux endpoint running the
+# ProjectAchilles agent, for demos and workshops. Not for production.
+#
+#   docker compose -f docker-compose.yml -f docker-compose.lab.yml up -d
+#   (server install: -f docker-compose.server.yml -f docker-compose.lab.yml)
+#
+# Enroll it with a token created in the UI:
+#   docker exec achilles-lab-endpoint enroll <TOKEN>
+#
+# Reset it (forget enrollment):
+#   docker compose -f docker-compose.yml -f docker-compose.lab.yml rm -sf lab-endpoint
+#   docker volume rm <project>_lab-endpoint-data
+#
+# While this overlay is on, the backend tells newly enrolled agents to use
+# http://localhost:3000 (the lab endpoint's built-in forwarder). Agents on
+# other hosts need an https:// URL: set LAB_AGENT_SERVER_URL to it.
+# Details: deploy/lab-endpoint/README.md
+
+services:
+  backend:
+    environment:
+      - AGENT_SERVER_URL=${LAB_AGENT_SERVER_URL:-http://localhost:3000}
+
+  lab-endpoint:
+    build:
+      context: .
+      dockerfile: deploy/lab-endpoint/Dockerfile
+      args:
+        AGENT_VERSION: "0.7.3" # keep equal to VERSION in agent/Makefile
+    platform: linux/amd64
+    container_name: achilles-lab-endpoint
+    hostname: lab-endpoint
+    init: true
+    environment:
+      - LAB_FORWARD_TO=backend:3000
+    volumes:
+      - lab-endpoint-data:/opt/f0
+    depends_on:
+      backend:
+        condition: service_healthy
+    restart: unless-stopped
+
+volumes:
+  lab-endpoint-data:

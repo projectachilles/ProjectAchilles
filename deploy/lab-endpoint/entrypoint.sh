@@ -10,6 +10,15 @@ fi
 
 CONFIG=/opt/f0/achilles-agent.yaml
 
+# The agent encrypts its key with the machine ID, and slim images have none.
+# Keep one in the volume so a recreated container can still read the key.
+MACHINE_ID_FILE=/opt/f0/lab-machine-id
+if [ ! -s "$MACHINE_ID_FILE" ]; then
+  od -An -tx1 -N16 /dev/urandom | tr -d ' \n' > "$MACHINE_ID_FILE"
+  chmod 0600 "$MACHINE_ID_FILE"
+fi
+cp "$MACHINE_ID_FILE" /etc/machine-id
+
 # The agent sends its key over plain HTTP only to localhost
 # (agent/internal/config/config.go ValidateServerURL), so forward
 # 127.0.0.1:3000 to the backend on the compose network.
