@@ -256,7 +256,7 @@ describe('DefenderSyncService', () => {
       expect(operations[1].doc).toMatchObject({ alert_id: 'alert-123' });
     });
 
-    it('extracts evidence_filepaths from fileDetails, imageFile, and parentProcess', async () => {
+    it('extracts evidence_filepaths from fileDetails, imageFile, and the parent process (alerts_v2 parentProcessImageFile)', async () => {
       // Issue #2 / Option B: capture file paths so AV-only alerts (whose
       // evidence carries only a dropped-file path under a bundle-named
       // sandbox dir) become correlatable via path-substring matching.
@@ -277,6 +277,8 @@ describe('DefenderSyncService', () => {
             { fileDetails: { fileName: 'EICAR.txt', filePath: 'C:\\Users\\fortika-test\\BlueHammerSandbox' } },
             { imageFile: { fileName: 'orchestrator.exe', filePath: 'C:\\F0\\tasks\\task-abc-1\\orchestrator.exe' } },
             { parentProcess: { imageFile: { fileName: 'achilles-agent.exe', filePath: 'C:\\Program Files\\F0rtika\\achilles-agent.exe' } } },
+            // The shape alerts_v2 actually sends (live, Nov 2026).
+            { imageFile: { fileName: 'cmd.exe', filePath: 'C:\\Windows\\System32\\cmd.exe' }, parentProcessImageFile: { fileName: 'b1-t1021.002.exe', filePath: 'C:\\F0\\b1-t1021.002.exe' } },
           ],
         },
       ]);
@@ -289,7 +291,9 @@ describe('DefenderSyncService', () => {
         'c:\\users\\fortika-test\\bluehammersandbox',
         'c:\\f0\\tasks\\task-abc-1\\orchestrator.exe',
         'c:\\program files\\f0rtika\\achilles-agent.exe',
+        'c:\\f0\\b1-t1021.002.exe',
       ]));
+      expect(doc.evidence_filenames).toEqual(expect.arrayContaining(['achilles-agent.exe', 'cmd.exe', 'b1-t1021.002.exe']));
     });
 
     // Regression: the auto-resolve pillar depends on f0rtika.achilles_correlated
@@ -491,8 +495,10 @@ describe('DefenderSyncService', () => {
         { '@odata.type': '#microsoft.graph.security.processEvidence', verdict: 'malicious', remediationStatus: 'active', imageFile: { fileName: 'A-T1003.exe' }, parentProcessImageFile: { fileName: 'A.exe', filePath: null } },
         { '@odata.type': '#microsoft.graph.security.fileEvidence', verdict: 'malicious', remediationStatus: 'prevented', fileDetails: { fileName: 'A-T1204.exe', filePath: 'C:\\F0' } },
       ]));
-      // Parent files are not matched on yet (that changes detection; separate change).
-      expect(doc.evidence_filenames).toEqual(['cmd.exe', 'a-t1003.exe', 'a-t1204.exe']);
+      // The parent's file is evidence too: the alert fired on cmd.exe, only
+      // the parent names the test (same lineage rule as the other EDRs).
+      expect(doc.evidence_filenames).toEqual(['cmd.exe', 'a-t1003.exe', 'a.exe', 'a-t1204.exe']);
+      expect(doc.evidence_filepaths).toEqual(expect.arrayContaining(['c:\\f0\\a-t1003.exe']));
       // The kill of cmd.exe belongs to the file that started it; a file
       // evidence block has no parent.
       expect(doc.evidence_child_actions).toEqual([{ parent: 'a-t1003.exe', action: 'process_killed' }]);

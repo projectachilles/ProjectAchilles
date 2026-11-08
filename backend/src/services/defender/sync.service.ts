@@ -38,7 +38,7 @@ const INITIAL_ALERT_LOOKBACK_DAYS = 90;
  * force a full re-sync on all deployments. The persisted sync_version is
  * compared against this; a mismatch clears lastAlertSync.
  */
-const ALERT_SYNC_VERSION = 7; // v7: + evidence_child_actions (blocked child processes by parent file), first/last_activity_at (edr/preventionTiming.ts); v6: full 90 days (the re-sync used to stop at the 500 newest alerts); v5: + evidence_file_verdicts (edr/multiTestEvidence.ts); v4: + prevention_action / remediation_status / portal_url
+const ALERT_SYNC_VERSION = 8; // v8: parent process files in evidence_filenames / evidence_filepaths (alerts_v2 parentProcessImageFile); v7: + evidence_child_actions (blocked child processes by parent file), first/last_activity_at (edr/preventionTiming.ts); v6: full 90 days (the re-sync used to stop at the 500 newest alerts); v5: + evidence_file_verdicts (edr/multiTestEvidence.ts); v4: + prevention_action / remediation_status / portal_url
 
 export class DefenderSyncService {
   private graphClient: MicrosoftGraphClient | null = null;
@@ -239,19 +239,20 @@ export class DefenderSyncService {
       if (ev.imageFile?.filePath) {
         filepaths.add(ev.imageFile.filePath.toLowerCase());
       }
-      if (ev.parentProcess?.imageFile?.fileName) {
-        filenames.add(ev.parentProcess.imageFile.fileName.toLowerCase());
-      }
-      if (ev.parentProcess?.imageFile?.filePath) {
-        filepaths.add(ev.parentProcess.imageFile.filePath.toLowerCase());
-      }
-      // The file that started the process. alerts_v2 sends it as
-      // `parentProcessImageFile` (live, Nov 2026), not the `parentProcess`
-      // read above, so parent files are not in evidence_filenames yet:
-      // matching alerts on them changes detection and is a separate change.
-      // Here it only attributes a blocked child process to its parent.
+      // The file that started the process. Alerts often fire on a program
+      // the test binary launched (cmd.exe, powershell.exe, rundll32.exe), and
+      // only the parent names the test. alerts_v2 sends it as
+      // `parentProcessImageFile` (live, Nov 2026); `parentProcess` is the
+      // shape this code used to read, which Graph never sends, kept as a
+      // fallback. Same lineage rule as CrowdStrike / SentinelOne / Sophos.
       const parentFile = ev.parentProcessImageFile ?? ev.parentProcess?.imageFile;
       const parentName = (parentFile?.fileName || parentFile?.filePath?.split(/[\\/]/).pop() || '').toLowerCase();
+      if (parentFile?.fileName) {
+        filenames.add(parentFile.fileName.toLowerCase());
+      }
+      if (parentFile?.filePath) {
+        filepaths.add(parentFile.filePath.toLowerCase());
+      }
       // File evidence → filename + path
       if (ev.fileDetails?.fileName) {
         filenames.add(ev.fileDetails.fileName.toLowerCase());
@@ -288,7 +289,7 @@ export class DefenderSyncService {
       }
       const hasFile = !!(
         ev.imageFile?.fileName || ev.imageFile?.filePath
-        || ev.parentProcess?.imageFile?.fileName || ev.parentProcess?.imageFile?.filePath
+        || parentFile?.fileName || parentFile?.filePath
         || ev.fileDetails?.fileName || ev.fileDetails?.filePath
       );
       (hasFile ? fileEvidenceStatuses : otherStatuses).push(status);

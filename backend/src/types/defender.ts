@@ -59,7 +59,7 @@ export interface GraphAlertEvidence {
   /** The file that started the process (alerts_v2 processEvidence). */
   parentProcessImageFile?: { fileName?: string | null; filePath?: string | null } | null;
   /**
-   * Older shape some code paths assumed; alerts_v2 does not send it (Nov 2026:
+   * Older shape this code used to read; alerts_v2 does not send it (Nov 2026:
    * processEvidence carries `parentProcessImageFile`). Read as a fallback only.
    */
   parentProcess?: { imageFile?: { fileName: string; filePath: string } };
@@ -186,11 +186,11 @@ export interface DefenderAlertDoc {
   recommended_actions: string;
   /** Hostnames extracted from evidence (deviceEvidence.deviceDnsName). */
   evidence_hostnames: string[];
-  /** Filenames extracted from evidence (process imageFile + fileDetails). */
+  /** Filenames extracted from evidence (process imageFile + its parent's file + fileDetails). */
   evidence_filenames: string[];
   /**
    * Filepaths extracted from evidence (fileDetails.filePath + imageFile.filePath +
-   * parentProcess.imageFile.filePath). Lowercased for case-insensitive substring
+   * the parent process's filePath, alerts_v2 parentProcessImageFile). Lowercased for case-insensitive substring
    * wildcard matching. Recovers correlations for AV-only alerts whose evidence
    * carries a dropped-file path under a bundle-named sandbox dir but no
    * bundle-UUID binary in evidence_filenames.
