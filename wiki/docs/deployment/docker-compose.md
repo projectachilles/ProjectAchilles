@@ -106,6 +106,17 @@ NGROK_BACKEND_DOMAIN=your-backend.ngrok-free.app
 AGENT_SERVER_URL=https://your-backend.ngrok-free.app
 ```
 
+### With a Lab Endpoint (Demos)
+
+To try tests without enrolling a real machine, add a throwaway Linux endpoint container that runs the agent:
+
+```bash
+docker compose -f docker-compose.yml -f docker-compose.lab.yml up -d
+docker exec achilles-lab-endpoint enroll <TOKEN>   # token from the UI
+```
+
+It shows up as `lab-endpoint` (linux / amd64) and can run Linux tests. While the overlay is on, the backend gives newly enrolled agents `http://localhost:3000`; set `LAB_AGENT_SERVER_URL` to an `https://` URL if other hosts enroll too. Details and two demo scenarios: `deploy/lab-endpoint/README.md` in the repository.
+
 ## Volume Storage
 
 Docker Compose uses a named volume for persistent data:

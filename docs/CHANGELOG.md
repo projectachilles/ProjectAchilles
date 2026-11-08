@@ -11,6 +11,9 @@ This project uses two version streams:
 
 ## [Unreleased]
 
+### Added
+- **Lab endpoint for demos and workshops** (`docker-compose.lab.yml`, `deploy/lab-endpoint/`): a throwaway `linux/amd64` container that runs the agent next to a Docker Compose or server install, enrolled with `docker exec achilles-lab-endpoint enroll <TOKEN>`. It ships a deliberately unhardened SSH config for the CIS Linux bundle, and its README walks through two scenarios (Shadow AI exfiltration: DNS sinkhole flips 101 to 126; CIS Linux: four fixes flip four controls). While the overlay is on, the backend gives newly enrolled agents `http://localhost:3000` (override with `LAB_AGENT_SERVER_URL`).
+
 ## [2.10.1] - 2026-11-07
 
 **Evidence You Can Defend, continued.** 2.10.0 tied every detection to the stage's own alert; 2.10.1 does the same for prevention and closes the gaps the first days of live data showed. **Prevented** now means the EDR stopped the stage during the run, not a cleanup minutes later or a block on another stage's file. An alert listing several tests' files counts only through Defender's verdict on each test's own file. Defender alerts on a program a stage launched now count for that stage, as they already did for the other EDRs. And the execution report, the run panel and the SB-PC-2026-001 export follow the same evidence rules as the verdicts. Expect fewer Prevented and more Detected stages; the Defense Score barely moves, because it counts both as protected.
