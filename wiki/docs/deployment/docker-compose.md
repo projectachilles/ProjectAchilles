@@ -115,7 +115,7 @@ docker compose -f docker-compose.yml -f docker-compose.lab.yml up -d
 docker exec achilles-lab-endpoint enroll <TOKEN>   # token from the UI
 ```
 
-It shows up as `lab-endpoint` (linux / amd64) and can run Linux tests. While the overlay is on, the backend gives newly enrolled agents `http://localhost:3000`; set `LAB_AGENT_SERVER_URL` to an `https://` URL if other hosts enroll too. Details and two demo scenarios: `deploy/lab-endpoint/README.md` in the repository.
+It shows up as `lab-endpoint` (linux / amd64) and can run Linux tests. It reaches the backend through its own localhost forwarder, so the backend's `AGENT_SERVER_URL` stays as it is; it must be `http://localhost:3000` (the default) or an `https://` URL, or enrollment is refused. Details and two demo scenarios: `deploy/lab-endpoint/README.md` in the repository.
 
 ## Volume Storage
 

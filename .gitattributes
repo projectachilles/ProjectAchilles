@@ -3,3 +3,5 @@
 *.sh text eol=lf
 Dockerfile text eol=lf
 docker-entrypoint.sh text eol=lf
+# Lab endpoint files are copied into a Linux image (extension-less scripts too).
+deploy/lab-endpoint/** text eol=lf

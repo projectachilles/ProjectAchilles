@@ -11,16 +11,11 @@
 #   docker compose -f docker-compose.yml -f docker-compose.lab.yml rm -sf lab-endpoint
 #   docker volume rm <project>_lab-endpoint-data
 #
-# While this overlay is on, the backend tells newly enrolled agents to use
-# http://localhost:3000 (the lab endpoint's built-in forwarder). Agents on
-# other hosts need an https:// URL: set LAB_AGENT_SERVER_URL to it.
+# The lab endpoint always talks to the backend through its own localhost
+# forwarder; the backend's AGENT_SERVER_URL (what real agents get) is untouched.
 # Details: deploy/lab-endpoint/README.md
 
 services:
-  backend:
-    environment:
-      - AGENT_SERVER_URL=${LAB_AGENT_SERVER_URL:-http://localhost:3000}
-
   lab-endpoint:
     build:
       context: .

@@ -6,7 +6,9 @@
 
 # Agent and library tests ship amd64 only: always build with --platform linux/amd64
 # (docker-compose.lab.yml and the tests do; Apple Silicon runs it emulated).
-FROM golang:1.26-bookworm@sha256:5de7c99eb78ca5e515a4c340235d0955ec5964a5071c492c15503d7c267da473 AS agent
+# The agent is cross-compiled, so the Go stage runs natively ($BUILDPLATFORM)
+# instead of under emulation on Apple Silicon.
+FROM --platform=$BUILDPLATFORM golang:1.26-bookworm@sha256:5de7c99eb78ca5e515a4c340235d0955ec5964a5071c492c15503d7c267da473 AS agent
 # Keep equal to VERSION in agent/Makefile.
 ARG AGENT_VERSION=0.7.3
 WORKDIR /src
@@ -25,6 +27,8 @@ COPY --from=agent /out/achilles-agent /usr/local/bin/achilles-agent
 COPY deploy/lab-endpoint/entrypoint.sh /usr/local/bin/entrypoint.sh
 COPY deploy/lab-endpoint/enroll /usr/local/bin/enroll
 COPY deploy/lab-endpoint/sshd_config.vendor-default /etc/ssh/sshd_config
-RUN chmod 0755 /usr/local/bin/entrypoint.sh /usr/local/bin/enroll
+# Strip CRs in case the files came from a Windows (autocrlf) checkout.
+RUN sed -i 's/\r$//' /usr/local/bin/entrypoint.sh /usr/local/bin/enroll /etc/ssh/sshd_config \
+ && chmod 0755 /usr/local/bin/entrypoint.sh /usr/local/bin/enroll
 # Root on purpose: security tests need it, as on a real endpoint.
 ENTRYPOINT ["/usr/local/bin/entrypoint.sh"]

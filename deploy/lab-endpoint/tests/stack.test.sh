@@ -16,12 +16,17 @@ fi
 
 CTR="achilles-lab-endpoint"
 AGENT_VERSION="$(sed -n 's/^VERSION := //p' agent/Makefile)"
-DC=(docker compose -p achilles-labtest -f docker-compose.yml -f docker-compose.lab.yml)
+# Like a server install, the backend hands out an https:// URL at enrollment
+# (and it overrides whatever backend/.env says). The lab endpoint must still
+# use its localhost forwarder, without the backend's URL being changed.
+SERVER_LIKE="$(mktemp --suffix=.yml)"
+printf 'services:\n  backend:\n    environment:\n      - AGENT_SERVER_URL=https://lab.example.test\n' > "$SERVER_LIKE"
+DC=(docker compose -p achilles-labtest -f docker-compose.yml -f docker-compose.lab.yml -f "$SERVER_LIKE")
 
 fail() { echo "FAIL $1: $2" >&2; exit 1; }
 pass() { echo "PASS $1"; }
 cleanup() { "${DC[@]}" rm -sf lab-endpoint >/dev/null 2>&1 || true; docker volume rm achilles-labtest_lab-endpoint-data >/dev/null 2>&1 || true; }
-trap cleanup EXIT
+trap 'cleanup; rm -f "$SERVER_LIKE"' EXIT
 
 # Fresh endpoint state for every run; the backend keeps running.
 cleanup

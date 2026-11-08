@@ -68,7 +68,41 @@ enroll_passes_args() {
   pass "${FUNCNAME[0]}"
 }
 
+lab_files_are_lf_in_git() {
+  # Git for Windows defaults to core.autocrlf=true; files copied into the
+  # image must still be checked out with LF.
+  local f bad=""
+  while IFS= read -r f; do
+    git check-attr eol -- "$f" | grep -q 'eol: lf$' || bad="$bad $f"
+  done < <(git ls-files deploy/lab-endpoint; ls deploy/lab-endpoint/enroll deploy/lab-endpoint/sshd_config.vendor-default)
+  [ -z "$bad" ] || fail "${FUNCNAME[0]}" "not forced to LF:$bad"
+  pass "${FUNCNAME[0]}"
+}
+
+builds_from_crlf_checkout() {
+  # Simulate a CRLF checkout: the image must still start and enroll must run.
+  local ctx out
+  ctx="$(mktemp -d)"
+  mkdir -p "$ctx/deploy"
+  cp -r deploy/lab-endpoint "$ctx/deploy/"
+  rsync -a --exclude dist agent/ "$ctx/agent/"
+  for f in enroll entrypoint.sh sshd_config.vendor-default; do
+    sed -i 's/$/\r/' "$ctx/deploy/lab-endpoint/$f"
+  done
+  docker build --platform linux/amd64 --build-arg AGENT_VERSION="$AGENT_VERSION" \
+    -f "$ctx/deploy/lab-endpoint/Dockerfile" -t achilles-lab-endpoint:crlf "$ctx" >/dev/null 2>&1 \
+    || { rm -rf "$ctx"; fail "${FUNCNAME[0]}" "build failed"; }
+  rm -rf "$ctx"
+  out="$(docker run --rm --platform linux/amd64 achilles-lab-endpoint:crlf enroll 2>&1 || true)"
+  grep -q 'usage: enroll' <<<"$out" || fail "${FUNCNAME[0]}" "enroll broken by CRLF: $out"
+  docker run --rm --platform linux/amd64 achilles-lab-endpoint:crlf cat /etc/ssh/sshd_config | grep -qx 'PermitRootLogin yes' \
+    || fail "${FUNCNAME[0]}" "sshd_config keeps CR line endings"
+  pass "${FUNCNAME[0]}"
+}
+
 build
+lab_files_are_lf_in_git
+builds_from_crlf_checkout
 version_matches_makefile
 vendor_default_sshd
 modprobe_not_hardened

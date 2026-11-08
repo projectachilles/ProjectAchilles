@@ -8,4 +8,17 @@ if [ -z "${1:-}" ]; then
   exit 2
 fi
 
-exec achilles-agent --enroll "$1" --server "${2:-http://localhost:3000}"
+CONFIG=/opt/f0/achilles-agent.yaml
+TMP=/opt/f0/.enroll.yaml
+rm -f "$TMP"
+achilles-agent --enroll "$1" --server "${2:-http://localhost:3000}" --config "$TMP"
+
+# Enrollment saves the URL the backend hands every agent (AGENT_SERVER_URL,
+# e.g. a server's https:// address). With the forwarder on and no explicit
+# server, keep talking to it instead, so the backend's URL never has to change.
+if [ -z "${2:-}" ] && [ -n "${LAB_FORWARD_TO:-}" ]; then
+  sed -i 's|^server_url:.*|server_url: http://localhost:3000|' "$TMP"
+fi
+
+# Atomic: the entrypoint starts the agent as soon as the config appears.
+mv "$TMP" "$CONFIG"

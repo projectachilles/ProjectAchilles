@@ -47,9 +47,15 @@ docker volume rm <project>_lab-endpoint-data   # e.g. projectachilles_lab-endpoi
   forwarder inside the container passes `127.0.0.1:3000` to `backend:3000`, so
   the agent talks to `http://localhost:3000` and keeps its own hostname and
   `/etc/hosts`.
-- **Backend URL:** while the overlay is on, the backend tells newly enrolled
-  agents to use `http://localhost:3000`. Agents on other hosts need an
-  `https://` URL: set `LAB_AGENT_SERVER_URL` (root `.env` or shell) to it.
+- **Backend URL:** the overlay does not change the backend's
+  `AGENT_SERVER_URL` (what real agents are told at enrollment). `enroll`
+  saves the endpoint's own config with `http://localhost:3000` instead, so it
+  keeps using the forwarder on laptops and servers alike. The agent still
+  checks the URL the backend returns: if `backend/.env` sets
+  `AGENT_SERVER_URL` to plain HTTP on another host (e.g.
+  `http://192.168.1.10:3000`), enrollment fails with "server returned
+  insecure URL". Use the default `http://localhost:3000`, or an `https://`
+  URL.
 - **Machine ID:** the agent encrypts its key with the machine ID. The
   entrypoint keeps one in the volume (`/opt/f0/lab-machine-id`) and copies it
   to `/etc/machine-id` on every start.

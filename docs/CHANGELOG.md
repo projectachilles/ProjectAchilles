@@ -12,7 +12,7 @@ This project uses two version streams:
 ## [Unreleased]
 
 ### Added
-- **Lab endpoint for demos and workshops** (`docker-compose.lab.yml`, `deploy/lab-endpoint/`): a throwaway `linux/amd64` container that runs the agent next to a Docker Compose or server install, enrolled with `docker exec achilles-lab-endpoint enroll <TOKEN>`. It ships a deliberately unhardened SSH config for the CIS Linux bundle, and its README walks through two scenarios (Shadow AI exfiltration: DNS sinkhole flips 101 to 126; CIS Linux: four fixes flip four controls). While the overlay is on, the backend gives newly enrolled agents `http://localhost:3000` (override with `LAB_AGENT_SERVER_URL`).
+- **Lab endpoint for demos and workshops** (`docker-compose.lab.yml`, `deploy/lab-endpoint/`): a throwaway `linux/amd64` container that runs the agent next to a Docker Compose or server install, enrolled with `docker exec achilles-lab-endpoint enroll <TOKEN>`. It ships a deliberately unhardened SSH config for the CIS Linux bundle, and its README walks through two scenarios (Shadow AI exfiltration: DNS sinkhole flips 101 to 126; CIS Linux: four fixes flip four controls). The endpoint reaches the backend through its own localhost forwarder; the backend's `AGENT_SERVER_URL` is not changed. Line endings of the files it copies are forced to LF, so a Windows checkout builds too.
 
 ## [2.10.1] - 2026-11-07
 

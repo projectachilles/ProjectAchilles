@@ -23,13 +23,17 @@ server_overlay_config() {
   services="$("${DC[@]}" config --services)" || fail "${FUNCNAME[0]}" "compose config failed"
   grep -qx 'lab-endpoint' <<<"$services" || fail "${FUNCNAME[0]}" "no lab-endpoint service"
   json="$("${DC[@]}" config --format json)"
-  python3 - "$json" <<'PY' || fail "server_overlay_config" "merged config is not usable"
+  local env_url
+  env_url="$(sed -n 's/^AGENT_SERVER_URL=//p' backend/.env | tail -1)"
+  python3 - "$json" "$env_url" <<'PY' || fail "server_overlay_config" "merged config is not usable"
 import json, sys
 cfg = json.loads(sys.argv[1])["services"]
+env_url = sys.argv[2] or None
 backend, lab = cfg["backend"], cfg["lab-endpoint"]
 # depends_on: service_healthy needs a backend healthcheck in this file too.
 assert backend.get("healthcheck"), "backend has no healthcheck"
-assert backend["environment"]["AGENT_SERVER_URL"] == "http://localhost:3000", backend["environment"].get("AGENT_SERVER_URL")
+# The overlay must not change the URL real agents are given at enrollment.
+assert backend.get("environment", {}).get("AGENT_SERVER_URL") == env_url, backend.get("environment", {}).get("AGENT_SERVER_URL")
 assert lab["environment"]["LAB_FORWARD_TO"] == "backend:3000"
 assert lab["platform"] == "linux/amd64"
 PY
