@@ -1,0 +1,11 @@
+#!/bin/sh
+# Enroll the lab endpoint: enroll <TOKEN> [server-url]
+# The server defaults to the in-container forwarder (http://localhost:3000).
+set -eu
+
+if [ -z "${1:-}" ]; then
+  echo "usage: enroll <TOKEN> [server-url]   (default server: http://localhost:3000)" >&2
+  exit 2
+fi
+
+exec achilles-agent --enroll "$1" --server "${2:-http://localhost:3000}"

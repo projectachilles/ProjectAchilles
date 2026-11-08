@@ -1,0 +1,17 @@
+# Deliberately UNHARDENED "vendor default" SSH configuration for the lab
+# endpoint. The CIS Linux Level 1 bundle should flag root login and the
+# authentication retry limit; fixing these two lines is the demo.
+# No SSH server runs in the lab endpoint: the CIS checks read this file.
+
+Include /etc/ssh/sshd_config.d/*.conf
+
+Port 22
+PermitRootLogin yes
+MaxAuthTries 6
+PasswordAuthentication yes
+KbdInteractiveAuthentication no
+UsePAM yes
+X11Forwarding yes
+PrintMotd no
+AcceptEnv LANG LC_*
+Subsystem sftp /usr/lib/openssh/sftp-server
