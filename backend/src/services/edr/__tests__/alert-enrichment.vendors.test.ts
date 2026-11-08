@@ -655,6 +655,25 @@ describe.each(VENDORS)('EDR alert enrichment — $name in-run prevention', ({ pr
     expect(bulk.mock.calls[0][0].operations[1].doc.f0rtika).toEqual({ [`${prefix}_prevention_rule`]: 'in_run' });
   });
 
+  it('an older stage with an action but no _stage_prevented is settled when its stage alerts are visible and none counts', async () => {
+    // Live, Nov 2026: a Kothamine stage (exit 999) stayed Prevented through the
+    // fallback (stage detected + action); its only stage alert named two tests
+    // and blocked the other test's file.
+    const QILIN = '8f68dda1-0000-4000-8000-000000000001';
+    const KOTH = 'c37d6a01-3934-4e72-9cb1-3dae284b937b';
+    const d = resultDoc(999);
+    const doc = { ...d, _source: { ...d._source, f0rtika: { test_uuid: `${KOTH}::T1572`, control_id: 'T1572', [`${prefix}_detected`]: true, [`${prefix}_stage_detected`]: true, [`${prefix}_prevented`]: true, [`${prefix}_prevention_action`]: 'process_killed', ...evaluated, [`${prefix}_prevention_rule`]: 'in_run' } } };
+    search.mockResolvedValueOnce({ hits: { hits: [doc] } });
+    const multi = one({
+      prevention_action: 'process_killed', created_at: IN_RUN,
+      evidence_filenames: [`${QILIN}-t1518.001.exe`, `${KOTH}-t1572.exe`],
+      evidence_file_verdicts: [{ file: `${QILIN}-t1518.001.exe`, verdict: 'malicious', action: 'process_killed' }, { file: `${KOTH}-t1572.exe`, verdict: 'suspicious', action: null }],
+    });
+    msearch.mockResolvedValueOnce({ responses: [multi, multi] });
+    await make(client).runEnrichmentPass({ batchSize: 200 });
+    expect(bulk.mock.calls[0][0].operations[1].doc.f0rtika).toEqual({ [`${prefix}_stage_prevented`]: false });
+  });
+
   it('a doc already checked under the in-run rules is left alone', async () => {
     search.mockResolvedValueOnce({ hits: { hits: [stored(101, { [`${prefix}_stage_prevented`]: true, [`${prefix}_prevented`]: true, [`${prefix}_prevention_action`]: 'blocked', [`${prefix}_prevention_rule`]: 'in_run' })] } });
     const alert = one({ prevention_action: 'blocked', created_at: LATE });
