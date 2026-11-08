@@ -312,7 +312,7 @@ describe('sbReport.service.ts', () => {
       // correlated alert showed a kill — deterministic evidence. Killed stages
       // never reach a conclusive exit code, so the flag must upgrade 999/259/0.
       const hits = [
-        makeBundleHit({ control_id: 'T1486', validator: 'Stage 5', exit_code: 999, techniques: ['T1486'], tactics: ['impact'], crowdstrike_prevented: true }),
+        makeBundleHit({ control_id: 'T1486', validator: 'Stage 5', exit_code: 999, techniques: ['T1486'], tactics: ['impact'], crowdstrike_prevented: true, flags: { crowdstrike_stage_detected: true, crowdstrike_stage_prevented: true } }),
       ];
       mockSearch.mockResolvedValue(esSearchResponse(hits));
 
@@ -325,7 +325,7 @@ describe('sbReport.service.ts', () => {
 
     it('maps a killed stage with sentinelone_prevented to PREVENTED with preventedBy SentinelOne', async () => {
       const hits = [
-        makeBundleHit({ control_id: 'T1486', validator: 'Stage 5', exit_code: 999, techniques: ['T1486'], tactics: ['impact'], sentinelone_prevented: true, sentinelone_detected: true }),
+        makeBundleHit({ control_id: 'T1486', validator: 'Stage 5', exit_code: 999, techniques: ['T1486'], tactics: ['impact'], sentinelone_prevented: true, sentinelone_detected: true, flags: { sentinelone_stage_detected: true, sentinelone_stage_prevented: true } }),
       ];
       mockSearch.mockResolvedValue(esSearchResponse(hits));
 
@@ -333,6 +333,32 @@ describe('sbReport.service.ts', () => {
 
       expect(report.executions[0].outcome).toBe('PREVENTED');
       expect(report.executions[0].preventedBy).toEqual(['SentinelOne Singularity']);
+    });
+
+    it('a killed stage whose only prevention is test-level (a sibling stage\'s alert) is not PREVENTED', async () => {
+      // Same rule as Analytics (stageOutcome.ts): on an error code only the
+      // stage's own prevention counts. Live (Nov 2026): one LockBit stage was
+      // PREVENTED here and Inconclusive in Analytics.
+      const hits = [
+        makeBundleHit({ control_id: 'T1003.001', validator: 'Stage 2', exit_code: 999, techniques: ['T1003.001'], tactics: ['credential-access'], defender_prevented: true, defender_detected: true, flags: { defender_stage_prevented: false } }),
+      ];
+      mockSearch.mockResolvedValue(esSearchResponse(hits));
+
+      const report = await createService().generateSbReport({ ...WINDOW, org: ORG_UUID });
+
+      expect(report.executions[0].outcome).toBe('ERROR');
+      expect(report.executions[0].preventedBy).toEqual([]);
+    });
+
+    it('a stage enriched before _stage_prevented existed counts its own detection + confirmed action', async () => {
+      const hits = [
+        makeBundleHit({ control_id: 'T1486', validator: 'Stage 5', exit_code: 999, techniques: ['T1486'], tactics: ['impact'], defender_prevented: true, defender_stage_detected: true, flags: { defender_prevention_action: 'process_killed' } }),
+      ];
+      mockSearch.mockResolvedValue(esSearchResponse(hits));
+
+      const report = await createService().generateSbReport({ ...WINDOW, org: ORG_UUID });
+
+      expect(report.executions[0].outcome).toBe('PREVENTED');
     });
 
     it('maps an executed stage with a SentinelOne detection to DETECTED', async () => {
@@ -367,7 +393,7 @@ describe('sbReport.service.ts', () => {
       const hits = [
         makeBundleHit({
           control_id: 'T1003.001', validator: 'Stage 2', exit_code: 999, techniques: ['T1003.001'], tactics: ['credential-access'],
-          defender_stage_detected: true, crowdstrike_prevented: true,
+          defender_stage_detected: true, crowdstrike_prevented: true, flags: { crowdstrike_stage_detected: true, crowdstrike_stage_prevented: true },
         }),
       ];
       mockSearch.mockResolvedValue(esSearchResponse(hits));
@@ -382,7 +408,7 @@ describe('sbReport.service.ts', () => {
       // A stage killed mid-run may report 259 (timeout/still-active) — the
       // vendor's prevention disposition on the matched alert is the truth.
       const hits = [
-        makeBundleHit({ control_id: 'T1059.001', validator: 'Stage 1', exit_code: 259, techniques: ['T1059.001'], tactics: ['execution'], crowdstrike_prevented: true }),
+        makeBundleHit({ control_id: 'T1059.001', validator: 'Stage 1', exit_code: 259, techniques: ['T1059.001'], tactics: ['execution'], crowdstrike_prevented: true, flags: { crowdstrike_stage_detected: true, crowdstrike_stage_prevented: true } }),
       ];
       mockSearch.mockResolvedValue(esSearchResponse(hits));
 
@@ -396,7 +422,7 @@ describe('sbReport.service.ts', () => {
       // Defender equivalent of the CrowdStrike case: the correlated alert's
       // evidence[].remediationStatus reported a completed prevention.
       const hits = [
-        makeBundleHit({ control_id: 'T1486', validator: 'Stage 5', exit_code: 999, techniques: ['T1486'], tactics: ['impact'], defender_prevented: true, defender_detected: true }),
+        makeBundleHit({ control_id: 'T1486', validator: 'Stage 5', exit_code: 999, techniques: ['T1486'], tactics: ['impact'], defender_prevented: true, defender_detected: true, defender_stage_detected: true, flags: { defender_stage_prevented: true } }),
       ];
       mockSearch.mockResolvedValue(esSearchResponse(hits));
 
@@ -412,6 +438,7 @@ describe('sbReport.service.ts', () => {
         makeBundleHit({
           control_id: 'T1003.001', validator: 'Stage 2', exit_code: 999, techniques: ['T1003.001'], tactics: ['credential-access'],
           defender_prevented: true, crowdstrike_prevented: true,
+          flags: { defender_stage_detected: true, defender_stage_prevented: true, crowdstrike_stage_detected: true, crowdstrike_stage_prevented: true },
         }),
       ];
       mockSearch.mockResolvedValue(esSearchResponse(hits));
@@ -734,7 +761,32 @@ describe('sbReport.service.ts', () => {
       const body = JSON.stringify(searches[1]);
       expect(body).toContain(`${BUNDLE_UUID}-t1059.001.exe`);
       expect(body).toContain('WIN-LAB-01*');
-      expect(searches[1]._source).toEqual(['mitre_techniques']);
+      expect(searches[1]._source).toEqual(['mitre_techniques', 'evidence_filenames', 'evidence_filepaths', 'evidence_file_verdicts', 'evidence_child_actions']);
+    });
+
+    it('leaves out the techniques of alerts that are no evidence for the stage (a multi-test listing)', async () => {
+      // Live (Nov 2026): 35 LockBit stages listed 261 techniques from Defender
+      // "A suspicious file was observed" listings that name several tests'
+      // leftover files, all marked suspicious.
+      const OTHER = '26a8b54e-0000-4000-8000-000000000001';
+      mockSearch.mockResolvedValue(esSearchResponse([
+        makeBundleHit({ control_id: 'T1059.001', validator: 'Stage 1', exit_code: 101, techniques: ['T1059.001'], tactics: ['execution'], defender_stage_detected: true }),
+      ]));
+      mockMsearch.mockResolvedValue({ responses: [{ hits: { hits: [
+        { _source: { mitre_techniques: ['T1562.001'], evidence_filenames: [`${BUNDLE_UUID}-t1059.001.exe`] } },
+        { _source: {
+          mitre_techniques: ['T1027', 'T1105'],
+          evidence_filenames: [`${BUNDLE_UUID}-t1059.001.exe`, `${OTHER}-t1055.exe`],
+          evidence_file_verdicts: [
+            { file: `${BUNDLE_UUID}-t1059.001.exe`, verdict: 'suspicious', action: null },
+            { file: `${OTHER}-t1055.exe`, verdict: 'suspicious', action: null },
+          ],
+        } },
+      ] } }] });
+
+      const report = await createService().generateSbReport({ ...WINDOW });
+
+      expect(report.executions[0].detectedTechniques).toEqual(['T1562.001']);
     });
 
     it('queries each vendor whose stage flag is set, in its own index, and merges them', async () => {

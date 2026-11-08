@@ -99,6 +99,8 @@ export interface CrowdStrikeAlertItem {
    * Absent on detection-only alerts.
    */
   prevention_action?: 'quarantined' | 'process_killed' | 'blocked' | 'kill_failed';
+  /** The action can't have happened by the end of the run; shown as "after the run" on a stage that exited 101. */
+  acted_after_run?: boolean;
   /** Who raised it, when the vendor says (SentinelOne: agent_policy, dv_command = analyst, star_active, ...). */
   initiated_by?: string;
   /** Raw CrowdStrike disposition text, e.g. "Prevention, process killed." — display/audit. */

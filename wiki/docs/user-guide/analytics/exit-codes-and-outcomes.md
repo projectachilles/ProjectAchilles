@@ -116,6 +116,11 @@ prevention. Test-level flags keep the alert-wide action. EDRs that don't
 record actions per evidence item (CrowdStrike, SentinelOne, Sophos), and
 Defender alerts synced before this rule, keep the alert-wide action.
 
+In **All executions** and the execution report, an alert shown under a stage
+carries that stage's own action, and on a stage that exited `101` a late one
+reads **`<action> after the run`** (e.g. *process killed after the run*): the
+alert is real and the SOC will see it, but it is not the prevention.
+
 Results prevented before these two rules are checked once
 (`*_prevention_rule: in_run`). A result loses `*_stage_prevented`, and
 `*_prevented` when nothing else backs it, only when the alerts it came from
@@ -190,7 +195,7 @@ Outcomes: `PREVENTED / DETECTED / MISSED / EXPOSED / NOT_RUN / ERROR`.
 | Exit | EDR flags | Outcome | Attribution |
 |---|---|---|---|
 | 105 / 126 / 127 | any | **PREVENTED** | `preventedBy`: vendor(s) |
-| 999 / 259 / 0 / none | any vendor's `*_prevented` | **PREVENTED** | `preventedBy`: the preventing vendor(s), all when several flagged |
+| 999 / 259 / 0 / none | the stage's own prevention: any vendor's `*_stage_prevented` (on older documents `*_stage_detected` + a confirmed `*_prevention_action`), as in §3; the test-level `*_prevented` alone, which a sibling stage's alert can set, doesn't count | **PREVENTED** | `preventedBy`: the preventing vendor(s), all when several flagged |
 | 101 / 0 | `*_stage_detected` | **DETECTED** | `detectedBy`: vendor(s), all when several flagged |
 | 101 / 0 | none, tactic ∈ `{exfiltration, impact}` | **EXPOSED** | — |
 | 101 / 0 | none, other tactics | **MISSED** | — |
@@ -208,8 +213,9 @@ Techniques on each row:
   older runs get it too.
 - **`detectedTechniques`**: an additional field (the bulletin accepts extra
   fields and doesn't evaluate them). It lists the ATT&CK techniques on the
-  alerts that named this stage's own binary, for each vendor whose
-  `*_stage_detected` flag is set, sorted. It's empty when no vendor detected
+  alerts that named this stage's own binary and count for it, for each vendor
+  whose `*_stage_detected` flag is set, sorted. An alert naming several tests'
+  files that doesn't single out this stage's (a listing, §2) adds nothing. It's empty when no vendor detected
   the stage. If the alert search fails, the export still completes, with this
   field empty and a warning in the backend log.
 

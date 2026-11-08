@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { alertStageText, firstAlert, resolveRunStage, stageForAlert, vendorName } from '../runs';
+import { alertActionText, alertStageText, firstAlert, resolveRunStage, stageForAlert, vendorName } from '../runs';
 import { makeReport, makeRun, makeTest } from '../../__tests__/fixtures';
 import type { ReportRun, ReportRunStage, ReportTest } from '@/services/api/reports';
 
@@ -149,5 +149,31 @@ describe('alertStageText', () => {
     const long = 'A'.repeat(60);
     const run = makeRun({ stages: [{ ...makeRun().stages[0], name: long }] });
     expect(alertStageText([], run, 't1059.001')).toBe(`S1 ${'A'.repeat(33)}…`);
+  });
+});
+
+describe('alertActionText', () => {
+  const run = makeRun();
+  const lsass = run.alerts[0];
+  const tests = [makeTest()];
+
+  it('prints the action', () => {
+    expect(alertActionText(tests, run, lsass)).toBe('blocked');
+    expect(alertActionText(tests, run, { ...lsass, preventionAction: null })).toBeNull();
+  });
+
+  it('says "after the run" for a late action on a stage that exited 101 (same gate as the verdict)', () => {
+    const late = { ...lsass, stageControlId: 't1021.002', preventionAction: 'process_killed', actedAfterRun: true };
+    expect(alertActionText(tests, run, late)).toBe('process killed after the run');
+  });
+
+  it('a late action on a stage that did not exit 101 (or a bundle-level alert) prints as is', () => {
+    expect(alertActionText(tests, run, { ...lsass, actedAfterRun: true })).toBe('blocked'); // T1003.001 exited 126
+    expect(alertActionText(tests, run, { ...lsass, stageControlId: null, actedAfterRun: true })).toBe('blocked');
+  });
+
+  it('a standalone test uses its one result', () => {
+    const solo = makeRun({ stages: [{ ...run.stages[0], controlId: null }] });
+    expect(alertActionText([makeTest({ isBundle: false })], solo, { ...lsass, stageControlId: null, actedAfterRun: true })).toBe('blocked after the run');
   });
 });

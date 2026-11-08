@@ -179,3 +179,52 @@ describe('projectAlertHit: multi-test alerts', () => {
     expect(p).toMatchObject({ attribution: 'stage', attributed_control_id: 't1486' });
   });
 });
+
+// The action an alert shows under a stage (Nov 2026): the stage's own, as the
+// verdict uses, and whether it can have happened during the run.
+describe('projectAlertHit stage action and timing', () => {
+  const lumma = (extra: Record<string, unknown> = {}) => ({
+    alert_id: 'a',
+    prevention_action: 'process_killed',
+    created_at: '2026-11-04T12:56:19Z',
+    last_activity_at: '2026-11-04T12:55:36Z',
+    evidence_filenames: [`${UUID}-t1204.002.exe`, `${UUID}-t1055.003.exe`],
+    evidence_file_verdicts: [
+      { file: `${UUID}-t1204.002.exe`, verdict: 'malicious', action: 'blocked' },
+      { file: `${UUID}-t1055.003.exe`, verdict: 'malicious', action: 'process_killed' },
+    ],
+    evidence_child_actions: [],
+    ...extra,
+  });
+
+  it('shows the attributed stage\'s own action, not the alert-wide one', () => {
+    expect(projectAlertHit(lumma(), UUID)).toMatchObject({ attribution: 'stage', attributed_control_id: 't1204.002', prevention_action: 'blocked' });
+  });
+
+  it('shows no action when the stage\'s own file was not acted on', () => {
+    const p = projectAlertHit(lumma({ evidence_file_verdicts: [{ file: `${UUID}-t1204.002.exe`, verdict: 'malicious', action: null }, { file: `${UUID}-t1055.003.exe`, verdict: 'malicious', action: 'process_killed' }] }), UUID);
+    expect(p.prevention_action).toBeUndefined();
+  });
+
+  it('a killed process the stage started is its action', () => {
+    const p = projectAlertHit(lumma({
+      evidence_filenames: ['cmd.exe', `${UUID}-t1204.002.exe`],
+      evidence_file_verdicts: [{ file: 'cmd.exe', verdict: 'malicious', action: 'process_killed' }],
+      evidence_child_actions: [{ parent: `${UUID}-t1204.002.exe`, action: 'process_killed' }],
+    }), UUID);
+    expect(p).toMatchObject({ attributed_control_id: 't1204.002', prevention_action: 'process_killed' });
+  });
+
+  it('an alert synced before per-item actions keeps the alert-wide action', () => {
+    const { evidence_child_actions: _drop, ...old } = lumma();
+    expect(projectAlertHit(old, UUID).prevention_action).toBe('process_killed');
+  });
+
+  it('flags an action that can\'t have happened by the end of the run (7 minutes later)', () => {
+    expect(projectAlertHit(lumma(), UUID, { resultTime: '2026-11-04T12:48:32Z' }).acted_after_run).toBe(true);
+    expect(projectAlertHit(lumma({ last_activity_at: '2026-11-04T12:49:00Z' }), UUID, { resultTime: '2026-11-04T12:48:32Z' }).acted_after_run).toBeUndefined();
+    // No run time, or no action: no flag.
+    expect(projectAlertHit(lumma(), UUID).acted_after_run).toBeUndefined();
+    expect(projectAlertHit({ alert_id: 'b', created_at: '2026-11-04T13:30:00Z' }, UUID, { resultTime: '2026-11-04T12:48:32Z' }).acted_after_run).toBeUndefined();
+  });
+});

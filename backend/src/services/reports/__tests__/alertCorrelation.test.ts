@@ -11,10 +11,10 @@ const BUNDLE = '298cc137-ea39-4cf0-9b2d-b1c59a3cbacb';
 
 function run(i: number, techniques = ['T1486']): CorrelationRun {
   return {
-    key: `bundle::${BUNDLE}::HOST${i}::${1760273269000 + i}`,
+    key: `bundle::${BUNDLE}::HOST${i}::${1791809269000 + i}`,
     testKey: BUNDLE,
     hostname: `HOST${i}`,
-    completedAt: new Date(1760273269000 + i).toISOString(),
+    completedAt: new Date(1791809269000 + i).toISOString(),
     bundleName: 'LockBit 3.0 Double Extortion Kill Chain',
     techniques,
   };
@@ -49,7 +49,7 @@ describe('correlateRuns', () => {
     expect(res.complete).toBe(true);
     expect(res.alerts.get(run(1).key)?.[0]).toEqual({
       vendor: 'defender', title: 'ProcRansomware', severity: 'high', status: 'new',
-      createdAt: '2026-10-12T12:48:51Z', stageControlId: 't1486', preventionAction: 'blocked',
+      createdAt: '2026-10-12T12:48:51Z', stageControlId: 't1486', preventionAction: 'blocked', actedAfterRun: false,
       portalUrl: 'https://x/1', autoResolvedAt: '2026-10-12T13:02:10Z',
     });
   });

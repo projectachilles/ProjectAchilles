@@ -85,6 +85,21 @@ export function alertStageText(tests: ReportTest[], run: ReportRun, token: strin
   return stage ? `S${stage.order} ${truncate(resolveRunStage(tests, run, stage).name, STAGE_NAME_MAX)}` : 'bundle';
 }
 
+/**
+ * The alert's action as the report prints it, or null: "<action>", or
+ * "<action> after the run" when it came after the run on a stage that exited
+ * 101 (cleanup, so the stage reads Detected; same gate as the verdict).
+ */
+export function alertActionText(tests: ReportTest[], run: ReportRun, alert: ReportAlert): string | null {
+  if (!alert.preventionAction) return null;
+  const action = alert.preventionAction.replace(/_/g, ' ');
+  if (!alert.actedAfterRun) return action;
+  const test = testOf(tests, run);
+  const named = stageForAlert(run, alert.stageControlId);
+  const stage = test && !test.isBundle ? run.stages[0] : run.stages.find((s) => s === named);
+  return stage?.exitCode === 101 ? `${action} after the run` : action;
+}
+
 /** The note for a run the EDR killed the agent in (same copy as the console's run detail); null otherwise. */
 export function agentKillText(run: ReportRun): string | null {
   return run.agentTerminated ? agentKillNote({ vendor: killVendorLabel(run.agentTerminated.vendors) }) : null;

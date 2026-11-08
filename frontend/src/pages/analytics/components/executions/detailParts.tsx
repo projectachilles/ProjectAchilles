@@ -265,10 +265,13 @@ export function DefenderAlertRow({
   alert,
   runTimestamp,
   vendor,
+  ranToCompletion,
 }: {
   alert: DefenderAlertItem;
   runTimestamp: string;
   vendor?: string;
+  /** The result shown exited 101: a late action reads "after the run" (same gate as the verdict). */
+  ranToCompletion?: boolean;
 }) {
   return (
     <div className="flex items-center gap-2 text-xs">
@@ -276,7 +279,7 @@ export function DefenderAlertRow({
       <Badge variant="outline" className={cn('px-1.5 py-0 text-[10px]', ALERT_SEVERITY_CLASSES[alert.severity])}>
         {alert.severity}
       </Badge>
-      <PreventionBadge action={alert.prevention_action} rawStatus={alert.remediation_status} />
+      <PreventionBadge action={alert.prevention_action} rawStatus={alert.remediation_status} afterRun={ranToCompletion && alert.acted_after_run} />
       <span className="flex-1 truncate text-foreground">{alert.alert_title}</span>
       <Badge variant="default" className="px-1.5 py-0 text-[10px]">
         {alert.status}
@@ -297,12 +300,15 @@ export function EndpointAlertRow({
   runTimestamp,
   vendor,
   showVendor,
+  ranToCompletion,
 }: {
   alert: CrowdStrikeAlertItem;
   runTimestamp: string;
   vendor: EndpointVendorId;
   /** Adds a leading vendor-name column (stage view). */
   showVendor?: boolean;
+  /** The result shown exited 101: a late action reads "after the run" (same gate as the verdict). */
+  ranToCompletion?: boolean;
 }) {
   const label = VENDORS[vendor].portalLabel;
   return (
@@ -314,6 +320,7 @@ export function EndpointAlertRow({
       <PreventionBadge
         action={alert.prevention_action}
         rawStatus={vendor === 'crowdstrike' ? alert.pattern_disposition_description : undefined}
+        afterRun={ranToCompletion && alert.acted_after_run}
       />
       <span className="flex-1 truncate text-foreground">{alert.alert_title}</span>
       {/* Sophos siem_event rows have no status (''): no empty badge. */}

@@ -43,7 +43,8 @@ const HITS_PER_RUN = 50;
 const ALERT_SOURCE_FIELDS = [
   'alert_id', 'alert_title', 'description', 'severity', 'status', 'category', 'service_source',
   'mitre_techniques', 'created_at', 'updated_at', 'resolved_at', 'recommended_actions',
-  'evidence_filenames', 'evidence_filepaths', 'evidence_file_verdicts', 'prevention_action', 'portal_url', 'f0rtika.auto_resolved_at',
+  'evidence_filenames', 'evidence_filepaths', 'evidence_file_verdicts', 'evidence_child_actions', 'last_activity_at',
+  'prevention_action', 'portal_url', 'f0rtika.auto_resolved_at',
   'f0rtika.auto_resolve_mode', 'f0rtika.auto_resolve_error', ...ACHILLES_MITIGATION_FIELDS,
 ];
 
@@ -150,7 +151,7 @@ export function buildHostTechniqueQuery(adapter: VendorAdapter, run: Correlation
 
 /** null for an alert naming several tests that singles out none of this run's files (edr/multiTestEvidence.ts). */
 function toReportAlert(adapter: VendorAdapter, source: Record<string, unknown>, run: CorrelationRun): ReportAlert | null {
-  const p = projectAlertHit(source, run.testKey);
+  const p = projectAlertHit(source, run.testKey, { resultTime: run.completedAt });
   if (p.attribution === 'multi_test') return null;
   return {
     vendor: adapter.vendor,
@@ -161,6 +162,8 @@ function toReportAlert(adapter: VendorAdapter, source: Record<string, unknown>, 
     stageControlId: p.attribution === 'stage' ? p.attributed_control_id ?? null : null,
     // Achilles' own automatic mitigation is not the EDR's prevention (same rule as Analytics).
     preventionAction: isAchillesMitigated(source) ? null : p.prevention_action ?? null,
+    // Time only; the report shows "after the run" on a stage that exited 101.
+    actedAfterRun: p.acted_after_run === true,
     portalUrl: p.portal_url ?? null,
     autoResolvedAt: p.auto_resolved_at ?? null,
   };

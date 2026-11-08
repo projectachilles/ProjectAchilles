@@ -198,6 +198,8 @@ export interface ReportAlert {
   /** Lowercased control token from the evidence binary; null = bundle-level. */
   stageControlId: string | null;
   preventionAction: string | null;
+  /** The action can't have happened by the end of the run (edr/preventionTiming.ts); shown as "after the run" on a stage that exited 101. */
+  actedAfterRun: boolean;
   portalUrl: string | null;
   autoResolvedAt: string | null;
 }

@@ -91,6 +91,8 @@ export interface DefenderAlertItem {
    * detection-only alerts. Defender has no 'kill_failed' equivalent.
    */
   prevention_action?: 'quarantined' | 'process_killed' | 'blocked';
+  /** The action can't have happened by the end of the run; shown as "after the run" on a stage that exited 101. */
+  acted_after_run?: boolean;
   /** Raw Defender evidence remediationStatus — display/audit. */
   remediation_status?: string;
   /** Exact per-alert Defender portal deep link (from alertWebUrl). */

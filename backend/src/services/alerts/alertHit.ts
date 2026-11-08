@@ -5,7 +5,8 @@
 // doc shape (alert_title, evidence_filenames, prevention_action, portal_url,
 // f0rtika.auto_resolved_at, gated on an enabled, error-free receipt).
 
-import { fileVerdicts, isMultiTestAlert, isTestFile } from '../edr/multiTestEvidence.js';
+import { fileVerdicts, isMultiTestAlert, isTestFile, ownActions } from '../edr/multiTestEvidence.js';
+import { actedInRun, inRunCutoff } from '../edr/preventionTiming.js';
 
 /**
  * 'stage': the evidence pins the alert to one stage; 'bundle': to the test
@@ -35,7 +36,18 @@ export interface ProjectedAlert {
   recommended_actions: string;
   attribution: AlertAttributionKind;
   attributed_control_id?: string;
+  /**
+   * The vendor's action: for an alert pinned to one stage, the action on that
+   * stage's own file (or a process it started) when the alert records actions
+   * per evidence item (edr/multiTestEvidence.ts ownActions), else the alert's.
+   */
   prevention_action?: string;
+  /**
+   * The action can't have happened by the end of the run (edr/preventionTiming.ts).
+   * Time only: show it as "after the run" where the verdict applies that gate
+   * (a stage that exited 101).
+   */
+  acted_after_run?: true;
   portal_url?: string;
   /** Only for an enabled, error-free auto-resolve receipt (not dry-run, not failed attempts). */
   auto_resolved_at?: string;
@@ -80,13 +92,37 @@ function multiTestAttribution(
   return { attribution: 'bundle', ...(action ? { prevention_action: action } : {}) };
 }
 
-export function projectAlertHit(source: Record<string, unknown>, bundleUuid: string): ProjectedAlert {
+/** Strongest first: a quarantine outranks a kill, a kill a block (same ranking as the Defender sync). */
+const ACTION_RANK: Record<string, number> = { quarantined: 3, process_killed: 2, blocked: 1 };
+const strongest = (actions: string[]): string | undefined =>
+  [...actions].sort((a, b) => (ACTION_RANK[b] ?? 0) - (ACTION_RANK[a] ?? 0))[0];
+
+export interface ProjectAlertOptions {
+  /** The result's time (end of the run): enables `acted_after_run`. */
+  resultTime?: string;
+}
+
+export function projectAlertHit(
+  source: Record<string, unknown>,
+  bundleUuid: string,
+  options: ProjectAlertOptions = {},
+): ProjectedAlert {
   const f0 = (source.f0rtika ?? {}) as Record<string, unknown>;
   const multi = isMultiTestAlert(source) ? multiTestAttribution(source, bundleUuid) : null;
   const { attribution, attributed_control_id } = multi
     ?? classifyAttribution((source.evidence_filenames as string[] | undefined) ?? [], bundleUuid);
   // A multi-test alert shows only this test's file's own action.
-  const prevention_action = multi ? multi.prevention_action : optional(source.prevention_action);
+  let prevention_action = multi ? multi.prevention_action : optional(source.prevention_action);
+  // An alert pinned to one stage shows that stage's own action (its file, or
+  // a process it started), as the stage verdict uses: another stage's block in
+  // the same alert is not this stage's. Vendors without per-item actions keep
+  // the alert's.
+  if (attribution === 'stage' && attributed_control_id) {
+    const own = ownActions(source, (f) => classifyAttribution([f], bundleUuid).attributed_control_id === attributed_control_id);
+    if (own) prevention_action = strongest(own);
+  }
+  const cutoff = inRunCutoff(options.resultTime);
+  const acted_after_run = prevention_action !== undefined && cutoff !== null && !actedInRun(source, cutoff);
   const portal_url = optional(source.portal_url);
   // The auto-resolve receipt writer stamps auto_resolved_at on EVERY receipt,
   // including dry-run receipts (no PATCH made) and failed attempts (carry
@@ -114,6 +150,7 @@ export function projectAlertHit(source: Record<string, unknown>, bundleUuid: str
     attribution,
     ...(attributed_control_id ? { attributed_control_id } : {}),
     ...(prevention_action ? { prevention_action } : {}),
+    ...(acted_after_run ? { acted_after_run: true as const } : {}),
     ...(portal_url ? { portal_url } : {}),
     ...(auto_resolved_at ? { auto_resolved_at } : {}),
   };
