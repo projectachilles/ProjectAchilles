@@ -118,7 +118,7 @@ Defender alerts synced before this rule, keep the alert-wide action.
 
 In **All executions** and the execution report, an alert shown under a stage
 carries that stage's own action, and on a stage that exited `101` a late one
-reads **"<action> after the run"** (e.g. *process killed after the run*): the
+reads **`<action> after the run`** (e.g. *process killed after the run*): the
 alert is real and the SOC will see it, but it is not the prevention.
 
 Results prevented before these two rules are checked once
