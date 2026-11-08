@@ -17,14 +17,16 @@ translationKey: edr-study-30-days
 
 > **Update, November 7, 2026 (later).** Project Achilles now records EDR prevention that reaches an alert after the fact, and which alert it came from. Re-running the study with it raised EDR C's figures to 53% of attacks stopped on its hosts and 39% on its own evidence, and moved a few other numbers by a point or two. EDR C now clearly stops more attacks than EDR D even counting every block. The EDR on top doesn't change. A ranking table now follows the confidence section.
 
+> **Update, November 7, 2026 (third).** Project Achilles now credits alerts more strictly in two ways and more completely in one. An alert that lists files from several different tests (typically leftovers on the disk) no longer counts for any of them. A block counts as prevention only if it happened while the stage was running: one applied after the stage had finished is cleanup, not prevention. And more alerts are now matched to the stage that caused them. Re-running the study with these changes moved several numbers. EDR C is now at 51% of attacks stopped on its hosts and 36% on its own evidence, with alerts on 78% of its runs. EDR A and EDR C still share second place, now with EDR A two points ahead. The previous update's claim that EDR C clearly stops more attacks than EDR D even counting every block no longer holds: that gap now rests on one test. On each EDR's own evidence, it is still clear. A fourth technique joins the ones no EDR caught, and the second sensor adds less than we first reported.
+
 ## TL;DR
 
 - For 30 days, Project Achilles ran six multi-stage attack chains, built from published threat intelligence, on 27 Windows endpoints of one organization. Each endpoint had one of four EDR products in active mode. We call them EDR A to D.
-- Each EDR raised an alert on 81% to 100% of the runs on its hosts. The share of attacks stopped on those hosts ranged from 30% to 90%. The share the EDR provably stopped itself ranged from 4% to 76%.
+- Each EDR raised an alert on 78% to 100% of the runs on its hosts. The share of attacks stopped on those hosts ranged from 30% to 90%. The share the EDR provably stopped itself ranged from 4% to 76%.
 - The EDR that stopped the most did it mainly by blocking test binaries before they ran. That is real protection, but it also means we never saw how it handles the later stages of an attack.
 - One EDR, with every agent reporting "protect" mode, stopped 9% of the attack stages that ran, but only 2% with its own evidence. Windows blocked most of the rest. It raised alerts on many more.
-- Three techniques got past every EDR that faced them: masquerading (T1036), exfiltration over the command-and-control channel (T1041) and credential theft from password stores (T1555).
-- Four differences between EDRs looked statistically solid until we dropped a single test. Then they nearly vanished. Counting only the stops each EDR proved, one of them held up after all. One snapshot is not a measurement.
+- Four techniques got past every EDR that faced them: masquerading (T1036), exfiltration over the command-and-control channel (T1041), credential theft from password stores (T1555) and exfiltration over a web service (T1567).
+- Five differences between EDRs looked statistically solid until we dropped a single test. Then they nearly vanished. Counting only the stops each EDR proved, two of them held up after all. One snapshot is not a measurement.
 
 ---
 
@@ -49,15 +51,15 @@ We don't name the products. Several EDR licenses restrict publishing comparative
 
 ## 1. Almost Everything Was Seen. Far Less Was Stopped.
 
-![For each EDR, the share of runs on which it raised an alert or a prevention, the share of attacks stopped on its hosts, and the share it stopped with its own evidence. EDR A: 100%, 48% and 38%. EDR B: 91%, 90% and 76%. EDR C: 81%, 53% and 39%. EDR D: 94%, 30% and 4%.](/edr-study-30-days/seen-vs-stopped.png)
+![For each EDR, the share of runs on which it raised an alert or a prevention, the share of attacks stopped on its hosts, and the share it stopped with its own evidence. EDR A: 100%, 48% and 38%. EDR B: 91%, 90% and 76%. EDR C: 78%, 51% and 36%. EDR D: 94%, 30% and 4%.](/edr-study-30-days/seen-vs-stopped.png)
 
-Every EDR raised something on most runs: between 81% and 100% of them. Measured by visibility, they all look good. But in three of the four, there is a gap of 28 to 64 percentage points between "raised an alert" and "stopped the attack".
+Every EDR raised something on most runs: between 78% and 100% of them. Measured by visibility, they all look good. But in three of the four, there is a gap of 27 to 64 percentage points between "raised an alert" and "stopped the attack".
 
 That gap is not a failure of the dashboard. The dashboard does what it was built to do: it shows that the sensor is running and producing alerts. It does not show whether the attack completed, and an attack whose every stage raises an alert can still reach its objective. A detection only helps if someone acts on it in time.
 
 ## 2. Where an EDR Stops an Attack Decides What You Can Learn
 
-![For each EDR, how the runs on its hosts ended. On EDR B's hosts, 54% were blocked at launch and 36% were stopped during the chain. On EDR A's hosts, 48% were stopped during the chain and 52% were seen but not stopped. On EDR C's hosts, 53% were stopped, 32% were seen but not stopped, and 15% ended in a test error. On EDR D's hosts, 30% were stopped and 68% were seen but not stopped. These stops include ones no EDR proved; see section 3.](/edr-study-30-days/where-stopped.png)
+![For each EDR, how the runs on its hosts ended. On EDR B's hosts, 54% were blocked at launch and 36% were stopped during the chain. On EDR A's hosts, 48% were stopped during the chain and 52% were seen but not stopped. On EDR C's hosts, 51% were stopped, 33% were seen but not stopped, and 17% ended in a test error. On EDR D's hosts, 30% were stopped and 68% were seen but not stopped. These stops include ones no EDR proved; see section 3.](/edr-study-30-days/where-stopped.png)
 
 EDR B stopped 90% of attacks, by far the most. More than half of those stops came from blocking the test binary at launch, before any technique ran. That is genuine protection: attackers use fresh binaries too, and refusing to run them is a strong defense.
 
@@ -77,18 +79,18 @@ Counting only the stops each EDR proved itself (a launch block or an agent kill 
 |---|---|---|
 | EDR A | 48% | 38% |
 | EDR B | 90% | 76% |
-| EDR C | 53% | 39% |
+| EDR C | 51% | 36% |
 | EDR D | 30% | 4% |
 
-EDR B still leads, by 37 to 73 percentage points, and that lead passes every check in "How Sure Can We Be?" below. Windows did most of EDR D's stopping. For EDR C, the second figure is a floor: many of its blocks raise no alert, so they leave no evidence to count.
+EDR B still leads, by 38 to 73 percentage points, and that lead passes every check in "How Sure Can We Be?" below. Windows did most of EDR D's stopping. For EDR C, the second figure is a floor: many of its blocks raise no alert, so they leave no evidence to count.
 
 The credential-dumping step on its own shows how big the effect is. Counting any block on the host, the four EDRs stopped or detected 87% to 100% of those stages. Counting only what each EDR blocked or alerted on itself, EDR B and EDR D are at 0%, EDR A at 20% and EDR C at 67%.
 
 ![Credential-dumping stages stopped or detected, per EDR, counting any block on the host versus only the EDR's own evidence. EDR A: 87% versus 20%. EDR B: 100% versus 0%. EDR C: 95% versus 67%. EDR D: 100% versus 0%.](/edr-study-30-days/credential-dumping.png)
 
-Following one attack chain stage by stage tells the same story. In LockBit, credential dumping is the second stage. Counting any block, at most 17% of LockBit runs on each EDR's hosts got past that stage unblocked. Counting only the EDR's own blocks, 62% to 100% of runs on EDR A, B and D hosts were still not blocked by the EDR after it; EDR C stopped most of its runs there itself (31% left). Each panel rests on 8 to 15 runs.
+Following one attack chain stage by stage tells the same story. In LockBit, credential dumping is the second stage. Counting any block, at most 17% of LockBit runs on each EDR's hosts got past that stage unblocked. Counting only the EDR's own blocks, 62% to 100% of runs on EDR A, B and D hosts were still not blocked by the EDR after it; EDR C stopped most of its runs there itself (31% left), and all but 8% by the end of the chain. Each panel rests on 8 to 15 runs.
 
-![Share of LockBit runs not yet blocked, stage by stage, for each EDR, counting any block on the host versus only the EDR's own evidence. When any block counts, every curve drops at stage 2, credential dumping. On the EDR's own evidence, at the end of the chain: EDR A 62% instead of 12%, EDR B 33% instead of 8%, EDR C 0% either way, EDR D 75% instead of 17%.](/edr-study-30-days/lockbit-survival.png)
+![Share of LockBit runs not yet blocked, stage by stage, for each EDR, counting any block on the host versus only the EDR's own evidence. When any block counts, every curve drops at stage 2, credential dumping. On the EDR's own evidence, at the end of the chain: EDR A 62% instead of 12%, EDR B 33% instead of 8%, EDR C 8% instead of 0%, EDR D 75% instead of 17%.](/edr-study-30-days/lockbit-survival.png)
 
 Before you give an EDR credit for a stop, or decide which control to keep paying for, find out which control did it. Here, most of the stops credited to the EDRs without evidence came from a Windows setting.
 
@@ -109,33 +111,34 @@ Median time from the start of a run to the EDR's first alert:
 | EDR A | 24 s | 30 |
 | EDR B | 64 s | 41 |
 | EDR D | 73 s | 34 |
-| EDR C | 2.3 min | 46 |
+| EDR C | 2.3 min | 44 |
 
 These numbers measure how fast the alert reaches the console, not how fast the attack was blocked. EDR B blocks binaries at launch, within the first second, yet its alerts for those blocks appeared about a minute later. For your SOC, alert time is what matters: it's how long before anyone can respond. For the attack, block time is what matters. Measure them separately, and be suspicious of any vendor figure that doesn't say which one it is.
 
-One more thing worth measuring: the ATT&CK technique on the alert matched the technique the test actually performed in only 14% to 51% of alerts, depending on the EDR. If your SOC triages or reports by ATT&CK technique, it's working from labels that are often wrong.
+One more thing worth measuring: the ATT&CK technique on the alert matched the technique the test actually performed in only 14% to 39% of alerts, depending on the EDR. If your SOC triages or reports by ATT&CK technique, it's working from labels that are often wrong.
 
 ## 6. A Second Sensor Helps Some Groups and Not Others
 
-![On the hosts of three EDRs, how each executed attack stage was seen by the active EDR and by the second EDR product running in passive mode. On EDR A hosts, the passive sensor alone flagged 4% of stages. On EDR B hosts, it alone flagged 22%. On EDR D hosts, it alone flagged 17%.](/edr-study-30-days/second-sensor.png)
+![On the hosts of three EDRs, how each executed attack stage was seen by the active EDR and by the second EDR product running in passive mode. On EDR A hosts, the passive sensor alone flagged 3% of stages. On EDR B hosts, it alone flagged 17%. On EDR D hosts, it alone flagged 15%.](/edr-study-30-days/second-sensor.png)
 
 On 13 hosts, a second EDR product ran in passive mode next to the active one, so both watched exactly the same attacks. How much the second sensor added depended entirely on its partner:
 
-- On **EDR B** hosts, the passive sensor raised alerts on 18 stages that EDR B did not, against 8 the other way round.
-- On **EDR D** hosts, it was nearly even: 23 against 28.
-- On **EDR A** hosts, it added almost nothing: 4 against 30.
+- On **EDR B** hosts, the passive sensor raised alerts on 14 stages that EDR B did not, against 9 the other way round.
+- On **EDR D** hosts, it added a fair share: 20 against 32.
+- On **EDR A** hosts, it added almost nothing: 3 against 34.
 
 Some of those stages may have been stopped by the active EDR without an alert, so this measures visibility, not protection. It still answers a common licensing question with data instead of opinion: a second sensor is worth what it adds on your hosts, next to your primary EDR, and that can be measured.
 
-## 7. Three Techniques Nobody Caught
+## 7. Four Techniques Nobody Caught
 
-Three techniques were missed in at least 80% of their stages by every EDR that faced them:
+Four techniques were missed in at least 80% of their stages by every EDR that faced them:
 
 - **T1036, Masquerading**: binaries disguised as legitimate programs.
 - **T1041, Exfiltration over the C2 channel**: stolen data leaving through the attacker's own connection.
 - **T1555, Credentials from password stores**: harvesting saved credentials.
+- **T1567, Exfiltration over a web service**: stolen data uploaded to a cloud service.
 
-These aren't reasons to pick one EDR over another, because none of them caught these. They are a detection-engineering backlog: custom rules, network monitoring for data leaving through C2, and hardening of credential stores. You only find a backlog like this by running the techniques.
+These aren't reasons to pick one EDR over another, because none of them caught these. They are a detection-engineering backlog: custom rules, network monitoring for data leaving through C2 or to cloud services, and hardening of credential stores. You only find a backlog like this by running the techniques.
 
 ## How Sure Can We Be?
 
@@ -147,25 +150,26 @@ With 4 to 14 hosts per EDR, it's easy to see a pattern that isn't there. We trea
 - the difference holds when any single attack chain is left out,
 - the comparison rests on at least three attack chains both EDRs faced.
 
-**What held up.** EDR B stopped 37 to 60 percentage points more attacks than each of the other three. That difference is clear and survives removing any host or any test. Counting only each EDR's own evidence (section 3), the lead is 37 to 73 points and just as clear. EDR C also stopped clearly more attacks than EDR D: 23 points more on its hosts (12 without Lumma, its strongest test) and 36 points more on its own evidence. EDR A and EDR C stopped about the same share of attacks (48% and 53%, and 38% and 39% on their own evidence), so there's no winner there.
+**What held up.** EDR B stopped 40 to 60 percentage points more attacks than each of the other three. That difference is clear and survives removing any host or any test. Counting only each EDR's own evidence (section 3), the lead is 38 to 73 points and just as clear. EDR A and EDR C stopped about the same share of attacks (48% and 51%, and 38% and 36% on their own evidence), so there's no winner there.
 
-**What didn't.** Four differences passed every check except leaving out a single attack chain:
+**What didn't.** Five differences passed every check except leaving out a single attack chain:
 
 | Difference | Gap | Without that test | On the EDR's own evidence |
 |---|---|---|---|
 | EDR A stops more attacks than EDR D | +18 pp | +2 pp without Kothamine | **+35 pp, clear** |
+| EDR C stops more attacks than EDR D | +20 pp | +9 pp without Lumma | **+33 pp, clear** |
 | EDR A stops more stages than EDR D | +23 pp | +4 pp without Kothamine | +26 pp, +7 pp without Kothamine |
-| EDR C sees more stages than EDR B | +14 pp | +1 pp without LockBit | (not about stopping) |
-| EDR A sees more stages than EDR C | +12 pp | +2 pp without Kothamine | (not about stopping) |
+| EDR C sees more stages than EDR B | +11 pp | −2 pp without LockBit | (not about stopping) |
+| EDR A sees more stages than EDR C | +10 pp | −1 pp without Kothamine | (not about stopping) |
 
-The first held up once Windows' own stops were set aside. Those stops landed on hosts of every EDR and counted for whichever EDR was there, which narrowed the differences between them. Counting only what each EDR proved, EDR A stops clearly more attacks than EDR D, and the gap holds without any single test.
+The first two held up once Windows' own stops were set aside. Those stops landed on hosts of every EDR and counted for whichever EDR was there, which narrowed the differences between them. Counting only what each EDR proved, EDR A and EDR C each stop clearly more attacks than EDR D, and both gaps hold without any single test.
 
 The other three are real, but each is about one attack chain, not the EDR in general. "EDR A sees more than EDR C" really means "EDR A handled Kothamine much better", which is more specific and more useful to act on.
 
 Three more effects make single measurements unreliable:
 
 - **The same test on the same host doesn't always give the same result.** Across repeated runs, the outcome was identical only 50% to 75% of the time, depending on the EDR. One run tells you little.
-- **Test binaries change.** The attack chains were rebuilt during the month, and not every EDR saw every build. Recomputing on only the build every EDR saw (five of the six chains) gives stop rates of 58% for A, 90% for B, 60% for C and 38% for D, or 46%, 70%, 45% and 0% counting only each EDR's own evidence. EDR B still leads, but by less.
+- **Test binaries change.** The attack chains were rebuilt during the month, and not every EDR saw every build. Recomputing on only the build every EDR saw (five of the six chains) gives stop rates of 58% for A, 90% for B, 56% for C and 38% for D, or 46%, 70%, 40% and 0% counting only each EDR's own evidence. EDR B still leads, but by less.
 - **Integrations start at different times.** One EDR's alert data only covered the last eight days of the period, so its earlier runs were left out instead of being counted as misses.
 
 ## The Ranking at a Glance
@@ -174,16 +178,16 @@ Putting it together: the EDRs ranked by the share of attacks each one stopped wi
 
 | Rank | EDR | Attacks stopped, own evidence | Lead over the next EDR down | Attacks stopped on its hosts | Blocked at launch |
 |---|---|---|---|---|---|
-| 1 | EDR B | 76% | +37 pp over EDR C, clear | 90% | 54% |
-| 2 (tie) | EDR C | 39% | +1 pp over EDR A, not distinguishable | 53% | 0% |
-| 2 (tie) | EDR A | 38% | +35 pp over EDR D, clear | 48% | 0% |
+| 1 | EDR B | 76% | +38 pp over EDR A, clear | 90% | 54% |
+| 2 (tie) | EDR A | 38% | +2 pp over EDR C, not distinguishable | 48% | 0% |
+| 2 (tie) | EDR C | 36% | +33 pp over EDR D, clear | 51% | 0% |
 | 4 | EDR D | 4% | | 30% | 0% |
 
 | EDR | Raised an alert on its runs | Stages stopped or detected | Median time to first alert | Alert's ATT&CK technique was right | Same result on repeat runs |
 |---|---|---|---|---|---|
 | EDR B | 91% | 54%* | 64 s | 14% | 75% |
-| EDR C | 81% | 64% | 2.3 min | 51% | 70% |
-| EDR A | 100% | 77% | 24 s | 34% | 50% |
+| EDR A | 100% | 73% | 24 s | 33% | 50% |
+| EDR C | 78% | 62% | 2.3 min | 39% | 50% |
 | EDR D | 94% | 53% | 73 s | 32% | 67% |
 
 \* From the three attack chains where EDR B let stages run; on the other three it blocked the binary at launch. EDR C's own-evidence figure is a floor (section 3), and alert time is when the alert reached the console, not when the attack was blocked (section 5).
