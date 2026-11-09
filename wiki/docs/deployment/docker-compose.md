@@ -125,7 +125,7 @@ To install on many laptops at once without each one downloading several gigabyte
 deploy/offline-kit/build-kit.sh <test-uuid> ...   # tests whose Go modules are included
 ```
 
-It holds the images for amd64 and arm64 (Apple Silicon), the test library, those tests' Go modules and the source at the same commit. On each laptop, `kit.sh` (macOS, Linux) or `kit.ps1` (Windows) loads the images and unpacks the source to `~/ProjectAchilles`; then run `./scripts/setup.sh`, or the Windows installer with `-NoBuild`. Nothing is downloaded except Clerk sign-in, which still needs internet. Details: `deploy/offline-kit/README.md` in the repository.
+It holds the images for amd64 and arm64 (Apple Silicon), the test library, those tests' Go modules and the source at the same commit. On each laptop, `kit.sh` (macOS, Linux) or `kit.ps1` (Windows) loads the images and unpacks the source to `~/ProjectAchilles`. Configure with `./scripts/setup.sh` (it only writes the configuration) or the Windows installer with `-NoBuild` (Git is then not required), choosing the local Elasticsearch, then start with `docker compose --profile elasticsearch -f docker-compose.yml -f docker-compose.lab.yml up -d`. Nothing is downloaded except Clerk sign-in, which still needs internet. Details: `deploy/offline-kit/README.md` in the repository.
 
 ## Volume Storage
 

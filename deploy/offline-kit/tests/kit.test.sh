@@ -56,9 +56,11 @@ engine_has_no_network() {
   pass "${FUNCNAME[0]}"
 }
 
+KIT_OUT=""
 kit_loads() {
   local out
   out="$(KIT_ARCH="$ARCH" "$KIT/kit.sh" --dest "$WORK/home" 2>&1)" || fail "${FUNCNAME[0]}" "$out"
+  KIT_OUT="$out"
   [ -f "$WORK/home/ProjectAchilles/docker-compose.lab.yml" ] || fail "${FUNCNAME[0]}" "source not unpacked"
   [ "$(git -C "$WORK/home/ProjectAchilles" rev-parse HEAD)" = "$(cat "$KIT/images/COMMIT")" ] \
     || fail "${FUNCNAME[0]}" "source is not the commit the images were built from"
@@ -118,9 +120,15 @@ EOF
   printf 'CLERK_PUBLISHABLE_KEY=%s\nCORS_ORIGIN=http://localhost\n' "$pk" >"$SRC/.env"
 }
 
+# Starts the stack with the very commands kit.sh tells the attendee to run
+# (its "Next:" lines that start with `docker compose`), so the printed steps
+# and the tested ones can't drift apart.
 stack_starts_without_network() {
-  local out
-  out="$("${DC[@]}" up -d 2>&1)" || fail "${FUNCNAME[0]}" "compose up failed (something tried to build or pull?): $out"
+  local out cmds
+  cmds="$(sed -n 's/^  \(docker compose [^#]*\).*/\1/p' <<<"$KIT_OUT")"
+  [ -n "$cmds" ] || fail "${FUNCNAME[0]}" "kit.sh printed no docker compose command"
+  out="$(cd "$SRC" && while read -r c; do eval "$c" || exit 1; done <<<"$cmds" 2>&1)" \
+    || fail "${FUNCNAME[0]}" "the printed start command failed (something tried to build or pull?): $out"
   for _ in $(seq 1 90); do
     [ "$(docker inspect -f '{{.State.Health.Status}}' "$("${DC[@]}" ps -q backend)" 2>/dev/null)" = healthy ] && break
     sleep 2
@@ -133,6 +141,7 @@ stack_starts_without_network() {
 seed_loads_es() {
   local id state code count
   id="$("${DC[@]}" ps -aq es-seed)"
+  [ -n "$id" ] || fail "${FUNCNAME[0]}" "es-seed never started (the start command lacks --profile elasticsearch?)"
   for _ in $(seq 1 90); do
     state="$(docker inspect -f '{{.State.Status}}' "$id")"
     [ "$state" = exited ] && break
@@ -151,6 +160,10 @@ library_is_preloaded() {
   grep -q 'Repository already exists' <<<"$logs" || fail "${FUNCNAME[0]}" "backend did not find the preloaded library"
   ! grep -q 'Cloning repository' <<<"$logs" || fail "${FUNCNAME[0]}" "backend tried to clone"
   backend_sh 'test -d /app/data/f0_library/tests_source' || fail "${FUNCNAME[0]}" "library is not on the repo-cache volume"
+  local want got
+  want="$(sed -n 's/^Test library: .* at \([0-9a-f]\{40\}\)$/\1/p' "$KIT/KIT-INFO.txt")"
+  got="$(backend_sh 'git -C /app/data/f0_library rev-parse HEAD')"
+  [ -n "$want" ] && [ "$got" = "$want" ] || fail "${FUNCNAME[0]}" "library at '$got', KIT-INFO says '$want'"
   pass "${FUNCNAME[0]}"
 }
 

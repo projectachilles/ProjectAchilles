@@ -55,10 +55,23 @@ else
   tar -xzf "$KIT/ProjectAchilles.tar.gz" -C "$DEST"
 fi
 
+# Docker copies the preloaded test library and Go caches into these volumes
+# only when they are new; volumes left by an earlier install keep their old
+# content, and test builds would then need the network.
+old_vols=""
+for v in projectachilles_repo-cache projectachilles_go-cache; do
+  docker volume inspect "$v" >/dev/null 2>&1 && old_vols="$old_vols $v"
+done
+if [ -n "$old_vols" ]; then
+  say "WARNING: volumes from an earlier install exist:$old_vols"
+  echo "  They keep their old content, so the kit's test library and Go modules are not used."
+  echo "  To use the kit's, stop that install and remove them: docker volume rm$old_vols"
+fi
+
 cat <<EOF
 
 Done. Next:
   cd "$DEST/ProjectAchilles"
-  ./scripts/setup.sh                     # follow the prompts; it starts the stack
-  docker compose -f docker-compose.yml -f docker-compose.lab.yml up -d   # adds the lab endpoint
+  ./scripts/setup.sh        # writes the configuration; choose "local" for Elasticsearch
+  docker compose --profile elasticsearch -f docker-compose.yml -f docker-compose.lab.yml up -d
 EOF

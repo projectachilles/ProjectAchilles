@@ -14,7 +14,11 @@ deploy/offline-kit/build-kit.sh 6d33cc62-d59d-4661-a76d-715aa4abddfd 7f0d43e7-8a
 
 The arguments are tests whose Go modules are pre-downloaded, so **Build**
 works offline for them. Options: `--arch amd64,arm64` (default both),
-`--library-ref <branch|tag>` (test library, default `main`), `--out <dir>`.
+`--library-ref <branch>` (test library, default `main`; another branch also
+needs `TESTS_REPO_BRANCH` set to it in `backend/.env`, or Sync fails),
+`--out <dir>`. The images are built from a clean copy of HEAD, so
+uncommitted changes and untracked files (e.g. `wiki/node_modules`) never get
+in, and the test library is pinned to one commit, recorded in `KIT-INFO.txt`.
 It needs network access, Docker with buildx, and QEMU (binfmt) for the
 architecture that isn't this machine's. Output, in
 `deploy/offline-kit/out/achilles-kit/` (gitignored):
@@ -61,6 +65,13 @@ download fails it.
 
 - An existing `ProjectAchilles` folder is left as it is; Compose then uses the
   kit's images whatever version that folder holds.
+- Docker fills a named volume from the image only when the volume is new.
+  If `projectachilles_repo-cache` or `projectachilles_go-cache` already exist
+  (an earlier install), they keep their old content and test builds need the
+  network; `kit.sh` / `kit.ps1` warn and print the `docker volume rm` command.
+- `setup.sh` only writes the configuration; the stack starts with
+  `docker compose --profile elasticsearch -f docker-compose.yml -f docker-compose.lab.yml up -d`
+  (the command `kit.sh` prints, which `kit.test.sh` runs).
 - A checkout under another folder name has another Compose project name, and
   builds its images instead (online). Unpack with `kit.sh`/`kit.ps1`.
 - Tests not named at build time still build, but need the network for their

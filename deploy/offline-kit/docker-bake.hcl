@@ -1,6 +1,6 @@
 # Offline kit images for one architecture, each written as a `docker load`
 # tarball. Run by build-kit.sh (which sets the variables); paths are relative
-# to the repository root.
+# to the repository root (build-kit.sh runs it in a clean copy of HEAD).
 #
 # Images are named the way Compose names the images it builds
 # (<project>-<service>), so `docker compose up` in a checkout called
@@ -14,10 +14,11 @@ variable "PROJECT" { default = "projectachilles" }
 variable "GIT_COMMIT" { default = "" }
 variable "TESTS_REPO_URL" { default = "https://github.com/ubercylon8/f0_library.git" }
 variable "TESTS_REPO_REF" { default = "main" }
+variable "TESTS_REPO_COMMIT" { default = "" }
 variable "KIT_TESTS" { default = "" }
 variable "AGENT_VERSION" { default = "" }
 
-# Same image and digest as docker-compose.yml's elasticsearch service.
+# Same image as docker-compose.yml's elasticsearch service, pinned here by digest.
 variable "ES_IMAGE" { default = "docker.elastic.co/elasticsearch/elasticsearch:8.17.0" }
 variable "ES_DIGEST" { default = "sha256:2f602552550869fb29b6fd5848c5118d3ef3a2e1d5d45802e3ab9088cb2de8e2" }
 
@@ -44,7 +45,8 @@ target "backend" {
   platforms  = ["linux/${ARCH}"]
   args = {
     TESTS_REPO_URL = TESTS_REPO_URL
-    TESTS_REPO_REF = TESTS_REPO_REF
+    TESTS_REPO_REF    = TESTS_REPO_REF
+    TESTS_REPO_COMMIT = TESTS_REPO_COMMIT
     KIT_TESTS      = KIT_TESTS
   }
   output = tarball("backend.tar", "${PROJECT}-backend:latest")

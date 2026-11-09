@@ -14,15 +14,16 @@ Compose (Linux) is installed and running. About 8 GB of free disk (this kit is
 
    It checks the files, loads the images for your machine (Intel/AMD or Apple
    Silicon) and unpacks the source to `ProjectAchilles` in your home folder.
-3. **Configure and start:**
+3. **Configure** (Clerk keys, secrets). Choose the **local** Elasticsearch.
    - Windows: `cd ~\ProjectAchilles`, then
      `powershell -ExecutionPolicy Bypass -File .\scripts\Install-ProjectAchilles.ps1 -NoBuild`
+     (it also starts the stack; Git is not needed)
    - macOS / Linux: `cd ~/ProjectAchilles`, then `./scripts/setup.sh`
+     (choose Docker; it only writes the configuration)
+4. **Start everything, with the lab endpoint** (all systems, from `ProjectAchilles`):
+   `docker compose --profile elasticsearch -f docker-compose.yml -f docker-compose.lab.yml up -d`
 
-   Answer **yes** to the local Elasticsearch. It starts the stack from the
-   loaded images; nothing is rebuilt.
-4. **Add the lab endpoint:**
-   `docker compose -f docker-compose.yml -f docker-compose.lab.yml up -d`
+   It uses the loaded images; nothing is built or downloaded.
 
 Then open <http://localhost>. `KIT-INFO.txt` shows the version in this kit.
 
@@ -44,14 +45,15 @@ ocupa 2,2 GB; las imágenes cargadas, unos 3,5 GB).
 
    Verifica los archivos, carga las imágenes para tu equipo (Intel/AMD o Apple
    Silicon) y descomprime el código en `ProjectAchilles`, en tu carpeta personal.
-3. **Configura e inicia:**
+3. **Configura** (claves de Clerk, secretos). Elige el Elasticsearch **local**.
    - Windows: `cd ~\ProjectAchilles` y luego
      `powershell -ExecutionPolicy Bypass -File .\scripts\Install-ProjectAchilles.ps1 -NoBuild`
+     (también inicia los servicios; no necesita Git)
    - macOS / Linux: `cd ~/ProjectAchilles` y luego `./scripts/setup.sh`
+     (elige Docker; solo escribe la configuración)
+4. **Inicia todo, con el endpoint de laboratorio** (todos los sistemas, desde `ProjectAchilles`):
+   `docker compose --profile elasticsearch -f docker-compose.yml -f docker-compose.lab.yml up -d`
 
-   Responde **sí** al Elasticsearch local. Inicia todo con las imágenes
-   cargadas; no se reconstruye nada.
-4. **Agrega el endpoint de laboratorio:**
-   `docker compose -f docker-compose.yml -f docker-compose.lab.yml up -d`
+   Usa las imágenes cargadas; no se construye ni se descarga nada.
 
 Luego abre <http://localhost>. `KIT-INFO.txt` muestra la versión de este kit.

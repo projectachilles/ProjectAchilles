@@ -7,9 +7,13 @@
 #   TEST_UUID        tests whose Go modules are pre-downloaded, so Build works
 #                    offline (the library itself is always included)
 #   --arch LIST      comma-separated: amd64,arm64 (default: both)
-#   --library-ref R  test library branch or tag to include (default: main)
+#   --library-ref B  test library branch to include (default: main; another
+#                    branch also needs TESTS_REPO_BRANCH=B in backend/.env,
+#                    or the backend's Sync fails)
 #   --out DIR        output folder (default: deploy/offline-kit/out)
-#   --allow-dirty    build from a working tree with uncommitted changes
+#
+# Everything comes from HEAD: the images are built from a clean copy of the
+# commit, so uncommitted changes and untracked files are never in the kit.
 #
 # Needs Docker with buildx, network access, and QEMU (binfmt) to build an
 # architecture other than this machine's. Output: DIR/achilles-kit/.
@@ -22,7 +26,6 @@ cd "$ROOT"
 ARCHES="amd64,arm64"
 LIBRARY_REF="main"
 OUT="$HERE/out"
-ALLOW_DIRTY=0
 TESTS=()
 TESTS_REPO_URL="https://github.com/ubercylon8/f0_library.git"  # server.ts DEFAULT_TESTS_REPO_URL
 ORIGIN_URL="https://github.com/projectachilles/ProjectAchilles.git"
@@ -34,8 +37,7 @@ while [ $# -gt 0 ]; do
     --arch) ARCHES="${2:?}"; shift 2 ;;
     --library-ref) LIBRARY_REF="${2:?}"; shift 2 ;;
     --out) OUT="${2:?}"; shift 2 ;;
-    --allow-dirty) ALLOW_DIRTY=1; shift ;;
-    -h|--help) sed -n '2,15p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
+    -h|--help) sed -n '2,19p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
     -*) echo "unknown option: $1" >&2; exit 2 ;;
     *) TESTS+=("$1"); shift ;;
   esac
@@ -52,22 +54,31 @@ for a in "${ARCH_LIST[@]}"; do
   case "$a" in amd64|arm64) ;; *) die "unsupported --arch: $a" ;; esac
 done
 
-# The kit must be one commit: the images and the source copy come from HEAD.
-if [ -n "$(git status --porcelain --untracked-files=no)" ]; then
-  [ "$ALLOW_DIRTY" = 1 ] || die "the working tree has uncommitted changes (commit them, or pass --allow-dirty)"
-  echo "build-kit: WARNING: building from a dirty tree; the source copy is HEAD, the images are the working tree" >&2
+if [ -n "$(git status --porcelain)" ]; then
+  echo "build-kit: WARNING: uncommitted changes and untracked files are not in the kit (it is built from HEAD)" >&2
 fi
 COMMIT="$(git rev-parse HEAD)"
 TAG="$(git describe --exact-match --tags HEAD 2>/dev/null || true)"
-AGENT_VERSION="$(sed -n 's/^VERSION[[:space:]]*:\{0,1\}=[[:space:]]*//p' agent/Makefile | head -1)"
-[ -n "$AGENT_VERSION" ] || die "no VERSION in agent/Makefile"
-LIBRARY_COMMIT="$(git ls-remote "$TESTS_REPO_URL" "refs/heads/$LIBRARY_REF" "refs/tags/$LIBRARY_REF" | awk '{print $1}' | tail -1)"
-[ -n "$LIBRARY_COMMIT" ] || die "test library ref '$LIBRARY_REF' not found in $TESTS_REPO_URL"
+# One library commit for every architecture and retry, recorded in KIT-INFO;
+# the image build checks it out exactly (and a new commit busts its cache).
+LIBRARY_COMMIT="$(git ls-remote "$TESTS_REPO_URL" "refs/heads/$LIBRARY_REF" | awk '{print $1}')"
+[ -n "$LIBRARY_COMMIT" ] || die "test library branch '$LIBRARY_REF' not found in $TESTS_REPO_URL"
 
 KIT="$OUT/achilles-kit"
 STAGE="$OUT/.stage"
 rm -rf "$KIT" "$STAGE"
 mkdir -p "$KIT/images" "$STAGE"
+
+log "Packing the source at ${TAG:-${COMMIT:0:12}}"
+SRC="$STAGE/ProjectAchilles"
+git init -q "$SRC"
+git -C "$SRC" fetch -q --depth 1 "file://$ROOT" "$COMMIT"
+git -C "$SRC" checkout -q -b main FETCH_HEAD
+[ -z "$TAG" ] || git -C "$SRC" tag "$TAG"
+git -C "$SRC" remote add origin "$ORIGIN_URL"
+tar -czf "$KIT/ProjectAchilles.tar.gz" -C "$STAGE" ProjectAchilles
+AGENT_VERSION="$(sed -n 's/^VERSION[[:space:]]*:\{0,1\}=[[:space:]]*//p' "$SRC/agent/Makefile" | head -1)"
+[ -n "$AGENT_VERSION" ] || die "no VERSION in agent/Makefile"
 
 # A docker-container builder: can export tarballs for any platform without
 # touching the local image store.
@@ -77,9 +88,10 @@ fi
 
 bake() {
   ARCH="$1" OUT="$KIT/images" PROJECT="$PROJECT" GIT_COMMIT="$COMMIT" \
-  TESTS_REPO_URL="$TESTS_REPO_URL" TESTS_REPO_REF="$LIBRARY_REF" \
+  TESTS_REPO_URL="$TESTS_REPO_URL" TESTS_REPO_REF="$LIBRARY_REF" TESTS_REPO_COMMIT="$LIBRARY_COMMIT" \
   KIT_TESTS="${TESTS[*]}" AGENT_VERSION="$AGENT_VERSION" \
-    docker buildx bake --builder "$BUILDER" -f "$HERE/docker-bake.hcl" "${@:2}"
+    bash -c 'cd "$0" && exec docker buildx bake "$@"' "$SRC" \
+    --builder "$BUILDER" -f deploy/offline-kit/docker-bake.hcl "${@:2}"
 }
 
 # One image at a time, each retried: in parallel, several `npm ci` runs on a
@@ -109,16 +121,7 @@ docker.elastic.co/elasticsearch/elasticsearch:8.17.0
 EOF
 echo "$COMMIT" >"$KIT/images/COMMIT"
 
-log "Packing the source at ${TAG:-${COMMIT:0:12}}"
-SRC="$STAGE/ProjectAchilles"
-git init -q "$SRC"
-git -C "$SRC" fetch -q --depth 1 "file://$ROOT" "$COMMIT"
-git -C "$SRC" checkout -q -b main FETCH_HEAD
-[ -z "$TAG" ] || git -C "$SRC" tag "$TAG"
-git -C "$SRC" remote add origin "$ORIGIN_URL"
-tar -czf "$KIT/ProjectAchilles.tar.gz" -C "$STAGE" ProjectAchilles
-
-cp "$HERE/kit.sh" "$HERE/kit.ps1" "$HERE/START-HERE.md" "$KIT/"
+cp "$SRC/deploy/offline-kit/kit.sh" "$SRC/deploy/offline-kit/kit.ps1" "$SRC/deploy/offline-kit/START-HERE.md" "$KIT/"
 chmod +x "$KIT/kit.sh"
 cat >"$KIT/KIT-INFO.txt" <<EOF
 ProjectAchilles offline kit

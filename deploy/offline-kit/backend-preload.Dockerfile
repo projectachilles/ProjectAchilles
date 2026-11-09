@@ -10,6 +10,8 @@ FROM backend
 
 ARG TESTS_REPO_URL=https://github.com/ubercylon8/f0_library.git
 ARG TESTS_REPO_REF=main
+# Exact library commit (build-kit.sh records it in KIT-INFO); empty = branch tip.
+ARG TESTS_REPO_COMMIT=""
 # Space-separated test UUIDs whose Go modules are pre-downloaded.
 ARG KIT_TESTS=""
 
@@ -20,6 +22,11 @@ ARG KIT_TESTS=""
 RUN git clone --branch "$TESTS_REPO_REF" --single-branch --depth 1 \
         --filter=blob:none --sparse "$TESTS_REPO_URL" /app/data/f0_library \
     && git -C /app/data/f0_library sparse-checkout set tests_source preludeorg-libraries utils \
+    && if [ -n "$TESTS_REPO_COMMIT" ] && [ "$(git -C /app/data/f0_library rev-parse HEAD)" != "$TESTS_REPO_COMMIT" ]; then \
+         git -C /app/data/f0_library fetch -q --depth 1 --filter=blob:none origin "$TESTS_REPO_COMMIT" \
+         && git -C /app/data/f0_library reset -q --hard "$TESTS_REPO_COMMIT"; \
+       fi \
+    && { [ -z "$TESTS_REPO_COMMIT" ] || [ "$(git -C /app/data/f0_library rev-parse HEAD)" = "$TESTS_REPO_COMMIT" ]; } \
     && mkdir -p /data && ln -s /app/data/f0_library /data/f0_library
 
 # Same environment as a build in the container: GOCACHE from docker-compose.yml,

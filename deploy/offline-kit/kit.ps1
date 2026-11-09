@@ -26,8 +26,18 @@ function Die([string]$Text) { Write-Host ""; Write-Host "ERROR: $Text" -Foregrou
 
 $Kit = $PSScriptRoot
 
-& docker info *> $null
-if ($LASTEXITCODE -ne 0) { Die "Docker is not running. Start Docker Desktop and run this again." }
+# Runs a native command with its output discarded and returns its exit code.
+# Windows PowerShell 5.1 turns a native command's redirected stderr into
+# errors, which 'Stop' makes fatal, so the preference is relaxed around it.
+function Test-Native([string]$Exe, [string[]]$Arguments) {
+    $saved = $ErrorActionPreference
+    $ErrorActionPreference = 'Continue'
+    try { & $Exe @Arguments *> $null; return $LASTEXITCODE }
+    catch [System.Management.Automation.CommandNotFoundException] { return 127 }
+    finally { $ErrorActionPreference = $saved }
+}
+
+if ((Test-Native docker @('info')) -ne 0) { Die "Docker is not running. Start Docker Desktop and run this again." }
 
 $dockerArch = (& docker info --format '{{.Architecture}}').Trim()
 switch -Regex ($dockerArch) {
@@ -62,8 +72,7 @@ foreach ($tar in $tars) {
 }
 foreach ($img in Get-Content (Join-Path $Kit 'images\IMAGES')) {
     if (-not $img.Trim()) { continue }
-    & docker image inspect $img *> $null
-    if ($LASTEXITCODE -ne 0) { Die "image $img is missing after loading" }
+    if ((Test-Native docker @('image', 'inspect', $img)) -ne 0) { Die "image $img is missing after loading" }
 }
 
 $target = Join-Path $Dest 'ProjectAchilles'
@@ -82,8 +91,18 @@ else {
     if ($LASTEXITCODE -ne 0) { Die "unpacking failed" }
 }
 
+# Docker copies the preloaded test library and Go caches into these volumes
+# only when they are new; volumes left by an earlier install keep their old
+# content, and test builds would then need the network.
+$oldVols = @('projectachilles_repo-cache', 'projectachilles_go-cache') | Where-Object { (Test-Native docker @('volume', 'inspect', $_)) -eq 0 }
+if ($oldVols) {
+    Say "WARNING: volumes from an earlier install exist: $($oldVols -join ' ')"
+    Write-Host "  They keep their old content, so the kit's test library and Go modules are not used."
+    Write-Host "  To use the kit's, stop that install and remove them: docker volume rm $($oldVols -join ' ')"
+}
+
 Write-Host ""
 Write-Host "Done. Next:"
 Write-Host "  cd `"$target`""
 Write-Host "  powershell -ExecutionPolicy Bypass -File .\scripts\Install-ProjectAchilles.ps1 -NoBuild"
-Write-Host "  docker compose -f docker-compose.yml -f docker-compose.lab.yml up -d   # adds the lab endpoint"
+Write-Host "  docker compose --profile elasticsearch -f docker-compose.yml -f docker-compose.lab.yml up -d"
