@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # ProjectAchilles offline kit loader (macOS, Linux). Run it from the kit folder:
 #
-#   ./kit.sh [--dest DIR]     (default DIR: your home folder)
+#   bash kit.sh [--dest DIR]  (default DIR: your home folder)
 #
 # It checks the files, loads the images for this machine into Docker and
 # unpacks the source to DIR/ProjectAchilles. Nothing is downloaded.

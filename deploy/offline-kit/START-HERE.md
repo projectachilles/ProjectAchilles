@@ -10,7 +10,7 @@ Compose (Linux) is installed and running. About 8 GB of free disk (this kit is
 1. **Copy this whole folder** to your laptop (any folder).
 2. **Load the kit.** From this folder:
    - Windows (PowerShell): `powershell -ExecutionPolicy Bypass -File .\kit.ps1`
-   - macOS / Linux: `./kit.sh`
+   - macOS / Linux: `bash kit.sh`
 
    It checks the files, loads the images for your machine (Intel/AMD or Apple
    Silicon) and unpacks the source to `ProjectAchilles` in your home folder.
@@ -41,7 +41,7 @@ ocupa 2,2 GB; las imágenes cargadas, unos 3,5 GB).
 1. **Copia esta carpeta completa** a tu portátil (en cualquier carpeta).
 2. **Carga el kit.** Desde esta carpeta:
    - Windows (PowerShell): `powershell -ExecutionPolicy Bypass -File .\kit.ps1`
-   - macOS / Linux: `./kit.sh`
+   - macOS / Linux: `bash kit.sh`
 
    Verifica los archivos, carga las imágenes para tu equipo (Intel/AMD o Apple
    Silicon) y descomprime el código en `ProjectAchilles`, en tu carpeta personal.
