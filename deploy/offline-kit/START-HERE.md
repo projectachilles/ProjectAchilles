@@ -4,7 +4,8 @@ Everything a first install would download, so you can install without a fast
 network. You still need internet access for sign-in (Clerk).
 
 **Before you start:** Docker Desktop (Windows, macOS) or Docker Engine with
-Compose (Linux) is installed and running. About 8 GB of free disk.
+Compose (Linux) is installed and running. About 8 GB of free disk (this kit is
+2.2 GB; the loaded images take about 3.5 GB).
 
 1. **Copy this whole folder** to your laptop (any folder).
 2. **Load the kit.** From this folder:
@@ -33,7 +34,8 @@ Todo lo que una primera instalación descargaría, para instalar sin una red
 rápida. Aún necesitas internet para iniciar sesión (Clerk).
 
 **Antes de empezar:** Docker Desktop (Windows, macOS) o Docker Engine con
-Compose (Linux) instalado y en ejecución. Unos 8 GB libres en disco.
+Compose (Linux) instalado y en ejecución. Unos 8 GB libres en disco (este kit
+ocupa 2,2 GB; las imágenes cargadas, unos 3,5 GB).
 
 1. **Copia esta carpeta completa** a tu portátil (en cualquier carpeta).
 2. **Carga el kit.** Desde esta carpeta:

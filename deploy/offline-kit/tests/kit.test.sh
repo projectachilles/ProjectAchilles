@@ -27,7 +27,10 @@ read -r -a KIT_TESTS <<<"$(sed -n 's/^Preloaded Go modules for: //p' "$KIT/KIT-I
 # sources are paths the inner engine resolves in its own filesystem, so the
 # work folder is mounted at the same absolute path inside it.
 hostdocker() { env -u DOCKER_HOST docker "$@"; }
-WORK="$(mktemp -d "${TMPDIR:-/tmp}/achilles-kittest.XXXXXX")"
+# Not under /tmp: the Docker daemon must see this folder as this shell does
+# (a private /tmp, e.g. systemd PrivateTmp, hides it and the socket fails).
+mkdir -p "$ROOT/deploy/offline-kit/out"
+WORK="$(mktemp -d "$ROOT/deploy/offline-kit/out/.kittest.XXXXXX")"
 cleanup() {
   hostdocker exec "$NAME" sh -c "rm -rf '$WORK'/home" >/dev/null 2>&1 || true
   hostdocker rm -fv "$NAME" >/dev/null 2>&1 || true
@@ -42,6 +45,16 @@ docker run -d --privileged --name "$NAME" --network none \
 export DOCKER_HOST="unix://$WORK/sock/docker.sock"
 for _ in $(seq 1 60); do docker info >/dev/null 2>&1 && break; sleep 1; done
 docker info >/dev/null 2>&1 || fail setup "inner engine did not start: $(hostdocker logs --tail 20 "$NAME" 2>&1)"
+
+# The premise: nothing in the inner engine reaches the internet. Uses the
+# kit's seed image (Python), loaded by kit_loads.
+engine_has_no_network() {
+  if docker run --rm --entrypoint python projectachilles-es-seed -c \
+      "import socket; socket.create_connection(('registry.npmjs.org', 443), timeout=5)" >/dev/null 2>&1; then
+    fail "${FUNCNAME[0]}" "a container in the test engine reached the internet"
+  fi
+  pass "${FUNCNAME[0]}"
+}
 
 kit_loads() {
   local out
@@ -79,6 +92,7 @@ arm64_backend_runs() {
 
 if [ "$ARCH" = arm64 ]; then
   kit_loads
+  engine_has_no_network
   images_are_arm64
   arm64_backend_runs
   exit 0
@@ -171,6 +185,7 @@ lab_endpoint_enrolls() {
 }
 
 kit_loads
+engine_has_no_network
 configure
 stack_starts_without_network
 seed_loads_es
