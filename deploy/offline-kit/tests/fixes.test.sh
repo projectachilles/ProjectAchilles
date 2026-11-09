@@ -123,6 +123,24 @@ installer_nobuild_without_git() {
   pass "${FUNCNAME[0]}"
 }
 
+# Kits travel on USB sticks. Many come formatted FAT32, which Linux (udisks)
+# mounts with `showexec`: only .exe/.bat/.com are executable, so kit.sh is 0644,
+# on the stick and once copied off it. The command START-HERE.md gives for
+# macOS / Linux must not need the execute bit.
+start_here_kit_command_runs_without_exec_bit() {
+  local dir cmds cmd rc
+  dir="$(mktemp -d)"
+  install -m 0644 deploy/offline-kit/kit.sh "$dir/kit.sh"
+  cmds="$(grep -E '^ *- macOS / Linux: `[^`]*kit\.sh`' deploy/offline-kit/START-HERE.md | sed -E 's/.*`([^`]*)`.*/\1/')"
+  [ "$(printf '%s\n' "$cmds" | grep -c .)" = 2 ] || { rm -rf "$dir"; fail "${FUNCNAME[0]}" "expected the kit.sh line in English and Spanish, got: $cmds"; }
+  while IFS= read -r cmd; do
+    (cd "$dir" && eval "$cmd --help" >/dev/null 2>&1) && rc=0 || rc=$?
+    [ "$rc" = 0 ] || { rm -rf "$dir"; fail "${FUNCNAME[0]}" "\`$cmd\` fails on a 0644 kit.sh (rc=$rc)"; }
+  done <<<"$cmds"
+  rm -rf "$dir"
+  pass "${FUNCNAME[0]}"
+}
+
 cases=("$@")
-[ ${#cases[@]} -gt 0 ] || cases=(seed_needs_no_pip_at_runtime seed_image_works_offline installer_nobuild_switch installer_nobuild_without_git backend_go_matches_arch)
+[ ${#cases[@]} -gt 0 ] || cases=(seed_needs_no_pip_at_runtime seed_image_works_offline installer_nobuild_switch installer_nobuild_without_git backend_go_matches_arch start_here_kit_command_runs_without_exec_bit)
 for c in "${cases[@]}"; do "$c"; done
