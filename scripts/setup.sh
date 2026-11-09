@@ -170,9 +170,9 @@ env_get() {
 # Set a value in the env file (adds if missing, updates if present)
 env_set() {
     local key="$1" value="$2"
-    if [[ -f "$ENV_FILE" ]] && grep -qE "^#?\s*${key}=" "$ENV_FILE"; then
+    if [[ -f "$ENV_FILE" ]] && grep -qE "^#?[[:space:]]*${key}=" "$ENV_FILE"; then
         # Update existing (commented or not)
-        sed -i.bak "s|^#*\s*${key}=.*|${key}=${value}|" "$ENV_FILE" && rm -f "${ENV_FILE}.bak"
+        sed -i.bak "s|^#*[[:space:]]*${key}=.*|${key}=${value}|" "$ENV_FILE" && rm -f "${ENV_FILE}.bak"
     else
         echo "${key}=${value}" >> "$ENV_FILE"
     fi

@@ -377,20 +377,30 @@ function Invoke-PhaseBanner {
 # Phase 2 -- Prerequisite Checks
 # -----------------------------------------------------------------------------
 
-function Invoke-PhasePrereqs {
-    Write-Step 2 "Checking prerequisites..."
-
-    # Git
+# Git is needed to clone and update the repository. With -NoBuild (offline
+# kit: the source is unpacked with tar, the images are loaded) setup can go on
+# without it.
+function Test-GitPrereq {
     try {
         $gitVer = & git --version 2>&1
         if ($LASTEXITCODE -ne 0) { throw 'git failed' }
         Write-Success "Git: $gitVer"
     }
     catch {
+        if ($NoBuild) {
+            Write-Warning "Git is not installed. Continuing (-NoBuild); install Git later to update with 'git pull'."
+            return
+        }
         Write-Failure "Git is not installed."
         Write-Info "Download from: https://git-scm.com/download/win"
         exit 1
     }
+}
+
+function Invoke-PhasePrereqs {
+    Write-Step 2 "Checking prerequisites..."
+
+    Test-GitPrereq
 
     # Docker
     try {
@@ -891,7 +901,8 @@ function Invoke-PhaseBuild {
 
         if ($LASTEXITCODE -ne 0) {
             Write-Host ""
-            Write-Failure "Docker build failed (exit code $LASTEXITCODE)."
+            if ($NoBuild) { Write-Failure "Docker could not start the containers (exit code $LASTEXITCODE)." }
+            else { Write-Failure "Docker build failed (exit code $LASTEXITCODE)." }
             Write-Host ""
             Write-Info "Common causes and fixes:"
             Write-Info "  - 'no space left on device': Run 'docker system prune -a'"

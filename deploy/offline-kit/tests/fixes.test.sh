@@ -96,6 +96,33 @@ installer_nobuild_switch() {
   pass "${FUNCNAME[0]}"
 }
 
+# -NoBuild (offline kit) needs no Git on the host: the kit unpacks the source
+# with tar. Without -NoBuild a missing Git still stops the installer.
+installer_git_check() { # $1 = PowerShell lines run before the check
+  docker run --rm --network none -v "$ROOT/scripts:/s:ro" "$PWSH_IMAGE" pwsh -NoProfile -Command "
+    \$ErrorActionPreference = 'Stop'
+    \$ast = [System.Management.Automation.Language.Parser]::ParseFile('/s/Install-ProjectAchilles.ps1', [ref]\$null, [ref]\$null)
+    foreach (\$name in 'Write-Info','Write-Success','Write-Warning','Write-Failure','Test-GitPrereq') {
+      \$fn = \$ast.Find({ param(\$n) \$n -is [System.Management.Automation.Language.FunctionDefinitionAst] -and \$n.Name -eq \$name }, \$true)
+      if (-not \$fn) { Write-Output \"NO-FUNCTION \$name\"; exit 3 }
+      Invoke-Expression \$fn.Extent.Text
+    }
+    function git { throw 'git: command not found' }
+    $1
+    Test-GitPrereq *> \$null
+    Write-Output 'CONTINUED'
+  "
+}
+
+installer_nobuild_without_git() {
+  local out rc
+  out="$(installer_git_check '$NoBuild = $true')" && rc=0 || rc=$?
+  [ "$rc" = 0 ] && [ "$out" = CONTINUED ] || fail "${FUNCNAME[0]}" "-NoBuild without Git: rc=$rc $out"
+  out="$(installer_git_check '$NoBuild = $false')" && rc=0 || rc=$?
+  [ "$rc" = 1 ] || fail "${FUNCNAME[0]}" "without -NoBuild a missing Git must stop the installer: rc=$rc $out"
+  pass "${FUNCNAME[0]}"
+}
+
 cases=("$@")
-[ ${#cases[@]} -gt 0 ] || cases=(seed_needs_no_pip_at_runtime seed_image_works_offline installer_nobuild_switch backend_go_matches_arch)
+[ ${#cases[@]} -gt 0 ] || cases=(seed_needs_no_pip_at_runtime seed_image_works_offline installer_nobuild_switch installer_nobuild_without_git backend_go_matches_arch)
 for c in "${cases[@]}"; do "$c"; done
