@@ -93,7 +93,7 @@ services:
 
   # One-shot container: creates index + seeds ~1000 records, then exits
   es-seed:
-    image: python:3.12-slim
+    build: ./deploy/es-seed
     profiles: ["elasticsearch"]
     depends_on:
       elasticsearch:
@@ -101,8 +101,7 @@ services:
     volumes:
       - ./scripts:/scripts:ro
     entrypoint: >
-      sh -c "pip install -q 'elasticsearch==8.17.2' &&
-             python /scripts/generate_synthetic_data.py -c 1000 -o /tmp/seed.ndjson -d 30 &&
+      sh -c "python /scripts/generate_synthetic_data.py -c 1000 -o /tmp/seed.ndjson -d 30 &&
              python /scripts/upload_to_elasticsearch.py -f /tmp/seed.ndjson --host http://elasticsearch:9200 --create-index --skip-if-populated"
     restart: "no"
 

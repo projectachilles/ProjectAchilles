@@ -119,3 +119,6 @@ deploy/onprem/*.sh
 appliance/out/
 !appliance/build/
 sim-keys.json
+
+# Offline kit output (multi-GB images): deploy/offline-kit/build-kit.sh
+deploy/offline-kit/out/

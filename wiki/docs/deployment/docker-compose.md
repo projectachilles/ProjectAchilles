@@ -117,6 +117,16 @@ docker exec achilles-lab-endpoint enroll <TOKEN>   # token from the UI
 
 It shows up as `lab-endpoint` (linux / amd64) and can run Linux tests. It reaches the backend through its own localhost forwarder, so the backend's `AGENT_SERVER_URL` stays as it is; it must be `http://localhost:3000` (the default) or an `https://` URL, or enrollment is refused. Details and two demo scenarios: `deploy/lab-endpoint/README.md` in the repository.
 
+### Offline Kit (Workshops, Slow Networks)
+
+To install on many laptops at once without each one downloading several gigabytes, build an offline kit once and copy it to USB sticks:
+
+```bash
+deploy/offline-kit/build-kit.sh <test-uuid> ...   # tests whose Go modules are included
+```
+
+It holds the images for amd64 and arm64 (Apple Silicon), the test library, those tests' Go modules and the source at the same commit. On each laptop, `kit.sh` (macOS, Linux) or `kit.ps1` (Windows) loads the images and unpacks the source to `~/ProjectAchilles`. Configure with `./scripts/setup.sh` (it only writes the configuration) or the Windows installer with `-NoBuild` (Git is then not required), choosing the local Elasticsearch, then start with `docker compose --profile elasticsearch -f docker-compose.yml -f docker-compose.lab.yml up -d`. Nothing is downloaded except Clerk sign-in, which still needs internet. Details: `deploy/offline-kit/README.md` in the repository.
+
 ## Volume Storage
 
 Docker Compose uses a named volume for persistent data:
@@ -157,7 +167,7 @@ powershell -ExecutionPolicy Bypass -File .\scripts\Install-ProjectAchilles.ps1
 
 `-ExecutionPolicy Bypass` applies only to that one PowerShell process. Windows blocks unsigned scripts by default ("running scripts is disabled on this system"), and this leaves your system policy unchanged. Windows PowerShell 5.1, built into Windows 10 and 11, is enough.
 
-The script checks prerequisites (Docker Desktop, WSL2, Git), fixes line endings, configures `.env` interactively, builds images, and starts services.
+The script checks prerequisites (Docker Desktop, WSL2, Git), fixes line endings, configures `.env` interactively, builds images, and starts services. With `-NoBuild` it starts the images already loaded (for example from the [offline kit](#offline-kit-workshops-slow-networks)) instead of rebuilding them.
 
 ### WSL2 Requirements
 

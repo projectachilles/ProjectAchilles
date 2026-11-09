@@ -13,6 +13,14 @@ This project uses two version streams:
 
 ### Added
 - **Lab endpoint for demos and workshops** (`docker-compose.lab.yml`, `deploy/lab-endpoint/`): a throwaway `linux/amd64` container that runs the agent next to a Docker Compose or server install, enrolled with `docker exec achilles-lab-endpoint enroll <TOKEN>`. It ships a deliberately unhardened SSH config for the CIS Linux bundle, and its README walks through two scenarios (Shadow AI exfiltration: DNS sinkhole flips 101 to 126; CIS Linux: four fixes flip four controls). The endpoint reaches the backend through its own localhost forwarder; the backend's `AGENT_SERVER_URL` is not changed. Line endings of the files it copies are forced to LF, so a Windows checkout builds too.
+- **Offline kit for workshops and slow networks** (`deploy/offline-kit/`): `build-kit.sh` builds one folder with everything a Docker Compose install downloads on its first start (amd64 and arm64 images, the test library, the Go modules of the tests you name, the source at that commit), and `kit.sh` / `kit.ps1` load it on a laptop with nothing downloaded except Clerk sign-in. `tests/kit.test.sh` proves it in a Docker engine with no network.
+- **Windows installer `-NoBuild`**: starts the images already loaded (e.g. from the offline kit) instead of rebuilding them.
+
+### Changed
+- **The local Elasticsearch seed has its own image** (`deploy/es-seed/`, `docker-compose.yml`): its Python client is installed when the image is built, not by `pip` on the first `up`. `docker-compose.server.yml` is unchanged.
+
+### Fixed
+- **The backend image's Go toolchain matches its architecture.** It always installed the amd64 toolchain, so on Apple Silicon every test and agent build ran under emulation.
 
 ## [2.10.1] - 2026-11-07
 

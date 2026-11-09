@@ -30,6 +30,10 @@
 .PARAMETER NoOpen
     Don't open the browser when setup completes.
 
+.PARAMETER NoBuild
+    Start the images already loaded (for example from the offline kit)
+    instead of rebuilding them. Docker still builds any image that is missing.
+
 .EXAMPLE
     .\scripts\Install-ProjectAchilles.ps1
 
@@ -44,7 +48,8 @@ param(
     [string]$ClerkSecretKey,
     [switch]$WithElasticsearch,
     [switch]$Force,
-    [switch]$NoOpen
+    [switch]$NoOpen,
+    [switch]$NoBuild
 )
 
 Set-StrictMode -Version Latest
@@ -372,20 +377,30 @@ function Invoke-PhaseBanner {
 # Phase 2 -- Prerequisite Checks
 # -----------------------------------------------------------------------------
 
-function Invoke-PhasePrereqs {
-    Write-Step 2 "Checking prerequisites..."
-
-    # Git
+# Git is needed to clone and update the repository. With -NoBuild (offline
+# kit: the source is unpacked with tar, the images are loaded) setup can go on
+# without it.
+function Test-GitPrereq {
     try {
         $gitVer = & git --version 2>&1
         if ($LASTEXITCODE -ne 0) { throw 'git failed' }
         Write-Success "Git: $gitVer"
     }
     catch {
+        if ($NoBuild) {
+            Write-Warning "Git is not installed. Continuing (-NoBuild); install Git later to update with 'git pull'."
+            return
+        }
         Write-Failure "Git is not installed."
         Write-Info "Download from: https://git-scm.com/download/win"
         exit 1
     }
+}
+
+function Invoke-PhasePrereqs {
+    Write-Step 2 "Checking prerequisites..."
+
+    Test-GitPrereq
 
     # Docker
     try {
@@ -854,14 +869,24 @@ function Invoke-PhaseWriteConfig {
 # -----------------------------------------------------------------------------
 
 function Invoke-PhaseBuild {
-    Write-Step 8 "Building and launching Docker containers..."
-    Write-Host ""
-    Write-Info "This may take 5-10 minutes on the first run."
+    if ($NoBuild) {
+        Write-Step 8 "Launching Docker containers from the loaded images..."
+    }
+    else {
+        Write-Step 8 "Building and launching Docker containers..."
+        Write-Host ""
+        Write-Info "This may take 5-10 minutes on the first run."
+    }
     Write-Host ""
 
-    $composeArgs = @('up', '-d', '--build')
+    $composeArgs = @('up', '-d')
     if ($script:EsMode -eq 'local') {
-        $composeArgs = @('--profile', 'elasticsearch', 'up', '-d', '--build')
+        $composeArgs = @('--profile', 'elasticsearch') + $composeArgs
+    }
+    # -NoBuild: reuse loaded images (offline kit). Without --build, compose
+    # still builds an image that is missing, so this never skips a first build.
+    if (-not $NoBuild) {
+        $composeArgs += '--build'
     }
 
     # Build and launch
@@ -876,7 +901,8 @@ function Invoke-PhaseBuild {
 
         if ($LASTEXITCODE -ne 0) {
             Write-Host ""
-            Write-Failure "Docker build failed (exit code $LASTEXITCODE)."
+            if ($NoBuild) { Write-Failure "Docker could not start the containers (exit code $LASTEXITCODE)." }
+            else { Write-Failure "Docker build failed (exit code $LASTEXITCODE)." }
             Write-Host ""
             Write-Info "Common causes and fixes:"
             Write-Info "  - 'no space left on device': Run 'docker system prune -a'"
