@@ -91,7 +91,7 @@ bake() {
   TESTS_REPO_URL="$TESTS_REPO_URL" TESTS_REPO_REF="$LIBRARY_REF" TESTS_REPO_COMMIT="$LIBRARY_COMMIT" \
   KIT_TESTS="${TESTS[*]}" AGENT_VERSION="$AGENT_VERSION" \
     bash -c 'cd "$0" && exec docker buildx bake "$@"' "$SRC" \
-    --builder "$BUILDER" -f deploy/offline-kit/docker-bake.hcl "${@:2}"
+    --builder "$BUILDER" --allow "fs.write=$KIT/images" -f deploy/offline-kit/docker-bake.hcl "${@:2}"
 }
 
 # One image at a time, each retried: in parallel, several `npm ci` runs on a
