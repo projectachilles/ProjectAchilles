@@ -343,8 +343,11 @@ export function ExecResultLabel({ exec, compact }: { exec: EnrichedTestExecution
 /**
  * Bundle rollup label. Any-stage rollup with four-tier priority:
  * Protected > Prevented > Detected > Unprotected — kill-chain semantic:
- * breaking one link breaks the chain. Cyber-hygiene bundles keep per-control
- * ratio scoring since each control is evaluated independently.
+ * breaking one link breaks the chain. A run with none of those and no stage
+ * that ran unprotected (every stage errored or was skipped) is Inconclusive,
+ * as the Tasks page, campaigns and the Outcome breakdown read it. Cyber-hygiene
+ * bundles keep per-control ratio scoring since each control is evaluated
+ * independently.
  */
 export function BundleResultLabel({ group, compact }: { group: BundleGroup; compact?: boolean }) {
   const iconClass = compact ? 'w-3.5 h-3.5' : 'w-4 h-4';
@@ -382,6 +385,15 @@ export function BundleResultLabel({ group, compact }: { group: BundleGroup; comp
         <span className={textClass}>
           {group.protectedCount}/{group.totalCount} Protected
         </span>
+      </span>
+    );
+  }
+
+  if (!isProtected && !isPrevented && !isDetected && group.unprotectedCount === 0) {
+    return (
+      <span className="inline-flex items-center gap-1.5 text-warning">
+        <ShieldQuestion className={iconClass} />
+        <span className={textClass}>Inconclusive</span>
       </span>
     );
   }
