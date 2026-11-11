@@ -57,10 +57,13 @@ export function insertClaim(r: {
   return res.changes > 0;
 }
 
-/** Take over a failed or stale 'sending' row; true when this caller won the race. */
+/**
+ * Take over a failed, stale 'sending', or reopened 'empty' row; true when this
+ * caller won the race.
+ */
 export function reclaim(
   id: string,
-  prev: { state: 'failed' | 'sending'; claimAt: string | null },
+  prev: { state: 'failed' | 'sending' | 'empty'; claimAt: string | null },
   nowIso: string,
 ): boolean {
   const res = getDatabase()
@@ -125,6 +128,23 @@ export function listActiveScheduleOrgs(): string[] {
     .prepare(`SELECT DISTINCT org_id FROM schedules WHERE status = 'active' ORDER BY org_id`)
     .all() as Array<{ org_id: string }>;
   return rows.map((r) => r.org_id);
+}
+
+/**
+ * True when an active schedule of the org was created or changed at or after
+ * `sinceIso`. schedules.updated_at is written by `datetime('now')` (whole
+ * seconds, no 'T'/'Z'), so both sides go through datetime(): the claim's
+ * milliseconds drop and a change in the same second counts as newer.
+ */
+export function hasScheduleChangeSince(orgId: string, sinceIso: string): boolean {
+  const row = getDatabase()
+    .prepare(`
+      SELECT 1 FROM schedules
+      WHERE org_id = ? AND status = 'active' AND datetime(updated_at) >= datetime(?)
+      LIMIT 1
+    `)
+    .get(orgId, sinceIso);
+  return row !== undefined;
 }
 
 /** An active schedule row as stored (JSON columns unparsed). */

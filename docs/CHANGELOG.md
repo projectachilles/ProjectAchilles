@@ -20,6 +20,7 @@ This project uses two version streams:
 - **The local Elasticsearch seed has its own image** (`deploy/es-seed/`, `docker-compose.yml`): its Python client is installed when the image is built, not by `pip` on the first `up`. `docker-compose.server.yml` is unchanged.
 
 ### Fixed
+- **Advance digest for a schedule created after 09:00** (`services/notices/digest.service.ts`): when the 09:00 pass had already recorded the day as empty (another schedule was active, but nothing ran tomorrow), a schedule created, resumed or edited later that day for tomorrow got no digest. An empty day is now re-checked once after each change to an active schedule of that org, and the digest goes out on the next tick. A day whose digest was already sent still gets no second email.
 - **The backend image's Go toolchain matches its architecture.** It always installed the amd64 toolchain, so on Apple Silicon every test and agent build ran under emulation.
 
 ## [2.10.1] - 2026-11-07

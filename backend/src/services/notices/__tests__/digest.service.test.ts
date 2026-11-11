@@ -125,12 +125,16 @@ function insertSchedule(s: {
   agentNextRuns?: Record<string, string> | null;
   status?: string;
   metadata?: Record<string, unknown>;
+  /** Defaults to an hour before NOW. */
+  updatedAt?: Date;
 }) {
+  const stamp = sqliteTime(s.updatedAt ?? at(-60 * MIN));
   testDb
     .prepare(`
       INSERT INTO schedules (id, name, agent_ids, org_id, test_uuid, test_name, binary_name, metadata,
-        schedule_type, schedule_config, timezone, next_run_at, status, created_by, agent_next_runs)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        schedule_type, schedule_config, timezone, next_run_at, status, created_by, agent_next_runs,
+        created_at, updated_at)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `)
     .run(
       s.id,
@@ -148,7 +152,14 @@ function insertSchedule(s: {
       s.status ?? 'active',
       'alice',
       s.agentNextRuns ? JSON.stringify(s.agentNextRuns) : null,
+      stamp,
+      stamp,
     );
+}
+
+/** The 'YYYY-MM-DD HH:MM:SS' UTC form that `datetime('now')` writes to schedules. */
+function sqliteTime(d: Date): string {
+  return d.toISOString().slice(0, 19).replace('T', ' ');
 }
 
 /** Weekly per-machine schedule on Thursdays (tomorrow relative to NOW). */
@@ -402,6 +413,64 @@ describe('processAdvanceDigests', () => {
     expect(r.empty).toBe(1);
     expect(mockSendMail).not.toHaveBeenCalled();
     expect(digestRows()[0]).toMatchObject({ state: 'empty', run_date: '2026-10-29' });
+  });
+
+  describe('a schedule created or changed after the day was recorded empty', () => {
+    // 09:00 pass: only a Friday schedule is active, so the day is recorded empty.
+    beforeEach(async () => {
+      insertSchedule({ id: 's-fri', agentIds: ['a1'], config: { time: '10:00', days: [5] } });
+      await processAdvanceDigests(NOW);
+      expect(digestRows()[0].state).toBe('empty');
+    });
+
+    it('sends the digest on the next pass when the new schedule runs tomorrow', async () => {
+      thursdaySchedule('s-late', { updatedAt: at(73 * MIN) });
+      const r = await processAdvanceDigests(at(74 * MIN));
+      expect(r.sent).toBe(1);
+      expect(mockSendMail).toHaveBeenCalledTimes(1);
+      expect(mailAt(0).html).toContain('host-alpha');
+      expect(digestRows()).toHaveLength(1);
+      expect(digestRows()[0]).toMatchObject({ state: 'sent', run_date: '2026-10-29', host_count: 2 });
+      // Sent closes the day as before.
+      expect(await processAdvanceDigests(at(80 * MIN))).toMatchObject({ sent: 0, skipped: 1 });
+      expect(mockSendMail).toHaveBeenCalledTimes(1);
+    });
+
+    it('catches a change made in the same second as the empty pass', async () => {
+      // schedules.updated_at has whole seconds; the claim has milliseconds.
+      testDb.prepare('UPDATE notice_digests SET claim_at = ?').run(new Date(NOW.getTime() + 400).toISOString());
+      thursdaySchedule('s-late', { updatedAt: NOW });
+      expect((await processAdvanceDigests(at(MIN))).sent).toBe(1);
+    });
+
+    it('re-checks once and stays empty when the change runs no test tomorrow', async () => {
+      insertSchedule({ id: 's-sat', agentIds: ['a1'], config: { time: '10:00', days: [6] }, updatedAt: at(30 * MIN) });
+      expect((await processAdvanceDigests(at(31 * MIN))).empty).toBe(1);
+      expect(digestRows()[0]).toMatchObject({ state: 'empty', claim_at: at(31 * MIN).toISOString() });
+      // Nothing changed since that re-check: the day stays closed.
+      expect(await processAdvanceDigests(at(32 * MIN))).toMatchObject({ empty: 0, skipped: 1 });
+      expect(digestRows()[0].claim_at).toBe(at(31 * MIN).toISOString());
+      expect(mockSendMail).not.toHaveBeenCalled();
+    });
+
+    it('stays closed when no schedule changed', async () => {
+      const r = await processAdvanceDigests(at(5 * MIN));
+      expect(r).toEqual({ sent: 0, empty: 0, failed: 0, skipped: 1 });
+      expect(digestRows()[0]).toMatchObject({ state: 'empty', claim_at: NOW.toISOString() });
+    });
+
+    it('ignores a change to a paused schedule', async () => {
+      thursdaySchedule('s-paused', { status: 'paused', updatedAt: at(10 * MIN) });
+      expect(await processAdvanceDigests(at(11 * MIN))).toMatchObject({ skipped: 1 });
+      expect(digestRows()[0].claim_at).toBe(NOW.toISOString());
+    });
+
+    it("ignores another org's new schedule", async () => {
+      thursdaySchedule('s-other', { orgId: 'org-002', updatedAt: at(10 * MIN) });
+      await processAdvanceDigests(at(11 * MIN));
+      const own = digestRows().find((d) => d.org_id === 'org-001');
+      expect(own).toMatchObject({ state: 'empty', claim_at: NOW.toISOString() });
+    });
   });
 
   it('writes an empty row when every agent of the only schedule is decommissioned', async () => {
