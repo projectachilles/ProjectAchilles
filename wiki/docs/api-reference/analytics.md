@@ -83,6 +83,8 @@ Returns the aggregate defense score and breakdown counts for the filtered window
 
 See the [guide](./programmatic-access.md#6-defense-score--what-the-fields-mean) for when to use each score variant.
 
+With `basis=latest&withNoConclusive=true` the response also has `noConclusiveCount`: test × endpoint pairs with results in the window but no conclusive one yet (for example every run blocked before it started, exit 260). It is the Outcome breakdown's "No conclusive result yet" count, over the same pairs as `pairCount` (cyber-hygiene controls included), and 0 under outcome filters. It costs one more query, so it is off by default.
+
 **With `basis=latest`** the response adds two fields and changes the meaning of the counts:
 
 ```jsonc
@@ -212,11 +214,11 @@ One row per "run" — bundle tests collapse from N controls into a single entry.
 ### Coverage Aggregates
 
 ```
-GET /api/analytics/host-test-matrix       — heatmap data (host × test)
+GET /api/analytics/host-test-matrix       — treemap data (host × test): a standalone test counts its results, a bundle counts its runs under the bundle name (never one cell per stage)
 GET /api/analytics/technique-distribution — protected/unprotected per MITRE technique
 GET /api/analytics/test-coverage          — protected/unprotected per test
 GET /api/analytics/threat-actor-coverage  — coverage broken down by threat actor
-GET /api/analytics/error-rate             — error count and rate over the window
+GET /api/analytics/error-rate             — error count and rate over the window (errors: exit 0, 1, 259, 999, except a skipped stage of an attack bundle and an error stage the EDR prevented)
 GET /api/analytics/error-rate/trend       — error rate over time (rolling window defaults to the range length, capped at 365 days; explicit `windowDays` is clamped to 1–90; empty windows return `errorRate: null`)
 GET /api/analytics/results-by-error-type  — breakdown by error code/name
 ```
@@ -307,8 +309,8 @@ Only real test results are counted: upload confirmations (exit 200) and Skipped 
 
 ```
 GET /api/analytics/unique-hostnames       — distinct host count
-GET /api/analytics/unique-tests           — distinct test count
-GET /api/analytics/canonical-test-count   — count of canonical (deduped) tests
+GET /api/analytics/unique-tests           — distinct test count (a bundle counts once, not once per stage)
+GET /api/analytics/canonical-test-count   — count of canonical (deduped) tests: standalone test names plus bundle names
 GET /api/analytics/organizations          — known organizations
 GET /api/analytics/available-tests        — all tests with any execution
 GET /api/analytics/executed-test-uuids    — every test UUID that has been executed

@@ -1,19 +1,24 @@
 import { memo } from 'react';
-import { CheckCircle2, XCircle } from 'lucide-react';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
-import type { EnrichedTestExecution } from '@/services/api/analytics';
 import { FitList } from '@/components/shared/FitList';
 import { cn } from '@/lib/utils';
+import { BundleResultLabel, ExecResultLabel, type DisplayRow } from './executions/shared';
 
 interface TestActivityCardProps {
-  /** Recent executions, newest first. */
-  recentTests: EnrichedTestExecution[];
-  /** Total executions in the window (pagination total, not a pair count). */
-  executionCount?: number | null;
+  /**
+   * Recent runs, newest first: the rows of All Executions (a bundle run is one
+   * row with its run verdict, not one row per stage).
+   */
+  runs: DisplayRow[];
+  /** Total runs in the window (grouped pagination total). */
+  runCount?: number | null;
   loading?: boolean;
   title?: string;
   className?: string;
 }
+
+const runName = (row: DisplayRow) => (row.type === 'bundle' ? row.bundle_name : row.execution.test_name || 'Unknown Test');
+const runTime = (row: DisplayRow) => (row.type === 'bundle' ? row.timestamp : row.execution.timestamp);
 
 // Parse timestamp - handles both epoch ms strings and ISO strings
 function parseTimestamp(timestamp: string): Date {
@@ -43,8 +48,8 @@ function getRelativeTime(timestamp: string): string {
 }
 
 function TestActivityCard({
-  recentTests,
-  executionCount,
+  runs,
+  runCount,
   loading,
   title = 'Test activity',
   className,
@@ -53,17 +58,17 @@ function TestActivityCard({
     return <div className="h-72 animate-pulse rounded-lg border border-border bg-raised" aria-hidden="true" />;
   }
 
-  // Most recent execution by timestamp (do not rely on list order).
-  const latest = recentTests.reduce<Date | null>((best, t) => {
-    const d = parseTimestamp(t.timestamp);
+  // Most recent run by timestamp (do not rely on list order).
+  const latest = runs.reduce<Date | null>((best, row) => {
+    const d = parseTimestamp(runTime(row));
     if (!isValidDate(d)) return best;
     return best === null || d > best ? d : best;
   }, null);
 
   const description =
-    latest && executionCount != null
-      ? `${executionCount.toLocaleString()} tests · last run ${latest.toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' })}`
-      : 'Latest executions in window';
+    latest && runCount != null
+      ? `${runCount.toLocaleString()} ${runCount === 1 ? 'run' : 'runs'} · last run ${latest.toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' })}`
+      : 'Latest runs in window';
 
   return (
     <Card className={cn('h-full', className)}>
@@ -72,31 +77,29 @@ function TestActivityCard({
         <CardDescription>{description}</CardDescription>
       </CardHeader>
       <CardContent className="flex flex-1 flex-col">
-        {recentTests.length === 0 ? (
+        {runs.length === 0 ? (
           <div className="flex h-32 items-center justify-center text-sm text-faint">
             Nothing recorded yet.
           </div>
         ) : (
           <FitList
-            items={recentTests}
+            items={runs}
             min={3}
             max={12}
             fallback={4}
             gap={8}
-            getKey={(execution, index) => `${execution.test_uuid}-${execution.timestamp}-${index}`}
+            getKey={(row) => row.key}
           >
-            {(execution) => (
+            {(row) => (
               <div className="flex items-center gap-2.5 rounded-md border border-border bg-raised px-3 py-2.5 text-xs">
-                <span className="min-w-0 flex-1 truncate" title={execution.test_name}>
-                  {execution.test_name || 'Unknown Test'}
+                <span className="min-w-0 flex-1 truncate" title={runName(row)}>
+                  {runName(row)}
                 </span>
-                {execution.is_protected ? (
-                  <CheckCircle2 className="h-3.5 w-3.5 shrink-0 text-accent" />
-                ) : (
-                  <XCircle className="h-3.5 w-3.5 shrink-0 text-danger" />
-                )}
+                <span className="shrink-0">
+                  {row.type === 'bundle' ? <BundleResultLabel group={row} compact /> : <ExecResultLabel exec={row.execution} compact />}
+                </span>
                 <span className="shrink-0 whitespace-nowrap text-faint">
-                  {getRelativeTime(execution.timestamp)}
+                  {getRelativeTime(runTime(row))}
                 </span>
               </div>
             )}

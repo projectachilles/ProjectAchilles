@@ -10,6 +10,22 @@ function ledgerRow(label: string): HTMLElement {
 }
 
 describe('HeroMetricsCard (Defense ledger)', () => {
+  describe('"Inconclusive" row', () => {
+    it('is the share of test x endpoint pairs with no conclusive result yet', () => {
+      // 15 scored pairs + 4 pairs whose tests were blocked before they ran.
+      render(<HeroMetricsCard defenseScore={53.3} pairCount={15} noConclusiveCount={4} uniqueEndpoints={19} executedTests={2} />);
+      expect(within(ledgerRow('Inconclusive')).getByText('21.1%')).toBeInTheDocument();
+    });
+
+    it('shows a dash when every pair has a verdict, or the count is unavailable', () => {
+      const { unmount } = render(<HeroMetricsCard defenseScore={90} pairCount={10} noConclusiveCount={0} uniqueEndpoints={1} executedTests={1} />);
+      expect(within(ledgerRow('Inconclusive')).getByText('—')).toBeInTheDocument();
+      unmount();
+      render(<HeroMetricsCard defenseScore={90} pairCount={10} uniqueEndpoints={1} executedTests={1} />);
+      expect(within(ledgerRow('Inconclusive')).getByText('—')).toBeInTheDocument();
+    });
+  });
+
   describe('"Actual" row (pre-risk-acceptance score)', () => {
     it('REGRESSION: shows rawScore (without RA exclusion), not realScore (EDR-only with RA)', () => {
       // Reproduces a bug shape seen on a customer tenant: defenseScore == realScore (no Defender boost)

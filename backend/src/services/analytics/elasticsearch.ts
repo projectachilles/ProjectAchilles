@@ -535,9 +535,28 @@ export class ElasticsearchService {
   }
 
   /** Test errors for the error rate: error codes, minus the stages an EDR stopped (those are scored). */
+  /**
+   * Error results for the error rate. A skipped stage (exit 0 on an attack
+   * bundle stage, the "Skipped" rows in Executions) is not an error: the
+   * chain was stopped before it, so counting it made better defenses look
+   * like a higher error rate. Exit 0 on a standalone test is still an error.
+   */
   private buildTestErrorFilter(): any {
-    return { bool: { filter: [{ terms: { 'event.ERROR': this.ERROR_CODES } }], must_not: [EDR_PREVENTED_ERROR_STAGE] } };
+    return {
+      bool: {
+        filter: [{ terms: { 'event.ERROR': this.ERROR_CODES } }],
+        must_not: [EDR_PREVENTED_ERROR_STAGE, this.SKIPPED_STAGE],
+      },
+    };
   }
+
+  /** An attack bundle stage that never ran because the chain stopped earlier (frontend isSkippedStage). */
+  private readonly SKIPPED_STAGE = {
+    bool: {
+      filter: [{ term: { 'f0rtika.is_bundle_control': true } }, { term: { 'event.ERROR': 0 } }],
+      must_not: [{ term: { 'f0rtika.category': 'cyber-hygiene' } }],
+    },
+  };
 
   // Filter to exclude upload confirmations (for Error Rate — real test activity only)
   private buildTestActivityFilter(): any {
@@ -1892,12 +1911,27 @@ export class ElasticsearchService {
   }
 
   /** Defense Score, basis=latest. Same snapshot and calculation as the trend's last point. */
-  async getDefenseScoreLatest(params: AnalyticsQueryParams & Partial<ExtendedAnalyticsQueryParams>): Promise<DefenseScoreResponse> {
-    const { window, runs, rawRuns, outcome } = await this.getLatestPosture(params, 'series');
-    const summarize = (rs: PairRun[]) =>
-      summarizePairs(applyOutcomeFilters(latestPairsAsOf(rs, window.toMs, window.freshnessMs), outcome));
+  async getDefenseScoreLatest(
+    params: AnalyticsQueryParams & Partial<ExtendedAnalyticsQueryParams>,
+    opts: { withNoConclusive?: boolean } = {},
+  ): Promise<DefenseScoreResponse> {
+    const scope = await this.resolvePostureScope(params);
+    const { window, runs, rawRuns, outcome } = await this.latestPostureFor(scope, 'series');
+    const latestPairs = (rs: PairRun[]) => latestPairsAsOf(rs, window.toMs, window.freshnessMs);
+    const summarize = (rs: PairRun[]) => summarizePairs(applyOutcomeFilters(latestPairs(rs), outcome));
     const latest = summarize(runs);
     const raw = rawRuns ? summarize(rawRuns) : latest;
+    // Opt-in (one more, uncached query; the tile and trend otherwise share one
+    // snapshot): pairs with results but no verdict yet, for the Analytics
+    // panel's Inconclusive line (the Outcome breakdown's "No conclusive result
+    // yet"). They have no outcome, so outcome filters leave none.
+    let noConclusiveCount: number | undefined;
+    if (opts.withNoConclusive) {
+      const outcomeFiltered = (outcome.result ?? 'all') !== 'all' || !!outcome.errorCodes || !!outcome.errorNames;
+      noConclusiveCount = outcomeFiltered
+        ? 0
+        : await this.countNoConclusivePairs(scope, new Set(latestPairs(runs).map((p) => p.pairKey)));
+    }
 
     const response: DefenseScoreResponse = {
       score: latest.score,
@@ -1910,6 +1944,7 @@ export class ElasticsearchService {
       riskAcceptedCount: Math.max(0, raw.pairCount - latest.pairCount),
       basis: 'latest',
       pairCount: latest.pairCount,
+      ...(noConclusiveCount !== undefined ? { noConclusiveCount } : {}),
     };
     if (rawRuns) {
       response.realProtectedCount = raw.protectedCount;
@@ -2101,6 +2136,11 @@ export class ElasticsearchService {
   }
 
   // Get unique test count
+  /**
+   * Distinct tests with results. A bundle stage's test_uuid is
+   * `<bundle>::<control>`, so it counts as its bundle: a 5-stage chain is one
+   * test, as in Executions, not five.
+   */
   async getUniqueTests(params: AnalyticsQueryParams & Partial<ExtendedAnalyticsQueryParams>): Promise<number> {
     const filters: any[] = [
       this.buildTestDataFilter(),
@@ -2112,21 +2152,14 @@ export class ElasticsearchService {
 
     filters.push(...this.buildFilterBarClauses(params));
 
-    const response = await this.client.search({
-      index: this.settings.indexPattern,
-      size: 0,
-      query: {
-        bool: { filter: filters },
-      },
-      aggs: {
-        unique_tests: {
-          cardinality: { field: 'f0rtika.test_uuid' },
-        },
-      },
+    const tests = new Set<string>();
+    await this.paginateComposite(filters, 'test_uuids', 1000, [{ uuid: { terms: { field: 'f0rtika.test_uuid' } } }], {}, (b) => {
+      tests.add(String(b.key?.uuid ?? '').split('::')[0]);
     });
-
-    return (response.aggregations?.unique_tests as any)?.value || 0;
+    tests.delete('');
+    return tests.size;
   }
+
 
   // Build tests filter (OR logic for multiple tests)
   private buildTestsFilter(tests?: string): any | null {
@@ -2285,6 +2318,11 @@ export class ElasticsearchService {
   }
 
   // Get host-test matrix for heatmap
+  /**
+   * Host x test cells for the "Test Breadth by Host" treemap. A standalone
+   * test counts its results; a bundle counts its runs under the bundle name
+   * (not one cell per stage), like Executions.
+   */
   async getHostTestMatrix(params: AnalyticsQueryParams & Partial<ExtendedAnalyticsQueryParams>): Promise<HostTestMatrixCell[]> {
     const filters: any[] = [
       this.buildTestDataFilter(),
@@ -2296,33 +2334,37 @@ export class ElasticsearchService {
 
     filters.push(...this.buildFilterBarClauses(params));
 
-    const response = await this.client.search({
-      index: this.settings.indexPattern,
-      size: 0,
-      query: {
-        bool: { filter: filters },
-      },
-      aggs: {
-        host_test_matrix: {
-          composite: {
-            size: 1000,
-            sources: [
-              { hostname: { terms: { field: 'routing.hostname' } } },
-              { test_name: { terms: { field: 'f0rtika.test_name' } } },
-            ],
-          },
-        },
-      },
-    });
-
-    const buckets = (response.aggregations?.host_test_matrix as any)?.buckets || [];
-
-    return buckets.map((bucket: any) => ({
-      hostname: bucket.key.hostname,
-      testName: bucket.key.test_name,
-      count: bucket.doc_count,
-    }));
+    const bundleDoc = { exists: { field: 'f0rtika.bundle_id' } };
+    const cells = new Map<string, HostTestMatrixCell>();
+    const add = (hostname: unknown, testName: unknown, count: number) => {
+      if (hostname == null || testName == null || count <= 0) return;
+      const key = `${hostname}\u0000${testName}`;
+      const cell = cells.get(key);
+      if (cell) cell.count += count;
+      else cells.set(key, { hostname: String(hostname), testName: String(testName), count });
+    };
+    await Promise.all([
+      this.paginateComposite(
+        [...filters, { bool: { must_not: [bundleDoc] } }],
+        'host_test_matrix',
+        1000,
+        [{ hostname: { terms: { field: 'routing.hostname' } } }, { test_name: { terms: { field: 'f0rtika.test_name' } } }],
+        {},
+        (b) => add(b.key?.hostname, b.key?.test_name, Number(b.doc_count) || 0),
+      ),
+      this.paginateComposite(
+        [...filters, bundleDoc],
+        'host_bundle_matrix',
+        1000,
+        [{ hostname: { terms: { field: 'routing.hostname' } } }, { bundle_name: { terms: { field: 'f0rtika.bundle_name' } } }],
+        // Every doc of one run shares routing.event_time.
+        { runs: { cardinality: { field: 'routing.event_time' } } },
+        (b) => add(b.key?.hostname, b.key?.bundle_name, Number(b.runs?.value) || 0),
+      ),
+    ]);
+    return [...cells.values()];
   }
+
 
   // Get list of available tests (for filter dropdown)
   async getAvailableTests(org?: string): Promise<string[]> {
@@ -3562,21 +3604,27 @@ export class ElasticsearchService {
       query: {
         bool: { filter: filters },
       },
+      // A bundle is one test under its bundle name, not one per stage name.
       aggs: {
-        unique_test_count: {
-          cardinality: { field: 'f0rtika.test_name' },
+        standalone: {
+          filter: { bool: { must_not: [{ exists: { field: 'f0rtika.bundle_id' } }] } },
+          aggs: { names: { terms: { field: 'f0rtika.test_name', size: 500 } } },
         },
-        test_names: {
-          terms: { field: 'f0rtika.test_name', size: 500 },
+        bundles: {
+          filter: { exists: { field: 'f0rtika.bundle_id' } },
+          aggs: { names: { terms: { field: 'f0rtika.bundle_name', size: 500 } } },
         },
       },
     });
 
-    const count = (response.aggregations?.unique_test_count as any)?.value || 0;
-    const buckets = (response.aggregations?.test_names as any)?.buckets || [];
-    const tests = buckets.map((bucket: any) => bucket.key);
+    const aggs = response.aggregations as any;
+    const names = new Set<string>();
+    for (const b of [...(aggs?.standalone?.names?.buckets ?? []), ...(aggs?.bundles?.names?.buckets ?? [])]) {
+      if (b?.key != null) names.add(String(b.key));
+    }
+    const tests = [...names].sort((a, b) => a.localeCompare(b));
 
-    return { count, tests, days };
+    return { count: tests.length, tests, days };
   }
 
   // Get threat actor coverage

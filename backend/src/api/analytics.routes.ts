@@ -242,7 +242,7 @@ router.get('/defense-score', asyncHandler(async (req, res) => {
   const filterParams = extractFilterParams(req.query);
   const es = await getEsService();
   const result = filterParams.basis === 'latest'
-    ? await es.getDefenseScoreLatest(filterParams)
+    ? await es.getDefenseScoreLatest(filterParams, { withNoConclusive: req.query.withNoConclusive === 'true' })
     : await es.getDefenseScore(filterParams);
   res.json(result);
 }));
