@@ -254,7 +254,11 @@ export function classifyExecution(exec: EnrichedTestExecution): ExecutionOutcome
     return 'inconclusive';
   }
   // Per-stage flag, falling back to the bundle-level flag for older documents.
-  const detected = (k: EdrVendorKey) => Boolean(exec[`${k}_stage_detected`] ?? exec[`${k}_detected`]);
+  // On a standalone test the test-level flag names that test alone, so it is
+  // its own alert either way (hasOwnEdrDetection, as the Defense Score reads it).
+  const detected = (k: EdrVendorKey) =>
+    Boolean(exec[`${k}_stage_detected`] ?? exec[`${k}_detected`])
+    || (!exec.is_bundle_control && Boolean(exec[`${k}_detected`]));
   const ownAction = (k: EdrVendorKey) => {
     const own = exec[`${k}_stage_prevented`];
     if (own !== undefined && own !== null) return own === true;

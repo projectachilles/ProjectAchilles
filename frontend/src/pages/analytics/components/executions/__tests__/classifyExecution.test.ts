@@ -28,7 +28,11 @@ const GOLDEN: GoldenCase[] = [
   { name: 'exit 101, nothing → unprotected', exit: 101, expected: 'unprotected' },
   { name: 'exit 101 + Defender stage alert → detected', exit: 101, flags: { defender_stage_detected: true }, expected: 'detected' },
   { name: 'exit 101 + Falcon stage alert → detected', exit: 101, flags: { crowdstrike_stage_detected: true }, expected: 'detected' },
-  { name: 'exit 101 + bundle-level Defender flag only → unprotected', exit: 101, flags: { defender_detected: true }, expected: 'unprotected' },
+  { name: 'exit 101 + bundle-level Defender flag only → unprotected', exit: 101, bundle: true, flags: { defender_detected: true }, expected: 'unprotected' },
+  // A standalone test's test-level flag names that test alone: its own alert (hasOwnEdrDetection).
+  { name: 'standalone exit 101 + Defender alert → detected', exit: 101, flags: { defender_detected: true }, expected: 'detected' },
+  { name: 'standalone exit 101 + Falcon alert → detected', exit: 101, flags: { crowdstrike_detected: true }, expected: 'detected' },
+  { name: 'standalone exit 999 + Defender alert only stays inconclusive', exit: 999, flags: { defender_detected: true }, expected: 'inconclusive' },
   { name: 'exit 101 + Falcon prevented → prevented', exit: 101, flags: { crowdstrike_prevented: true }, expected: 'prevented' },
   { name: 'exit 101 + Defender prevented → prevented', exit: 101, flags: { defender_prevented: true }, expected: 'prevented' },
   {
@@ -56,7 +60,7 @@ const GOLDEN: GoldenCase[] = [
     flags: { crowdstrike_stage_detected: true }, actions: { crowdstrike_prevention_action: 'kill_failed' }, expected: 'detected',
   },
   {
-    name: 'exit 101 + bundle-level flag + blocked action → unprotected', exit: 101,
+    name: 'exit 101 + bundle-level flag + blocked action → unprotected', exit: 101, bundle: true,
     flags: { defender_detected: true }, actions: { defender_prevention_action: 'blocked' }, expected: 'unprotected',
   },
   { name: 'bundle stage exit 0 (intel-driven) → skipped', exit: 0, bundle: true, category: 'intel-driven', expected: 'skipped' },
