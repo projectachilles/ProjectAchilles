@@ -623,12 +623,44 @@ describe('sbReport.service.ts', () => {
       });
     });
 
-    it('sorts by routing.event_time desc so truncation keeps the newest runs', async () => {
+    it('sorts rows newest first by routing.event_time', async () => {
       mockSearch.mockResolvedValue(esSearchResponse([]));
 
       await createService().generateSbReport({ ...WINDOW });
 
       expect(mockSearch.mock.calls[0][0].sort).toEqual([{ 'routing.event_time': 'desc' }]);
+    });
+
+    it('asks ES for the exact match count (the default stops counting at 10,000)', async () => {
+      mockSearch.mockResolvedValue(esSearchResponse([]));
+
+      await createService().generateSbReport({ ...WINDOW });
+
+      expect(mockSearch.mock.calls[0][0].track_total_hits).toBe(true);
+    });
+
+    it('refuses a window that matches more than 10,000 docs instead of exporting a partial file', async () => {
+      mockSearch.mockResolvedValue({
+        hits: { total: { value: 68013, relation: 'eq' }, hits: makeLabFixtureHits() },
+      });
+
+      const err = await createService().generateSbReport({ ...WINDOW }).catch((e: unknown) => e) as { statusCode?: number; message?: string };
+
+      expect(err.statusCode).toBe(422);
+      expect(err.message).toMatch(/68,013/);
+      expect(err.message).toMatch(/10,000/);
+      expect(err.message).toMatch(/bundle filter/);
+      expect(mockMsearch).not.toHaveBeenCalled();
+    });
+
+    it('exports a window of exactly 10,000 docs', async () => {
+      mockSearch.mockResolvedValue({
+        hits: { total: { value: 10000, relation: 'eq' }, hits: makeLabFixtureHits() },
+      });
+
+      const report = await createService().generateSbReport({ ...WINDOW });
+
+      expect(report.executions).toHaveLength(5);
     });
 
     it('maps scope filters to the same ES fields and semantics as the analytics filter bar', async () => {
