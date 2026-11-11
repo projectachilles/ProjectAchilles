@@ -57,8 +57,10 @@ function parseTime(s: string | null): number | null {
 
 /**
  * Take today's row for the org: insert it, or take over a failed row whose
- * backoff has elapsed or a stale 'sending' row. Null when the day is done
- * (sent / empty), still backing off, owned by a live pass, or the race was lost.
+ * backoff has elapsed, a stale 'sending' row, or an 'empty' row that an active
+ * schedule changed after (a schedule created after 09:00 for tomorrow would
+ * otherwise get no digest). Null when the day is done (sent / empty with no
+ * later change), still backing off, owned by a live pass, or the race was lost.
  */
 function claimDigest(orgId: string, today: string, runDate: string, tz: string, now: Date): Claim | null {
   const nowIso = now.toISOString();
@@ -80,6 +82,12 @@ function claimDigest(orgId: string, today: string, runDate: string, tz: string, 
     // A claim in the future (clock stepped back) is stale too.
     if (claimed !== null && Math.abs(now.getTime() - claimed) <= STALE_CLAIM_MS) return null;
     return repo.reclaim(row.id, { state: 'sending', claimAt: row.claim_at }, nowIso) ? { id: row.id, claimAt: nowIso } : null;
+  }
+  if (row.state === 'empty') {
+    // Re-check only after a schedule change since the last check; the reclaim
+    // moves claim_at forward, so each change is looked at once.
+    if (row.claim_at === null || !repo.hasScheduleChangeSince(orgId, row.claim_at)) return null;
+    return repo.reclaim(row.id, { state: 'empty', claimAt: row.claim_at }, nowIso) ? { id: row.id, claimAt: nowIso } : null;
   }
   return null;
 }

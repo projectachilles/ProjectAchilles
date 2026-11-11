@@ -64,6 +64,7 @@ The digest is only a heads-up. It never holds tests, and a failed digest never d
 
 - **Nothing scheduled:** if no run is due tomorrow, no email is sent.
 - **Late send:** the digest goes out at or after 09:00 in the digest timezone. If the backend was down at 09:00, it is sent later the same day. If the backend was down all day, that day's digest is skipped.
+- **Schedule created after 09:00:** if today's digest found nothing for tomorrow, and you then create, resume or edit a schedule that runs tomorrow, the digest is sent within about a minute. If today's digest already went out, no second digest is sent; the day's notice covers the new run.
 - **Delivery failures:** a failed send is retried with backoff (1, 2, 4 and 8 minutes, then every 15 minutes) until the day ends. The failure appears only on the Settings card, as "Last digest *date*: not sent" with the error. There is no Slack message and no banner.
 - **Partial delivery:** if some recipients are rejected but at least one accepts, the digest counts as sent and the rejected addresses are noted on the card.
 - **Changing the timezone:** the day is counted in the digest timezone. If you change it after today's digest has gone out, a second digest can be sent on the same calendar day.
