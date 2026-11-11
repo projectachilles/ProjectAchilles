@@ -395,19 +395,20 @@ export interface ErrorRateResponse {
   totalTestActivity: number;  // errorCount + conclusiveCount (excludes code 200=NoOutput)
 }
 
-// Execution activity (dashboard "Testing cadence" card)
+// Execution activity (dashboard "Testing cadence" card). Counts are test runs:
+// one standalone result or one bundle run (see getExecutionActivity).
 export interface ExecutionActivityDay {
   date: string;          // UTC day, YYYY-MM-DD
-  protected: number;     // conclusive and (is_protected | defender_detected | crowdstrike_detected)
-  unprotected: number;   // exit code 101 and not detected
-  inconclusive: number;  // non-conclusive exit codes
+  protected: number;     // runs blocked or detected (attack bundle: any stage; cyber-hygiene: every control)
+  unprotected: number;   // runs with a conclusive result and no block/detection
+  inconclusive: number;  // runs with no conclusive result
 }
 
 export interface ExecutionActivityResponse {
   days: ExecutionActivityDay[];    // one per UTC day, oldest first, zero-filled
   lastExecutionAt: string | null;  // newest result for the org, all-time (not window-bound)
-  executions7d: number;            // all result docs, last 7 days
-  protectedPct7d: number | null;   // combined-protected / conclusive, last 7 days
+  executions7d: number;            // test runs, last 7 days (name kept for API compatibility)
+  protectedPct7d: number | null;   // protected runs / conclusive runs, last 7 days
   endpointsTested7d: number;       // distinct hostnames, last 7 days
 }
 

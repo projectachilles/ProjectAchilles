@@ -1,7 +1,7 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import type { AnalyticsSettings, AnalyticsQueryParams, ExtendedAnalyticsQueryParams, PaginatedExecutionsParams } from '../../../types/analytics.js';
 import { attackSimulationExclusions } from '../attack-simulation-filter.js';
-import { edrOwnDetectedClause } from '../../outcomes/vendors.js';
+import { edrDetectedTerms, edrOwnDetectedClause } from '../../outcomes/vendors.js';
 import { EDR_PREVENTED_ERROR_STAGE } from '../../reports/stageOutcome.js';
 
 /** The scored-results gate: a conclusive code, or an error stage the EDR's own alert says it stopped. */
@@ -1626,6 +1626,35 @@ describe('elasticsearch.ts', () => {
       key: Date.parse(iso), key_as_string: iso, doc_count: p + u + i,
       protected: { doc_count: p }, unprotected: { doc_count: u }, inconclusive: { doc_count: i },
     });
+    /** One bundle run as the activity_runs composite returns it. */
+    const run = (r: { bundle?: string; host: string; ts: string; stages: number; conclusive: number; protected: number; hygiene?: boolean }) => ({
+      key: { oid: 'org-a', bundle: r.bundle ?? 'b1', host: r.host, ts: Date.parse(r.ts) },
+      doc_count: r.stages,
+      conclusive: { doc_count: r.conclusive },
+      protected: { doc_count: r.protected },
+      hygiene: { doc_count: r.hygiene ? r.stages : 0 },
+    });
+
+    /** Route by aggregation: the standalone/day search and the bundle-run composite pages. */
+    function route(opts: { standalone?: unknown[]; runs?: unknown[][]; last?: string | null; endpoints?: number }) {
+      const pages = [...(opts.runs ?? [[]])];
+      mockSearch.mockImplementation(async (req: any) => {
+        if (req.aggs?.activity_runs) {
+          const p = (pages.shift() ?? []) as any[];
+          return esSearchResponse({ aggs: { activity_runs: p.length ? { buckets: p, after_key: p[p.length - 1].key } : { buckets: [] } } });
+        }
+        const last = opts.last ?? null;
+        return esSearchResponse({
+          aggs: {
+            standalone: { per_day: { buckets: opts.standalone ?? [] } },
+            all_time: { org: { last: { value: last ? Date.parse(last) : null, value_as_string: last ?? undefined } } },
+            last_7d: { doc_count: 0, endpoints: { value: opts.endpoints ?? 0 } },
+          },
+        });
+      });
+    }
+    const daySearch = () => mockSearch.mock.calls.map(c => c[0]).find((r: any) => r.aggs?.standalone);
+    const runSearches = () => mockSearch.mock.calls.map(c => c[0]).filter((r: any) => r.aggs?.activity_runs);
 
     beforeEach(() => {
       vi.useFakeTimers();
@@ -1635,20 +1664,12 @@ describe('elasticsearch.ts', () => {
       vi.useRealTimers();
     });
 
-    it('maps buckets to zero-filled UTC days, oldest first, and computes 7d headlines', async () => {
-      mockSearch.mockResolvedValue(esSearchResponse({
-        aggs: {
-          per_day: { buckets: [
-            dayBucket('2026-10-18T00:00:00.000Z', 3, 1, 2),
-            dayBucket('2026-10-20T00:00:00.000Z', 5, 0, 0),
-          ] },
-          all_time: { org: { last: { value: Date.parse('2026-10-20T09:30:00Z'), value_as_string: '2026-10-20T09:30:00.000Z' } } },
-          last_7d: {
-            doc_count: 40, endpoints: { value: 6 },
-            conclusive: { doc_count: 20 }, protected: { doc_count: 15 },
-          },
-        },
-      }));
+    it('maps standalone results to zero-filled UTC days, oldest first, and computes 7d headlines', async () => {
+      route({
+        standalone: [dayBucket('2026-10-18T00:00:00.000Z', 3, 1, 2), dayBucket('2026-10-20T00:00:00.000Z', 5, 0, 0)],
+        last: '2026-10-20T09:30:00.000Z',
+        endpoints: 6,
+      });
       const result = await createService().getExecutionActivity({ days: 14 });
       expect(result.days).toHaveLength(14);
       expect(result.days[0].date).toBe('2026-10-07');
@@ -1657,19 +1678,63 @@ describe('elasticsearch.ts', () => {
       expect(result.days[12]).toEqual({ date: '2026-10-19', protected: 0, unprotected: 0, inconclusive: 0 });
       expect(result.days[13]).toEqual({ date: '2026-10-20', protected: 5, unprotected: 0, inconclusive: 0 });
       expect(result.lastExecutionAt).toBe('2026-10-20T09:30:00.000Z');
-      expect(result.executions7d).toBe(40);
-      expect(result.protectedPct7d).toBe(75);
+      expect(result.executions7d).toBe(11);
+      expect(result.protectedPct7d).toBe(88.9); // 8 of 9 conclusive runs
       expect(result.endpointsTested7d).toBe(6);
     });
 
-    it('returns null protectedPct7d with no conclusive results, and null lastExecutionAt on an empty index', async () => {
-      mockSearch.mockResolvedValue(esSearchResponse({
-        aggs: {
-          per_day: { buckets: [] },
-          all_time: { org: { last: { value: null } } },
-          last_7d: { doc_count: 0, endpoints: { value: 0 }, conclusive: { doc_count: 0 }, protected: { doc_count: 0 } },
-        },
-      }));
+    it('counts a bundle run once, protected when any stage was blocked even if later stages ran', async () => {
+      // A chain that keeps running after a block: stage 2 blocked, stages 1, 3, 4 = 101.
+      route({
+        runs: [[
+          ...['h1', 'h2', 'h3'].map(host => run({ host, ts: '2026-10-19T10:00:00Z', stages: 4, conclusive: 4, protected: 1 })),
+          run({ host: 'h4', ts: '2026-10-19T11:00:00Z', stages: 4, conclusive: 4, protected: 0 }),
+        ]],
+      });
+      const result = await createService().getExecutionActivity({ days: 14 });
+      expect(result.days[12]).toEqual({ date: '2026-10-19', protected: 3, unprotected: 1, inconclusive: 0 });
+      expect(result.executions7d).toBe(4);
+      expect(result.protectedPct7d).toBe(75);
+    });
+
+    it('a bundle run with no conclusive stage is inconclusive; a block plus a stage error is protected', async () => {
+      route({
+        runs: [[
+          run({ host: 'h1', ts: '2026-10-20T08:00:00Z', stages: 3, conclusive: 0, protected: 0 }),
+          run({ host: 'h2', ts: '2026-10-20T08:00:00Z', stages: 5, conclusive: 4, protected: 1 }),
+        ]],
+      });
+      const result = await createService().getExecutionActivity({ days: 14 });
+      expect(result.days[13]).toEqual({ date: '2026-10-20', protected: 1, unprotected: 0, inconclusive: 1 });
+      expect(result.protectedPct7d).toBe(100);
+    });
+
+    it('a cyber-hygiene bundle run is protected only when every conclusive control passed', async () => {
+      route({
+        runs: [[
+          run({ bundle: 'ch', host: 'h1', ts: '2026-10-20T08:00:00Z', stages: 35, conclusive: 35, protected: 35, hygiene: true }),
+          run({ bundle: 'ch', host: 'h2', ts: '2026-10-20T08:00:00Z', stages: 35, conclusive: 35, protected: 22, hygiene: true }),
+        ]],
+      });
+      const result = await createService().getExecutionActivity({ days: 14 });
+      expect(result.days[13]).toEqual({ date: '2026-10-20', protected: 1, unprotected: 1, inconclusive: 0 });
+    });
+
+    it('adds bundle runs and standalone results on the same day; runs outside the bars are dropped', async () => {
+      route({
+        standalone: [dayBucket('2026-10-20T00:00:00.000Z', 1, 1, 0)],
+        runs: [
+          [run({ host: 'h1', ts: '2026-10-20T08:00:00Z', stages: 4, conclusive: 4, protected: 1 })],
+          [run({ host: 'h2', ts: '2026-09-01T08:00:00Z', stages: 4, conclusive: 4, protected: 1 })],
+        ],
+      });
+      const result = await createService().getExecutionActivity({ days: 14 });
+      expect(result.days[13]).toEqual({ date: '2026-10-20', protected: 2, unprotected: 1, inconclusive: 0 });
+      expect(result.executions7d).toBe(3);
+    });
+
+    it('returns null protectedPct7d with no conclusive runs, and null lastExecutionAt on an empty index', async () => {
+      route({});
       const result = await createService().getExecutionActivity({});
       expect(result.days).toHaveLength(14);
       expect(result.days.every(d => d.protected === 0 && d.unprotected === 0 && d.inconclusive === 0)).toBe(true);
@@ -1680,47 +1745,61 @@ describe('elasticsearch.ts', () => {
     });
 
     it('reports an all-time lastExecutionAt even when the window is empty', async () => {
-      mockSearch.mockResolvedValue(esSearchResponse({
-        aggs: {
-          per_day: { buckets: [] },
-          all_time: { org: { last: { value: Date.parse('2026-09-24T08:00:00Z'), value_as_string: '2026-09-24T08:00:00.000Z' } } },
-          last_7d: { doc_count: 0, endpoints: { value: 0 }, conclusive: { doc_count: 0 }, protected: { doc_count: 0 } },
-        },
-      }));
+      route({ last: '2026-09-24T08:00:00.000Z' });
       const result = await createService().getExecutionActivity({});
       expect(result.lastExecutionAt).toBe('2026-09-24T08:00:00.000Z');
       expect(result.executions7d).toBe(0);
       // No org: the all-time filter is the counted filter without an org term.
-      const allTimeFilter = mockSearch.mock.calls[0][0].aggs.all_time.aggs.org.filter;
+      const allTimeFilter = daySearch().aggs.all_time.aggs.org.filter;
       expect(JSON.stringify(allTimeFilter)).not.toContain('routing.oid');
       expect(JSON.stringify(allTimeFilter)).toContain('f0rtika.test_uuid');
     });
 
-    it('sends one size:0 search with org + date filters and the expected aggs', async () => {
-      mockSearch.mockResolvedValue(esSearchResponse({ aggs: {} }));
+    it('sends the day search with org + date filters, and bundle runs through one composite', async () => {
+      route({});
       await createService().getExecutionActivity({ org: 'org-1', days: 14 });
-      expect(mockSearch).toHaveBeenCalledTimes(1);
-      const arg = mockSearch.mock.calls[0][0];
+      const arg = daySearch();
       expect(arg.size).toBe(0);
       const filters = arg.query.bool.filter;
       expect(filters).toContainEqual({ range: { 'routing.event_time': { gte: 'now-13d/d' } } });
       expect(JSON.stringify(filters)).toContain('{"term":{"routing.oid":"org-1"}}');
-      const dh = arg.aggs.per_day.date_histogram;
+      // Per-day counts cover standalone results only; bundle docs come in as runs.
+      expect(arg.aggs.standalone.filter).toEqual({ bool: { must_not: [{ exists: { field: 'f0rtika.bundle_id' } }] } });
+      const dh = arg.aggs.standalone.aggs.per_day.date_histogram;
       expect(dh.calendar_interval).toBe('day');
       expect(dh.min_doc_count).toBe(0);
       expect(dh.extended_bounds).toEqual({ min: '2026-10-07', max: '2026-10-20' });
-      expect(JSON.stringify(arg.aggs.per_day.aggs.protected)).toContain('f0rtika.crowdstrike_detected');
-      expect(arg.aggs.per_day.aggs.inconclusive.filter.bool.must_not[0]).toEqual(SCORED);
+      expect(JSON.stringify(arg.aggs.standalone.aggs.per_day.aggs.protected)).toContain('f0rtika.crowdstrike_detected');
+      expect(arg.aggs.standalone.aggs.per_day.aggs.inconclusive.filter.bool.must_not[0]).toEqual(SCORED);
       expect(arg.aggs.all_time.global).toEqual({});
       expect(JSON.stringify(arg.aggs.all_time.aggs.org.filter)).toContain('{"term":{"routing.oid":"org-1"}}');
       expect(arg.aggs.all_time.aggs.org.aggs.last.max.field).toBe('routing.event_time');
       expect(arg.aggs.last_7d.aggs.endpoints.cardinality.field).toBe('routing.hostname');
+
+      const runs = runSearches()[0];
+      expect(runs.query.bool.filter).toContainEqual({ exists: { field: 'f0rtika.bundle_id' } });
+      expect(runs.query.bool.filter).toContainEqual({ range: { 'routing.event_time': { gte: 'now-13d/d' } } });
+      expect(JSON.stringify(runs.query.bool.filter)).toContain('{"term":{"routing.oid":"org-1"}}');
+      expect(runs.aggs.activity_runs.composite.sources).toEqual([
+        { oid: { terms: { field: 'routing.oid', missing_bucket: true } } },
+        { bundle: { terms: { field: 'f0rtika.bundle_id' } } },
+        { host: { terms: { field: 'routing.hostname' } } },
+        { ts: { terms: { field: 'routing.event_time' } } },
+      ]);
+      const sub = runs.aggs.activity_runs.aggs;
+      expect(sub.conclusive.filter).toEqual(SCORED);
+      expect(sub.hygiene.filter).toEqual({ term: { 'f0rtika.category': 'cyber-hygiene' } });
+      // A run's verdict is chain-level: an alert naming the bundle counts (edrDetectedTerms).
+      expect(sub.protected.filter.bool.filter[0]).toEqual(SCORED);
+      expect(sub.protected.filter.bool.filter[1]).toEqual({
+        bool: { should: [{ term: { 'f0rtika.is_protected': true } }, ...edrDetectedTerms()], minimum_should_match: 1 },
+      });
     });
 
     it('counts only real test results: test data, no upload confirmations, no skipped bundle stages', async () => {
-      mockSearch.mockResolvedValue(esSearchResponse({ aggs: {} }));
+      route({});
       await createService().getExecutionActivity({ org: 'org-1', days: 14 });
-      const arg = mockSearch.mock.calls[0][0];
+      const arg = daySearch();
       const counted = arg.query.bool.filter.find((f: any) => f.bool?.must_not);
       expect(counted).toBeDefined();
       expect(counted.bool.filter).toContainEqual({
@@ -1731,15 +1810,16 @@ describe('elasticsearch.ts', () => {
       expect(counted.bool.must_not).toContainEqual({
         bool: { filter: [{ term: { 'f0rtika.is_bundle_control': true } }, { term: { 'event.ERROR': 0 } }] },
       });
-      // lastExecutionAt ignores the window but applies the same counted filter.
+      // lastExecutionAt ignores the window but applies the same counted filter; so do bundle runs.
       expect(arg.aggs.all_time.aggs.org.filter).toEqual(counted);
+      expect(runSearches()[0].query.bool.filter).toContainEqual(counted);
     });
 
     it('defines got-through as conclusive and not protected, and the 7d window as the last 7 UTC days', async () => {
-      mockSearch.mockResolvedValue(esSearchResponse({ aggs: {} }));
+      route({});
       await createService().getExecutionActivity({ days: 14 });
-      const arg = mockSearch.mock.calls[0][0];
-      const unprotected = arg.aggs.per_day.aggs.unprotected.filter.bool;
+      const arg = daySearch();
+      const unprotected = arg.aggs.standalone.aggs.per_day.aggs.unprotected.filter.bool;
       expect(unprotected.filter).toEqual([SCORED]);
       expect(JSON.stringify(unprotected.must_not)).toContain('f0rtika.is_protected');
       expect(JSON.stringify(unprotected.must_not)).toContain('f0rtika.defender_detected');
@@ -1748,7 +1828,7 @@ describe('elasticsearch.ts', () => {
     });
 
     it('clamps days to 1-90 and falls back to 14 for non-finite input', async () => {
-      mockSearch.mockResolvedValue(esSearchResponse({ aggs: {} }));
+      route({});
       const svc = createService();
       expect((await svc.getExecutionActivity({ days: 500 })).days).toHaveLength(90);
       expect((await svc.getExecutionActivity({ days: 0 })).days).toHaveLength(1);
@@ -1756,7 +1836,15 @@ describe('elasticsearch.ts', () => {
       // days < 7 still queries 7 days so the 7d headline numbers are complete
       mockSearch.mockClear();
       await svc.getExecutionActivity({ days: 3 });
-      expect(mockSearch.mock.calls[0][0].query.bool.filter).toContainEqual({ range: { 'routing.event_time': { gte: 'now-6d/d' } } });
+      expect(daySearch().query.bool.filter).toContainEqual({ range: { 'routing.event_time': { gte: 'now-6d/d' } } });
+    });
+
+    it('7d numbers count runs on 7 UTC days even when fewer bars are shown', async () => {
+      route({ runs: [[run({ host: 'h1', ts: '2026-10-15T08:00:00Z', stages: 4, conclusive: 4, protected: 1 })]] });
+      const result = await createService().getExecutionActivity({ days: 3 });
+      expect(result.days).toHaveLength(3);
+      expect(result.executions7d).toBe(1);
+      expect(result.protectedPct7d).toBe(100);
     });
   });
 
@@ -3886,14 +3974,87 @@ describe('elasticsearch.ts', () => {
       });
 
       /** A run with a non-conclusive, non-skipped stage (999 error, 260 ASR pre-execution block…). */
-      function errored(r: { bundle: string; host: string; ts: string; oid?: string; preExec?: boolean; name?: string }) {
+      function errored(r: { bundle: string; host: string; ts: string; oid?: string; preExec?: boolean; name?: string; validators?: string[] }) {
         return {
           key: { oid: r.oid ?? 'org-a', bundle: r.bundle, host: r.host, ts: Date.parse(r.ts) },
-          doc_count: 1,
+          doc_count: r.validators?.length ?? 1,
           pre_exec: { doc_count: r.preExec ? 1 : 0 },
           bundle_name: { buckets: r.name ? [{ key: r.name, doc_count: 1 }] : [] },
+          stages: { buckets: (r.validators ?? []).map(key => ({ key, doc_count: 1 })) },
         };
       }
+
+      describe('an error stage after the block (chains that keep running after a block)', () => {
+        const ts = '2025-01-20T09:00:00Z';
+
+        it('blocked at Stage 1, Stage 3 = 999: blocked at stage 1, not a stage error', async () => {
+          routeSearch({
+            bundlePages: [[chain({ bundle: 'g', host: 'h1', ts, stagesRun: 4, blockedValidators: ['Stage 1'] })]],
+            inconclusivePages: [[errored({ bundle: 'g', host: 'h1', ts, name: 'Gentlemen', validators: ['Stage 3'] })]],
+            bundleMeta: { g: { name: 'Gentlemen' } },
+          });
+          const res = await createService().getChainDepth(params);
+          expect(res.buckets[0]).toEqual({ stage: 1, blocked: 1, alertedNotBlocked: 0, bundleNames: ['Gentlemen'] });
+          expect(res).toMatchObject({ chains: 1, inconclusive: 0, stageErrors: 0, blockedBeforeRun: 0 });
+        });
+
+        it('a 260 stage after the block does not void it either', async () => {
+          routeSearch({
+            bundlePages: [[chain({ bundle: 'g', host: 'h1', ts, stagesRun: 2, blockedValidators: ['Stage 2'] })]],
+            inconclusivePages: [[errored({ bundle: 'g', host: 'h1', ts, preExec: true, validators: ['Stage 4'] })]],
+          });
+          const res = await createService().getChainDepth(params);
+          expect(res.buckets[1].blocked).toBe(1);
+          expect(res).toMatchObject({ inconclusive: 0, blockedBeforeRun: 0 });
+        });
+
+        it('an error stage before the block keeps the run a stage error', async () => {
+          routeSearch({
+            bundlePages: [[chain({ bundle: 'g', host: 'h1', ts, stagesRun: 3, blockedValidators: ['Stage 3'] })]],
+            inconclusivePages: [[errored({ bundle: 'g', host: 'h1', ts, validators: ['Stage 2'] })]],
+          });
+          const res = await createService().getChainDepth(params);
+          expect(res.buckets[2].blocked).toBe(0);
+          expect(res).toMatchObject({ chains: 0, inconclusive: 1, stageErrors: 1 });
+        });
+
+        it('an error stage without a "Stage N" validator keeps the run a stage error', async () => {
+          routeSearch({
+            bundlePages: [[chain({ bundle: 'g', host: 'h1', ts, stagesRun: 3, blockedValidators: ['Stage 1'] })]],
+            inconclusivePages: [[errored({ bundle: 'g', host: 'h1', ts, validators: ['Exfil check'] })]],
+          });
+          const res = await createService().getChainDepth(params);
+          expect(res.buckets[0].blocked).toBe(0);
+          expect(res.stageErrors).toBe(1);
+        });
+
+        it('a blocked stage without a "Stage N" validator keeps the run a stage error', async () => {
+          routeSearch({
+            bundlePages: [[chain({ bundle: 'g', host: 'h1', ts, stagesRun: 3, blockedValidators: ['Defender check'] })]],
+            inconclusivePages: [[errored({ bundle: 'g', host: 'h1', ts, validators: ['Stage 3'] })]],
+          });
+          const res = await createService().getChainDepth(params);
+          expect(res.chains).toBe(0);
+          expect(res.stageErrors).toBe(1);
+        });
+
+        it('a newer errored run still supersedes an older blocked run', async () => {
+          routeSearch({
+            bundlePages: [[chain({ bundle: 'g', host: 'h1', ts: '2025-01-10T09:00:00Z', stagesRun: 4, blockedValidators: ['Stage 1'] })]],
+            inconclusivePages: [[errored({ bundle: 'g', host: 'h1', ts, validators: ['Stage 3'] })]],
+          });
+          const res = await createService().getChainDepth(params);
+          expect(res.buckets[0].blocked).toBe(0);
+          expect(res.stageErrors).toBe(1);
+        });
+
+        it('the inconclusive composite asks for the error stages\' numbers', async () => {
+          routeSearch({ bundlePages: [[]] });
+          await createService().getChainDepth(params);
+          const req = searchesWith('bundle_inconclusive')[0];
+          expect(req.aggs.bundle_inconclusive.aggs.stages).toEqual({ terms: { field: 'f0rtika.control_validator', size: 20 } });
+        });
+      });
 
       describe('blocked before running vs stage errors', () => {
         it('a stage blocked before it ran (260) counts as blockedBeforeRun, with its bundle name', async () => {
@@ -4035,7 +4196,7 @@ describe('elasticsearch.ts', () => {
             { ts: { terms: { field: 'routing.event_time' } } },
           ]);
           expect(req.aggs.bundle_inconclusive.composite.size).toBe(1000); // sub-aggregations: bundle-run page size
-          expect(Object.keys(req.aggs.bundle_inconclusive.aggs)).toEqual(['pre_exec', 'bundle_name']);
+          expect(Object.keys(req.aggs.bundle_inconclusive.aggs)).toEqual(['pre_exec', 'bundle_name', 'stages']);
         });
 
         it('result=protected|unprotected shows no inconclusive chains; a superseded pair still stays out', async () => {

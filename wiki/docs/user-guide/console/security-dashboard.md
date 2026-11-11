@@ -69,10 +69,12 @@ degrades one card rather than the page:
 **Testing cadence** — how recently and how often you are testing. It uses a
 fixed recent window and ignores the range selector.
 
-- 14 daily bars (UTC days): protected, got through, and inconclusive, counted
-  per result document. Skipped stages of a chain that was stopped early, and
-  upload confirmations, are not counted
-- A "last run Nd ago" chip, measured over all time. It turns warning at 2 to 7
+- 14 daily bars (UTC days) of test runs: protected, got through, and
+  inconclusive. A multi-stage test's run counts once, protected when any stage
+  was blocked or detected, the same rule as the Tasks page; a cyber-hygiene run
+  is protected only when every control passed. Upload confirmations are not
+  counted
+- A "last run Nd ago" chip, in UTC calendar days and measured over all time. It turns warning at 2 to 7
   days and danger above 7 days
 - Endpoints tested in the last 7 days, out of enrolled agents
 - Tasks in the last 24 hours: done, failed, and running

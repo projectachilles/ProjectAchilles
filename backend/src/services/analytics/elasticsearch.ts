@@ -317,6 +317,8 @@ interface InconclusiveRun {
   /** The run had a stage blocked before execution (260). */
   preExec: boolean;
   bundleName?: string;
+  /** "Stage N" numbers of its error stages; null when one has no stage number. */
+  errorStages: number[] | null;
 }
 
 const STAGE_VALIDATOR_RE = /^Stage (\d+)$/;
@@ -359,6 +361,21 @@ function chainStop(run: ChainRun): { stage: number; alertedBefore: boolean } {
     return { stage, alertedBefore };
   }
   return { stage: run.stagesRun, alertedBefore: run.alertedUnblocked };
+}
+
+/**
+ * The errored run is this blocked run, and every error stage comes after the
+ * block. Chains that keep running after a block (LockBit, The Gentlemen) can
+ * error at a later stage; that doesn't change where the chain was stopped.
+ * Needs stage numbers on both sides; without them the run stays inconclusive.
+ */
+function errorsAfterStop(run: ChainRun, errored: InconclusiveRun): boolean {
+  if (errored.ts !== run.ts || errored.errorStages === null || errored.errorStages.length === 0) return false;
+  if (run.agentTerminated || !(run.strictProtected || run.edrStopped)) return false;
+  if (run.blockedStages === null || run.edrStoppedStages === null) return false;
+  const stops = [...run.blockedStages, ...run.edrStoppedStages];
+  if (stops.length === 0) return false;
+  return Math.min(...errored.errorStages) > Math.min(...stops);
 }
 
 /**
@@ -1774,6 +1791,8 @@ export class ElasticsearchService {
     const subAggs = {
       pre_exec: { filter: { term: { 'event.ERROR': BLOCKED_PRE_EXECUTION_CODE } } },
       bundle_name: { terms: { field: 'f0rtika.bundle_name', size: 1 } },
+      // Error stages after the block don't unsettle a run (errorsAfterStop).
+      stages: { terms: { field: 'f0rtika.control_validator', size: 20 } },
     };
     await this.paginateComposite(filters, 'bundle_inconclusive', this.BUNDLE_RUN_PAGE_SIZE, this.BUNDLE_RUN_SOURCES, subAggs, (b) => {
       const ts = parseEsTime(b.key?.ts);
@@ -1782,7 +1801,12 @@ export class ElasticsearchService {
       const cur = latest.get(key);
       if (cur !== undefined && ts <= cur.ts) return;
       const name = b.bundle_name?.buckets?.[0]?.key;
-      latest.set(key, { ts, preExec: (b.pre_exec?.doc_count ?? 0) > 0, bundleName: name != null ? String(name) : undefined });
+      latest.set(key, {
+        ts,
+        preExec: (b.pre_exec?.doc_count ?? 0) > 0,
+        bundleName: name != null ? String(name) : undefined,
+        errorStages: stageNumbers(b),
+      });
     });
     return latest;
   }
@@ -3494,7 +3518,8 @@ export class ElasticsearchService {
     for (const p of latestPairsAsOf(runs, window.toMs, window.freshnessMs)) {
       if (!isChainRun(p)) continue;
       const errored = inconclusiveRuns.get(p.pairKey);
-      if (errored !== undefined && errored.ts >= p.ts) continue; // latest run is inconclusive
+      // The latest run is inconclusive, unless its errors all came after its block.
+      if (errored !== undefined && errored.ts >= p.ts && !errorsAfterStop(p, errored)) continue;
       inconclusiveKeys.delete(p.pairKey);
       settled.push(p);
     }
@@ -3775,18 +3800,25 @@ export class ElasticsearchService {
   }
 
   /**
-   * Execution activity for the dashboard cadence card: per-UTC-day counts
+   * Execution activity for the dashboard cadence card: test runs per UTC day
    * (protected / got through / inconclusive) plus 7-day headline numbers.
-   * Fixed recent window, counted per result document (bundle stages count
-   * individually). Days are zero-filled, oldest first.
+   * Fixed recent window. Days are zero-filled, oldest first.
+   *
+   * A run is one standalone result or one bundle run (every doc of a run
+   * shares bundle_id, host and routing.event_time), the unit the Tasks page
+   * and the "Runs · 7d" tile count. Counting stage docs instead painted chains
+   * that keep running after a block (Lumma, LockBit) mostly red. Verdicts:
+   * - standalone: protected = conclusive AND (blocked OR detected); got
+   *   through = conclusive AND NOT protected; inconclusive = the rest;
+   * - attack bundle: protected when any conclusive stage was blocked or
+   *   detected (chain-level, like classifyTaskOutcome and the any-stage pair),
+   *   got through when stages ran without one, inconclusive with no conclusive stage;
+   * - cyber-hygiene bundle: protected only when every conclusive control passed.
    *
    * Counted documents are real test results only: the test-data filter, no
    * upload confirmations (exit 200) and no skipped bundle stages (exit 0 on a
-   * bundle-control document — a chain stopped at stage 1 must not draw its
-   * unreached stages as inconclusive). Protected = conclusive AND (blocked OR
-   * detected); got through = conclusive AND NOT protected; inconclusive = the
-   * rest. The 7-day numbers cover the last 7 UTC days (today included), i.e.
-   * exactly the last 7 bars.
+   * bundle-control document). The 7-day numbers cover the last 7 UTC days
+   * (today included), i.e. exactly the last 7 bars.
    */
   async getExecutionActivity(params: { org?: string; days?: number } = {}): Promise<ExecutionActivityResponse> {
     const requested = Number.isFinite(params.days) ? Math.trunc(params.days as number) : 14;
@@ -3821,10 +3853,10 @@ export class ElasticsearchService {
       { range: { 'routing.event_time': { gte: `now-${spanDays - 1}d/d` } } },
       countedFilter,
     ];
+    const bundleDoc = { exists: { field: 'f0rtika.bundle_id' } };
 
     const conclusive = this.buildConclusiveResultsFilter();
-    // Each result counts on its own evidence (a bundle stage is not credited
-    // for an alert that named a sibling stage).
+    // A standalone result counts on its own evidence.
     const detected = {
       bool: {
         should: [
@@ -3837,78 +3869,117 @@ export class ElasticsearchService {
     const protectedFilter = { bool: { filter: [conclusive, detected] } };
     const unprotectedFilter = { bool: { filter: [conclusive], must_not: [detected] } };
     const inconclusiveFilter = { bool: { must_not: [conclusive] } };
+    // A bundle run's verdict is chain-level: an alert that named the bundle counts.
+    const runProtected = {
+      bool: {
+        filter: [
+          conclusive,
+          { bool: { should: [{ term: { 'f0rtika.is_protected': true } }, ...edrDetectedTerms()], minimum_should_match: 1 } },
+        ],
+      },
+    };
 
-    const response = await this.client.search({
-      index: this.settings.indexPattern,
-      size: 0,
-      query: { bool: { filter: filters } },
-      aggs: {
-        per_day: {
-          date_histogram: {
-            field: 'routing.event_time',
-            calendar_interval: 'day',
-            min_doc_count: 0,
-            extended_bounds: { min: dayKeys[0], max: dayKeys[dayKeys.length - 1] },
-          },
-          aggs: {
-            protected: { filter: protectedFilter },
-            unprotected: { filter: unprotectedFilter },
-            inconclusive: { filter: inconclusiveFilter },
-          },
-        },
-        // All-time newest result for the org: global ignores the window filter above
-        // (the query's only other filter is the counted filter, re-applied here).
-        all_time: {
-          global: {},
-          aggs: {
-            org: {
-              filter: countedFilter,
-              aggs: { last: { max: { field: 'routing.event_time' } } },
+    type DayCounts = { protected: number; unprotected: number; inconclusive: number };
+    const byDay = new Map<string, DayCounts>(dayKeys.map((d) => [d, { protected: 0, unprotected: 0, inconclusive: 0 }]));
+    const runVerdicts: Array<{ date: string; verdict: keyof DayCounts }> = [];
+
+    const [response] = await Promise.all([
+      this.client.search({
+        index: this.settings.indexPattern,
+        size: 0,
+        query: { bool: { filter: filters } },
+        aggs: {
+          standalone: {
+            filter: { bool: { must_not: [bundleDoc] } },
+            aggs: {
+              per_day: {
+                date_histogram: {
+                  field: 'routing.event_time',
+                  calendar_interval: 'day',
+                  min_doc_count: 0,
+                  extended_bounds: { min: dayKeys[0], max: dayKeys[dayKeys.length - 1] },
+                },
+                aggs: {
+                  protected: { filter: protectedFilter },
+                  unprotected: { filter: unprotectedFilter },
+                  inconclusive: { filter: inconclusiveFilter },
+                },
+              },
             },
           },
-        },
-        last_7d: {
-          filter: { range: { 'routing.event_time': { gte: 'now-6d/d' } } },
-          aggs: {
-            endpoints: { cardinality: { field: 'routing.hostname' } },
-            conclusive: { filter: conclusive },
-            protected: { filter: protectedFilter },
+          // All-time newest result for the org: global ignores the window filter above
+          // (the query's only other filter is the counted filter, re-applied here).
+          all_time: {
+            global: {},
+            aggs: {
+              org: {
+                filter: countedFilter,
+                aggs: { last: { max: { field: 'routing.event_time' } } },
+              },
+            },
+          },
+          last_7d: {
+            filter: { range: { 'routing.event_time': { gte: 'now-6d/d' } } },
+            aggs: { endpoints: { cardinality: { field: 'routing.hostname' } } },
           },
         },
-      },
-    });
+      }),
+      this.paginateComposite(
+        [...filters, bundleDoc],
+        'activity_runs',
+        this.BUNDLE_RUN_PAGE_SIZE,
+        this.BUNDLE_RUN_SOURCES,
+        {
+          conclusive: { filter: conclusive },
+          protected: { filter: runProtected },
+          hygiene: { filter: { term: { 'f0rtika.category': 'cyber-hygiene' } } },
+        },
+        (b) => {
+          const ts = parseEsTime(b.key?.ts);
+          if (!Number.isFinite(ts)) return;
+          const conclusiveDocs = Number(b.conclusive?.doc_count) || 0;
+          const protectedDocs = Number(b.protected?.doc_count) || 0;
+          let verdict: keyof DayCounts;
+          if (conclusiveDocs === 0) verdict = 'inconclusive';
+          else if ((Number(b.hygiene?.doc_count) || 0) > 0) verdict = protectedDocs === conclusiveDocs ? 'protected' : 'unprotected';
+          else verdict = protectedDocs > 0 ? 'protected' : 'unprotected';
+          runVerdicts.push({ date: new Date(ts).toISOString().slice(0, 10), verdict });
+        },
+      ),
+    ]);
 
     const aggs = response.aggregations as any;
-    const byDay = new Map<string, { protected: number; unprotected: number; inconclusive: number }>();
-    for (const b of (aggs?.per_day?.buckets ?? []) as any[]) {
+    for (const b of (aggs?.standalone?.per_day?.buckets ?? []) as any[]) {
       const key = typeof b.key === 'number'
         ? new Date(b.key).toISOString().slice(0, 10)
         : String(b.key_as_string ?? b.key).slice(0, 10);
-      byDay.set(key, {
-        protected: b.protected?.doc_count ?? 0,
-        unprotected: b.unprotected?.doc_count ?? 0,
-        inconclusive: b.inconclusive?.doc_count ?? 0,
-      });
+      const day = byDay.get(key);
+      if (!day) continue;
+      day.protected += b.protected?.doc_count ?? 0;
+      day.unprotected += b.unprotected?.doc_count ?? 0;
+      day.inconclusive += b.inconclusive?.doc_count ?? 0;
     }
-    const dayRows = dayKeys.slice(-days).map((date) => ({
-      date,
-      ...(byDay.get(date) ?? { protected: 0, unprotected: 0, inconclusive: 0 }),
-    }));
+    for (const r of runVerdicts) {
+      const day = byDay.get(r.date);
+      if (day) day[r.verdict]++;
+    }
+    const rows = dayKeys.map((date) => ({ date, ...byDay.get(date)! }));
 
     const last = aggs?.all_time?.org?.last;
     const lastExecutionAt: string | null =
       last?.value != null ? (last.value_as_string ?? new Date(last.value).toISOString()) : null;
 
-    const w = aggs?.last_7d;
-    const conclusive7d: number = w?.conclusive?.doc_count ?? 0;
-    const protected7d: number = w?.protected?.doc_count ?? 0;
+    const week = rows.slice(-7);
+    const protected7d = week.reduce((n, d) => n + d.protected, 0);
+    const conclusive7d = protected7d + week.reduce((n, d) => n + d.unprotected, 0);
+    const runs7d = conclusive7d + week.reduce((n, d) => n + d.inconclusive, 0);
 
     return {
-      days: dayRows,
+      days: rows.slice(-days),
       lastExecutionAt,
-      executions7d: w?.doc_count ?? 0,
+      executions7d: runs7d,
       protectedPct7d: conclusive7d > 0 ? Math.round((protected7d / conclusive7d) * 1000) / 10 : null,
-      endpointsTested7d: w?.endpoints?.value ?? 0,
+      endpointsTested7d: aggs?.last_7d?.endpoints?.value ?? 0,
     };
   }
 

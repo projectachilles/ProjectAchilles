@@ -190,13 +190,18 @@ describe('chain depth: "alerted before the block" needs an alert on an earlier s
   });
 });
 
-describe('getExecutionActivity counts each result by its own evidence', () => {
-  it('a stage flagged only bundle-wide is unprotected', async () => {
+describe('getExecutionActivity: standalone results on their own evidence, bundle runs chain-level', () => {
+  it('a standalone result needs its own evidence; a bundle run counts an alert that named the bundle', async () => {
     await createService().getExecutionActivity({ days: 14 });
-    const protectedFilter = mockSearch.mock.calls[0][0].aggs.per_day.aggs.protected.filter;
-    expect(matches(protectedFilter, stage(T0, 2, 101, 'T1036', WIDE))).toBe(false);
-    expect(matches(protectedFilter, stage(T0, 1, 101, 'T1105', OWN))).toBe(true);
-    expect(matches(protectedFilter, stage(T0, 3, 126, 'T1003.001'))).toBe(true);
+    const calls = mockSearch.mock.calls.map((c) => c[0]);
+    const protectedFilter = calls.find((r: any) => r.aggs?.standalone).aggs.standalone.aggs.per_day.aggs.protected.filter;
     expect(matches(protectedFilter, standalone(T0, 'T1218', { defender_detected: true }))).toBe(true);
+    expect(matches(protectedFilter, standalone(T0, 'T1218'))).toBe(false);
+    // One run = one verdict (any-stage pair rule): a stage flagged only bundle-wide makes the run protected.
+    const runProtected = calls.find((r: any) => r.aggs?.activity_runs).aggs.activity_runs.aggs.protected.filter;
+    expect(matches(runProtected, stage(T0, 2, 101, 'T1036', WIDE))).toBe(true);
+    expect(matches(runProtected, stage(T0, 1, 101, 'T1105', OWN))).toBe(true);
+    expect(matches(runProtected, stage(T0, 3, 126, 'T1003.001'))).toBe(true);
+    expect(matches(runProtected, stage(T0, 4, 101, 'T1041'))).toBe(false);
   });
 });

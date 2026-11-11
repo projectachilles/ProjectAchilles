@@ -158,8 +158,9 @@ wide right column carrying the shapes you read.
   A whole run an EDR's own alert proves it blocked at launch is different: it
   is Protected and counts as blocked at stage 1 (see
   [Exit Codes & Outcomes](./exit-codes-and-outcomes#7-test-blocked-at-launch-by-the-edr)).
-  Chains whose latest run had a stage error (for example exit 999) are noted
-  in the footer, not in the rows. The chip totals the rows. It follows the
+  Chains whose latest run had a stage error (for example exit 999) before
+  any block are noted in the footer, not in the rows; an error on a later
+  stage than the block doesn't hide the block. The chip totals the rows. It follows the
   filter bar, and clicking a row filters Executions to those bundles. A chain
   counts at the first stage that blocked it, also for chains that keep running
   after a block (LockBit); the amber "alerted" segment then counts only
