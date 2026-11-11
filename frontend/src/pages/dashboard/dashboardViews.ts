@@ -16,7 +16,7 @@ import { ENTERPRISE_TACTICS } from '@/lib/mitreTactics';
 export interface CadenceView {
   /** One bar per UTC day, oldest first. */
   bars: ExecutionActivityDay[];
-  /** Whole days since the last result; null when there has never been one. */
+  /** UTC calendar days since the last result; null when there has never been one. */
   lastRunDaysAgo: number | null;
   /** ISO time of the last result (all-time); null = never. */
   lastRunAt: string | null;
@@ -52,7 +52,8 @@ export function buildCadence(
   let lastRunDaysAgo: number | null = null;
   if (activity.lastExecutionAt) {
     const t = new Date(activity.lastExecutionAt).getTime();
-    if (!Number.isNaN(t)) lastRunDaysAgo = Math.max(0, Math.floor((now - t) / MS_PER_DAY));
+    // UTC calendar days, like the bars: a run on Nov 5 is "6d ago" on Nov 11 at any hour.
+    if (!Number.isNaN(t)) lastRunDaysAgo = Math.max(0, Math.floor(now / MS_PER_DAY) - Math.floor(t / MS_PER_DAY));
   }
 
   const act = metrics?.task_activity_24h;

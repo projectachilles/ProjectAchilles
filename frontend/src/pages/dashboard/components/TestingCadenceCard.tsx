@@ -81,7 +81,7 @@ export function TestingCadenceCard({ view, configured, loading }: TestingCadence
     }),
     { p: 0, u: 0, i: 0 },
   );
-  const ariaLabel = `Daily executions for ${view.bars.length} days, stacked by outcome: ${totals.p} protected, ${totals.u} got through, ${totals.i} inconclusive`;
+  const ariaLabel = `Daily test runs for ${view.bars.length} days, stacked by outcome: ${totals.p} protected, ${totals.u} got through, ${totals.i} inconclusive`;
   const first = view.bars[0]?.date;
   const mid = view.bars[Math.floor(view.bars.length / 2)]?.date;
   const last = view.bars[view.bars.length - 1]?.date;
@@ -98,8 +98,8 @@ export function TestingCadenceCard({ view, configured, loading }: TestingCadence
       <CardContent className="flex flex-col gap-3.5">
         <div className="flex flex-col gap-1.5">
           <div className="flex justify-between font-mono text-[11px] text-muted">
-            <span>executions / day · {view.bars.length}d</span>
-            <span>{view.executions7d} in 7d</span>
+            <span>runs / day · {view.bars.length}d</span>
+            <span>{view.executions7d} {view.executions7d === 1 ? 'run' : 'runs'} in 7d</span>
           </div>
           <div
             role="img"
@@ -111,7 +111,7 @@ export function TestingCadenceCard({ view, configured, loading }: TestingCadence
               return (
                 <div
                   key={d.date}
-                  title={`${shortDay(d.date)}: ${total} executions`}
+                  title={`${shortDay(d.date)}: ${total} ${total === 1 ? 'run' : 'runs'}`}
                   className="flex h-full min-w-0 flex-1 flex-col-reverse gap-px"
                 >
                   <div className="rounded-b-sm bg-accent" style={{ height: `${(d.protected / max) * 100}%` }} />

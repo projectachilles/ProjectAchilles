@@ -84,6 +84,17 @@ describe('buildCadence', () => {
     );
     expect(v.lastRunDaysAgo).toBe(80);
   });
+
+  it('counts UTC calendar days, matching the bar dates (not elapsed 24h periods)', () => {
+    const at = (iso: string) => buildCadence(
+      { days: [], lastExecutionAt: iso, executions7d: 0, protectedPct7d: null, endpointsTested7d: 0 },
+      null, null, 1, NOW,
+    ).lastRunDaysAgo;
+    // 5.8 elapsed days, but the run's bar is dated 6 days back.
+    expect(at('2026-10-14T16:47:00Z')).toBe(6);
+    expect(at('2026-10-20T00:01:00Z')).toBe(0);
+    expect(at('2026-10-19T23:59:00Z')).toBe(1);
+  });
 });
 
 describe('buildActorReadiness', () => {
