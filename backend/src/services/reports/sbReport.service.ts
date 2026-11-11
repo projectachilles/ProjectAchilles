@@ -88,9 +88,11 @@ const PREVENTED_EXIT_CODES = new Set([126, 105, 127]);
 const EXECUTED_EXIT_CODES = new Set([101, 0]);
 const INCONCLUSIVE_EXIT_CODES = new Set([200, 259, 260]);
 
-// Hard cap on documents pulled for one report. A report window realistically
-// covers a handful of bundle runs (5 controls × endpoints × runs); 10k is the
-// ES default max_result_window and far above any legitimate window.
+// Hard cap on documents pulled for one report (the ES default
+// max_result_window). A bulletin export covers one bundle's runs, far below
+// it; an unfiltered window full of cyber-hygiene controls is not. Over the
+// cap the export is refused rather than cut: the schema's meta has no field
+// to say a file is partial, and meta.window would claim the whole range.
 const MAX_REPORT_DOCS = 10000;
 
 // Stage alert lookups for detectedTechniques: sub-searches per msearch call,
@@ -310,8 +312,10 @@ export class SbReportService {
     const response = await this.client.search({
       index: this.settings.indexPattern,
       size: MAX_REPORT_DOCS,
+      // Exact count: by default ES stops counting at 10,000, which would hide
+      // an over-cap window.
+      track_total_hits: true,
       query: { bool: { filter: filters } },
-      // Newest first: if the 10k cap ever truncates, recent runs survive.
       sort: [{ 'routing.event_time': 'desc' }],
     });
 
@@ -319,9 +323,11 @@ export class SbReportService {
       ? response.hits.total
       : response.hits.total?.value ?? 0;
     if (total > MAX_REPORT_DOCS) {
-      console.warn(
-        `[sb-report] window ${params.from}..${params.to} matched ${total} docs; ` +
-        `report truncated to the newest ${MAX_REPORT_DOCS}`,
+      throw new AppError(
+        `This range matches ${total.toLocaleString('en-US')} results, over the SB export limit of ` +
+        `${MAX_REPORT_DOCS.toLocaleString('en-US')}. Narrow it with the bundle filter ` +
+        `(one bulletin = one bundle) or a shorter date range.`,
+        422,
       );
     }
 
