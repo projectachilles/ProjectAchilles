@@ -91,8 +91,8 @@ export function defaultCoverageWindow(now: number = Date.now()): TimeWindow {
  *     test's own detection. On a bundle control the wide flag only means the
  *     bundle UUID matched, so a stage is never credited because a sibling
  *     stage was caught; or
- *   - `<v>_prevented: true` — a vendor-confirmed prevention is a detection; or
- *   - the vendor killed the agent mid-run (`edr_terminated_vendors`).
+ *   - the doc's own vendor-confirmed prevention (preventedClause) — a
+ *     prevention is a detection.
  */
 export function detectedClause(vendor: CoverageVendor): QueryDslQueryContainer {
   return {
@@ -105,23 +105,51 @@ export function detectedClause(vendor: CoverageVendor): QueryDslQueryContainer {
             must_not: [{ term: { 'f0rtika.is_bundle_control': true } }],
           },
         },
-        { term: { [`f0rtika.${vendor}_prevented`]: true } },
-        killedBy(vendor),
+        preventedClause(vendor),
       ],
       minimum_should_match: 1,
     },
   };
 }
 
+/** Actions that prove the vendor stopped it (reports/stageOutcome.ts CONFIRMED_PREVENTION_ACTIONS). */
+const CONFIRMED_ACTIONS = ['quarantined', 'process_killed', 'blocked'];
+
 /**
- * Prevented = `<v>_prevented: true` (a launch block's doc carries it too), or
- * the vendor killed the agent mid-run: that whole-test doc carries no vendor
- * flags, only `edr_terminated_vendors`. The detected predicate counts both.
+ * Prevented, by the doc's own evidence (Analytics' stage rule):
+ *   - `<v>_stage_prevented: true` — an alert naming this stage carried the
+ *     action; on docs enriched before that flag existed, the stage's own
+ *     alert (`<v>_stage_detected`) plus a confirmed `<v>_prevention_action`;
+ *   - `<v>_prevented: true` on a doc that is NOT a bundle control (a
+ *     standalone test, or a launch block's whole-test doc). On a bundle
+ *     control it is run-wide: a sibling stage's prevention sets it on every
+ *     stage, even ones that never ran;
+ *   - the vendor killed the agent mid-run: that whole-test doc carries no
+ *     vendor flags, only `edr_terminated_vendors`.
+ * The detected predicate counts all of them.
  */
 export function preventedClause(vendor: CoverageVendor): QueryDslQueryContainer {
   return {
     bool: {
-      should: [{ term: { [`f0rtika.${vendor}_prevented`]: true } }, killedBy(vendor)],
+      should: [
+        { term: { [`f0rtika.${vendor}_stage_prevented`]: true } },
+        {
+          bool: {
+            filter: [
+              { term: { [`f0rtika.${vendor}_stage_detected`]: true } },
+              { terms: { [`f0rtika.${vendor}_prevention_action`]: CONFIRMED_ACTIONS } },
+            ],
+            must_not: [{ exists: { field: `f0rtika.${vendor}_stage_prevented` } }],
+          },
+        },
+        {
+          bool: {
+            filter: [{ term: { [`f0rtika.${vendor}_prevented`]: true } }],
+            must_not: [{ term: { 'f0rtika.is_bundle_control': true } }],
+          },
+        },
+        killedBy(vendor),
+      ],
       minimum_should_match: 1,
     },
   };

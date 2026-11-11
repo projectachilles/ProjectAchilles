@@ -129,19 +129,19 @@ export default function AnalyticsDashboardPage() {
 
   // Defender dashboard data (loaded alongside main dashboard when configured)
   const [secureScore, setSecureScore] = useState<SecureScoreSummary | null>(null);
-  const [defenderTechniqueCount, setDefenderTechniqueCount] = useState<number>(0);
+  const [defenderAlertTechniques, setDefenderAlertTechniques] = useState<string[]>([]);
   const [secureScoreTrendData, setSecureScoreTrendData] = useState<SecureScoreTrendPoint[]>([]);
 
   // CrowdStrike dashboard data (loaded alongside main dashboard when configured)
   const [ztaScore, setZtaScore] = useState<ZtaScoreSummary | null>(null);
-  const [crowdstrikeTechniqueCount, setCrowdStrikeTechniqueCount] = useState<number>(0);
+  const [crowdstrikeAlertTechniques, setCrowdStrikeAlertTechniques] = useState<string[]>([]);
   const [ztaScoreTrendData, setZtaScoreTrendData] = useState<ZtaScoreTrendPoint[]>([]);
 
   // SentinelOne dashboard data: technique overlap only (no posture-score equivalent).
-  const [sentineloneTechniqueCount, setSentinelOneTechniqueCount] = useState<number>(0);
+  const [sentineloneAlertTechniques, setSentinelOneAlertTechniques] = useState<string[]>([]);
 
   // Sophos dashboard data: technique overlap badge only (the Health Check series is on the main dashboard).
-  const [sophosTechniqueCount, setSophosTechniqueCount] = useState<number>(0);
+  const [sophosAlertTechniques, setSophosAlertTechniques] = useState<string[]>([]);
 
   // Risk acceptances tab badge count
   const [activeRiskCount, setActiveRiskCount] = useState(0);
@@ -454,7 +454,7 @@ export default function AnalyticsDashboardPage() {
         defenderApi.getSecureScoreTrend(trendDays),
       ]);
       setSecureScore(defScore);
-      setDefenderTechniqueCount(defTechniques.length);
+      setDefenderAlertTechniques(defTechniques.map((t) => t.technique));
       setSecureScoreTrendData(defTrend);
     } catch {
       setSecureScoreTrendData([]);
@@ -474,7 +474,7 @@ export default function AnalyticsDashboardPage() {
         crowdstrikeApi.getZtaScoreTrend(trendDays),
       ]);
       setZtaScore(csScore);
-      setCrowdStrikeTechniqueCount(csTechniques.length);
+      setCrowdStrikeAlertTechniques(csTechniques.map((t) => t.technique));
       setZtaScoreTrendData(csTrend);
     } catch {
       // ZTA may be unlicensed (403) in some tenants; the card hides then.
@@ -486,28 +486,28 @@ export default function AnalyticsDashboardPage() {
   // SentinelOne: technique overlap badge only — there is no ZTA-style score to show.
   const loadSentinelOneSummary = useCallback(async () => {
     if (!sentineloneConfigured) {
-      setSentinelOneTechniqueCount(0);
+      setSentinelOneAlertTechniques([]);
       return;
     }
     try {
       const s1Techniques = await sentineloneAnalyticsApi.getTechniqueOverlap();
-      setSentinelOneTechniqueCount(s1Techniques.length);
+      setSentinelOneAlertTechniques(s1Techniques.map((t) => t.technique));
     } catch {
-      setSentinelOneTechniqueCount(0);
+      setSentinelOneAlertTechniques([]);
     }
   }, [sentineloneConfigured]);
 
   // Sophos: technique overlap badge only.
   const loadSophosSummary = useCallback(async () => {
     if (!sophosConfigured) {
-      setSophosTechniqueCount(0);
+      setSophosAlertTechniques([]);
       return;
     }
     try {
       const sxTechniques = await sophosAnalyticsApi.getTechniqueOverlap();
-      setSophosTechniqueCount(sxTechniques.length);
+      setSophosAlertTechniques(sxTechniques.map((t) => t.technique));
     } catch {
-      setSophosTechniqueCount(0);
+      setSophosAlertTechniques([]);
     }
   }, [sophosConfigured]);
 
@@ -906,10 +906,10 @@ export default function AnalyticsDashboardPage() {
               <TechniqueDistributionCard
                 data={techniqueDistData}
                 loading={loadingDashboard}
-                defenderTechniqueCount={defenderTechniqueCount}
-                crowdstrikeTechniqueCount={crowdstrikeTechniqueCount}
-                sentineloneTechniqueCount={sentineloneTechniqueCount}
-                sophosTechniqueCount={sophosTechniqueCount}
+                defenderAlertTechniques={defenderAlertTechniques}
+                crowdstrikeAlertTechniques={crowdstrikeAlertTechniques}
+                sentineloneAlertTechniques={sentineloneAlertTechniques}
+                sophosAlertTechniques={sophosAlertTechniques}
                 onTechniqueClick={(technique) => {
                   filterState.setTechniques([technique]);
                   handleTabChange('executions');
