@@ -127,7 +127,7 @@
           "outcome": {
             "type": "string",
             "enum": ["PREVENTED", "DETECTED", "MISSED", "EXPOSED", "NOT_RUN", "ERROR"],
-            "description": "Stage outcome. Mapping: exit 126/105/127 -> PREVENTED; exit 101/0 + Defender detection -> DETECTED; exit 101/0 on exfiltration/impact tactics -> EXPOSED; exit 101/0 otherwise -> MISSED; skipped control -> NOT_RUN (never emitted server-side: skipped controls are not ingested); exit 999/inconclusive 200/259/260/unknown -> ERROR."
+            "description": "Stage outcome. Mapping: exit 126/105/127 -> PREVENTED; stage's own EDR prevention on a non-conclusive exit -> PREVENTED; skipped stage (exit 0 on a non-cyber-hygiene control: the orchestrator never ran it) -> NOT_RUN; exit 101/0 + the stage's own EDR detection -> DETECTED; exit 101/0 on exfiltration/impact tactics -> EXPOSED; exit 101/0 otherwise -> MISSED; exit 999/inconclusive 200/259/260/unknown -> ERROR."
           },
           "isProtected": {
             "type": "boolean",

@@ -14,6 +14,7 @@ import {
   type SentinelOnePolicyRow,
 } from '@/services/api/sentineloneAnalytics';
 import type { TimeWindow } from './integrations/vendorConfig';
+import { joinFilterList } from '@/lib/filterList';
 
 const fmt = (iso: string | null | undefined) => (iso ? new Date(iso).toLocaleString() : '—');
 const num = (n: number | null | undefined) => (n == null ? '—' : n.toLocaleString());
@@ -238,7 +239,7 @@ export function SentinelOneExclusionGapCard({ window, windowLabel, refreshKey }:
                       <tr key={`${f.test_uuid}-${f.hostname}`} className="border-b border-border/50 align-top">
                         <td className="p-2">
                           {f.test_name ? (
-                            <Link className="text-accent hover:underline" to={`/analytics?tab=executions&tests=${encodeURIComponent(f.test_name)}`}>{f.test_name}</Link>
+                            <Link className="text-accent hover:underline" to={`/analytics?tab=executions&tests=${encodeURIComponent(joinFilterList([f.test_name]))}`}>{f.test_name}</Link>
                           ) : (
                             <span className="font-mono text-xs">{f.test_uuid}</span>
                           )}

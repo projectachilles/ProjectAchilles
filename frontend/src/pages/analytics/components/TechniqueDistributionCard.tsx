@@ -6,14 +6,14 @@ import type { TechniqueDistributionItem } from '@/services/api/analytics';
 interface TechniqueDistributionCardProps {
   data: TechniqueDistributionItem[];
   loading?: boolean;
-  /** Techniques that also raised Defender alerts (warning badge in header). */
-  defenderTechniqueCount?: number;
-  /** Techniques that also raised CrowdStrike alerts (warning badge in header). */
-  crowdstrikeTechniqueCount?: number;
-  /** Techniques that also raised SentinelOne alerts (warning badge in header). */
-  sentineloneTechniqueCount?: number;
-  /** Techniques that also raised Sophos alerts (warning badge in header). */
-  sophosTechniqueCount?: number;
+  /** Tested techniques that also appear on Defender alerts (getTechniqueOverlap). */
+  defenderAlertTechniques?: string[];
+  /** Tested techniques that also appear on CrowdStrike alerts (getTechniqueOverlap). */
+  crowdstrikeAlertTechniques?: string[];
+  /** Tested techniques that also appear on SentinelOne alerts (getTechniqueOverlap). */
+  sentineloneAlertTechniques?: string[];
+  /** Tested techniques that also appear on Sophos alerts (getTechniqueOverlap). */
+  sophosAlertTechniques?: string[];
   /** Row click — filters executions to the technique. */
   onTechniqueClick?: (technique: string) => void;
 }
@@ -21,10 +21,10 @@ interface TechniqueDistributionCardProps {
 function TechniqueDistributionCard({
   data,
   loading,
-  defenderTechniqueCount = 0,
-  crowdstrikeTechniqueCount = 0,
-  sentineloneTechniqueCount = 0,
-  sophosTechniqueCount = 0,
+  defenderAlertTechniques = [],
+  crowdstrikeAlertTechniques = [],
+  sentineloneAlertTechniques = [],
+  sophosAlertTechniques = [],
   onTechniqueClick,
 }: TechniqueDistributionCardProps) {
   if (loading) {
@@ -38,22 +38,26 @@ function TechniqueDistributionCard({
       pct: d.protected + d.unprotected > 0 ? (d.protected / (d.protected + d.unprotected)) * 100 : 0,
     }))
     .sort((a, b) => b.pct - a.pct || b.total - a.total);
+  // The badges count the techniques on this card, in its window and filters,
+  // that also appear on the vendor's alerts, not every technique ever tested.
+  const shown = new Set(rows.map((r) => r.technique));
+  const onCard = (alerted: string[]) => alerted.filter((t) => shown.has(t)).length;
 
   return (
     <Card>
       <CardHeader className="flex-row flex-wrap items-center gap-2 space-y-0 grid-rows-1">
         <CardTitle>ATT&CK technique distribution</CardTitle>
-        {defenderTechniqueCount > 0 && (
-          <Badge variant="medium">{defenderTechniqueCount} with Defender alerts</Badge>
+        {onCard(defenderAlertTechniques) > 0 && (
+          <Badge variant="medium">{onCard(defenderAlertTechniques)} with Defender alerts</Badge>
         )}
-        {crowdstrikeTechniqueCount > 0 && (
-          <Badge variant="medium">{crowdstrikeTechniqueCount} with CrowdStrike alerts</Badge>
+        {onCard(crowdstrikeAlertTechniques) > 0 && (
+          <Badge variant="medium">{onCard(crowdstrikeAlertTechniques)} with CrowdStrike alerts</Badge>
         )}
-        {sentineloneTechniqueCount > 0 && (
-          <Badge variant="medium">{sentineloneTechniqueCount} with SentinelOne alerts</Badge>
+        {onCard(sentineloneAlertTechniques) > 0 && (
+          <Badge variant="medium">{onCard(sentineloneAlertTechniques)} with SentinelOne alerts</Badge>
         )}
-        {sophosTechniqueCount > 0 && (
-          <Badge variant="medium">{sophosTechniqueCount} with Sophos alerts</Badge>
+        {onCard(sophosAlertTechniques) > 0 && (
+          <Badge variant="medium">{onCard(sophosAlertTechniques)} with Sophos alerts</Badge>
         )}
       </CardHeader>
       <CardContent>

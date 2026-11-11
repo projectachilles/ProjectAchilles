@@ -256,6 +256,34 @@ describe('sbReport.service.ts', () => {
       expect(report.executions[0].detectedBy).toEqual(['Microsoft Defender for Endpoint']);
     });
 
+    it('maps a Skipped stage (exit 0, never ran) to NOT_RUN, not MISSED/EXPOSED', async () => {
+      const hits = [
+        makeBundleHit({ control_id: 'T1059.001', validator: 'Stage 1', exit_code: 126, techniques: ['T1059.001'], tactics: ['execution'] }),
+        makeBundleHit({ control_id: 'T1021.002', validator: 'Stage 3', exit_code: 0, techniques: ['T1021.002'], tactics: ['lateral-movement'] }),
+        // Exfiltration would read EXPOSED; a stage that never ran exposed nothing.
+        makeBundleHit({ control_id: 'T1567.002', validator: 'Stage 4', exit_code: 0, techniques: ['T1567.002'], tactics: ['exfiltration'], defender_detected: true }),
+      ];
+      mockSearch.mockResolvedValue(esSearchResponse(hits));
+
+      const report = await createService().generateSbReport({ ...WINDOW, org: ORG_UUID });
+
+      expect(report.executions.map((r) => r.outcome)).toEqual(['PREVENTED', 'NOT_RUN', 'NOT_RUN']);
+      expect(report.executions[1].isProtected).toBe(false);
+      expect(report.executions[1].evidenceRef).toBe(`${TASK_ID}::T1021.002 (not run: skipped stage)`);
+      expect(report.executions[2].detectedBy).toEqual([]);
+    });
+
+    it('keeps exit 0 executed on a cyber-hygiene control, and a stage\'s own prevention over Skipped', async () => {
+      const hygiene = makeBundleHit({ control_id: 'CH-DEF-001', validator: 'Stage 1', exit_code: 0, techniques: [], tactics: ['defense-evasion'] });
+      hygiene._source['f0rtika.category'] = 'cyber-hygiene';
+      const killed = makeBundleHit({ control_id: 'T1486', validator: 'Stage 5', exit_code: 0, techniques: ['T1486'], tactics: ['impact'], flags: { defender_stage_detected: true, defender_stage_prevented: true } });
+      mockSearch.mockResolvedValue(esSearchResponse([hygiene, killed]));
+
+      const report = await createService().generateSbReport({ ...WINDOW, org: ORG_UUID });
+
+      expect(report.executions.map((r) => r.outcome)).toEqual(['MISSED', 'PREVENTED']);
+    });
+
     it('does not count the run-wide defender_detected flag as a detection of this stage', async () => {
       // Enrichment sets <vendor>_detected on every stage of a run when any
       // alert names the run; only <vendor>_stage_detected is evidence for
@@ -650,6 +678,14 @@ describe('sbReport.service.ts', () => {
           minimum_should_match: 1,
         },
       });
+    });
+
+    it('keeps a name with an escaped comma as one scope value', async () => {
+      mockSearch.mockResolvedValue(esSearchResponse([]));
+
+      await createService().generateSbReport({ ...WINDOW, bundleNames: 'Wiper: GPO-Driven\\, Living-off-the-Land' });
+
+      expect(mockSearch.mock.calls[0][0].query.bool.filter).toContainEqual({ term: { 'f0rtika.bundle_name': 'Wiper: GPO-Driven, Living-off-the-Land' } });
     });
 
     it('ignores empty scope filter values', async () => {

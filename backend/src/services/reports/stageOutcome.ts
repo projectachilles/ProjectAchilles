@@ -12,7 +12,7 @@
 // Its twin is frontend/src/pages/analytics/components/executions/__tests__/classifyExecution.test.ts.
 
 import type { OutcomeCounts, StageOutcome } from '../../types/reports.js';
-import { EDR_VENDOR_KEYS, edrFlagField } from '../outcomes/vendors.js';
+import { EDR_VENDOR_KEYS, edrFlagField, edrOwnDetectedClause, hasOwnEdrDetection } from '../outcomes/vendors.js';
 import type { EdrVendorKey } from '../outcomes/vendors.js';
 
 export const STAGE_OUTCOMES: readonly StageOutcome[] = [
@@ -61,6 +61,15 @@ function stageDetected(source: Record<string, unknown>): boolean {
 }
 
 /**
+ * The doc's own EDR detection (hasOwnEdrDetection): its stage flag, or on a
+ * standalone test the test-level flag, which names that test alone. The
+ * Defense Score and campaign verdicts read a standalone test's alert the same way.
+ */
+function ownDetected(source: Record<string, unknown>): boolean {
+  return hasOwnEdrDetection((field) => getSourceField(source, field) === true);
+}
+
+/**
  * The EDR's own alert on THIS stage carried a confirmed prevention action.
  * `<v>_stage_prevented` (written by the enrichment pass) decides when present;
  * docs enriched before it existed fall back to stage detection + a confirmed
@@ -97,7 +106,7 @@ export function classifyStage(source: Record<string, unknown>): StageOutcome {
   const prevented = stagePrevented(source)
     || EDR_VENDOR_KEYS.some((v) => flag(source, `${v}_prevented`));
   if (prevented) return 'prevented';
-  if (stageDetected(source)) return 'detected';
+  if (ownDetected(source)) return 'detected';
   return 'unprotected';
 }
 
@@ -182,8 +191,11 @@ export const EDR_PREVENTED_ERROR_STAGE: Clause = {
   bool: { filter: [ERROR_CODED, STAGE_PREVENTION_SIGNAL] },
 };
 
+/** ownDetected() in ES: the stage flag, or a standalone test's test-level flag. */
+const OWN_DETECTED: Clause = edrOwnDetectedClause() as Clause;
+
 const UNPROTECTED: Clause = {
-  bool: { filter: [term('event.ERROR', UNPROTECTED_EXIT_CODE)], must_not: [PREVENTION_SIGNAL, STAGE_DETECTED] },
+  bool: { filter: [term('event.ERROR', UNPROTECTED_EXIT_CODE)], must_not: [PREVENTION_SIGNAL, OWN_DETECTED] },
 };
 
 /** Named filters for an ES `filters` aggregation. Every doc matches exactly one. */
@@ -202,7 +214,7 @@ export const OUTCOME_FILTERS: Record<StageOutcome, Clause> = {
   detected: {
     bool: {
       should: [
-        { bool: { filter: [term('event.ERROR', UNPROTECTED_EXIT_CODE), STAGE_DETECTED], must_not: [PREVENTION_SIGNAL] } },
+        { bool: { filter: [term('event.ERROR', UNPROTECTED_EXIT_CODE), OWN_DETECTED], must_not: [PREVENTION_SIGNAL] } },
         { bool: { filter: [ERROR_CODED, STAGE_DETECTED], must_not: [STAGE_PREVENTION_SIGNAL] } },
       ],
       minimum_should_match: 1,

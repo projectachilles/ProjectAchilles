@@ -1,6 +1,7 @@
 import { useState, useEffect, useCallback, useRef, useMemo } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import { LayoutDashboard, Table, Filter, ChevronUp, ChevronDown, RefreshCw, Settings, ShieldOff } from 'lucide-react';
+import { joinFilterList } from '@/lib/filterList';
 import { CrowdStrikeLogo, DefenderLogo, SentinelOneLogo, SophosLogo } from '@/components/shared/VendorLogos';
 import { PageHeader } from '@/components/layout/PageHeader';
 import { pillClass } from '@/components/shared/ui/pillStyles';
@@ -59,8 +60,13 @@ import type {
   DefenseScoreByHostItem,
   ErrorRateTrendDataPoint,
   GroupedPaginatedResponse,
+  EnrichedTestExecution,
   RiskAcceptance,
 } from '../../services/api/analytics';
+
+/** CSV/JSON export: groups per request, and the most result docs one export holds. */
+const EXPORT_PAGE_GROUPS = 200;
+const EXPORT_MAX_DOCS = 10_000;
 
 type TabType = 'dashboard' | 'executions' | 'risk-acceptances' | 'defender' | 'crowdstrike' | 'sentinelone' | 'sophos';
 
@@ -123,19 +129,19 @@ export default function AnalyticsDashboardPage() {
 
   // Defender dashboard data (loaded alongside main dashboard when configured)
   const [secureScore, setSecureScore] = useState<SecureScoreSummary | null>(null);
-  const [defenderTechniqueCount, setDefenderTechniqueCount] = useState<number>(0);
+  const [defenderAlertTechniques, setDefenderAlertTechniques] = useState<string[]>([]);
   const [secureScoreTrendData, setSecureScoreTrendData] = useState<SecureScoreTrendPoint[]>([]);
 
   // CrowdStrike dashboard data (loaded alongside main dashboard when configured)
   const [ztaScore, setZtaScore] = useState<ZtaScoreSummary | null>(null);
-  const [crowdstrikeTechniqueCount, setCrowdStrikeTechniqueCount] = useState<number>(0);
+  const [crowdstrikeAlertTechniques, setCrowdStrikeAlertTechniques] = useState<string[]>([]);
   const [ztaScoreTrendData, setZtaScoreTrendData] = useState<ZtaScoreTrendPoint[]>([]);
 
   // SentinelOne dashboard data: technique overlap only (no posture-score equivalent).
-  const [sentineloneTechniqueCount, setSentinelOneTechniqueCount] = useState<number>(0);
+  const [sentineloneAlertTechniques, setSentinelOneAlertTechniques] = useState<string[]>([]);
 
   // Sophos dashboard data: technique overlap badge only (the Health Check series is on the main dashboard).
-  const [sophosTechniqueCount, setSophosTechniqueCount] = useState<number>(0);
+  const [sophosAlertTechniques, setSophosAlertTechniques] = useState<string[]>([]);
 
   // Risk acceptances tab badge count
   const [activeRiskCount, setActiveRiskCount] = useState(0);
@@ -448,7 +454,7 @@ export default function AnalyticsDashboardPage() {
         defenderApi.getSecureScoreTrend(trendDays),
       ]);
       setSecureScore(defScore);
-      setDefenderTechniqueCount(defTechniques.length);
+      setDefenderAlertTechniques(defTechniques.map((t) => t.technique));
       setSecureScoreTrendData(defTrend);
     } catch {
       setSecureScoreTrendData([]);
@@ -468,7 +474,7 @@ export default function AnalyticsDashboardPage() {
         crowdstrikeApi.getZtaScoreTrend(trendDays),
       ]);
       setZtaScore(csScore);
-      setCrowdStrikeTechniqueCount(csTechniques.length);
+      setCrowdStrikeAlertTechniques(csTechniques.map((t) => t.technique));
       setZtaScoreTrendData(csTrend);
     } catch {
       // ZTA may be unlicensed (403) in some tenants; the card hides then.
@@ -480,28 +486,28 @@ export default function AnalyticsDashboardPage() {
   // SentinelOne: technique overlap badge only — there is no ZTA-style score to show.
   const loadSentinelOneSummary = useCallback(async () => {
     if (!sentineloneConfigured) {
-      setSentinelOneTechniqueCount(0);
+      setSentinelOneAlertTechniques([]);
       return;
     }
     try {
       const s1Techniques = await sentineloneAnalyticsApi.getTechniqueOverlap();
-      setSentinelOneTechniqueCount(s1Techniques.length);
+      setSentinelOneAlertTechniques(s1Techniques.map((t) => t.technique));
     } catch {
-      setSentinelOneTechniqueCount(0);
+      setSentinelOneAlertTechniques([]);
     }
   }, [sentineloneConfigured]);
 
   // Sophos: technique overlap badge only.
   const loadSophosSummary = useCallback(async () => {
     if (!sophosConfigured) {
-      setSophosTechniqueCount(0);
+      setSophosAlertTechniques([]);
       return;
     }
     try {
       const sxTechniques = await sophosAnalyticsApi.getTechniqueOverlap();
-      setSophosTechniqueCount(sxTechniques.length);
+      setSophosAlertTechniques(sxTechniques.map((t) => t.technique));
     } catch {
-      setSophosTechniqueCount(0);
+      setSophosAlertTechniques([]);
     }
   }, [sophosConfigured]);
 
@@ -546,6 +552,27 @@ export default function AnalyticsDashboardPage() {
 
   // Keep ref in sync with latest loadExecutionsData
   loadExecutionsDataRef.current = loadExecutionsData;
+
+  // CSV/JSON export: every result matching the table's filters, sort and
+  // verdict, newest groups first, up to EXPORT_MAX_DOCS (the SB export's cap).
+  const fetchExecutionsForExport = useCallback(async () => {
+    const params = filterState.getApiParams();
+    const executions: EnrichedTestExecution[] = [];
+    for (let page = 1; ; page++) {
+      const res = await analyticsApi.getGroupedPaginatedExecutions({
+        ...params,
+        page,
+        pageSize: EXPORT_PAGE_GROUPS,
+        sortField: executionsSortField,
+        sortOrder: executionsSortOrder,
+        ...(executionsVerdict ? { verdict: executionsVerdict } : {}),
+      });
+      for (const group of res.groups) executions.push(...group.members);
+      if (!res.pagination.hasNext || executions.length >= EXPORT_MAX_DOCS) {
+        return { executions: executions.slice(0, EXPORT_MAX_DOCS), total: res.pagination.totalDocuments };
+      }
+    }
+  }, [filterState, executionsSortField, executionsSortOrder, executionsVerdict]);
 
   // Archive handlers
   const handleArchive = useCallback(async (groupKeys: string[]) => {
@@ -619,7 +646,7 @@ export default function AnalyticsDashboardPage() {
     // Forward the active analytics filter-bar scope filters so the export
     // matches what the operator is looking at. Outcome/result filters are
     // deliberately NOT forwarded — they would falsify a compliance report.
-    const joinOrUndefined = (values: string[]) => (values.length > 0 ? values.join(',') : undefined);
+    const joinOrUndefined = (values: string[]) => (values.length > 0 ? joinFilterList(values) : undefined);
     setSbReportExporting(true);
     try {
       const report = await reportsApi.getSbPc2026001Report({
@@ -879,10 +906,10 @@ export default function AnalyticsDashboardPage() {
               <TechniqueDistributionCard
                 data={techniqueDistData}
                 loading={loadingDashboard}
-                defenderTechniqueCount={defenderTechniqueCount}
-                crowdstrikeTechniqueCount={crowdstrikeTechniqueCount}
-                sentineloneTechniqueCount={sentineloneTechniqueCount}
-                sophosTechniqueCount={sophosTechniqueCount}
+                defenderAlertTechniques={defenderAlertTechniques}
+                crowdstrikeAlertTechniques={crowdstrikeAlertTechniques}
+                sentineloneAlertTechniques={sentineloneAlertTechniques}
+                sophosAlertTechniques={sophosAlertTechniques}
                 onTechniqueClick={(technique) => {
                   filterState.setTechniques([technique]);
                   handleTabChange('executions');
@@ -1045,6 +1072,7 @@ export default function AnalyticsDashboardPage() {
               onExportSbReport={handleExportSbReport}
               sbReportExporting={sbReportExporting}
               reportHref={reportHref}
+              onFetchAllExecutions={fetchExecutionsForExport}
             />
           </div>
         )}

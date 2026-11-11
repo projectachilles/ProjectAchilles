@@ -86,6 +86,10 @@ function matches(q: QueryDslQueryContainer, doc: Doc): boolean {
     const prefix = typeof value === 'string' ? value : String((value as { value: string }).value);
     return asArray(doc[field] as string | string[] | undefined).some((x) => typeof x === 'string' && x.startsWith(prefix));
   }
+  if (q.terms) {
+    const [field, values] = Object.entries(q.terms)[0] as [string, unknown[]];
+    return asArray(doc[field] as unknown).some((x) => values.includes(x));
+  }
   if (q.exists) return q.exists.field in doc && doc[q.exists.field] !== null && doc[q.exists.field] !== undefined;
   if (q.bool) {
     const b = q.bool;
@@ -109,23 +113,40 @@ describe('technique coverage', () => {
     const stage = `f0rtika.${v}_stage_detected`;
     const wide = `f0rtika.${v}_detected`;
     const prev = `f0rtika.${v}_prevented`;
+    const stagePrev = `f0rtika.${v}_stage_prevented`;
+    const action = `f0rtika.${v}_prevention_action`;
     const killed = { term: { 'f0rtika.edr_terminated_vendors': v } };
 
     const bundle = 'f0rtika.is_bundle_control';
 
     it(`builds the R13 detected predicate for ${v}`, () => {
+      const prevented = {
+        bool: {
+          should: [
+            { term: { [stagePrev]: true } },
+            {
+              bool: {
+                filter: [{ term: { [stage]: true } }, { terms: { [action]: ['quarantined', 'process_killed', 'blocked'] } }],
+                must_not: [{ exists: { field: stagePrev } }],
+              },
+            },
+            { bool: { filter: [{ term: { [prev]: true } }], must_not: [{ term: { [bundle]: true } }] } },
+            killed,
+          ],
+          minimum_should_match: 1,
+        },
+      };
+      expect(preventedClause(v)).toEqual(prevented);
       expect(detectedClause(v)).toEqual({
         bool: {
           should: [
             { term: { [stage]: true } },
             { bool: { filter: [{ term: { [wide]: true } }], must_not: [{ term: { [bundle]: true } }] } },
-            { term: { [prev]: true } },
-            killed,
+            prevented,
           ],
           minimum_should_match: 1,
         },
       });
-      expect(preventedClause(v)).toEqual({ bool: { should: [{ term: { [prev]: true } }, killed], minimum_should_match: 1 } });
     });
 
     // An agent-killed run's whole-test doc carries no vendor flags, only the vendors that killed it.
@@ -160,9 +181,26 @@ describe('technique coverage', () => {
     it('a vendor-confirmed prevention counts as prevented and detected', () => {
       expect(matches(preventedClause(v), { [prev]: true })).toBe(true);
       expect(matches(detectedClause(v), { [prev]: true })).toBe(true);
-      expect(matches(detectedClause(v), { [bundle]: true, [prev]: true })).toBe(true);
+      expect(matches(preventedClause(v), { [bundle]: true, [stagePrev]: true })).toBe(true);
+      expect(matches(detectedClause(v), { [bundle]: true, [stagePrev]: true })).toBe(true);
       expect(matches(preventedClause(v), { [stage]: true })).toBe(false);
       expect(matches(preventedClause(v), { [wide]: true })).toBe(false);
+    });
+
+    // <v>_prevented on a bundle control is run-wide: a sibling stage's alert sets it on
+    // every stage, including stages that never ran.
+    it('does NOT credit a bundle stage with a sibling stage\'s prevention', () => {
+      expect(matches(preventedClause(v), { [bundle]: true, [prev]: true })).toBe(false);
+      expect(matches(detectedClause(v), { [bundle]: true, [prev]: true })).toBe(false);
+      // Its own alert still counts as a detection, not a prevention.
+      expect(matches(preventedClause(v), { [bundle]: true, [prev]: true, [stage]: true, [stagePrev]: false })).toBe(false);
+      expect(matches(detectedClause(v), { [bundle]: true, [prev]: true, [stage]: true, [stagePrev]: false })).toBe(true);
+    });
+
+    it('a stage enriched before _stage_prevented existed counts its own alert + confirmed action', () => {
+      expect(matches(preventedClause(v), { [bundle]: true, [stage]: true, [action]: 'process_killed' })).toBe(true);
+      expect(matches(preventedClause(v), { [bundle]: true, [stage]: true, [action]: 'kill_failed' })).toBe(false);
+      expect(matches(preventedClause(v), { [bundle]: true, [stage]: true, [action]: 'blocked', [stagePrev]: false })).toBe(false);
     });
 
     it(`puts the ${v} predicates into both the overall and per-technique filters aggs`, async () => {

@@ -2,6 +2,7 @@ import type { ExecutionReport } from '@/services/api/reports';
 import { ALL_TIME_FROM } from '@/hooks/useAnalyticsFilters';
 import { fmtDate, fmtDateTime, plural, tzName } from '../lib/format';
 import { FILTER_LABELS } from '../lib/verdict';
+import { splitFilterList } from '@/lib/filterList';
 
 const NAMES_SHOWN = 5;
 
@@ -88,7 +89,7 @@ export function ScopeList({ report }: { report: ExecutionReport }) {
           : 'None in this window'}
       </dd>
       <dt>Filters</dt>
-      <dd>{filters.length ? filters.map(([k, v]) => `${FILTER_LABELS[k] ?? k}: ${v.split(',').join(', ')}`).join(' · ') : 'None'}</dd>
+      <dd>{filters.length ? filters.map(([k, v]) => `${FILTER_LABELS[k] ?? k}: ${splitFilterList(v).join(', ')}`).join(' · ') : 'None'}</dd>
       <dt>Excluded</dt>
       <dd>Archived executions</dd>
     </dl>

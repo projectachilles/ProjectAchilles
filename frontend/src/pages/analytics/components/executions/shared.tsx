@@ -226,6 +226,16 @@ function stageOnlyPrevented(exec: EnrichedTestExecution): boolean {
   return EDR_VENDOR_KEYS.some((k) => stageOwnPrevented(exec, k));
 }
 
+/** Display text per outcome, as ExecResultLabel shows it (without the prevention action). */
+export const EXECUTION_OUTCOME_LABEL: Record<ExecutionOutcome, string> = {
+  skipped: 'Skipped',
+  protected: 'Protected',
+  prevented: 'Prevented',
+  detected: 'Detected',
+  unprotected: 'Unprotected',
+  inconclusive: 'Inconclusive',
+};
+
 export function classifyExecution(exec: EnrichedTestExecution): ExecutionOutcome {
   if (isSkippedStage(exec)) return 'skipped';
   const result = getResultFromErrorCode(exec.error_code);
@@ -244,7 +254,11 @@ export function classifyExecution(exec: EnrichedTestExecution): ExecutionOutcome
     return 'inconclusive';
   }
   // Per-stage flag, falling back to the bundle-level flag for older documents.
-  const detected = (k: EdrVendorKey) => Boolean(exec[`${k}_stage_detected`] ?? exec[`${k}_detected`]);
+  // On a standalone test the test-level flag names that test alone, so it is
+  // its own alert either way (hasOwnEdrDetection, as the Defense Score reads it).
+  const detected = (k: EdrVendorKey) =>
+    Boolean(exec[`${k}_stage_detected`] ?? exec[`${k}_detected`])
+    || (!exec.is_bundle_control && Boolean(exec[`${k}_detected`]));
   const ownAction = (k: EdrVendorKey) => {
     const own = exec[`${k}_stage_prevented`];
     if (own !== undefined && own !== null) return own === true;
@@ -329,8 +343,11 @@ export function ExecResultLabel({ exec, compact }: { exec: EnrichedTestExecution
 /**
  * Bundle rollup label. Any-stage rollup with four-tier priority:
  * Protected > Prevented > Detected > Unprotected — kill-chain semantic:
- * breaking one link breaks the chain. Cyber-hygiene bundles keep per-control
- * ratio scoring since each control is evaluated independently.
+ * breaking one link breaks the chain. A run with none of those and no stage
+ * that ran unprotected (every stage errored or was skipped) is Inconclusive,
+ * as the Tasks page, campaigns and the Outcome breakdown read it. Cyber-hygiene
+ * bundles keep per-control ratio scoring since each control is evaluated
+ * independently.
  */
 export function BundleResultLabel({ group, compact }: { group: BundleGroup; compact?: boolean }) {
   const iconClass = compact ? 'w-3.5 h-3.5' : 'w-4 h-4';
@@ -372,6 +389,15 @@ export function BundleResultLabel({ group, compact }: { group: BundleGroup; comp
     );
   }
 
+  if (!isProtected && !isPrevented && !isDetected && group.unprotectedCount === 0) {
+    return (
+      <span className="inline-flex items-center gap-1.5 text-warning">
+        <ShieldQuestion className={iconClass} />
+        <span className={textClass}>Inconclusive</span>
+      </span>
+    );
+  }
+
   const label = isProtected ? 'Protected' : isPrevented ? 'Prevented' : isDetected ? 'Detected' : 'Unprotected';
   const cls = isProtected || isPrevented ? 'text-accent' : isDetected ? 'text-warning' : 'text-danger';
   const Icon = isProtected || isPrevented ? ShieldCheck : isDetected ? ShieldAlert : ShieldX;
@@ -387,6 +413,7 @@ export function BundleResultLabel({ group, compact }: { group: BundleGroup; comp
 
 export const EXPORT_COLUMNS: Array<{ key: string; label: string }> = [
   { key: 'test_name', label: 'Test Name' },
+  { key: 'bundle_name', label: 'Bundle' },
   { key: 'hostname', label: 'Hostname' },
   { key: 'result', label: 'Result' },
   { key: 'category', label: 'Category' },
@@ -406,11 +433,10 @@ export const EXPORT_COLUMNS: Array<{ key: string; label: string }> = [
 export function getCellValue(exec: EnrichedTestExecution, key: string): string | number | undefined {
   switch (key) {
     case 'test_name': return exec.test_name;
+    case 'bundle_name': return exec.is_bundle_control ? exec.bundle_name : '';
     case 'hostname': return exec.hostname;
-    case 'result': {
-      const r = getResultFromErrorCode(exec.error_code);
-      return r === 'protected' ? 'Protected' : r === 'unprotected' ? 'Unprotected' : 'Inconclusive';
-    }
+    // The table's own label (ExecResultLabel), not just the exit code.
+    case 'result': return EXECUTION_OUTCOME_LABEL[classifyExecution(exec)];
     case 'category': return exec.category;
     case 'subcategory': return exec.subcategory;
     case 'threat_actor': return exec.threat_actor;

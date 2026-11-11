@@ -12,6 +12,9 @@
 //       <vendor>_stage_detected + a confirmed <vendor>_prevention_action:
 //       the same rule as Analytics' classifyStage. The test-level
 //       <vendor>_prevented can come from a sibling stage's alert.)
+//   exit 0 on a non-cyber-hygiene stage               -> NOT_RUN
+//      (a Skipped stage: the orchestrator never ran it, as Analytics'
+//       classifyStage; an earlier stage's block or error ended the chain)
 //   exit 101 (or 0) + EDR <vendor>_stage_detected     -> DETECTED
 //      (any registry vendor; the run-wide <vendor>_detected flag, set on
 //       every stage when an alert names the run, is never stage evidence —
@@ -20,9 +23,6 @@
 //   exit 101 (or 0), other tactics                    -> MISSED
 //   exit 200/259/260 (inconclusive)                   -> ERROR ("inconclusive: <name>")
 //   999 or anything else                              -> ERROR
-//
-// NOT_RUN is part of the outcome enum but is not emitted server-side: skipped
-// controls are not ingested into ES, so there is no data signal to detect them.
 //
 // `techniques` = the techniques the stage executed (the bulletin's field: "de
 // la lista aceptable del objetivo"): the result doc's own, plus every
@@ -47,6 +47,7 @@ import { buildStageDefenderEvidenceQuery } from '../defender/evidence-correlatio
 import { buildStageCrowdStrikeEvidenceQuery } from '../edr/evidence-correlation.js';
 import { alertCredit, isStageFile, MULTI_TEST_EVIDENCE_FIELDS } from '../edr/multiTestEvidence.js';
 import { CONFIRMED_PREVENTION_ACTIONS } from './stageOutcome.js';
+import { splitFilterList } from '../analytics/filterList.js';
 
 export const SB_BUNDLE_ID = 'SB-PC-2026-001';
 export const SB_BUNDLE_NAME = 'Ransomware con doble extorsión — LockBit 3.0';
@@ -202,7 +203,7 @@ function parseStageFromValidator(validator: unknown): number | undefined {
  */
 function buildScopeFilter(csv: string | undefined, field: string): any | null {
   if (!csv) return null;
-  const values = csv.split(',').map((v) => v.trim()).filter(Boolean);
+  const values = splitFilterList(csv);
   if (values.length === 0) return null;
   if (values.length === 1) {
     return { term: { [field]: values[0] } };
@@ -245,6 +246,7 @@ function mapOutcome(
   rawTactics: string[],
   edrDetected: boolean,
   vendorPrevented: boolean,
+  skipped = false,
 ): SbOutcome {
   if (exitCode !== undefined && PREVENTED_EXIT_CODES.has(exitCode)) return 'PREVENTED';
   // Vendor-confirmed prevention (prevention disposition/remediationStatus on
@@ -256,6 +258,8 @@ function mapOutcome(
   // non-conclusive docs), so a 101 + flag combo shouldn't occur — the guard
   // is belt-and-braces.
   if (vendorPrevented && exitCode !== 101) return 'PREVENTED';
+  // A Skipped stage never ran: not a miss, whatever its tactics.
+  if (skipped) return 'NOT_RUN';
   if (exitCode !== undefined && EXECUTED_EXIT_CODES.has(exitCode)) {
     if (edrDetected) return 'DETECTED';
     if (rawTactics.some((t) => EXPOSED_TACTICS.has(t))) return 'EXPOSED';
@@ -470,13 +474,17 @@ export class SbReportService {
       const stage = parseStageFromValidator(getField(source, 'f0rtika.control_validator'))
         ?? fallbackStage.get(hit)
         ?? 0;
-      const outcome = mapOutcome(exitCode, rawTactics, edrDetected, anyVendorPrevented);
+      // Non-cyber-hygiene stage that ended 0 = Skipped (Analytics' classifyStage).
+      const skipped = exitCode === 0 && getField(source, 'f0rtika.category') !== 'cyber-hygiene';
+      const outcome = mapOutcome(exitCode, rawTactics, edrDetected, anyVendorPrevented, skipped);
       const sourceEventId = String(hit._id ?? '');
 
       const inconclusive = exitCode !== undefined && INCONCLUSIVE_EXIT_CODES.has(exitCode);
-      const evidenceRef = inconclusive
-        ? `${sourceEventId} (inconclusive: ${errorName})`
-        : `${sourceEventId} (${errorName})`;
+      const evidenceRef = outcome === 'NOT_RUN'
+        ? `${sourceEventId} (not run: skipped stage)`
+        : inconclusive
+          ? `${sourceEventId} (inconclusive: ${errorName})`
+          : `${sourceEventId} (${errorName})`;
 
       return {
         sourceEventId,

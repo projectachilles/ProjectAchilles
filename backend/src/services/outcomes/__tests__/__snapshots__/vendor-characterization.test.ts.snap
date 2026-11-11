@@ -245,6 +245,78 @@ exports[`EDR vendor characterization (pre-registry refactor) > OUTCOME_FILTERS 1
                   "minimum_should_match": 1,
                   "should": [
                     {
+                      "bool": {
+                        "filter": [
+                          {
+                            "term": {
+                              "f0rtika.crowdstrike_detected": true,
+                            },
+                          },
+                        ],
+                        "must_not": [
+                          {
+                            "term": {
+                              "f0rtika.is_bundle_control": true,
+                            },
+                          },
+                        ],
+                      },
+                    },
+                    {
+                      "bool": {
+                        "filter": [
+                          {
+                            "term": {
+                              "f0rtika.defender_detected": true,
+                            },
+                          },
+                        ],
+                        "must_not": [
+                          {
+                            "term": {
+                              "f0rtika.is_bundle_control": true,
+                            },
+                          },
+                        ],
+                      },
+                    },
+                    {
+                      "bool": {
+                        "filter": [
+                          {
+                            "term": {
+                              "f0rtika.sentinelone_detected": true,
+                            },
+                          },
+                        ],
+                        "must_not": [
+                          {
+                            "term": {
+                              "f0rtika.is_bundle_control": true,
+                            },
+                          },
+                        ],
+                      },
+                    },
+                    {
+                      "bool": {
+                        "filter": [
+                          {
+                            "term": {
+                              "f0rtika.sophos_detected": true,
+                            },
+                          },
+                        ],
+                        "must_not": [
+                          {
+                            "term": {
+                              "f0rtika.is_bundle_control": true,
+                            },
+                          },
+                        ],
+                      },
+                    },
+                    {
                       "term": {
                         "f0rtika.crowdstrike_stage_detected": true,
                       },
@@ -1186,6 +1258,78 @@ exports[`EDR vendor characterization (pre-registry refactor) > OUTCOME_FILTERS 1
             "minimum_should_match": 1,
             "should": [
               {
+                "bool": {
+                  "filter": [
+                    {
+                      "term": {
+                        "f0rtika.crowdstrike_detected": true,
+                      },
+                    },
+                  ],
+                  "must_not": [
+                    {
+                      "term": {
+                        "f0rtika.is_bundle_control": true,
+                      },
+                    },
+                  ],
+                },
+              },
+              {
+                "bool": {
+                  "filter": [
+                    {
+                      "term": {
+                        "f0rtika.defender_detected": true,
+                      },
+                    },
+                  ],
+                  "must_not": [
+                    {
+                      "term": {
+                        "f0rtika.is_bundle_control": true,
+                      },
+                    },
+                  ],
+                },
+              },
+              {
+                "bool": {
+                  "filter": [
+                    {
+                      "term": {
+                        "f0rtika.sentinelone_detected": true,
+                      },
+                    },
+                  ],
+                  "must_not": [
+                    {
+                      "term": {
+                        "f0rtika.is_bundle_control": true,
+                      },
+                    },
+                  ],
+                },
+              },
+              {
+                "bool": {
+                  "filter": [
+                    {
+                      "term": {
+                        "f0rtika.sophos_detected": true,
+                      },
+                    },
+                  ],
+                  "must_not": [
+                    {
+                      "term": {
+                        "f0rtika.is_bundle_control": true,
+                      },
+                    },
+                  ],
+                },
+              },
+              {
                 "term": {
                   "f0rtika.crowdstrike_stage_detected": true,
                 },
@@ -1411,17 +1555,17 @@ exports[`EDR vendor characterization (pre-registry refactor) > classifyStage acr
   "101|bundle|sentinelone|prevented": "prevented",
   "101|bundle|sentinelone|stage_detected": "detected",
   "101|bundle|sentinelone|stage_quarantined": "prevented",
-  "101|single|crowdstrike|detected_bundle": "unprotected",
+  "101|single|crowdstrike|detected_bundle": "detected",
   "101|single|crowdstrike|none": "unprotected",
   "101|single|crowdstrike|prevented": "prevented",
   "101|single|crowdstrike|stage_detected": "detected",
   "101|single|crowdstrike|stage_quarantined": "prevented",
-  "101|single|defender|detected_bundle": "unprotected",
+  "101|single|defender|detected_bundle": "detected",
   "101|single|defender|none": "unprotected",
   "101|single|defender|prevented": "prevented",
   "101|single|defender|stage_detected": "detected",
   "101|single|defender|stage_quarantined": "prevented",
-  "101|single|sentinelone|detected_bundle": "unprotected",
+  "101|single|sentinelone|detected_bundle": "detected",
   "101|single|sentinelone|none": "unprotected",
   "101|single|sentinelone|prevented": "prevented",
   "101|single|sentinelone|stage_detected": "detected",

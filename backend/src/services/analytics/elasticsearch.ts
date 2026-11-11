@@ -76,6 +76,7 @@ import { createAchillesIndex } from '../shared/esIndexCreate.js';
 
 // Canonical error code map lives in outcomes/exitCodes.ts; re-exported for existing importers.
 import { ERROR_CODE_MAP, resolveErrorName } from '../outcomes/exitCodes.js';
+import { splitFilterList } from './filterList.js';
 export { ERROR_CODE_MAP, resolveErrorName };
 
 /** Get field value from ES _source — handles both flattened (dot-key) and nested formats */
@@ -404,8 +405,12 @@ export function sortBundleMembers(members: EnrichedTestExecution[]): EnrichedTes
 // by the per-list getAvailable* methods and getFilterOptions(), so the
 // combined endpoint can never drift from the individual ones.
 type TermsBucket = { key: string | number; doc_count: number };
+// Filter-option buckets. A blank keyword (cyber-hygiene docs store
+// threat_actor "") is not a choice: it would show as an empty dropdown entry
+// that filters nothing.
 const bucketsOf = (agg: unknown): TermsBucket[] =>
-  (agg as { buckets?: TermsBucket[] } | undefined)?.buckets ?? [];
+  ((agg as { buckets?: TermsBucket[] } | undefined)?.buckets ?? [])
+    .filter((b) => typeof b.key !== 'string' || b.key.trim() !== '');
 const byCountDesc = (a: FilterOption, b: FilterOption) => b.count - a.count;
 const SEVERITY_ORDER = ['critical', 'high', 'medium', 'low', 'info'];
 
@@ -1646,7 +1651,7 @@ export class ElasticsearchService {
     if (params.result && (results as readonly string[]).includes(params.result)) out.result = params.result;
     const codes = (params.errorCodes ?? '').split(',').map(c => parseInt(c.trim(), 10)).filter(n => !Number.isNaN(n));
     if (codes.length > 0) out.errorCodes = codes;
-    const names = (params.errorNames ?? '').split(',').map(n => n.trim()).filter(Boolean);
+    const names = splitFilterList(params.errorNames);
     if (names.length > 0) out.errorNames = names;
     return out;
   }
@@ -2165,7 +2170,7 @@ export class ElasticsearchService {
   private buildTestsFilter(tests?: string): any | null {
     if (!tests) return null;
 
-    const testList = tests.split(',').map(t => t.trim()).filter(Boolean);
+    const testList = splitFilterList(tests);
     if (testList.length === 0) return null;
 
     if (testList.length === 1) {
@@ -2184,7 +2189,7 @@ export class ElasticsearchService {
   private buildTechniquesFilter(techniques?: string): any | null {
     if (!techniques) return null;
 
-    const techniqueList = techniques.split(',').map(t => t.trim()).filter(Boolean);
+    const techniqueList = splitFilterList(techniques);
     if (techniqueList.length === 0) return null;
 
     if (techniqueList.length === 1) {
@@ -2349,8 +2354,10 @@ export class ElasticsearchService {
         'host_test_matrix',
         1000,
         [{ hostname: { terms: { field: 'routing.hostname' } } }, { test_name: { terms: { field: 'f0rtika.test_name' } } }],
-        {},
-        (b) => add(b.key?.hostname, b.key?.test_name, Number(b.doc_count) || 0),
+        // Runs, not docs: a re-sent result is a second doc of the same run,
+        // and All Executions shows it as one row.
+        { runs: { cardinality: { field: 'routing.event_time' } } },
+        (b) => add(b.key?.hostname, b.key?.test_name, Number(b.runs?.value) || 0),
       ),
       this.paginateComposite(
         [...filters, bundleDoc],
@@ -2469,7 +2476,7 @@ export class ElasticsearchService {
   // Build hostnames filter (OR logic)
   private buildHostnamesFilter(hostnames?: string): any | null {
     if (!hostnames) return null;
-    const hostnameList = hostnames.split(',').map(h => h.trim()).filter(Boolean);
+    const hostnameList = splitFilterList(hostnames);
     if (hostnameList.length === 0) return null;
     if (hostnameList.length === 1) {
       return { term: { 'routing.hostname': hostnameList[0] } };
@@ -2485,7 +2492,7 @@ export class ElasticsearchService {
   // Build categories filter (OR logic)
   private buildCategoriesFilter(categories?: string): any | null {
     if (!categories) return null;
-    const categoryList = categories.split(',').map(c => c.trim()).filter(Boolean);
+    const categoryList = splitFilterList(categories);
     if (categoryList.length === 0) return null;
     if (categoryList.length === 1) {
       return { term: { 'f0rtika.category': categoryList[0] } };
@@ -2501,7 +2508,7 @@ export class ElasticsearchService {
   // Build severities filter (OR logic)
   private buildSeveritiesFilter(severities?: string): any | null {
     if (!severities) return null;
-    const severityList = severities.split(',').map(s => s.trim()).filter(Boolean);
+    const severityList = splitFilterList(severities);
     if (severityList.length === 0) return null;
     if (severityList.length === 1) {
       return { term: { 'f0rtika.severity': severityList[0] } };
@@ -2517,7 +2524,7 @@ export class ElasticsearchService {
   // Build threat actors filter (OR logic)
   private buildThreatActorsFilter(threatActors?: string): any | null {
     if (!threatActors) return null;
-    const actorList = threatActors.split(',').map(a => a.trim()).filter(Boolean);
+    const actorList = splitFilterList(threatActors);
     if (actorList.length === 0) return null;
     if (actorList.length === 1) {
       return { term: { 'f0rtika.threat_actor': actorList[0] } };
@@ -2533,7 +2540,7 @@ export class ElasticsearchService {
   // Build tags filter (OR logic)
   private buildTagsFilter(tags?: string): any | null {
     if (!tags) return null;
-    const tagList = tags.split(',').map(t => t.trim()).filter(Boolean);
+    const tagList = splitFilterList(tags);
     if (tagList.length === 0) return null;
     if (tagList.length === 1) {
       return { term: { 'f0rtika.tags': tagList[0] } };
@@ -2549,7 +2556,7 @@ export class ElasticsearchService {
   // Build bundle names filter (OR logic)
   private buildBundleNamesFilter(bundleNames?: string): any | null {
     if (!bundleNames) return null;
-    const nameList = bundleNames.split(',').map(n => n.trim()).filter(Boolean);
+    const nameList = splitFilterList(bundleNames);
     if (nameList.length === 0) return null;
     if (nameList.length === 1) {
       return { term: { 'f0rtika.bundle_name': nameList[0] } };
@@ -2565,7 +2572,7 @@ export class ElasticsearchService {
   // Build error names filter (OR logic) — resolves canonical names to error codes
   private buildErrorNamesFilter(errorNames?: string): any | null {
     if (!errorNames) return null;
-    const nameList = errorNames.split(',').map(n => n.trim()).filter(Boolean);
+    const nameList = splitFilterList(errorNames);
     if (nameList.length === 0) return null;
 
     // Reverse-resolve canonical names to numeric error codes

@@ -78,6 +78,11 @@ interface ExecutionsDataTableProps {
   sbReportExporting?: boolean;
   /** Link to the print-ready execution report for the current filters. */
   reportHref?: string;
+  /**
+   * Every result matching the current filters, for CSV/JSON export (capped by
+   * the caller). Without it, the export holds the current page only.
+   */
+  onFetchAllExecutions?: () => Promise<{ executions: EnrichedTestExecution[]; total: number }>;
 }
 
 function emptyCaches(): Record<EndpointVendorId, Map<string, RelatedCrowdStrikeAlertsResponse | null>> {
@@ -107,6 +112,7 @@ export default function ExecutionsDataTable({
   onExportSbReport,
   sbReportExporting,
   reportHref,
+  onFetchAllExecutions,
 }: ExecutionsDataTableProps) {
   const { configured: defenderConfigured } = useDefenderConfig();
   const { configured: crowdstrikeConfigured } = useCrowdStrikeConfig();
@@ -471,10 +477,33 @@ export default function ExecutionsDataTable({
   };
 
   // ── Export ───────────────────────────────────────────────────────
-  const exportToCsv = () => {
-    if (!allExecutions.length) return;
+  const [exporting, setExporting] = useState(false);
+  const [exportNote, setExportNote] = useState<string | null>(null);
+  /** The rows to export: every match when the page can fetch them, else this page. */
+  const rowsForExport = async (): Promise<EnrichedTestExecution[] | null> => {
+    if (!onFetchAllExecutions) return allExecutions;
+    setExporting(true);
+    setExportNote(null);
+    try {
+      const { executions, total } = await onFetchAllExecutions();
+      if (executions.length < total) {
+        setExportNote(`Exported the newest ${executions.length.toLocaleString()} of ${total.toLocaleString()} results.`);
+      }
+      return executions;
+    } catch (err) {
+      console.error('Failed to fetch executions for export:', err);
+      setExportNote('Export failed: could not load the results.');
+      return null;
+    } finally {
+      setExporting(false);
+    }
+  };
+
+  const exportToCsv = async () => {
+    const executions = await rowsForExport();
+    if (!executions?.length) return;
     const headers = EXPORT_COLUMNS.map(c => c.label);
-    const rows = allExecutions.map(exec => {
+    const rows = executions.map(exec => {
       return EXPORT_COLUMNS.map(col => {
         const value = getCellValue(exec, col.key);
         const strValue = String(value ?? '');
@@ -488,9 +517,10 @@ export default function ExecutionsDataTable({
     downloadFile(csv, 'executions.csv', 'text/csv');
   };
 
-  const exportToJson = () => {
-    if (!allExecutions.length) return;
-    const json = JSON.stringify(allExecutions, null, 2);
+  const exportToJson = async () => {
+    const executions = await rowsForExport();
+    if (!executions?.length) return;
+    const json = JSON.stringify(executions, null, 2);
     downloadFile(json, 'executions.json', 'application/json');
   };
 
@@ -540,6 +570,7 @@ export default function ExecutionsDataTable({
               'Loading…'
             )}
           </span>
+          {exportNote && <span className="text-[12px] text-warning" role="status">{exportNote}</span>}
         </div>
 
         <div className="ml-auto flex flex-wrap items-center gap-2">
@@ -580,16 +611,18 @@ export default function ExecutionsDataTable({
             </Button>
             <div className="invisible absolute right-0 z-50 mt-1 w-32 overflow-hidden rounded-md border border-border bg-overlay opacity-0 shadow-lg transition-all group-hover:visible group-hover:opacity-100 group-focus-within:visible group-focus-within:opacity-100">
               <button
-                onClick={exportToCsv}
-                className="w-full px-3 py-2 text-left text-sm transition-colors hover:bg-raised hover:text-accent"
+                onClick={() => { void exportToCsv(); }}
+                disabled={exporting}
+                className="w-full px-3 py-2 text-left text-sm transition-colors hover:bg-raised hover:text-accent disabled:opacity-50"
               >
-                Export CSV
+                {exporting ? 'Exporting…' : 'Export CSV'}
               </button>
               <button
-                onClick={exportToJson}
-                className="w-full px-3 py-2 text-left text-sm transition-colors hover:bg-raised hover:text-accent"
+                onClick={() => { void exportToJson(); }}
+                disabled={exporting}
+                className="w-full px-3 py-2 text-left text-sm transition-colors hover:bg-raised hover:text-accent disabled:opacity-50"
               >
-                Export JSON
+                {exporting ? 'Exporting…' : 'Export JSON'}
               </button>
               {reportHref && (
                 <a
