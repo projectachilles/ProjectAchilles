@@ -271,6 +271,68 @@ describe('ExecutionsDataTable — SB report export', () => {
   });
 });
 
+describe('ExecutionsDataTable — CSV export', () => {
+  async function exportCsv(onFetchAllExecutions?: () => Promise<{ executions: EnrichedTestExecution[]; total: number }>) {
+    getAlertsForTestMock.mockResolvedValue({ alerts: [], matchedTechniques: [], total: 0 });
+    let blob: Blob | undefined;
+    const create = vi.fn((b: Blob) => { blob = b; return 'blob:csv'; });
+    Object.assign(URL, { createObjectURL: create, revokeObjectURL: vi.fn() });
+    vi.spyOn(HTMLAnchorElement.prototype, 'click').mockImplementation(() => {});
+    render(
+      <ExecutionsDataTable
+        data={makeData([makeStage({})], { defenderDetected: false })}
+        loading={false}
+        onPageChange={vi.fn()}
+        onPageSizeChange={vi.fn()}
+        onSort={vi.fn()}
+        sortField="routing.event_time"
+        sortOrder="desc"
+        onFetchAllExecutions={onFetchAllExecutions}
+      />,
+    );
+    await userEvent.click(screen.getByRole('button', { name: 'Export CSV' }));
+    await waitFor(() => expect(create).toHaveBeenCalled());
+    return (await blob!.text()).split('\n').map((line) => line.split(','));
+  }
+
+  it('exports every fetched result with the table labels and the bundle name', async () => {
+    const rows = [
+      makeStage({ test_name: 'Stage 1', error_code: 101, defender_stage_detected: true }),
+      makeStage({ test_name: 'Stage 2', error_code: 999, defender_stage_detected: true, defender_stage_prevented: true }),
+      makeStage({ test_name: 'Stage 3', error_code: 0 }),
+      makeStage({ test_name: 'Stage 4', error_code: 101 }),
+      makeStage({ test_name: 'Standalone', error_code: 126, is_bundle_control: false, bundle_id: undefined, bundle_name: undefined }),
+    ];
+    const fetchAll = vi.fn().mockResolvedValue({ executions: rows, total: rows.length });
+    const csv = await exportCsv(fetchAll);
+
+    expect(fetchAll).toHaveBeenCalledTimes(1);
+    const [header, ...body] = csv;
+    const col = (name: string) => header.indexOf(name);
+    expect(header.slice(0, 4)).toEqual(['Test Name', 'Bundle', 'Hostname', 'Result']);
+    expect(body.map((r) => [r[col('Test Name')], r[col('Result')]])).toEqual([
+      ['Stage 1', 'Detected'],
+      ['Stage 2', 'Prevented'],
+      ['Stage 3', 'Skipped'],
+      ['Stage 4', 'Unprotected'],
+      ['Standalone', 'Protected'],
+    ]);
+    expect(body[0][col('Bundle')]).toBe('UnDefend - Defender Signature/Engine Update DoS via File-Lock Race');
+    expect(body[4][col('Bundle')]).toBe('');
+    expect(screen.queryByRole('status')).toBeNull();
+  });
+
+  it('says so when the export holds fewer results than match', async () => {
+    await exportCsv(vi.fn().mockResolvedValue({ executions: [makeStage({})], total: 12_345 }));
+    expect(screen.getByRole('status')).toHaveTextContent('Exported the newest 1 of 12,345 results.');
+  });
+
+  it('exports the current page without a fetcher', async () => {
+    const [, ...body] = await exportCsv();
+    expect(body).toHaveLength(1);
+  });
+});
+
 describe('ExecutionsDataTable — per-stage Defender detection', () => {
   // Stage sub-rows only render when the bundle row is expanded — the parent
   // alone shows the rollup badge. These tests assert behavior at the

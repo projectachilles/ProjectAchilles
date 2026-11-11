@@ -1,6 +1,7 @@
 import { useState, useEffect, useCallback, useRef, useMemo } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import { LayoutDashboard, Table, Filter, ChevronUp, ChevronDown, RefreshCw, Settings, ShieldOff } from 'lucide-react';
+import { joinFilterList } from '@/lib/filterList';
 import { CrowdStrikeLogo, DefenderLogo, SentinelOneLogo, SophosLogo } from '@/components/shared/VendorLogos';
 import { PageHeader } from '@/components/layout/PageHeader';
 import { pillClass } from '@/components/shared/ui/pillStyles';
@@ -59,8 +60,13 @@ import type {
   DefenseScoreByHostItem,
   ErrorRateTrendDataPoint,
   GroupedPaginatedResponse,
+  EnrichedTestExecution,
   RiskAcceptance,
 } from '../../services/api/analytics';
+
+/** CSV/JSON export: groups per request, and the most result docs one export holds. */
+const EXPORT_PAGE_GROUPS = 200;
+const EXPORT_MAX_DOCS = 10_000;
 
 type TabType = 'dashboard' | 'executions' | 'risk-acceptances' | 'defender' | 'crowdstrike' | 'sentinelone' | 'sophos';
 
@@ -547,6 +553,27 @@ export default function AnalyticsDashboardPage() {
   // Keep ref in sync with latest loadExecutionsData
   loadExecutionsDataRef.current = loadExecutionsData;
 
+  // CSV/JSON export: every result matching the table's filters, sort and
+  // verdict, newest groups first, up to EXPORT_MAX_DOCS (the SB export's cap).
+  const fetchExecutionsForExport = useCallback(async () => {
+    const params = filterState.getApiParams();
+    const executions: EnrichedTestExecution[] = [];
+    for (let page = 1; ; page++) {
+      const res = await analyticsApi.getGroupedPaginatedExecutions({
+        ...params,
+        page,
+        pageSize: EXPORT_PAGE_GROUPS,
+        sortField: executionsSortField,
+        sortOrder: executionsSortOrder,
+        ...(executionsVerdict ? { verdict: executionsVerdict } : {}),
+      });
+      for (const group of res.groups) executions.push(...group.members);
+      if (!res.pagination.hasNext || executions.length >= EXPORT_MAX_DOCS) {
+        return { executions: executions.slice(0, EXPORT_MAX_DOCS), total: res.pagination.totalDocuments };
+      }
+    }
+  }, [filterState, executionsSortField, executionsSortOrder, executionsVerdict]);
+
   // Archive handlers
   const handleArchive = useCallback(async (groupKeys: string[]) => {
     setArchiving(true);
@@ -619,7 +646,7 @@ export default function AnalyticsDashboardPage() {
     // Forward the active analytics filter-bar scope filters so the export
     // matches what the operator is looking at. Outcome/result filters are
     // deliberately NOT forwarded — they would falsify a compliance report.
-    const joinOrUndefined = (values: string[]) => (values.length > 0 ? values.join(',') : undefined);
+    const joinOrUndefined = (values: string[]) => (values.length > 0 ? joinFilterList(values) : undefined);
     setSbReportExporting(true);
     try {
       const report = await reportsApi.getSbPc2026001Report({
@@ -1045,6 +1072,7 @@ export default function AnalyticsDashboardPage() {
               onExportSbReport={handleExportSbReport}
               sbReportExporting={sbReportExporting}
               reportHref={reportHref}
+              onFetchAllExecutions={fetchExecutionsForExport}
             />
           </div>
         )}

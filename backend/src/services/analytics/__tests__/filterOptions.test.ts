@@ -31,7 +31,8 @@ const BUCKETS: Record<string, Array<{ key: string | number; doc_count: number }>
   'routing.hostname': [{ key: 'host-2', doc_count: 1 }, { key: 'host-1', doc_count: 8 }],
   'f0rtika.category': [{ key: 'intel-driven', doc_count: 5 }, { key: 'cyber-hygiene', doc_count: 6 }],
   'f0rtika.severity': [{ key: 'low', doc_count: 2 }, { key: 'critical', doc_count: 1 }, { key: 'high', doc_count: 7 }],
-  'f0rtika.threat_actor': [{ key: 'APT29', doc_count: 1 }, { key: 'LockBit', doc_count: 4 }],
+  // Cyber-hygiene docs store a blank threat actor.
+  'f0rtika.threat_actor': [{ key: '', doc_count: 30 }, { key: 'APT29', doc_count: 1 }, { key: 'LockBit', doc_count: 4 }],
   'f0rtika.tags': [{ key: 'servers', doc_count: 2 }, { key: 'group-a', doc_count: 3 }],
   'event.ERROR': [{ key: 126, doc_count: 4 }, { key: 101, doc_count: 9 }, { key: 999, doc_count: 1 }],
   'f0rtika.bundle_name': [{ key: 'Bundle X', doc_count: 1 }, { key: 'Bundle Y', doc_count: 2 }],
@@ -100,6 +101,13 @@ describe('ElasticsearchService.getFilterOptions', () => {
     await svc.getAvailableTests('org-1');
     await svc.getAvailableTechniques('org-1');
     for (const call of mockSearch.mock.calls) expect(JSON.stringify(call[0].query)).toContain('org-1');
+  });
+
+  it('drops blank values: they filter nothing', async () => {
+    const svc = new ElasticsearchService(settings);
+    const { threatActors } = await svc.getFilterOptions();
+    expect(threatActors.map((o) => o.value)).toEqual(['LockBit', 'APT29']);
+    expect((await svc.getAvailableThreatActors()).map((o) => o.value)).toEqual(['LockBit', 'APT29']);
   });
 
   it('applies no date or org filter when none is given', async () => {

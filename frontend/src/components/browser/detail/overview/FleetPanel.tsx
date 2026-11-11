@@ -3,6 +3,7 @@ import type { TestFleetResponse } from '@/services/api/analytics';
 import { formatRelativeDate } from '@/utils/dateFormatters';
 import Panel from './Panel';
 import { hosts } from '../plural';
+import { joinFilterList } from '@/lib/filterList';
 
 /** How the headline reads: a stage chain, a cyber-hygiene bundle, or a standalone test. */
 export type FleetKind = 'chain' | 'hygiene' | 'standalone';
@@ -31,7 +32,7 @@ export default function FleetPanel({ testName, headline, kind }: FleetPanelProps
     <Panel
       title="On your fleet · 90 d"
       action={
-        <Link to={`/analytics?tests=${encodeURIComponent(testName)}&date=${WINDOW}`} className="text-[13px] text-accent hover:underline">
+        <Link to={`/analytics?tests=${encodeURIComponent(joinFilterList([testName]))}&date=${WINDOW}`} className="text-[13px] text-accent hover:underline">
           Analytics →
         </Link>
       }

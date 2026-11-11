@@ -1,0 +1,31 @@
+/**
+ * Filter-bar list params (hostnames, tests, bundleNames, ...) travel as one
+ * comma-separated string, in the API query and the page URL. A comma or
+ * backslash inside a value is escaped as "\," / "\\", so a name such as
+ * "Wiper, Stage 2" survives the round trip; unescaped lists ("a,b") parse as
+ * before. Mirrored in backend/src/services/analytics/filterList.ts.
+ */
+export function splitFilterList(value: string | undefined | null): string[] {
+  if (!value) return [];
+  const out: string[] = [];
+  let current = '';
+  for (let i = 0; i < value.length; i++) {
+    const ch = value[i];
+    if (ch === '\\' && (value[i + 1] === ',' || value[i + 1] === '\\')) {
+      current += value[i + 1];
+      i++;
+    } else if (ch === ',') {
+      out.push(current);
+      current = '';
+    } else {
+      current += ch;
+    }
+  }
+  out.push(current);
+  return out.map((v) => v.trim()).filter(Boolean);
+}
+
+/** The inverse of splitFilterList. */
+export function joinFilterList(values: readonly string[]): string {
+  return values.map((v) => v.replace(/\\/g, '\\\\').replace(/,/g, '\\,')).join(',');
+}

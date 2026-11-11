@@ -1,5 +1,6 @@
 import { useState, useCallback, useMemo, useEffect } from 'react';
 import { useSearchParams } from 'react-router-dom';
+import { joinFilterList, splitFilterList } from '@/lib/filterList';
 import type { ExtendedFilterParams } from '@/services/api/analytics';
 import {
   DEFAULT_TIME_RANGE,
@@ -91,31 +92,31 @@ export function parseUrlParams(searchParams: URLSearchParams): Partial<Analytics
   }
 
   const hostnames = searchParams.get('hostnames');
-  if (hostnames) result.hostnames = hostnames.split(',');
+  if (hostnames) result.hostnames = splitFilterList(hostnames);
 
   const tests = searchParams.get('tests');
-  if (tests) result.tests = tests.split(',');
+  if (tests) result.tests = splitFilterList(tests);
 
   const techniques = searchParams.get('techniques');
-  if (techniques) result.techniques = techniques.split(',');
+  if (techniques) result.techniques = splitFilterList(techniques);
 
   const categories = searchParams.get('categories');
-  if (categories) result.categories = categories.split(',');
+  if (categories) result.categories = splitFilterList(categories);
 
   const threatActors = searchParams.get('threatActors');
-  if (threatActors) result.threatActors = threatActors.split(',');
+  if (threatActors) result.threatActors = splitFilterList(threatActors);
 
   const tags = searchParams.get('tags');
-  if (tags) result.tags = tags.split(',');
+  if (tags) result.tags = splitFilterList(tags);
 
   const errorNames = searchParams.get('errorNames');
-  if (errorNames) result.errorNames = errorNames.split(',');
+  if (errorNames) result.errorNames = splitFilterList(errorNames);
 
   const errorCodes = searchParams.get('errorCodes');
-  if (errorCodes) result.errorCodes = errorCodes.split(',');
+  if (errorCodes) result.errorCodes = splitFilterList(errorCodes);
 
   const bundleNames = searchParams.get('bundleNames');
-  if (bundleNames) result.bundleNames = bundleNames.split(',');
+  if (bundleNames) result.bundleNames = splitFilterList(bundleNames);
 
   return result;
 }
@@ -130,15 +131,15 @@ export function serializeToUrlParams(filters: AnalyticsFilterState): Record<stri
   Object.assign(params, timeRangeToParams(filters.dateRange));
 
   if (filters.result !== 'all') params.result = filters.result;
-  if (filters.hostnames.length > 0) params.hostnames = filters.hostnames.join(',');
-  if (filters.tests.length > 0) params.tests = filters.tests.join(',');
-  if (filters.techniques.length > 0) params.techniques = filters.techniques.join(',');
-  if (filters.categories.length > 0) params.categories = filters.categories.join(',');
-  if (filters.threatActors.length > 0) params.threatActors = filters.threatActors.join(',');
-  if (filters.tags.length > 0) params.tags = filters.tags.join(',');
-  if (filters.errorNames.length > 0) params.errorNames = filters.errorNames.join(',');
-  if (filters.errorCodes.length > 0) params.errorCodes = filters.errorCodes.join(',');
-  if (filters.bundleNames.length > 0) params.bundleNames = filters.bundleNames.join(',');
+  if (filters.hostnames.length > 0) params.hostnames = joinFilterList(filters.hostnames);
+  if (filters.tests.length > 0) params.tests = joinFilterList(filters.tests);
+  if (filters.techniques.length > 0) params.techniques = joinFilterList(filters.techniques);
+  if (filters.categories.length > 0) params.categories = joinFilterList(filters.categories);
+  if (filters.threatActors.length > 0) params.threatActors = joinFilterList(filters.threatActors);
+  if (filters.tags.length > 0) params.tags = joinFilterList(filters.tags);
+  if (filters.errorNames.length > 0) params.errorNames = joinFilterList(filters.errorNames);
+  if (filters.errorCodes.length > 0) params.errorCodes = joinFilterList(filters.errorCodes);
+  if (filters.bundleNames.length > 0) params.bundleNames = joinFilterList(filters.bundleNames);
 
   return params;
 }
@@ -155,15 +156,15 @@ export function toApiParams(filters: AnalyticsFilterState): ExtendedFilterParams
     ...getDateRangeFilter(filters.dateRange),
     result: filters.result === 'all' ? undefined : filters.result,
   };
-  if (filters.hostnames.length > 0) params.hostnames = filters.hostnames.join(',');
-  if (filters.tests.length > 0) params.tests = filters.tests.join(',');
-  if (filters.techniques.length > 0) params.techniques = filters.techniques.join(',');
-  if (filters.categories.length > 0) params.categories = filters.categories.join(',');
-  if (filters.threatActors.length > 0) params.threatActors = filters.threatActors.join(',');
-  if (filters.tags.length > 0) params.tags = filters.tags.join(',');
-  if (filters.errorNames.length > 0) params.errorNames = filters.errorNames.join(',');
-  if (filters.errorCodes.length > 0) params.errorCodes = filters.errorCodes.join(',');
-  if (filters.bundleNames.length > 0) params.bundleNames = filters.bundleNames.join(',');
+  if (filters.hostnames.length > 0) params.hostnames = joinFilterList(filters.hostnames);
+  if (filters.tests.length > 0) params.tests = joinFilterList(filters.tests);
+  if (filters.techniques.length > 0) params.techniques = joinFilterList(filters.techniques);
+  if (filters.categories.length > 0) params.categories = joinFilterList(filters.categories);
+  if (filters.threatActors.length > 0) params.threatActors = joinFilterList(filters.threatActors);
+  if (filters.tags.length > 0) params.tags = joinFilterList(filters.tags);
+  if (filters.errorNames.length > 0) params.errorNames = joinFilterList(filters.errorNames);
+  if (filters.errorCodes.length > 0) params.errorCodes = joinFilterList(filters.errorCodes);
+  if (filters.bundleNames.length > 0) params.bundleNames = joinFilterList(filters.bundleNames);
   return params;
 }
 

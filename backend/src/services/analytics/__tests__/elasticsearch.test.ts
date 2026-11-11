@@ -1404,6 +1404,23 @@ describe('elasticsearch.ts', () => {
       expect(filters.length).toBeGreaterThanOrEqual(10);
     });
 
+    it('keeps a filter value with an escaped comma whole (bundle, test, threat actor)', async () => {
+      const svc = createService();
+      await svc.getPaginatedExecutions({
+        from: '2025-01-01', to: '2025-01-31',
+        bundleNames: 'Intrusion: GPO-Driven\\, Living-off-the-Land,Other Bundle',
+        tests: 'Discovery: Products\\, Accounts',
+        threatActors: 'Actor\\, Inc',
+      });
+
+      const json = JSON.stringify(mockCount.mock.calls[0][0].query.bool.filter);
+      expect(json).toContain(JSON.stringify({ term: { 'f0rtika.bundle_name': 'Intrusion: GPO-Driven, Living-off-the-Land' } }));
+      expect(json).toContain(JSON.stringify({ term: { 'f0rtika.bundle_name': 'Other Bundle' } }));
+      expect(json).toContain('Discovery: Products, Accounts');
+      expect(json).toContain('Actor, Inc');
+      expect(json).not.toContain('"Living-off-the-Land"');
+    });
+
     it('skips null filters for empty/undefined params', async () => {
       const svc = createService();
       await svc.getPaginatedExecutions({ from: '2025-01-01', to: '2025-01-31' });
@@ -1908,13 +1925,14 @@ describe('elasticsearch.ts', () => {
       expect(result[0].unprotected).toBe(8);
     });
 
-    it('getHostTestMatrix — standalone results per test, bundle runs per bundle (not per stage)', async () => {
+    it('getHostTestMatrix — standalone runs per test, bundle runs per bundle (not per stage or doc)', async () => {
       mockSearch.mockImplementation(async (req: any) => {
         if (req.aggs?.host_test_matrix) {
           return esSearchResponse({ aggs: { host_test_matrix: { buckets: [
-            { key: { hostname: 'h1', test_name: 'T1' }, doc_count: 5 },
+            // 5 docs, 4 runs: one result was re-sent (same test, host and time).
+            { key: { hostname: 'h1', test_name: 'T1' }, doc_count: 5, runs: { value: 4 } },
             // A launch-blocked bundle run has no stages: a standalone doc named after the bundle.
-            { key: { hostname: 'h2', test_name: 'Chain' }, doc_count: 1 },
+            { key: { hostname: 'h2', test_name: 'Chain' }, doc_count: 1, runs: { value: 1 } },
           ] } } });
         }
         if (req.aggs?.host_bundle_matrix) {
@@ -1928,12 +1946,13 @@ describe('elasticsearch.ts', () => {
       const svc = createService();
       const result = await svc.getHostTestMatrix(makeParams());
       expect(result).toEqual([
-        { hostname: 'h1', testName: 'T1', count: 5 },
+        { hostname: 'h1', testName: 'T1', count: 4 },
         { hostname: 'h2', testName: 'Chain', count: 4 },
       ]);
       const calls = mockSearch.mock.calls.map(c => c[0]);
       const standalone = calls.find((r: any) => r.aggs?.host_test_matrix);
       expect(standalone.query.bool.filter).toContainEqual({ bool: { must_not: [{ exists: { field: 'f0rtika.bundle_id' } }] } });
+      expect(standalone.aggs.host_test_matrix.aggs.runs).toEqual({ cardinality: { field: 'routing.event_time' } });
       const bundles = calls.find((r: any) => r.aggs?.host_bundle_matrix);
       expect(bundles.query.bool.filter).toContainEqual({ exists: { field: 'f0rtika.bundle_id' } });
       expect(bundles.aggs.host_bundle_matrix.aggs.runs).toEqual({ cardinality: { field: 'routing.event_time' } });

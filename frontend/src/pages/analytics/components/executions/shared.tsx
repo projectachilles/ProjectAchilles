@@ -226,6 +226,16 @@ function stageOnlyPrevented(exec: EnrichedTestExecution): boolean {
   return EDR_VENDOR_KEYS.some((k) => stageOwnPrevented(exec, k));
 }
 
+/** Display text per outcome, as ExecResultLabel shows it (without the prevention action). */
+export const EXECUTION_OUTCOME_LABEL: Record<ExecutionOutcome, string> = {
+  skipped: 'Skipped',
+  protected: 'Protected',
+  prevented: 'Prevented',
+  detected: 'Detected',
+  unprotected: 'Unprotected',
+  inconclusive: 'Inconclusive',
+};
+
 export function classifyExecution(exec: EnrichedTestExecution): ExecutionOutcome {
   if (isSkippedStage(exec)) return 'skipped';
   const result = getResultFromErrorCode(exec.error_code);
@@ -387,6 +397,7 @@ export function BundleResultLabel({ group, compact }: { group: BundleGroup; comp
 
 export const EXPORT_COLUMNS: Array<{ key: string; label: string }> = [
   { key: 'test_name', label: 'Test Name' },
+  { key: 'bundle_name', label: 'Bundle' },
   { key: 'hostname', label: 'Hostname' },
   { key: 'result', label: 'Result' },
   { key: 'category', label: 'Category' },
@@ -406,11 +417,10 @@ export const EXPORT_COLUMNS: Array<{ key: string; label: string }> = [
 export function getCellValue(exec: EnrichedTestExecution, key: string): string | number | undefined {
   switch (key) {
     case 'test_name': return exec.test_name;
+    case 'bundle_name': return exec.is_bundle_control ? exec.bundle_name : '';
     case 'hostname': return exec.hostname;
-    case 'result': {
-      const r = getResultFromErrorCode(exec.error_code);
-      return r === 'protected' ? 'Protected' : r === 'unprotected' ? 'Unprotected' : 'Inconclusive';
-    }
+    // The table's own label (ExecResultLabel), not just the exit code.
+    case 'result': return EXECUTION_OUTCOME_LABEL[classifyExecution(exec)];
     case 'category': return exec.category;
     case 'subcategory': return exec.subcategory;
     case 'threat_actor': return exec.threat_actor;

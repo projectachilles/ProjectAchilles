@@ -375,6 +375,14 @@ describe('report helpers', () => {
     expect(toApiParams(filters)).toEqual({ org: undefined, from: ALL_TIME_FROM, result: 'unprotected', hostnames: 'H1,H2' });
   });
 
+  it('keeps a name holding a comma whole through the URL and the API params', () => {
+    const name = 'The Gentlemen: GPO-Driven, Living-off-the-Land Intrusion';
+    const filters = { ...filtersFromSearchParams(new URLSearchParams('')), bundleNames: [name, 'Other'] };
+    const url = new URLSearchParams(serializeToUrlParams(filters));
+    expect(filtersFromSearchParams(url).bundleNames).toEqual([name, 'Other']);
+    expect(toApiParams(filters).bundleNames).toBe('The Gentlemen: GPO-Driven\\, Living-off-the-Land Intrusion,Other');
+  });
+
   it('ignores unknown result values', () => {
     expect(parseUrlParams(new URLSearchParams('result=maybe')).result).toBeUndefined();
   });

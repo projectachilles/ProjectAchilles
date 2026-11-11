@@ -196,11 +196,11 @@ Outcomes: `PREVENTED / DETECTED / MISSED / EXPOSED / NOT_RUN / ERROR`.
 |---|---|---|---|
 | 105 / 126 / 127 | any | **PREVENTED** | `preventedBy`: vendor(s) |
 | 999 / 259 / 0 / none | the stage's own prevention: any vendor's `*_stage_prevented` (on older documents `*_stage_detected` + a confirmed `*_prevention_action`), as in §3; the test-level `*_prevented` alone, which a sibling stage's alert can set, doesn't count | **PREVENTED** | `preventedBy`: the preventing vendor(s), all when several flagged |
+| 0 on a stage of a multi-stage test (not cyber-hygiene) | no own prevention | **NOT_RUN**: a Skipped stage, never executed (evidence reference "not run: skipped stage") | — |
 | 101 / 0 | `*_stage_detected` | **DETECTED** | `detectedBy`: vendor(s), all when several flagged |
 | 101 / 0 | none, tactic ∈ `{exfiltration, impact}` | **EXPOSED** | — |
 | 101 / 0 | none, other tactics | **MISSED** | — |
 | 200 / 259 / 260 | any | **ERROR** (with "inconclusive" note) | — |
-| — (no document) | — | **NOT_RUN** | — |
 
 Techniques on each row:
 
