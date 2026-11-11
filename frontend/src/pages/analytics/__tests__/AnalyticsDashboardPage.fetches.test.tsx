@@ -89,9 +89,7 @@ const CORE_ENDPOINTS = [
   'getTechniqueDistribution',
   'getHostTestMatrix',
   'getChainDepth',
-  'getPaginatedExecutions',
   'getDefenseScoreByHostname',
-  'getErrorRate',
   'getErrorRateTrend',
 ];
 
@@ -136,6 +134,15 @@ describe('AnalyticsDashboardPage request discipline', () => {
     for (const name of CORE_ENDPOINTS) {
       expect(mocks.analytics.api[name], name).toHaveBeenCalledTimes(1);
     }
+    // Test activity lists runs (grouped, like All Executions), not stage results.
+    const activity = mocks.analytics.api.getGroupedPaginatedExecutions.mock.calls.filter(
+      (call: unknown[]) => (call[0] as { pageSize?: number } | undefined)?.pageSize === 12,
+    );
+    expect(activity).toHaveLength(1);
+    expect(mocks.analytics.api.getPaginatedExecutions).not.toHaveBeenCalled();
+    // The panel's Inconclusive line comes from the score response, not /error-rate.
+    expect(mocks.analytics.api.getErrorRate).not.toHaveBeenCalled();
+    expect(mocks.analytics.api.getDefenseScore).toHaveBeenCalledWith(expect.objectContaining({ basis: 'latest', withNoConclusive: true }));
     expect(mocks.defender.api.getSecureScore).toHaveBeenCalledTimes(1);
     expect(mocks.defender.api.getSecureScoreTrend).toHaveBeenCalledTimes(1);
   });
@@ -162,7 +169,7 @@ describe('AnalyticsDashboardPage request discipline', () => {
   it('asks nothing of a vendor that is not configured', async () => {
     mocks.defenderFlipsTo = false;
     renderPage();
-    await waitFor(() => expect(mocks.analytics.api.getErrorRate).toHaveBeenCalledTimes(1));
+    await waitFor(() => expect(mocks.analytics.api.getErrorRateTrend).toHaveBeenCalledTimes(1));
     await new Promise((r) => setTimeout(r, 50));
     expect(mocks.defender.api.getSecureScore).not.toHaveBeenCalled();
     expect(mocks.crowdstrike.api.getZtaScore).not.toHaveBeenCalled();

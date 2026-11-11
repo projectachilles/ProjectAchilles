@@ -621,8 +621,13 @@ describe('analytics routes', () => {
       expect(res.body.basis).toBe('latest');
       expect(mockGetDefenseScoreLatest).toHaveBeenCalledWith(expect.objectContaining({
         basis: 'latest', from: 'now-30d', org: 'o1', scoringMode: 'any-stage',
-      }));
+      }), { withNoConclusive: false });
       expect(mockGetDefenseScore).not.toHaveBeenCalled();
+    });
+
+    it('/defense-score?withNoConclusive=true asks for the no-conclusive pair count', async () => {
+      await request(createApp()).get('/api/analytics/defense-score?basis=latest&from=now-30d&withNoConclusive=true');
+      expect(mockGetDefenseScoreLatest).toHaveBeenCalledWith(expect.objectContaining({ basis: 'latest' }), { withNoConclusive: true });
     });
 
     it('/defense-score/trend without basis keeps the executions methods', async () => {

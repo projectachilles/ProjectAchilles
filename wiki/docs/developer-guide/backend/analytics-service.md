@@ -186,7 +186,7 @@ The analytics service uses a canonical error code system to classify test outcom
 **Key metrics derived from these codes:**
 
 - **Defense Score:** `(protected / conclusive) * 100` where conclusive = codes `[101, 105, 126, 127]`
-- **Error Rate:** `(error_count / total_activity) * 100` where error = codes `[0, 1, 259, 999]`
+- **Error Rate:** `(error_count / total_activity) * 100` where error = codes `[0, 1, 259, 999]`, except a skipped stage (exit 0 on an attack bundle stage, after the chain was stopped) and an error stage the EDR prevented
 
 :::warning[Conclusive vs inconclusive]
 Only conclusive exit codes (101, 105, 126, 127) contribute to the defense score. Inconclusive codes (0, 200, 259) and errors (999) are tracked separately via the error rate metric. This prevents test infrastructure issues from artificially deflating the defense score.

@@ -9,7 +9,12 @@ interface HeroMetricsCardProps {
   executedTests: number;
   /** Total executions in the window, shown compacted (e.g. "17k"). */
   totalResults?: number | null;
-  errorRate?: number | null;
+  /**
+   * Pairs with results in the window but no conclusive one yet (latest basis,
+   * the Outcome breakdown's "No conclusive result yet"). The Inconclusive row
+   * is their share of all pairs; undefined shows a dash.
+   */
+  noConclusiveCount?: number | null;
   /** EDR-only score (strict, on the same exclusion-filtered base as defenseScore). */
   realScore?: number | null;
   /** Combined score against the unfiltered (pre-risk-acceptance) base — the "Actual" row. */
@@ -70,7 +75,7 @@ function HeroMetricsCard({
   uniqueEndpoints,
   executedTests,
   totalResults,
-  errorRate,
+  noConclusiveCount,
   realScore,
   rawScore,
   riskAcceptedCount,
@@ -106,6 +111,9 @@ function HeroMetricsCard({
   const showEdrOnly = edrBase != null && realScore != null && realScore !== edrBase;
 
   const hasPairs = pairCount !== undefined;
+  // Same unit as the PAIRS footer: pairs with no verdict yet, out of all pairs with results.
+  const inconclusiveBase = (pairCount ?? 0) + (noConclusiveCount ?? 0);
+  const inconclusivePct = noConclusiveCount != null && inconclusiveBase > 0 ? (noConclusiveCount / inconclusiveBase) * 100 : null;
   const ringClass = hasPairs ? TONE_CLASS[scoreTone(defenseScore, pairCount)] : scoreColorClass(defenseScore);
   const ringFill = defenseScore != null ? Math.max(0, Math.min(100, defenseScore)) / 100 : 0;
 
@@ -162,8 +170,8 @@ function HeroMetricsCard({
           />
           <LedgerRow
             label="Inconclusive"
-            value={errorRate != null && errorRate > 0 ? `${errorRate.toFixed(1)}%` : '—'}
-            valueClass={errorRate != null && errorRate > 0 ? 'text-warning' : 'text-faint'}
+            value={inconclusivePct != null && inconclusivePct > 0 ? `${inconclusivePct.toFixed(1)}%` : '—'}
+            valueClass={inconclusivePct != null && inconclusivePct > 0 ? 'text-warning' : 'text-faint'}
             last
           />
         </div>

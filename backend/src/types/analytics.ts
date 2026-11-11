@@ -44,6 +44,8 @@ export interface DefenseScoreResponse {
   basis?: 'latest' | 'executions';
   /** basis=latest: number of test × endpoint pairs scored (also in totalExecutions). */
   pairCount?: number;
+  /** basis=latest with withNoConclusive=true: pairs with results in the window but no conclusive one (0 under outcome filters). */
+  noConclusiveCount?: number;
 }
 
 // Trend data point

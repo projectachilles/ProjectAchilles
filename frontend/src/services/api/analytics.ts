@@ -33,6 +33,8 @@ export interface DefenseScore {
   /** Combined score against the unfiltered (pre-risk-acceptance) base. Equals `score` when riskAcceptedCount === 0; null when there is nothing to score. */
   rawScore?: number | null;
   riskAcceptedCount?: number;
+  /** basis=latest with withNoConclusive: pairs with results but no conclusive one yet. */
+  noConclusiveCount?: number;
 }
 
 export interface TrendDataPoint {
@@ -496,6 +498,8 @@ export const analyticsApi = {
     to?: string;
     scoringMode?: 'all-stages' | 'any-stage';
     basis?: 'latest' | 'executions';
+    /** basis=latest: also count pairs with no conclusive result (one more query). */
+    withNoConclusive?: boolean;
   }): Promise<DefenseScore> {
     const response = await apiClient.get('/analytics/defense-score', { params });
     return response.data;

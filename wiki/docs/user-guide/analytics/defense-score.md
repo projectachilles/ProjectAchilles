@@ -169,8 +169,10 @@ wide right column carrying the shapes you read.
 
 - **Defense Score ledger** — a ring gauge beside four reconciling lines:
   *Actual* (raw protected share), *EDR-only*, *Risk-accepted* (how many test × endpoint
-  pairs are excluded), and *Inconclusive*. A footer strip carries endpoints, tests,
-  and the pair count behind the score. The ledger replaced the old hero card, which showed one
+  pairs are excluded), and *Inconclusive* (the share of test × endpoint pairs
+  with results but no conclusive one yet, such as tests blocked before they
+  ran). A footer strip carries endpoints, tests (a multi-stage test counts
+  once), and the pair count behind the score. The ledger replaced the old hero card, which showed one
   big number and left the reconciliation implicit.
 - **Secure Score** — Microsoft Defender's score and raw points, when configured
 
@@ -183,9 +185,11 @@ wide right column carrying the shapes you read.
   a neutral dashed reference line (shown only when risk acceptances are active)
   rather than a fourth green series.
 
-**Lower rows** — Test activity, Top Remediation Controls (ranked by Secure Score
-impact), Test Coverage and Defense Score by Host as flat bar lists, and the
-Test Breadth by Host treemap.
+**Lower rows** — Test activity (the latest runs with the same result label as
+All Executions: a multi-stage run is one row), Top Remediation Controls (ranked
+by Secure Score impact), Test Coverage and Defense Score by Host as flat bar
+lists, and the Test Breadth by Host treemap (a multi-stage test is one cell per
+host, sized by its runs).
 
 :::note[Without Microsoft Defender]
 The Secure Score and Top Remediation Controls cards are Defender-only. When the

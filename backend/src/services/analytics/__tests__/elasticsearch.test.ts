@@ -875,15 +875,14 @@ describe('elasticsearch.ts', () => {
   });
 
   describe('getUniqueTests', () => {
-    it('targets f0rtika.test_uuid field', async () => {
+    it('counts tests, not stages: a stage uuid <bundle>::<control> counts as its bundle', async () => {
       mockSearch.mockResolvedValue(esSearchResponse({
-        aggs: { unique_tests: { value: 15 } },
+        aggs: { test_uuids: { buckets: ['b1::S1', 'b1::S2', 'b1::S3', 'b1', 't2', 'ch::CH-1', 'ch::CH-2'].map(key => ({ key: { uuid: key }, doc_count: 1 })) } },
       }));
       const svc = createService();
-      await svc.getUniqueTests(makeParams());
-
+      expect(await svc.getUniqueTests(makeParams())).toBe(3);
       const callArg = mockSearch.mock.calls[0][0];
-      expect(callArg.aggs.unique_tests.cardinality.field).toBe('f0rtika.test_uuid');
+      expect(callArg.aggs.test_uuids.composite.sources).toEqual([{ uuid: { terms: { field: 'f0rtika.test_uuid' } } }]);
     });
   });
 
@@ -1580,6 +1579,21 @@ describe('elasticsearch.ts', () => {
   });
 
   describe('getErrorRate', () => {
+    it('a skipped stage (exit 0 on an attack bundle stage) is not an error; exit 0 elsewhere still is', async () => {
+      mockSearch.mockResolvedValue(esSearchResponse({ aggs: { errors: { doc_count: 0 }, conclusive: { doc_count: 0 } } }));
+      await createService().getErrorRate(makeParams());
+      const errors = mockSearch.mock.calls[0][0].aggs.errors.filter.bool;
+      expect(errors.filter).toContainEqual({ terms: { 'event.ERROR': [0, 1, 259, 999] } });
+      // A chain stopped at stage 1 skips the rest; those stages are not test errors.
+      expect(errors.must_not).toContainEqual({
+        bool: {
+          filter: [{ term: { 'f0rtika.is_bundle_control': true } }, { term: { 'event.ERROR': 0 } }],
+          must_not: [{ term: { 'f0rtika.category': 'cyber-hygiene' } }],
+        },
+      });
+      expect(errors.must_not).toContainEqual(EDR_PREVENTED_ERROR_STAGE);
+    });
+
     it('computes errors/(errors+conclusive)*100 with rounding', async () => {
       mockSearch.mockResolvedValue(esSearchResponse({
         aggs: {
@@ -1806,17 +1820,35 @@ describe('elasticsearch.ts', () => {
       expect(result[0].unprotected).toBe(8);
     });
 
-    it('getHostTestMatrix — composite aggregation', async () => {
-      mockSearch.mockResolvedValue(esSearchResponse({
-        aggs: {
-          host_test_matrix: {
-            buckets: [{ key: { hostname: 'h1', test_name: 'T1' }, doc_count: 5 }],
-          },
-        },
-      }));
+    it('getHostTestMatrix — standalone results per test, bundle runs per bundle (not per stage)', async () => {
+      mockSearch.mockImplementation(async (req: any) => {
+        if (req.aggs?.host_test_matrix) {
+          return esSearchResponse({ aggs: { host_test_matrix: { buckets: [
+            { key: { hostname: 'h1', test_name: 'T1' }, doc_count: 5 },
+            // A launch-blocked bundle run has no stages: a standalone doc named after the bundle.
+            { key: { hostname: 'h2', test_name: 'Chain' }, doc_count: 1 },
+          ] } } });
+        }
+        if (req.aggs?.host_bundle_matrix) {
+          return esSearchResponse({ aggs: { host_bundle_matrix: { buckets: [
+            // 3 runs of a 5-stage chain = 15 stage docs.
+            { key: { hostname: 'h2', bundle_name: 'Chain' }, doc_count: 15, runs: { value: 3 } },
+          ] } } });
+        }
+        throw new Error('unexpected search');
+      });
       const svc = createService();
       const result = await svc.getHostTestMatrix(makeParams());
-      expect(result[0]).toEqual({ hostname: 'h1', testName: 'T1', count: 5 });
+      expect(result).toEqual([
+        { hostname: 'h1', testName: 'T1', count: 5 },
+        { hostname: 'h2', testName: 'Chain', count: 4 },
+      ]);
+      const calls = mockSearch.mock.calls.map(c => c[0]);
+      const standalone = calls.find((r: any) => r.aggs?.host_test_matrix);
+      expect(standalone.query.bool.filter).toContainEqual({ bool: { must_not: [{ exists: { field: 'f0rtika.bundle_id' } }] } });
+      const bundles = calls.find((r: any) => r.aggs?.host_bundle_matrix);
+      expect(bundles.query.bool.filter).toContainEqual({ exists: { field: 'f0rtika.bundle_id' } });
+      expect(bundles.aggs.host_bundle_matrix.aggs.runs).toEqual({ cardinality: { field: 'routing.event_time' } });
     });
 
     it('getAvailableTests — returns string[]', async () => {
@@ -1958,20 +1990,30 @@ describe('elasticsearch.ts', () => {
     it('returns count, tests list, and days', async () => {
       mockSearch.mockResolvedValue(esSearchResponse({
         aggs: {
-          unique_test_count: { value: 3 },
-          test_names: { buckets: [{ key: 'A' }, { key: 'B' }, { key: 'C' }] },
+          standalone: { names: { buckets: [{ key: 'A' }, { key: 'Chain' }] } },
+          bundles: { names: { buckets: [{ key: 'Chain' }, { key: 'C' }] } },
         },
       }));
       const svc = createService();
       const result = await svc.getCanonicalTestCount();
       expect(result.count).toBe(3);
-      expect(result.tests).toEqual(['A', 'B', 'C']);
+      expect(result.tests).toEqual(['A', 'C', 'Chain']);
       expect(result.days).toBe(90);
+    });
+
+    it('names a bundle by its bundle name, never by its stage names', async () => {
+      mockSearch.mockResolvedValue(esSearchResponse({ aggs: {} }));
+      await createService().getCanonicalTestCount();
+      const aggs = mockSearch.mock.calls[0][0].aggs;
+      expect(aggs.standalone.filter).toEqual({ bool: { must_not: [{ exists: { field: 'f0rtika.bundle_id' } }] } });
+      expect(aggs.standalone.aggs.names.terms.field).toBe('f0rtika.test_name');
+      expect(aggs.bundles.filter).toEqual({ exists: { field: 'f0rtika.bundle_id' } });
+      expect(aggs.bundles.aggs.names.terms.field).toBe('f0rtika.bundle_name');
     });
 
     it('defaults to 90 days', async () => {
       mockSearch.mockResolvedValue(esSearchResponse({
-        aggs: { unique_test_count: { value: 0 }, test_names: { buckets: [] } },
+        aggs: {},
       }));
       const svc = createService();
       await svc.getCanonicalTestCount();
@@ -1985,7 +2027,7 @@ describe('elasticsearch.ts', () => {
 
     it('uses custom days param', async () => {
       mockSearch.mockResolvedValue(esSearchResponse({
-        aggs: { unique_test_count: { value: 0 }, test_names: { buckets: [] } },
+        aggs: {},
       }));
       const svc = createService();
       await svc.getCanonicalTestCount({ days: 30 });
@@ -3143,6 +3185,38 @@ describe('elasticsearch.ts', () => {
         // errorCodes stays code-based: 101 matches u2 and u3.
         const code101 = await svc.getDefenseScoreLatest({ ...params, errorCodes: '101' });
         expect(code101.pairCount).toBe(2);
+      });
+
+      it('noConclusiveCount: pairs in the window with no conclusive result (the Outcome breakdown count)', async () => {
+        routeSearch({
+          pairPages: [
+            standardRuns()[0],
+            // Non-conclusive docs: u4 on h3 never had a verdict; u1 on h1 errored later but has one.
+            [
+              pairBucket({ test: 'u4', host: 'h3', ts: '2025-01-22T10:00:00Z', code: 260 }),
+              pairBucket({ test: 'u1', host: 'h1', ts: '2025-01-26T10:00:00Z', code: 999 }),
+            ],
+          ],
+        });
+        const res = await createService().getDefenseScoreLatest(params, { withNoConclusive: true });
+        expect(res.pairCount).toBe(3);
+        expect(res.noConclusiveCount).toBe(1);
+        const notConclusive = searchesWith('pairs').find((r: any) => JSON.stringify(r.query).includes('"must_not":[{"bool":{"should":[{"terms":{"event.ERROR":[101,105,126,127]'));
+        expect(notConclusive).toBeDefined();
+      });
+
+      it('noConclusiveCount is 0, with no extra query, under outcome filters', async () => {
+        routeSearch({ pairPages: standardRuns() });
+        const res = await createService().getDefenseScoreLatest({ ...params, result: 'protected' }, { withNoConclusive: true });
+        expect(res.noConclusiveCount).toBe(0);
+        expect(searchesWith('pairs')).toHaveLength(1);
+      });
+
+      it('noConclusiveCount is opt-in: absent, with no extra query, by default', async () => {
+        routeSearch({ pairPages: standardRuns() });
+        const res = await createService().getDefenseScoreLatest(params);
+        expect(res.noConclusiveCount).toBeUndefined();
+        expect(searchesWith('pairs')).toHaveLength(1);
       });
 
       it('maps the latest summary onto DefenseScoreResponse', async () => {

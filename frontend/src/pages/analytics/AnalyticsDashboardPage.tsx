@@ -18,6 +18,7 @@ import CoverageTreemap from './components/CoverageTreemap';
 import DefenseScoreByHostChart from './components/DefenseScoreByHostChart';
 import ChainDepthCard from './components/ChainDepthCard';
 import TestActivityCard from './components/TestActivityCard';
+import { mapGroupsToDisplayRows, type DisplayRow } from './components/executions/shared';
 import ExecutionsDataTable from './components/ExecutionsDataTable';
 import { Toast } from '@/components/shared/ui/Alert';
 import RiskAcceptancesTab from './components/RiskAcceptancesTab';
@@ -30,7 +31,7 @@ import SecureScoreCard from './components/SecureScoreCard';
 import ZtaScoreCard from './components/ZtaScoreCard';
 import TopControlsCard from './components/TopControlsCard';
 import { useAnalyticsFilters, serializeToUrlParams } from '@/hooks/useAnalyticsFilters';
-import { pickCurrentErrorRate, pickCurrentScore, postureWindowLabel, seriesDelta } from '@/lib/posture';
+import { pickCurrentScore, postureWindowLabel, seriesDelta } from '@/lib/posture';
 import { resolveTimeWindow, timeRangeDays } from '@/lib/timeRange';
 import { useAnalyticsAuth } from '@/hooks/useAnalyticsAuth';
 import { useDefenderConfig } from '@/hooks/useDefenderConfig';
@@ -55,7 +56,6 @@ import type {
   HostTestMatrixCell,
   FilterOption,
   ChainDepthResponse,
-  EnrichedTestExecution,
   DefenseScoreByHostItem,
   ErrorRateTrendDataPoint,
   GroupedPaginatedResponse,
@@ -74,6 +74,8 @@ interface DefenseScoreData {
   riskAcceptedCount?: number;
   /** Test x endpoint pairs behind the tile score (basis=latest). */
   pairCount?: number;
+  /** Pairs with results but no conclusive one yet (basis=latest). */
+  noConclusiveCount?: number;
 }
 
 const VERDICT_LABELS: Record<ExecutionVerdict, string> = {
@@ -204,7 +206,6 @@ export default function AnalyticsDashboardPage() {
 
   // Dashboard Data State
   const [defenseScore, setDefenseScore] = useState<DefenseScoreData | null>(null);
-  const [errorRate, setErrorRate] = useState<number | null>(null);
   const [uniqueHostnames, setUniqueHostnames] = useState<number>(0);
   const [uniqueTestCount, setUniqueTestCount] = useState<number>(0);
   const [trendData, setTrendData] = useState<TrendDataPoint[]>([]);
@@ -219,8 +220,8 @@ export default function AnalyticsDashboardPage() {
   // New visualization data
   // null after a failed fetch (the card shows its error state)
   const [chainDepth, setChainDepth] = useState<ChainDepthResponse | null>(null);
-  const [recentTests, setRecentTests] = useState<EnrichedTestExecution[]>([]);
-  const [recentTestsTotal, setRecentTestsTotal] = useState<number | null>(null);
+  const [recentRuns, setRecentRuns] = useState<DisplayRow[]>([]);
+  const [recentRunsTotal, setRecentRunsTotal] = useState<number | null>(null);
   const [defenseScoreByHost, setDefenseScoreByHost] = useState<DefenseScoreByHostItem[]>([]);
   const [canonicalTestCount, setCanonicalTestCount] = useState<number>(0);
   const [canonicalTestCount30d, setCanonicalTestCount30d] = useState<number>(0);
@@ -366,12 +367,11 @@ export default function AnalyticsDashboardPage() {
         techDist,
         matrix,
         chainDepthData,
-        recentTestsData,
+        recentRunsData,
         hostScores,
-        errorRateData,
         errorRateTrend,
       ] = await Promise.all([
-        analyticsApi.getDefenseScore(scoreParams),
+        analyticsApi.getDefenseScore({ ...scoreParams, withNoConclusive: true }),
         analyticsApi.getUniqueHostnames(params),
         analyticsApi.getUniqueTests(params),
         analyticsApi.getDefenseScoreTrend({ ...scoreParams, interval: 'day' }),
@@ -383,10 +383,9 @@ export default function AnalyticsDashboardPage() {
           console.error('Failed to load chain depth:', err);
           return null;
         }),
-        // 12 = TestActivityCard's FitList max; the card shows as many as fit its row
-        analyticsApi.getPaginatedExecutions({ ...params, pageSize: 12, sortField: 'routing.event_time', sortOrder: 'desc' }),
+        // Runs, as All Executions groups them; 12 = TestActivityCard's FitList max
+        analyticsApi.getGroupedPaginatedExecutions({ ...params, page: 1, pageSize: 12, sortField: 'routing.event_time', sortOrder: 'desc' }),
         analyticsApi.getDefenseScoreByHostname(scoreParams),
-        analyticsApi.getErrorRate(params),
         analyticsApi.getErrorRateTrend({ ...params, interval: 'day' }),
       ]);
 
@@ -399,6 +398,7 @@ export default function AnalyticsDashboardPage() {
         rawScore: score.rawScore,
         riskAcceptedCount: score.riskAcceptedCount,
         pairCount: score.pairCount,
+        noConclusiveCount: score.noConclusiveCount,
       });
       setUniqueHostnames(hostnameCount);
       setUniqueTestCount(testCount);
@@ -407,10 +407,9 @@ export default function AnalyticsDashboardPage() {
       setTechniqueDistData(techDist.slice(0, 10));
       setHostTestMatrix(matrix);
       setChainDepth(chainDepthData);
-      setRecentTests(recentTestsData.data);
-      setRecentTestsTotal(recentTestsData.pagination.totalItems);
+      setRecentRuns(mapGroupsToDisplayRows(recentRunsData.groups));
+      setRecentRunsTotal(recentRunsData.pagination.totalGroups);
       setDefenseScoreByHost(hostScores);
-      setErrorRate(errorRateData.errorRate);
       setErrorRateTrendData(errorRateTrend);
 
     } catch (error) {
@@ -917,7 +916,7 @@ export default function AnalyticsDashboardPage() {
                   uniqueEndpoints={uniqueHostnames}
                   executedTests={uniqueTestCount}
                   totalResults={defenseScore?.total ?? null}
-                  errorRate={pickCurrentErrorRate(errorRateTrendData, errorRate)}
+                  noConclusiveCount={defenseScore?.noConclusiveCount ?? null}
                   realScore={defenseScore?.realScore ?? null}
                   rawScore={defenseScore?.rawScore ?? null}
                   riskAcceptedCount={defenseScore?.riskAcceptedCount}
@@ -948,8 +947,8 @@ export default function AnalyticsDashboardPage() {
               {defenderConfigured && (
                 <>
                   <TestActivityCard
-                    recentTests={recentTests}
-                    executionCount={recentTestsTotal}
+                    runs={recentRuns}
+                    runCount={recentRunsTotal}
                     loading={loadingDashboard}
                     title="Test activity"
                     className="h-full"
@@ -981,8 +980,8 @@ export default function AnalyticsDashboardPage() {
             ) : (
               <div className="grid items-stretch gap-4 md:grid-cols-3 max-lg:[&>*]:min-w-0">
                 <TestActivityCard
-                  recentTests={recentTests}
-                  executionCount={recentTestsTotal}
+                  runs={recentRuns}
+                  runCount={recentRunsTotal}
                   loading={loadingDashboard}
                   title="Test activity"
                   className="h-full"
