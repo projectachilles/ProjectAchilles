@@ -37,11 +37,11 @@ describe('TestingCadenceCard', () => {
     wrap(<TestingCadenceCard configured view={cadence} />);
     expect(screen.getByText('Testing cadence')).toBeInTheDocument();
     expect(screen.getByText('last run 3d ago')).toBeInTheDocument();
-    expect(screen.getByText('142 in 7d')).toBeInTheDocument();
+    expect(screen.getByText('142 runs in 7d')).toBeInTheDocument();
     expect(screen.getByText(/131 with a verdict/)).toBeInTheDocument();
     expect(screen.getByText('Runs · 7d')).toBeInTheDocument();
     expect(screen.getByText(/APT34 chain on 12 endpoints/)).toBeInTheDocument();
-    expect(screen.getByRole('img', { name: /Daily executions/ })).toBeInTheDocument();
+    expect(screen.getByRole('img', { name: /Daily test runs/ })).toBeInTheDocument();
     expect(screen.getByRole('link', { name: /Tasks/ })).toHaveAttribute('href', '/tasks');
   });
   it('shows "no runs yet" and never NaN', () => {
