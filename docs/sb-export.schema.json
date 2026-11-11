@@ -116,6 +116,14 @@
             },
             "description": "MITRE ATT&CK technique IDs (e.g. T1059.001)."
           },
+          "detectedTechniques": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "pattern": "^T\\d{4}(\\.\\d{3})?$"
+            },
+            "description": "Additional field, optional: the ATT&CK technique IDs on the EDR alerts that matched this stage's own binary and count as evidence for it, sorted; empty when no vendor detected the stage. Emitted by the ProjectAchilles reports endpoint since v2.8.0; the offline converter omits it. SB accepts the field and does not evaluate it."
+          },
           "tactics": {
             "type": "array",
             "items": {
