@@ -39,6 +39,14 @@ export interface CadenceView {
 
 const MS_PER_DAY = 86_400_000;
 
+/**
+ * UTC calendar days from `t` to `now`, like the cadence bars: a run on Nov 5
+ * is 6 days ago on Nov 11 at any hour. Never negative.
+ */
+function utcDaysAgo(t: number, now: number): number {
+  return Math.max(0, Math.floor(now / MS_PER_DAY) - Math.floor(t / MS_PER_DAY));
+}
+
 export function buildCadence(
   activity: ExecutionActivityResponse,
   metrics: AgentMetrics | null,
@@ -52,8 +60,7 @@ export function buildCadence(
   let lastRunDaysAgo: number | null = null;
   if (activity.lastExecutionAt) {
     const t = new Date(activity.lastExecutionAt).getTime();
-    // UTC calendar days, like the bars: a run on Nov 5 is "6d ago" on Nov 11 at any hour.
-    if (!Number.isNaN(t)) lastRunDaysAgo = Math.max(0, Math.floor(now / MS_PER_DAY) - Math.floor(t / MS_PER_DAY));
+    if (!Number.isNaN(t)) lastRunDaysAgo = utcDaysAgo(t, now);
   }
 
   const act = metrics?.task_activity_24h;
@@ -128,7 +135,7 @@ export interface ActorRow {
   /** score < ACTOR_EXPOSED_BELOW */
   exposed: boolean;
   lastTestedAt: string | null;
-  /** Whole days since lastTestedAt; null when never. */
+  /** UTC calendar days since lastTestedAt; null when never. */
   daysAgo: number | null;
   /** Last tested more than ACTOR_STALE_DAYS ago. */
   stale: boolean;
@@ -161,7 +168,7 @@ export function buildActorReadiness(
   );
   const rows: ActorRow[] = sorted.map((c) => {
     const t = c.lastTestedAt ? new Date(c.lastTestedAt).getTime() : NaN;
-    const daysAgo = Number.isNaN(t) ? null : Math.max(0, Math.floor((now - t) / MS_PER_DAY));
+    const daysAgo = Number.isNaN(t) ? null : utcDaysAgo(t, now);
     return {
       threatActor: c.threatActor,
       score: c.coverage,

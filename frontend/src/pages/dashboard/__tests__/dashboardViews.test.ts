@@ -98,6 +98,17 @@ describe('buildCadence', () => {
 });
 
 describe('buildActorReadiness', () => {
+  it('counts "Nd ago" in UTC calendar days, like the cadence chip', () => {
+    const row = (lastTestedAt: string) => buildActorReadiness(
+      [{ threatActor: 'A', coverage: 90, testCount: 1, protectedCount: 1, totalExecutions: 1, pairCount: 1, lastTestedAt }],
+      [], 'the last 30d', NOW,
+    ).rows[0];
+    // 5.8 elapsed days, but tested on a calendar day 6 days back.
+    expect(row('2026-10-14T16:47:00Z').daysAgo).toBe(6);
+    expect(row('2026-10-19T23:59:00Z').daysAgo).toBe(1);
+    expect(row('2026-10-20T00:01:00Z').daysAgo).toBe(0);
+  });
+
   it('no actors in data or library gives empty rows and the empty flag', () => {
     const v = buildActorReadiness([], [makeTest({ category: 'cyber-hygiene' })]);
     expect(v.rows).toEqual([]);
