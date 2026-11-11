@@ -5,8 +5,11 @@
  * unescaped lists ("a,b") parse as before. Mirrored in
  * frontend/src/lib/filterList.ts.
  */
-export function splitFilterList(value: string | undefined | null): string[] {
-  if (!value) return [];
+export function splitFilterList(value: unknown): string[] {
+  // A repeated query param (?tests=a&tests=b) arrives as an array: each
+  // element is a list of its own. Anything that is not a string is no list.
+  if (Array.isArray(value)) return value.flatMap((v) => splitFilterList(v));
+  if (typeof value !== 'string' || value === '') return [];
   const out: string[] = [];
   let current = '';
   for (let i = 0; i < value.length; i++) {

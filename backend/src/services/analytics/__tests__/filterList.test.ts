@@ -23,4 +23,10 @@ describe('filter-bar list params', () => {
   it('leaves a lone backslash that escapes nothing as it is', () => {
     expect(splitFilterList('C:\\F0,x')).toEqual(['C:\\F0', 'x']);
   });
+
+  it('reads a repeated query param (an array) as one list, and ignores non-strings', () => {
+    expect(splitFilterList(['a,b', 'c\\, d'])).toEqual(['a', 'b', 'c, d']);
+    expect(splitFilterList({ length: 3 })).toEqual([]);
+    expect(splitFilterList(42)).toEqual([]);
+  });
 });
