@@ -160,6 +160,7 @@ The agent selector provides filtering and bulk operations:
 - **Search** by hostname
 - **Filter by tags** using multi-select dropdowns
 - **Online-only toggle** to exclude offline agents
+- **Not run this test in** (7, 30, 90 days, or never) to keep only hosts that have not run the selected test recently. A host where the test is already queued is left out. With several tests selected, a host is kept when any of them is due
 - **Select All / Deselect All** for the currently filtered list
 - Each agent row shows its online/offline status, hostname, OS, architecture, and tags
 

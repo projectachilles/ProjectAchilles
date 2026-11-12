@@ -24,6 +24,8 @@ export interface Capabilities {
   outcomeBreakdown: boolean;
   /** Per-test fleet results (/api/analytics/test-results/:uuid/stages; backend-only) */
   testFleet: boolean;
+  /** Per-agent last run of a test (/api/agent/admin/tasks/test-recency; backend-only) */
+  testRunRecency: boolean;
   platform: string;
   /** false until /api/capabilities has resolved (or failed); values are defaults before then */
   loaded?: boolean;
@@ -48,6 +50,7 @@ const DEFAULT_CAPABILITIES: Capabilities = {
   randomizedOnce: false,
   outcomeBreakdown: false,
   testFleet: false,
+  testRunRecency: false,
   platform: 'docker',
 };
 

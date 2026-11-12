@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useMemo } from 'react';
 import { X } from 'lucide-react';
 import { Button } from '@/components/shared/ui/Button';
 import { Alert } from '@/components/shared/ui/Alert';
@@ -8,6 +8,7 @@ import { analyticsApi, type IndexInfo } from '@/services/api/analytics';
 import { integrationsApi } from '@/services/api/integrations';
 import type { AgentSummary, TaskTestMetadata, ScheduleConfig } from '@/types/agent';
 import type { TestMetadata, BuildInfo } from '@/types/test';
+import type { TestRunRecency } from '@/lib/testRunRecency';
 import AgentSelector from './AgentSelector';
 import ExecutionConfig, { type ExecutionConfigState, getDefaultConfigState } from './ExecutionConfig';
 import DrawerBuildSection from './DrawerBuildSection';
@@ -43,7 +44,11 @@ export default function ExecutionDrawer({ open, onClose, tests, onTasksCreated }
 
   // The batch route (one notice per multi-test run) exists only where pre-execution
   // notices do; Vercel/serverless has no /tasks/batch, so fall back to per-test POSTs.
-  const { preExecutionNotices, randomizedOnce } = useCapabilities();
+  const { preExecutionNotices, randomizedOnce, testRunRecency } = useCapabilities();
+
+  // Last run of the selected tests per agent; null hides the picker's recency filter
+  // (backend without the route, or the request failed).
+  const [recencyRuns, setRecencyRuns] = useState<TestRunRecency[] | null>(null);
 
   const [builds, setBuilds] = useState<Map<string, BuildInfo | null>>(new Map());
   const [buildsLoading, setBuildsLoading] = useState(false);
@@ -67,6 +72,13 @@ export default function ExecutionDrawer({ open, onClose, tests, onTasksCreated }
       .then((result) => setAgents(result.agents))
       .catch(() => {})
       .finally(() => setAgentsLoading(false));
+
+    setRecencyRuns(null);
+    if (testRunRecency) {
+      agentApi.getTestRecency(tests.map((t) => t.uuid))
+        .then(setRecencyRuns)
+        .catch(() => setRecencyRuns(null));
+    }
 
     setBuildsLoading(true);
     Promise.all(
@@ -93,7 +105,7 @@ export default function ExecutionDrawer({ open, onClose, tests, onTasksCreated }
     integrationsApi.getAzureSettings()
       .then((s) => setAzureConfigured(s.configured))
       .catch(() => setAzureConfigured(false));
-  }, [open, tests]);
+  }, [open, tests, testRunRecency]);
 
   const handleClose = useCallback(() => {
     setTargetAgentIds([]);
@@ -135,6 +147,8 @@ export default function ExecutionDrawer({ open, onClose, tests, onTasksCreated }
         return { dayOfMonth: config.scheduleDayOfMonth, time: config.scheduleTime, randomize_mode: mode };
     }
   }
+
+  const testUuids = useMemo(() => tests.map((t) => t.uuid), [tests]);
 
   // All tests must have builds to proceed
   const allBuilt = tests.every((t) => builds.get(t.uuid)?.exists);
@@ -314,6 +328,8 @@ export default function ExecutionDrawer({ open, onClose, tests, onTasksCreated }
                 targetAgentIds={targetAgentIds}
                 onSelectionChange={setTargetAgentIds}
                 loading={agentsLoading}
+                testUuids={testUuids}
+                recencyRuns={recencyRuns}
               />
 
               {/* Execution Config */}

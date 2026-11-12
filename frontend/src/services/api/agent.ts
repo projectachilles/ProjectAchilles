@@ -1,4 +1,5 @@
 import { apiClient } from '@/hooks/useAuthenticatedApi';
+import type { TestRunRecency } from '@/lib/testRunRecency';
 import type {
   Agent,
   AgentSummary,
@@ -136,6 +137,14 @@ export const agentApi = {
     const data = response.data.data;
     if (Array.isArray(data)) return { tasks: data, total: data.length };
     return { tasks: data.tasks ?? [], total: data.total ?? 0 };
+  },
+
+  /** When each test last ran on each agent, and whether a run is queued (backend/ only). */
+  async getTestRecency(testUuids: string[]): Promise<TestRunRecency[]> {
+    const response = await apiClient.get('/agent/admin/tasks/test-recency', {
+      params: { test_uuids: testUuids.join(',') },
+    });
+    return response.data.data.runs ?? [];
   },
 
   /** Every tag in use with its agent count (caller's org), not limited to one page of agents. */
