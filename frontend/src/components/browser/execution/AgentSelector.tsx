@@ -3,19 +3,41 @@ import { Input } from '@/components/shared/ui/Input';
 import { Switch } from '@/components/shared/ui/Switch';
 import { Search, Tag } from 'lucide-react';
 import type { AgentSummary } from '@/types/agent';
-import { fieldLabelClass } from '@/components/shared/ui/formStyles';
+import { fieldControlClass, fieldLabelClass } from '@/components/shared/ui/formStyles';
+import {
+  RECENCY_WINDOW_OPTIONS,
+  matchesRecencyWindow,
+  recencyLabel,
+  summarizeHostRecency,
+  type RecencyWindow,
+  type TestRunRecency,
+} from '@/lib/testRunRecency';
 
 interface AgentSelectorProps {
   agents: AgentSummary[];
   targetAgentIds: string[];
   onSelectionChange: (ids: string[]) => void;
   loading?: boolean;
+  /** The tests about to be sent; with `recencyRuns`, enables the "Not run in" filter. */
+  testUuids?: string[];
+  /** Last run of those tests per agent. null/undefined hides the filter and the row labels. */
+  recencyRuns?: TestRunRecency[] | null;
 }
 
-export default function AgentSelector({ agents, targetAgentIds, onSelectionChange, loading }: AgentSelectorProps) {
+export default function AgentSelector({ agents, targetAgentIds, onSelectionChange, loading, testUuids, recencyRuns }: AgentSelectorProps) {
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedTags, setSelectedTags] = useState<string[]>([]);
   const [onlineOnly, setOnlineOnly] = useState(false);
+  const [recencyWindow, setRecencyWindow] = useState<RecencyWindow>('any');
+
+  // One "how long ago" per host, judged by the selected test it ran longest ago.
+  const recencyByAgent = useMemo(() => {
+    if (!recencyRuns || !testUuids || testUuids.length === 0) return null;
+    return summarizeHostRecency(agents.map((a) => a.id), testUuids, recencyRuns);
+  }, [agents, testUuids, recencyRuns]);
+  // Fixed for the life of the picker (it remounts each time the drawer opens),
+  // so rows don't move in and out of the filter between renders.
+  const [now] = useState(() => Date.now());
 
   const allTags = useMemo(() => {
     const s = new Set<string>();
@@ -28,9 +50,10 @@ export default function AgentSelector({ agents, targetAgentIds, onSelectionChang
       if (searchQuery && !agent.hostname.toLowerCase().includes(searchQuery.toLowerCase())) return false;
       if (selectedTags.length > 0 && !selectedTags.every((t) => agent.tags.includes(t))) return false;
       if (onlineOnly && !agent.is_online) return false;
+      if (recencyByAgent && !matchesRecencyWindow(recencyByAgent.get(agent.id), recencyWindow, now)) return false;
       return true;
     });
-  }, [agents, searchQuery, selectedTags, onlineOnly]);
+  }, [agents, searchQuery, selectedTags, onlineOnly, recencyByAgent, recencyWindow, now]);
 
   function toggleAgent(agentId: string, checked: boolean) {
     if (checked) {
@@ -87,6 +110,24 @@ export default function AgentSelector({ agents, targetAgentIds, onSelectionChang
         />
       </div>
 
+      {recencyByAgent && (
+        <div className="flex items-center gap-2 mb-2">
+          <label htmlFor="agent-recency-window" className="text-xs text-muted-foreground shrink-0">
+            {testUuids && testUuids.length > 1 ? 'Not run (any selected test) in' : 'Not run this test in'}
+          </label>
+          <select
+            id="agent-recency-window"
+            className={`${fieldControlClass} h-8 w-auto flex-1`}
+            value={recencyWindow}
+            onChange={(e) => setRecencyWindow(e.target.value as RecencyWindow)}
+          >
+            {RECENCY_WINDOW_OPTIONS.map((o) => (
+              <option key={o.value} value={o.value}>{o.label}</option>
+            ))}
+          </select>
+        </div>
+      )}
+
       {allTags.length > 0 && (
         <div className="flex flex-wrap gap-1.5 mb-2">
           <Tag className="h-3.5 w-3.5 text-muted-foreground mt-0.5" />
@@ -133,8 +174,13 @@ export default function AgentSelector({ agents, targetAgentIds, onSelectionChang
                 {agent.hostname} ({agent.os}/{agent.arch})
               </span>
               {!agent.is_online && <span className="text-xs text-muted-foreground shrink-0">offline</span>}
+              {recencyByAgent && (
+                <span className="ml-auto text-xs text-muted-foreground shrink-0" title="Last run of the selected test on this host">
+                  {recencyLabel(recencyByAgent.get(agent.id), now)}
+                </span>
+              )}
               {agent.tags.length > 0 && (
-                <span className="ml-auto flex gap-1 shrink-0">
+                <span className={`${recencyByAgent ? '' : 'ml-auto '}flex gap-1 shrink-0`}>
                   {agent.tags.slice(0, 2).map((t) => (
                     <span key={t} className="text-[10px] bg-raised rounded px-1 py-0.5">{t}</span>
                   ))}

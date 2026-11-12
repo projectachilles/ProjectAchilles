@@ -98,6 +98,26 @@ This route is registered **before** `/agents/:id`, otherwise Express captures
 `heartbeats` as an agent id and the endpoint 404s.
 :::
 
+### Test Recency
+
+```
+GET /api/agent/admin/tasks/test-recency?test_uuids=<uuid>[,<uuid>...]
+```
+
+When each given test last ran on each agent, for the target picker's "Not run in" filter.
+Requires `endpoints:tasks:read`; limited to the caller's organization like the task lists.
+Up to 100 test UUIDs; a missing or malformed list returns `400`.
+
+```json
+{ "runs": [ { "agent_id": "…", "test_uuid": "…", "last_run_at": "2026-10-20T09:30:00Z", "queued": false } ] }
+```
+
+- One row per agent and test that has at least one task. An agent with no row never received the test.
+- `last_run_at` is the latest run that produced a result. A run that failed without one (agent offline, timeout), expired or was cancelled does not count, unless an EDR was later shown to have stopped it.
+- `queued` is true while a run of the test is pending or in progress on the agent.
+
+Not available on the Vercel backend (`testRunRecency` is absent from `/api/capabilities`).
+
 ### List Tasks (Grouped)
 
 ```

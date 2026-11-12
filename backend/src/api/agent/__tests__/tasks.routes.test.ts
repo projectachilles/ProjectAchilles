@@ -594,3 +594,34 @@ describe('tasks routes', () => {
   });
 });
 
+
+describe('GET /admin/tasks/test-recency', () => {
+  const TEST_UUID = '11111111-1111-4111-8111-111111111111';
+
+  beforeEach(() => {
+    testDb = createTestDatabase();
+    insertTestAgent(testDb, { id: 'agent-001' });
+  });
+
+  it('returns the last run of the test per agent', async () => {
+    insertTestTask(testDb, {
+      id: 'done',
+      status: 'completed',
+      payload: JSON.stringify({ test_uuid: TEST_UUID, test_name: 'T', binary_name: 't.exe' }),
+    });
+    testDb.prepare("UPDATE tasks SET completed_at = '2026-10-20 09:30:00' WHERE id = 'done'").run();
+
+    const res = await request(createApp()).get(`/admin/tasks/test-recency?test_uuids=${TEST_UUID}`);
+    expect(res.status).toBe(200);
+    expect(res.body.data.runs).toEqual([
+      { agent_id: 'agent-001', test_uuid: TEST_UUID, last_run_at: '2026-10-20T09:30:00Z', queued: false },
+    ]);
+  });
+
+  it('is not shadowed by /tasks/:id and rejects missing or malformed ids', async () => {
+    expect((await request(createApp()).get('/admin/tasks/test-recency')).status).toBe(400);
+    const bad = await request(createApp()).get("/admin/tasks/test-recency?test_uuids=abc' OR 1=1");
+    expect(bad.status).toBe(400);
+    expect(bad.body.error).toBe('Invalid test_uuids');
+  });
+});
