@@ -1,5 +1,11 @@
 import { describe, it, expect } from 'vitest';
-import { summarizeHostRecency, matchesRecencyWindow, recencyLabel, type TestRunRecency } from '../testRunRecency';
+import {
+  summarizeHostRecency,
+  summarizeAnyTestRecency,
+  matchesRecencyWindow,
+  recencyLabel,
+  type TestRunRecency,
+} from '../testRunRecency';
 
 const NOW = new Date('2026-11-11T12:00:00Z').getTime();
 const run = (agent: string, test: string, last: string | null, queued = false): TestRunRecency => ({
@@ -34,6 +40,20 @@ describe('summarizeHostRecency', () => {
 
   it('ignores a failed-only history (no last run, not queued)', () => {
     expect(summarizeHostRecency(['a1'], ['t1'], [run('a1', 't1', null)]).get('a1')).toEqual({ state: 'never' });
+  });
+});
+
+describe('summarizeAnyTestRecency', () => {
+  it('reads each host from its any-test row', () => {
+    const m = summarizeAnyTestRecency(['ran', 'queued', 'failed-only', 'no-row'], [
+      { agent_id: 'ran', last_run_at: '2026-11-01T00:00:00Z', queued: false },
+      { agent_id: 'queued', last_run_at: '2026-11-01T00:00:00Z', queued: true },
+      { agent_id: 'failed-only', last_run_at: null, queued: false },
+    ]);
+    expect(m.get('ran')).toEqual({ state: 'ran', at: '2026-11-01T00:00:00Z' });
+    expect(m.get('queued')).toEqual({ state: 'queued' });
+    expect(m.get('failed-only')).toEqual({ state: 'never' });
+    expect(m.get('no-row')).toEqual({ state: 'never' });
   });
 });
 

@@ -1,5 +1,6 @@
-// Folds per-test run history (GET /agent/admin/tasks/test-recency) into one
-// answer per host for the target picker's "Not run in" filter.
+// Folds run history (GET /agent/admin/tasks/test-recency) into one answer per
+// host for the target picker's "Not run" filter, for either scope: the selected
+// test(s), or any test at all.
 
 export interface TestRunRecency {
   agent_id: string;
@@ -9,6 +10,24 @@ export interface TestRunRecency {
   /** A run of this test is waiting for, or running on, this agent. */
   queued: boolean;
 }
+
+export interface AgentRunRecency {
+  agent_id: string;
+  /** ISO time of the agent's most recent run of ANY test that produced a result; null when none. */
+  last_run_at: string | null;
+  /** A run of some test is waiting for, or running on, this agent. */
+  queued: boolean;
+}
+
+export interface RunRecencyData {
+  /** Per agent x selected test. Empty when no test was asked about. */
+  runs: TestRunRecency[];
+  /** Per agent, over every test. */
+  agents: AgentRunRecency[];
+}
+
+/** What "not run" is measured against: the selected test(s), or any test. */
+export type RecencyScope = 'test' | 'any';
 
 /**
  * How recently a host ran the selected tests, judged by the test it ran
@@ -26,11 +45,11 @@ export type HostRecency =
 export type RecencyWindow = 'any' | 'never' | '7' | '30' | '90';
 
 export const RECENCY_WINDOW_OPTIONS: Array<{ value: RecencyWindow; label: string }> = [
-  { value: 'any', label: 'Any time' },
-  { value: '7', label: '7 days' },
-  { value: '30', label: '30 days' },
-  { value: '90', label: '90 days' },
-  { value: 'never', label: 'Never run' },
+  { value: 'any', label: 'no filter' },
+  { value: '7', label: 'in 7 days' },
+  { value: '30', label: 'in 30 days' },
+  { value: '90', label: 'in 90 days' },
+  { value: 'never', label: 'ever' },
 ];
 
 const DAY_MS = 86_400_000;
@@ -60,6 +79,25 @@ export function summarizeHostRecency(
     if (never) out.set(agentId, { state: 'never' });
     else if (oldest === null) out.set(agentId, { state: 'queued' });
     else out.set(agentId, { state: 'ran', at: oldest });
+  }
+  return out;
+}
+
+/**
+ * One HostRecency per agent id over ANY test: `never` when the host has no run
+ * with a result and nothing queued, `queued` while some test is waiting or running.
+ */
+export function summarizeAnyTestRecency(
+  agentIds: readonly string[],
+  agents: readonly AgentRunRecency[],
+): Map<string, HostRecency> {
+  const byAgent = new Map(agents.map((a) => [a.agent_id, a]));
+  const out = new Map<string, HostRecency>();
+  for (const agentId of agentIds) {
+    const row = byAgent.get(agentId);
+    if (row?.queued) out.set(agentId, { state: 'queued' });
+    else if (row?.last_run_at) out.set(agentId, { state: 'ran', at: row.last_run_at });
+    else out.set(agentId, { state: 'never' });
   }
   return out;
 }

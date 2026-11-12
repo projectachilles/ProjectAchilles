@@ -101,20 +101,25 @@ This route is registered **before** `/agents/:id`, otherwise Express captures
 ### Test Recency
 
 ```
-GET /api/agent/admin/tasks/test-recency?test_uuids=<uuid>[,<uuid>...]
+GET /api/agent/admin/tasks/test-recency[?test_uuids=<uuid>[,<uuid>...]]
 ```
 
-When each given test last ran on each agent, for the target picker's "Not run in" filter.
-Requires `endpoints:tasks:read`; limited to the caller's organization like the task lists.
-Up to 100 test UUIDs; a missing or malformed list returns `400`.
+Run history for the target picker's "Not run" filter. Requires `endpoints:tasks:read`;
+limited to the caller's organization like the task lists. `test_uuids` is optional
+(up to 100); a malformed list returns `400`.
 
 ```json
-{ "runs": [ { "agent_id": "…", "test_uuid": "…", "last_run_at": "2026-10-20T09:30:00Z", "queued": false } ] }
+{
+  "runs":   [ { "agent_id": "…", "test_uuid": "…", "last_run_at": "2026-10-20T09:30:00Z", "queued": false } ],
+  "agents": [ { "agent_id": "…", "last_run_at": "2026-11-02T14:05:00Z", "queued": false } ]
+}
 ```
 
-- One row per agent and test that has at least one task. An agent with no row never received the test.
+- `runs`: one row per agent and requested test that has at least one task. Empty without `test_uuids`.
+- `agents`: one row per agent that has at least one test task, over every test.
+- An agent with no row never received the test (or any test).
 - `last_run_at` is the latest run that produced a result. A run that failed without one (agent offline, timeout), expired or was cancelled does not count, unless an EDR was later shown to have stopped it.
-- `queued` is true while a run of the test is pending or in progress on the agent.
+- `queued` is true while a run is pending or in progress on the agent.
 
 Not available on the Vercel backend (`testRunRecency` is absent from `/api/capabilities`).
 

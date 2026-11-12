@@ -160,7 +160,11 @@ The agent selector provides filtering and bulk operations:
 - **Search** by hostname
 - **Filter by tags** using multi-select dropdowns
 - **Online-only toggle** to exclude offline agents
-- **Not run this test in** (7, 30, 90 days, or never) to keep only hosts that have not run the selected test recently. A host where the test is already queued is left out. With several tests selected, a host is kept when any of them is due
+- **Not run** filter, with two parts:
+  - *which test*: **this test** (the test you are about to send; with several tests selected, a host is kept when any of them is due) or **any test** (the host's last run of any test at all)
+  - *period*: in 7, 30 or 90 days, or **ever** (hosts that never ran it)
+
+  A host where a run is already queued is left out. Each row shows the host's last run for the chosen scope. In **Tasks → Create Task** the hosts come before the test, so only **any test** is available until you pick a test
 - **Select All / Deselect All** for the currently filtered list
 - Each agent row shows its online/offline status, hostname, OS, architecture, and tags
 

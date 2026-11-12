@@ -9,7 +9,7 @@ vi.mock('../database.js', async (importOriginal) => {
   return { ...actual, getDatabase: () => testDb };
 });
 
-const { getTestRunRecency } = await import('../testRunHistory.js');
+const { getTestRunRecency, getAgentRunRecency } = await import('../testRunHistory.js');
 
 const TEST_A = '11111111-1111-4111-8111-111111111111';
 const TEST_B = '22222222-2222-4222-8222-222222222222';
@@ -103,5 +103,36 @@ describe('getTestRunRecency', () => {
     seed({ id: 't2', agent: 'agent-002', org: 'org-002', status: 'completed', completedAt: '2026-10-05 08:00:00' });
     expect(getTestRunRecency([TEST_A], 'org-002').map((r) => r.agent_id)).toEqual(['agent-002']);
     expect(getTestRunRecency([TEST_A])).toHaveLength(2);
+  });
+});
+
+describe('getAgentRunRecency', () => {
+  beforeEach(() => {
+    testDb = createTestDatabase();
+    insertTestAgent(testDb, { id: 'agent-001' });
+    insertTestAgent(testDb, { id: 'agent-002', hostname: 'host-2' });
+  });
+
+  it('reports the latest run of any test per agent', () => {
+    seed({ id: 't1', test: TEST_A, status: 'completed', completedAt: '2026-10-01 08:00:00' });
+    seed({ id: 't2', test: TEST_B, status: 'completed', completedAt: '2026-10-09 08:00:00' });
+    seed({ id: 't3', agent: 'agent-002', status: 'pending' });
+    expect(getAgentRunRecency().sort((a, b) => a.agent_id.localeCompare(b.agent_id))).toEqual([
+      { agent_id: 'agent-001', last_run_at: '2026-10-09T08:00:00Z', queued: false },
+      { agent_id: 'agent-002', last_run_at: null, queued: true },
+    ]);
+  });
+
+  it('ignores non-test tasks and runs that produced no result', () => {
+    seed({ id: 't1', type: 'execute_command', status: 'completed', completedAt: '2026-10-30 08:00:00' });
+    expect(getAgentRunRecency()).toEqual([]);
+    seed({ id: 't2', status: 'failed', completedAt: '2026-10-20 09:30:00' });
+    expect(getAgentRunRecency()).toEqual([{ agent_id: 'agent-001', last_run_at: null, queued: false }]);
+  });
+
+  it('limits rows to the given organization', () => {
+    seed({ id: 't1', status: 'completed', completedAt: '2026-10-01 08:00:00' });
+    seed({ id: 't2', agent: 'agent-002', org: 'org-002', status: 'completed', completedAt: '2026-10-05 08:00:00' });
+    expect(getAgentRunRecency('org-002').map((r) => r.agent_id)).toEqual(['agent-002']);
   });
 });
