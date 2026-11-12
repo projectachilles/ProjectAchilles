@@ -20,6 +20,8 @@ export interface AgentRunRecency {
 }
 
 export interface RunRecencyData {
+  /** The tests `runs` was fetched for. The per-test scope is only valid for these. */
+  testUuids: string[];
   /** Per agent x selected test. Empty when no test was asked about. */
   runs: TestRunRecency[];
   /** Per agent, over every test. */

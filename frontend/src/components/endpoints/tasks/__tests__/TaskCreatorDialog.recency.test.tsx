@@ -41,10 +41,11 @@ beforeEach(() => {
   api.getAllTests.mockResolvedValue([{ uuid: 'uuid-a', name: 'Test A', techniques: [], isMultiStage: false, stages: [] }]);
   api.getBuildInfo.mockResolvedValue({ exists: true, filename: 'uuid-a.exe' });
   // a-tested ran some other test recently, but never Test A.
-  api.getTestRecency.mockResolvedValue({
+  api.getTestRecency.mockImplementation(async (testUuids: string[] = []) => ({
+    testUuids,
     runs: [],
     agents: [{ agent_id: 'a-tested', last_run_at: new Date().toISOString(), queued: false }],
-  });
+  }));
 });
 
 describe('TaskCreatorDialog "Not run" filter', () => {
@@ -70,7 +71,7 @@ describe('TaskCreatorDialog "Not run" filter', () => {
 
     // Neither host ever ran Test A, so both are due.
     fireEvent.change(screen.getByLabelText('Not run: period'), { target: { value: 'never' } });
-    expect(screen.getByText(/host-tested/)).toBeInTheDocument();
+    expect(await screen.findByText(/host-tested/)).toBeInTheDocument();
     expect(screen.getByText(/host-fresh/)).toBeInTheDocument();
   });
 

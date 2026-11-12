@@ -148,7 +148,7 @@ export const agentApi = {
       params: testUuids.length > 0 ? { test_uuids: testUuids.join(',') } : undefined,
     });
     const data = response.data.data;
-    return { runs: data.runs ?? [], agents: data.agents ?? [] };
+    return { testUuids, runs: data.runs ?? [], agents: data.agents ?? [] };
   },
 
   /** Every tag in use with its agent count (caller's org), not limited to one page of agents. */

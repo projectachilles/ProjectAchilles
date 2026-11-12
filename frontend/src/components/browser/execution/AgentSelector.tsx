@@ -38,15 +38,21 @@ export default function AgentSelector({ agents, targetAgentIds, onSelectionChang
   const testCount = testUuids?.length ?? 0;
   const recencyScope: RecencyScope = testCount > 0 ? recencyScopeChoice : 'any';
 
+  // The history on hand may be for another selection (the Create Task dialog
+  // re-reads it when the test changes). Until the answer for THIS selection
+  // arrives, "this test" can't be judged: no labels, and the filter keeps no host.
+  const recencyLoading =
+    !!recency && recencyScope === 'test' && !(testUuids ?? []).every((u) => recency.testUuids.includes(u));
+
   // One "how long ago" per host for the chosen scope. Per-test scope judges a
   // host by the selected test it ran longest ago.
   const recencyByAgent = useMemo(() => {
-    if (!recency) return null;
+    if (!recency || recencyLoading) return null;
     const ids = agents.map((a) => a.id);
     return recencyScope === 'test' && testUuids
       ? summarizeHostRecency(ids, testUuids, recency.runs)
       : summarizeAnyTestRecency(ids, recency.agents);
-  }, [agents, testUuids, recency, recencyScope]);
+  }, [agents, testUuids, recency, recencyScope, recencyLoading]);
   // Fixed for the life of the picker (it remounts each time the drawer opens),
   // so rows don't move in and out of the filter between renders.
   const [now] = useState(() => Date.now());
@@ -62,10 +68,11 @@ export default function AgentSelector({ agents, targetAgentIds, onSelectionChang
       if (searchQuery && !agent.hostname.toLowerCase().includes(searchQuery.toLowerCase())) return false;
       if (selectedTags.length > 0 && !selectedTags.every((t) => agent.tags.includes(t))) return false;
       if (onlineOnly && !agent.is_online) return false;
+      if (recencyLoading && recencyWindow !== 'any') return false;
       if (recencyByAgent && !matchesRecencyWindow(recencyByAgent.get(agent.id), recencyWindow, now)) return false;
       return true;
     });
-  }, [agents, searchQuery, selectedTags, onlineOnly, recencyByAgent, recencyWindow, now]);
+  }, [agents, searchQuery, selectedTags, onlineOnly, recencyByAgent, recencyLoading, recencyWindow, now]);
 
   function toggleAgent(agentId: string, checked: boolean) {
     if (checked) {
@@ -122,7 +129,7 @@ export default function AgentSelector({ agents, targetAgentIds, onSelectionChang
         />
       </div>
 
-      {recencyByAgent && (
+      {recency && (
         <div className="flex items-center gap-2 mb-2">
           <span className="text-xs text-muted-foreground shrink-0">Not run</span>
           <select
@@ -180,7 +187,9 @@ export default function AgentSelector({ agents, targetAgentIds, onSelectionChang
 
       <div className="border border-border rounded-lg p-2 max-h-48 overflow-y-auto">
         {filteredAgents.length === 0 ? (
-          <p className="text-sm text-muted-foreground text-center py-3">No agents match filters</p>
+          <p className="text-sm text-muted-foreground text-center py-3">
+            {recencyLoading && recencyWindow !== 'any' ? 'Loading run history...' : 'No agents match filters'}
+          </p>
         ) : (
           filteredAgents.map((agent) => (
             <label key={agent.id} className="flex items-center gap-2 py-1 text-sm cursor-pointer">

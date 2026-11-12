@@ -43,7 +43,7 @@ function renderSelector(props: Partial<Parameters<typeof AgentSelector>[0]> = {}
       targetAgentIds={[]}
       onSelectionChange={onSelectionChange}
       testUuids={[TEST]}
-      recency={{ runs: RUNS, agents: ANY_TEST }}
+      recency={{ testUuids: [TEST], runs: RUNS, agents: ANY_TEST }}
       {...props}
     />,
   );
@@ -106,6 +106,22 @@ describe('AgentSelector "not run in" filter', () => {
     expect(hosts().map((h) => h.split(' ')[0])).toEqual(['host-old', 'host-queued']);
 
     fireEvent.change(screen.getByLabelText('Not run: period'), { target: { value: 'never' } });
+    expect(hosts().map((h) => h.split(' ')[0])).toEqual(['host-queued']);
+  });
+
+  it('keeps no host under "this test" while the history on hand is for another selection', () => {
+    // History fetched before a test was picked: runs is empty, so every host would read "never".
+    const onSelectionChange = renderSelector({ recency: { testUuids: [], runs: [], agents: ANY_TEST } });
+    expect(screen.queryByText('never')).toBeNull();
+
+    fireEvent.change(screen.getByLabelText('Not run: period'), { target: { value: 'never' } });
+    expect(hosts()).toEqual([]);
+    expect(screen.getByText('Loading run history...')).toBeInTheDocument();
+    fireEvent.click(screen.getByText('Select all (0)'));
+    expect(onSelectionChange).toHaveBeenCalledWith([]);
+
+    // "any test" does not depend on the selection, so it still answers.
+    fireEvent.change(screen.getByLabelText('Not run: which test'), { target: { value: 'any' } });
     expect(hosts().map((h) => h.split(' ')[0])).toEqual(['host-queued']);
   });
 
