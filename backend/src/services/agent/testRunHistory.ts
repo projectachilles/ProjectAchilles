@@ -14,6 +14,14 @@ export interface TestRunRecency {
   queued: boolean;
 }
 
+export interface AgentRunRecency {
+  agent_id: string;
+  /** ISO time of the agent's most recent run of ANY test that produced a result; null when none. */
+  last_run_at: string | null;
+  /** A run of some test is waiting for, or running on, this agent. */
+  queued: boolean;
+}
+
 /** Most tests one request may ask about (a campaign's limit). */
 export const MAX_RECENCY_TESTS = 100;
 
@@ -66,6 +74,30 @@ export function getTestRunRecency(testUuids: readonly string[], orgId?: string):
   return rows.map((r) => ({
     agent_id: r.agent_id,
     test_uuid: r.test_uuid,
+    last_run_at: r.last_run_at ? toIso(r.last_run_at) : null,
+    queued: r.queued === 1,
+  }));
+}
+
+/**
+ * The latest run of ANY test on each agent, one row per agent that has at
+ * least one test task. Same counting rule as getTestRunRecency.
+ */
+export function getAgentRunRecency(orgId?: string): AgentRunRecency[] {
+  const db = getDatabase();
+  const rows = db.prepare(`
+    SELECT agent_id,
+           MAX(CASE WHEN status = 'completed' OR (status = 'failed' AND es_ingested = 1)
+                    THEN completed_at END) AS last_run_at,
+           MAX(CASE WHEN status IN ('pending', 'assigned', 'downloading', 'executing')
+                    THEN 1 ELSE 0 END) AS queued
+    FROM tasks
+    WHERE type = 'execute_test'${orgId ? ' AND org_id = ?' : ''}
+    GROUP BY agent_id
+  `).all(...(orgId ? [orgId] : [])) as Array<Omit<RecencyRow, 'test_uuid'>>;
+
+  return rows.map((r) => ({
+    agent_id: r.agent_id,
     last_run_at: r.last_run_at ? toIso(r.last_run_at) : null,
     queued: r.queued === 1,
   }));

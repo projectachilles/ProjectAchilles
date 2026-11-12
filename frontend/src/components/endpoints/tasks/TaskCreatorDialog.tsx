@@ -3,9 +3,8 @@ import { Dialog, DialogHeader, DialogTitle, DialogDescription, DialogContent, Di
 import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/shared/ui/Tabs';
 import { Button } from '@/components/shared/ui/Button';
 import { Input } from '@/components/shared/ui/Input';
-import { Switch } from '@/components/shared/ui/Switch';
 import { Alert } from '@/components/shared/ui/Alert';
-import { Search, Tag, X, Play, Calendar, Terminal, ChevronRight, ChevronDown } from 'lucide-react';
+import { Search, X, Play, Calendar, Terminal, ChevronRight, ChevronDown } from 'lucide-react';
 import { useHasPermission } from '@/hooks/useAppRole';
 import { useCapabilities } from '@/hooks/useCapabilities';
 import { agentApi } from '@/services/api/agent';
@@ -17,6 +16,8 @@ import type { TestMetadata, BuildInfo } from '@/types/test';
 import { COMMON_TIMEZONES } from '@/lib/timezones';
 import { fieldControlClass, fieldLabelClass, fieldTextareaClass } from '@/components/shared/ui/formStyles';
 import { cn } from '@/lib/utils';
+import AgentSelector from '@/components/browser/execution/AgentSelector';
+import type { RunRecencyData } from '@/lib/testRunRecency';
 
 interface AvailableTest {
   test: TestMetadata;
@@ -96,9 +97,7 @@ export default function TaskCreatorDialog({ open, onClose, selectedAgents = [], 
   // don't compose a command only to hit a 403 on submit.
   const canSendCommand = useHasPermission('endpoints:tasks:command');
 
-  const [searchQuery, setSearchQuery] = useState('');
-  const [selectedTags, setSelectedTags] = useState<string[]>([]);
-  const [onlineOnly, setOnlineOnly] = useState(false);
+  const [recency, setRecency] = useState<RunRecencyData | null>(null);
 
   const [availableTests, setAvailableTests] = useState<AvailableTest[]>([]);
   const [loadingTests, setLoadingTests] = useState(false);
@@ -119,7 +118,7 @@ export default function TaskCreatorDialog({ open, onClose, selectedAgents = [], 
   );
   const [randomizeMode, setRandomizeMode] = useState<RandomizeMode>('fixed');
   // Vercel's backend runs Once schedules at the fixed time only.
-  const { randomizedOnce } = useCapabilities();
+  const { randomizedOnce, testRunRecency } = useCapabilities();
 
   // Target index state
   const [targetIndex, setTargetIndex] = useState('');
@@ -194,20 +193,23 @@ export default function TaskCreatorDialog({ open, onClose, selectedAgents = [], 
       .finally(() => setIndicesLoading(false));
   }, [open]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  const allTags = useMemo(() => {
-    const s = new Set<string>();
-    agents.forEach((a) => a.tags.forEach((t) => s.add(t)));
-    return Array.from(s).sort();
-  }, [agents]);
-
-  const filteredAgents = useMemo(() => {
-    return agents.filter((agent) => {
-      if (searchQuery && !agent.hostname.toLowerCase().includes(searchQuery.toLowerCase())) return false;
-      if (selectedTags.length > 0 && !selectedTags.every((t) => agent.tags.includes(t))) return false;
-      if (onlineOnly && !agent.is_online) return false;
-      return true;
-    });
-  }, [agents, searchQuery, selectedTags, onlineOnly]);
+  // Effect 5: run history for the picker's "Not run" filter. Re-read when the
+  // test changes; with no test (or a command) only the any-test scope applies.
+  const recencyTestUuids = useMemo(
+    () => (taskMode === 'test' && testUuid ? [testUuid] : []),
+    [taskMode, testUuid],
+  );
+  useEffect(() => {
+    if (!open || !testRunRecency) {
+      setRecency(null);
+      return;
+    }
+    let cancelled = false;
+    agentApi.getTestRecency(recencyTestUuids)
+      .then((data) => { if (!cancelled) setRecency(data); })
+      .catch(() => { if (!cancelled) setRecency(null); });
+    return () => { cancelled = true; };
+  }, [open, testRunRecency, recencyTestUuids]);
 
   const filteredTests = useMemo(() => {
     if (!testSearchQuery) return availableTests;
@@ -217,33 +219,6 @@ export default function TaskCreatorDialog({ open, onClose, selectedAgents = [], 
       (test.category?.toLowerCase().includes(q) ?? false)
     );
   }, [availableTests, testSearchQuery]);
-
-  function toggleAgent(agentId: string, checked: boolean): void {
-    if (checked) {
-      setTargetAgentIds([...targetAgentIds, agentId]);
-    } else {
-      setTargetAgentIds(targetAgentIds.filter((id) => id !== agentId));
-    }
-  }
-
-  function toggleTag(tag: string): void {
-    setSelectedTags((prev) =>
-      prev.includes(tag) ? prev.filter((t) => t !== tag) : [...prev, tag]
-    );
-  }
-
-  function selectAllFiltered(): void {
-    setTargetAgentIds((prev) => {
-      const ids = new Set(prev);
-      filteredAgents.forEach((a) => ids.add(a.id));
-      return Array.from(ids);
-    });
-  }
-
-  function deselectAllFiltered(): void {
-    const filteredIds = new Set(filteredAgents.map((a) => a.id));
-    setTargetAgentIds((prev) => prev.filter((id) => !filteredIds.has(id)));
-  }
 
   function handleTestSelect(uuid: string): void {
     const entry = availableTests.find((t) => t.test.uuid === uuid);
@@ -275,9 +250,6 @@ export default function TaskCreatorDialog({ open, onClose, selectedAgents = [], 
     setBinaryName('');
     setTimeout_('300');
     setPriority('1');
-    setSearchQuery('');
-    setSelectedTags([]);
-    setOnlineOnly(false);
     setTestSearchQuery('');
     setTestDropdownOpen(false);
     setActiveTab('run-now');
@@ -415,97 +387,14 @@ export default function TaskCreatorDialog({ open, onClose, selectedAgents = [], 
           </div>
         ) : (
           <div className="space-y-4">
-            {/* === Agent Selector (shared) === */}
-            <div>
-              <label className={fieldLabelClass}>
-                Target Agents ({targetAgentIds.length} selected)
-              </label>
-
-              <div className="flex items-center gap-2 mb-2">
-                <div className="relative flex-1">
-                  <Input
-                    leftIcon={<Search className="h-4 w-4" />}
-                    placeholder="Search hostname..."
-                    value={searchQuery}
-                    onChange={(e) => setSearchQuery(e.target.value)}
-                  />
-                </div>
-                <Switch
-                  label="Online"
-                  checked={onlineOnly}
-                  onChange={(e) => setOnlineOnly(e.target.checked)}
-                />
-              </div>
-
-              {allTags.length > 0 && (
-                <div className="flex flex-wrap gap-1.5 mb-2">
-                  <Tag className="h-3.5 w-3.5 text-muted-foreground mt-0.5" />
-                  {allTags.map((tag) => (
-                    <button
-                      key={tag}
-                      type="button"
-                      onClick={() => toggleTag(tag)}
-                      className={`text-xs px-2 py-0.5 rounded-full border transition-colors ${
-                        selectedTags.includes(tag)
-                          ? 'bg-primary/10 text-primary border-primary/30'
-                          : 'bg-raised text-muted-foreground border-border hover:border-primary/20'
-                      }`}
-                    >
-                      {tag}
-                    </button>
-                  ))}
-                </div>
-              )}
-
-              <div className="flex gap-3 mb-1.5 text-xs">
-                <button
-                  type="button"
-                  onClick={selectAllFiltered}
-                  className="text-primary hover:underline"
-                >
-                  Select all ({filteredAgents.length})
-                </button>
-                <button
-                  type="button"
-                  onClick={deselectAllFiltered}
-                  className="text-muted-foreground hover:underline"
-                >
-                  Deselect all
-                </button>
-              </div>
-
-              <div className="border border-border rounded-lg p-2 max-h-48 overflow-y-auto">
-                {filteredAgents.length === 0 ? (
-                  <p className="text-sm text-muted-foreground text-center py-3">No agents match filters</p>
-                ) : (
-                  filteredAgents.map((agent) => (
-                    <label key={agent.id} className="flex items-center gap-2 py-1 text-sm cursor-pointer">
-                      <input
-                        type="checkbox"
-                        className="h-4 w-4 appearance-auto accent-primary"
-                        checked={targetAgentIds.includes(agent.id)}
-                        onChange={(e) => toggleAgent(agent.id, e.target.checked)}
-                      />
-                      <span className={`inline-block h-2 w-2 rounded-full shrink-0 ${agent.is_online ? 'bg-accent' : 'bg-faint'}`} />
-                      <span className={`truncate ${agent.is_online ? '' : 'text-muted-foreground'}`}>
-                        {agent.hostname} ({agent.os}/{agent.arch})
-                      </span>
-                      {!agent.is_online && <span className="text-xs text-muted-foreground shrink-0">offline</span>}
-                      {agent.tags.length > 0 && (
-                        <span className="ml-auto flex gap-1 shrink-0">
-                          {agent.tags.slice(0, 2).map((t) => (
-                            <span key={t} className="text-[10px] bg-raised rounded px-1 py-0.5">{t}</span>
-                          ))}
-                          {agent.tags.length > 2 && (
-                            <span className="text-[10px] text-muted-foreground">+{agent.tags.length - 2}</span>
-                          )}
-                        </span>
-                      )}
-                    </label>
-                  ))
-                )}
-              </div>
-            </div>
+            {/* === Agent Selector (shared with the test page's drawer) === */}
+            <AgentSelector
+              agents={agents}
+              targetAgentIds={targetAgentIds}
+              onSelectionChange={setTargetAgentIds}
+              testUuids={recencyTestUuids}
+              recency={recency}
+            />
 
             {/* === Task Mode Toggle (hidden unless the user may send commands) === */}
             {canSendCommand && (

@@ -616,10 +616,22 @@ describe('GET /admin/tasks/test-recency', () => {
     expect(res.body.data.runs).toEqual([
       { agent_id: 'agent-001', test_uuid: TEST_UUID, last_run_at: '2026-10-20T09:30:00Z', queued: false },
     ]);
+    expect(res.body.data.agents).toEqual([
+      { agent_id: 'agent-001', last_run_at: '2026-10-20T09:30:00Z', queued: false },
+    ]);
   });
 
-  it('is not shadowed by /tasks/:id and rejects missing or malformed ids', async () => {
-    expect((await request(createApp()).get('/admin/tasks/test-recency')).status).toBe(400);
+  it('returns only the any-test history without test_uuids', async () => {
+    insertTestTask(testDb, { id: 'waiting', status: 'pending' });
+    const res = await request(createApp()).get('/admin/tasks/test-recency');
+    expect(res.status).toBe(200);
+    expect(res.body.data).toEqual({
+      runs: [],
+      agents: [{ agent_id: 'agent-001', last_run_at: null, queued: true }],
+    });
+  });
+
+  it('rejects malformed ids', async () => {
     const bad = await request(createApp()).get("/admin/tasks/test-recency?test_uuids=abc' OR 1=1");
     expect(bad.status).toBe(400);
     expect(bad.body.error).toBe('Invalid test_uuids');

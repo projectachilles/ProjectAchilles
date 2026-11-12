@@ -32,7 +32,7 @@ import { alertsService } from '../integrations.routes.js';
 import { validate } from '../../middleware/validation.js';
 import { UpdateTaskStatusSchema, TaskResultSchema } from '../../schemas/agent.schemas.js';
 import { resolveRequesterLabels, withoutEmail } from '../../services/agent/requesterLabel.js';
-import { getTestRunRecency, MAX_RECENCY_TESTS } from '../../services/agent/testRunHistory.js';
+import { getAgentRunRecency, getTestRunRecency, MAX_RECENCY_TESTS } from '../../services/agent/testRunHistory.js';
 import { TASK_BREAKDOWN_KEY_RE } from '../../services/outcomes/taskOutcome.js';
 import {
   CreateTaskSchema,
@@ -365,9 +365,10 @@ function requireTaskInScope(req: Request): void {
 const TEST_UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 /**
- * GET /admin/tasks/test-recency?test_uuids=<uuid>[,<uuid>...]
- * When each given test last ran on each agent (and whether a run is queued),
- * for the host picker's "not tested recently" filter. Org-scoped like the task lists.
+ * GET /admin/tasks/test-recency[?test_uuids=<uuid>[,<uuid>...]]
+ * For the host picker's "not run recently" filter: `agents` is when each agent
+ * last ran ANY test, `runs` when it last ran each given test (empty without
+ * test_uuids). Both say whether a run is queued. Org-scoped like the task lists.
  */
 adminTasksRouter.get(
   '/tasks/test-recency',
@@ -375,11 +376,14 @@ adminTasksRouter.get(
   asyncHandler(async (req, res) => {
     const raw = typeof req.query.test_uuids === 'string' ? req.query.test_uuids : '';
     const testUuids = [...new Set(raw.split(',').map((u) => u.trim()).filter(Boolean))];
-    if (testUuids.length === 0) throw new AppError('test_uuids is required', 400);
     if (testUuids.length > MAX_RECENCY_TESTS) throw new AppError(`At most ${MAX_RECENCY_TESTS} test_uuids`, 400);
     if (testUuids.some((u) => !TEST_UUID_RE.test(u))) throw new AppError('Invalid test_uuids', 400);
 
-    res.json({ success: true, data: { runs: getTestRunRecency(testUuids, listOrgScope(req)) } });
+    const org = listOrgScope(req);
+    res.json({
+      success: true,
+      data: { runs: getTestRunRecency(testUuids, org), agents: getAgentRunRecency(org) },
+    });
   })
 );
 

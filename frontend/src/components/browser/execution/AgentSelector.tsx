@@ -8,9 +8,11 @@ import {
   RECENCY_WINDOW_OPTIONS,
   matchesRecencyWindow,
   recencyLabel,
+  summarizeAnyTestRecency,
   summarizeHostRecency,
+  type RecencyScope,
   type RecencyWindow,
-  type TestRunRecency,
+  type RunRecencyData,
 } from '@/lib/testRunRecency';
 
 interface AgentSelectorProps {
@@ -18,23 +20,39 @@ interface AgentSelectorProps {
   targetAgentIds: string[];
   onSelectionChange: (ids: string[]) => void;
   loading?: boolean;
-  /** The tests about to be sent; with `recencyRuns`, enables the "Not run in" filter. */
+  /** The tests about to be sent. Empty/undefined leaves only the "any test" scope. */
   testUuids?: string[];
-  /** Last run of those tests per agent. null/undefined hides the filter and the row labels. */
-  recencyRuns?: TestRunRecency[] | null;
+  /** Run history per agent. null/undefined hides the "Not run" filter and the row labels. */
+  recency?: RunRecencyData | null;
 }
 
-export default function AgentSelector({ agents, targetAgentIds, onSelectionChange, loading, testUuids, recencyRuns }: AgentSelectorProps) {
+export default function AgentSelector({ agents, targetAgentIds, onSelectionChange, loading, testUuids, recency }: AgentSelectorProps) {
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedTags, setSelectedTags] = useState<string[]>([]);
   const [onlineOnly, setOnlineOnly] = useState(false);
   const [recencyWindow, setRecencyWindow] = useState<RecencyWindow>('any');
 
-  // One "how long ago" per host, judged by the selected test it ran longest ago.
+  const [recencyScopeChoice, setRecencyScopeChoice] = useState<RecencyScope>('test');
+
+  // "This test" needs a selected test; without one only "any test" can be answered.
+  const testCount = testUuids?.length ?? 0;
+  const recencyScope: RecencyScope = testCount > 0 ? recencyScopeChoice : 'any';
+
+  // The history on hand may be for another selection (the Create Task dialog
+  // re-reads it when the test changes). Until the answer for THIS selection
+  // arrives, "this test" can't be judged: no labels, and the filter keeps no host.
+  const recencyLoading =
+    !!recency && recencyScope === 'test' && !(testUuids ?? []).every((u) => recency.testUuids.includes(u));
+
+  // One "how long ago" per host for the chosen scope. Per-test scope judges a
+  // host by the selected test it ran longest ago.
   const recencyByAgent = useMemo(() => {
-    if (!recencyRuns || !testUuids || testUuids.length === 0) return null;
-    return summarizeHostRecency(agents.map((a) => a.id), testUuids, recencyRuns);
-  }, [agents, testUuids, recencyRuns]);
+    if (!recency || recencyLoading) return null;
+    const ids = agents.map((a) => a.id);
+    return recencyScope === 'test' && testUuids
+      ? summarizeHostRecency(ids, testUuids, recency.runs)
+      : summarizeAnyTestRecency(ids, recency.agents);
+  }, [agents, testUuids, recency, recencyScope, recencyLoading]);
   // Fixed for the life of the picker (it remounts each time the drawer opens),
   // so rows don't move in and out of the filter between renders.
   const [now] = useState(() => Date.now());
@@ -50,10 +68,11 @@ export default function AgentSelector({ agents, targetAgentIds, onSelectionChang
       if (searchQuery && !agent.hostname.toLowerCase().includes(searchQuery.toLowerCase())) return false;
       if (selectedTags.length > 0 && !selectedTags.every((t) => agent.tags.includes(t))) return false;
       if (onlineOnly && !agent.is_online) return false;
+      if (recencyLoading && recencyWindow !== 'any') return false;
       if (recencyByAgent && !matchesRecencyWindow(recencyByAgent.get(agent.id), recencyWindow, now)) return false;
       return true;
     });
-  }, [agents, searchQuery, selectedTags, onlineOnly, recencyByAgent, recencyWindow, now]);
+  }, [agents, searchQuery, selectedTags, onlineOnly, recencyByAgent, recencyLoading, recencyWindow, now]);
 
   function toggleAgent(agentId: string, checked: boolean) {
     if (checked) {
@@ -110,14 +129,23 @@ export default function AgentSelector({ agents, targetAgentIds, onSelectionChang
         />
       </div>
 
-      {recencyByAgent && (
+      {recency && (
         <div className="flex items-center gap-2 mb-2">
-          <label htmlFor="agent-recency-window" className="text-xs text-muted-foreground shrink-0">
-            {testUuids && testUuids.length > 1 ? 'Not run (any selected test) in' : 'Not run this test in'}
-          </label>
+          <span className="text-xs text-muted-foreground shrink-0">Not run</span>
           <select
-            id="agent-recency-window"
-            className={`${fieldControlClass} h-8 w-auto flex-1`}
+            aria-label="Not run: which test"
+            className={`${fieldControlClass} h-8 flex-1 min-w-0`}
+            value={recencyScope}
+            onChange={(e) => setRecencyScopeChoice(e.target.value as RecencyScope)}
+          >
+            <option value="test" disabled={testCount === 0}>
+              {testCount === 0 ? 'this test (pick a test first)' : testCount > 1 ? 'any selected test' : 'this test'}
+            </option>
+            <option value="any">any test</option>
+          </select>
+          <select
+            aria-label="Not run: period"
+            className={`${fieldControlClass} h-8 flex-1 min-w-0`}
             value={recencyWindow}
             onChange={(e) => setRecencyWindow(e.target.value as RecencyWindow)}
           >
@@ -159,7 +187,9 @@ export default function AgentSelector({ agents, targetAgentIds, onSelectionChang
 
       <div className="border border-border rounded-lg p-2 max-h-48 overflow-y-auto">
         {filteredAgents.length === 0 ? (
-          <p className="text-sm text-muted-foreground text-center py-3">No agents match filters</p>
+          <p className="text-sm text-muted-foreground text-center py-3">
+            {recencyLoading && recencyWindow !== 'any' ? 'Loading run history...' : 'No agents match filters'}
+          </p>
         ) : (
           filteredAgents.map((agent) => (
             <label key={agent.id} className="flex items-center gap-2 py-1 text-sm cursor-pointer">
@@ -169,13 +199,13 @@ export default function AgentSelector({ agents, targetAgentIds, onSelectionChang
                 checked={targetAgentIds.includes(agent.id)}
                 onChange={(e) => toggleAgent(agent.id, e.target.checked)}
               />
-              <span className={`inline-block h-2 w-2 rounded-full shrink-0 ${agent.is_online ? 'bg-green-500' : 'bg-zinc-500'}`} />
+              <span className={`inline-block h-2 w-2 rounded-full shrink-0 ${agent.is_online ? 'bg-accent' : 'bg-faint'}`} />
               <span className={`truncate ${agent.is_online ? '' : 'text-muted-foreground'}`}>
                 {agent.hostname} ({agent.os}/{agent.arch})
               </span>
               {!agent.is_online && <span className="text-xs text-muted-foreground shrink-0">offline</span>}
               {recencyByAgent && (
-                <span className="ml-auto text-xs text-muted-foreground shrink-0" title="Last run of the selected test on this host">
+                <span className="ml-auto text-xs text-muted-foreground shrink-0" title={recencyScope === 'test' ? 'Last run of the selected test on this host' : 'Last run of any test on this host'}>
                   {recencyLabel(recencyByAgent.get(agent.id), now)}
                 </span>
               )}

@@ -8,7 +8,7 @@ import { analyticsApi, type IndexInfo } from '@/services/api/analytics';
 import { integrationsApi } from '@/services/api/integrations';
 import type { AgentSummary, TaskTestMetadata, ScheduleConfig } from '@/types/agent';
 import type { TestMetadata, BuildInfo } from '@/types/test';
-import type { TestRunRecency } from '@/lib/testRunRecency';
+import type { RunRecencyData } from '@/lib/testRunRecency';
 import AgentSelector from './AgentSelector';
 import ExecutionConfig, { type ExecutionConfigState, getDefaultConfigState } from './ExecutionConfig';
 import DrawerBuildSection from './DrawerBuildSection';
@@ -46,9 +46,9 @@ export default function ExecutionDrawer({ open, onClose, tests, onTasksCreated }
   // notices do; Vercel/serverless has no /tasks/batch, so fall back to per-test POSTs.
   const { preExecutionNotices, randomizedOnce, testRunRecency } = useCapabilities();
 
-  // Last run of the selected tests per agent; null hides the picker's recency filter
-  // (backend without the route, or the request failed).
-  const [recencyRuns, setRecencyRuns] = useState<TestRunRecency[] | null>(null);
+  // Run history per agent (the selected tests, and any test); null hides the picker's
+  // "Not run" filter (backend without the route, or the request failed).
+  const [recency, setRecency] = useState<RunRecencyData | null>(null);
 
   const [builds, setBuilds] = useState<Map<string, BuildInfo | null>>(new Map());
   const [buildsLoading, setBuildsLoading] = useState(false);
@@ -73,11 +73,11 @@ export default function ExecutionDrawer({ open, onClose, tests, onTasksCreated }
       .catch(() => {})
       .finally(() => setAgentsLoading(false));
 
-    setRecencyRuns(null);
+    setRecency(null);
     if (testRunRecency) {
       agentApi.getTestRecency(tests.map((t) => t.uuid))
-        .then(setRecencyRuns)
-        .catch(() => setRecencyRuns(null));
+        .then(setRecency)
+        .catch(() => setRecency(null));
     }
 
     setBuildsLoading(true);
@@ -329,7 +329,7 @@ export default function ExecutionDrawer({ open, onClose, tests, onTasksCreated }
                 onSelectionChange={setTargetAgentIds}
                 loading={agentsLoading}
                 testUuids={testUuids}
-                recencyRuns={recencyRuns}
+                recency={recency}
               />
 
               {/* Execution Config */}
