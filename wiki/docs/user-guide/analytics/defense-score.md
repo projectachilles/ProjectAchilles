@@ -115,6 +115,7 @@ graph TB
     ADP --> DefT
 
     DT --> TRIO[Error Types · ATT&CK Distribution · Chain Depth]
+    DT --> COV[Stage Coverage]
     DT --> LED[Defense Score Ledger]
     DT --> SEC[Secure Score]
     DT --> TREND[Trend Overview]
@@ -165,6 +166,42 @@ wide right column carrying the shapes you read.
   counts at the first stage that blocked it, also for chains that keep running
   after a block (LockBit); the amber "alerted" segment then counts only
   detections on stages before that one.
+
+**Stage coverage (full width, under the top row)**
+
+The Defense Score counts a multi-stage test on a host as protected once **any**
+stage is blocked or detected. That is the right headline, because one broken
+link stops the attack, but it does not show how much of each chain rests on
+that one link. The Stage coverage card shows it, for the same chains as "How
+deep attack chains get" (the latest run of each multi-stage test on each host).
+It does not change the Defense Score, and there is no setting: both numbers are
+always shown.
+
+- **The percentage** is the share of stages that were caught, out of the
+  stages that ran: *blocked* (by the endpoint, or by the EDR's own action on
+  an error-coded stage), *detected* (an EDR alert that names that stage, not
+  blocked) and *got through* (neither). A stage is never credited for an alert
+  that only named the test as a whole or a sibling stage.
+- **Defense Score for these chains** is the any-stage score of these chains
+  only, for comparison. It is not the page's Defense Score, which also counts
+  single-stage tests and cyber-hygiene controls.
+- **Four rows** sort the chains, and add up to the count in the corner:
+  - **Rest on a single stage**: the chain ran every stage and exactly one was
+    caught. If the attacker changes that one technique, nothing else stopped
+    this chain. These are the chains to work on first.
+  - **Depth not tested**: one stage was caught and the test stopped there, so
+    its later stages were skipped. Nothing says whether they would have been
+    caught. This is not a weakness; it is a gap in what was measured.
+  - **Two or more stages caught**: more than one layer stopped or saw the chain.
+  - **No stage caught**: the chain ran end to end with no stage caught on its
+    own evidence.
+- Runs the EDR stopped before any stage ran (it killed the agent, or blocked
+  the test at launch) have no stages and are not counted here. They still
+  count as protected in the Defense Score.
+- The card follows the filter bar. Clicking a row opens Executions filtered to
+  those chains.
+
+The card is not shown on installs whose backend does not offer it (Vercel).
 
 **Posture row — left column**
 
