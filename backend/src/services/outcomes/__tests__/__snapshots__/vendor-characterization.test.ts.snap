@@ -2239,6 +2239,13 @@ exports[`EDR vendor characterization (pre-registry refactor) > fetchBundlePairRu
               },
             },
           },
+          "edr_launch_blocked": {
+            "filter": {
+              "term": {
+                "f0rtika.edr_launch_blocked": true,
+              },
+            },
+          },
           "edr_stopped": {
             "aggs": {
               "stages": {
