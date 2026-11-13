@@ -264,6 +264,38 @@ Accepts the shared filter parameters. For each multi-stage (non-cyber-hygiene) c
 
 The row endpoints (`GET /api/analytics/executions` and `/executions/paginated`) add `edr_terminated` (`true` for a run proven to be killed by the EDR), `edr_terminated_vendors` (`defender`, `crowdstrike`, `sentinelone`), `edr_terminated_alert_ids` (the alert ids that are the evidence) and `stages_unknown`. These rows are Protected as a whole and are excluded from the technique endpoints.
 
+### Stage Coverage
+
+```
+GET /api/analytics/stage-coverage
+```
+
+Accepts the shared filter parameters. Always latest-result posture: `basis` and `scoringMode` are ignored. It reads the same chains as `chain-depth` (the latest run of each multi-stage, non-cyber-hygiene chain on each host, inconclusive latest runs left out) and reports how many stages of those runs were caught. The Defense Score is not affected. Not available on `backend-serverless` (`stageCoverage: false` in `/api/capabilities`).
+
+```json
+{
+  "chains": 23,
+  "chainsProtected": 20,
+  "stagesRan": 97,
+  "blocked": 28,
+  "detected": 13,
+  "through": 56,
+  "coverage": 42.27,
+  "singleStage": { "count": 6, "bundleNames": ["Chain A"] },
+  "depthNotTested": { "count": 9, "bundleNames": ["Chain B"] },
+  "layered": { "count": 5, "bundleNames": ["Chain A"] },
+  "noneCaught": { "count": 3, "bundleNames": ["Chain C"] }
+}
+```
+
+- `chains` is the number of chains counted. Runs with no stages (the EDR killed the agent, or blocked the test at launch) are left out, so it is `chain-depth`'s `chains` minus those runs. `chainsProtected` is how many of them the Defense Score counts as protected (any-stage rule).
+- `stagesRan` is the stages with a conclusive result; `stagesRan = blocked + detected + through`. `blocked` is a stage blocked by the endpoint (exit 105/126/127) or an error-coded stage the EDR's own action stopped. `detected` is an unblocked stage an EDR alert named itself; an alert that only named the bundle or a sibling stage does not count. `coverage` is `(blocked + detected) / stagesRan` as a percentage, `null` when no stage ran.
+- The four groups add up to `chains`; each has a `count` and the distinct, sorted `bundleNames` (a bundle can be in more than one group when its chains differ by host):
+  - `singleStage`: every stage ran and exactly one was caught.
+  - `depthNotTested`: one stage was caught and other stages produced no result, either Skipped (exit 0, the run stopped at its first block) or errored after the block, so its depth is unknown.
+  - `layered`: two or more stages caught.
+  - `noneCaught`: no stage caught on its own evidence. This includes the rare chain that is protected only through an alert naming the bundle.
+
 ### Test Results
 
 ```

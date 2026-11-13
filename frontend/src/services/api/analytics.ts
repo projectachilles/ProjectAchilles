@@ -282,6 +282,37 @@ export interface ChainDepthResponse {
   agentTerminatedBundleNames?: string[];
 }
 
+/** A group of chains on the Stage coverage card. */
+export interface StageCoverageGroup {
+  count: number;
+  /** Distinct bundle names, sorted. */
+  bundleNames: string[];
+}
+
+/**
+ * Stages caught in each attack chain's latest run: the chains of chain depth,
+ * minus runs with no stages (EDR killed the agent, or blocked the test at
+ * launch). The four groups add up to `chains`.
+ */
+export interface StageCoverageResponse {
+  chains: number;
+  /** Of those, protected under the Defense Score's any-stage rule. */
+  chainsProtected: number;
+  stagesRan: number;
+  blocked: number;
+  /** Stages an EDR alert named itself, not blocked. */
+  detected: number;
+  through: number;
+  /** Percent of stages caught; null when no stage ran. */
+  coverage: number | null;
+  /** Ran every stage, exactly one caught. */
+  singleStage: StageCoverageGroup;
+  /** One stage caught, later stages skipped: stopped at its first block. */
+  depthNotTested: StageCoverageGroup;
+  layered: StageCoverageGroup;
+  noneCaught: StageCoverageGroup;
+}
+
 export interface ExecutionActivityDay {
   date: string;
   protected: number;
@@ -718,6 +749,11 @@ export const analyticsApi = {
   /** Always latest-result posture; takes every filter-bar param. */
   async getChainDepth(params?: ExtendedFilterParams & { basis?: 'latest' | 'executions' }): Promise<ChainDepthResponse> {
     const response = await apiClient.get('/analytics/chain-depth', { params });
+    return response.data;
+  },
+
+  async getStageCoverage(params?: ExtendedFilterParams): Promise<StageCoverageResponse> {
+    const response = await apiClient.get('/analytics/stage-coverage', { params });
     return response.data;
   },
 
