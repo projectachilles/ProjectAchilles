@@ -49,6 +49,7 @@ describe('IntegrationTimelineCard', () => {
       to: window.to,
       interval: 'day',
       excludeCyberHygiene: true,
+      scoringMode: 'all-stages',
     });
   });
 

@@ -307,10 +307,15 @@ router.get('/defense-score/by-test', asyncHandler(async (req, res) => {
   res.json(result);
 }));
 
-// GET /api/analytics/defense-score/by-technique - Score by technique
+// GET /api/analytics/defense-score/by-technique - Score by technique.
+// Per-stage unless any-stage is asked for: in any-stage mode a technique is
+// credited for an alert that named only the bundle or a sibling stage, which
+// the technique views never do.
 router.get('/defense-score/by-technique', asyncHandler(async (req, res) => {
   const es = await getEsService();
-  const result = await es.getDefenseScoreByTechnique(extractFilterParams(req.query));
+  const filterParams = extractFilterParams(req.query);
+  const omitted = req.query.scoringMode === undefined || req.query.scoringMode === '';
+  const result = await es.getDefenseScoreByTechnique(omitted ? { ...filterParams, scoringMode: 'all-stages' } : filterParams);
   res.json(result);
 }));
 

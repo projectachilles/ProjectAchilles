@@ -45,6 +45,9 @@ export default function IntegrationTimelineCard({ vendor, window, refreshKey = 0
           to: window.to,
           interval: 'day',
           excludeCyberHygiene: true,
+          // This series counts stage results per day, as it always has; the
+          // API default is now any-stage (one count per test and host).
+          scoringMode: 'all-stages',
         }),
         vendor.api.getAlertTrend(30, window),
       ]);

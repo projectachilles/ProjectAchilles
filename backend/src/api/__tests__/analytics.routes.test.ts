@@ -59,6 +59,7 @@ const mockThreatActorLatest = vi.fn();
 const mockThreatActor = vi.fn();
 const mockTechniqueOutcomes = vi.fn();
 const mockChainDepth = vi.fn();
+const mockByTechnique = vi.fn();
 const mockOutcomeBreakdown = vi.fn();
 const mockTestResults = vi.fn();
 const mockGetPaginatedExecutions = vi.fn();
@@ -86,6 +87,7 @@ vi.mock('../../services/analytics/elasticsearch.js', () => ({
     getThreatActorCoverage = mockThreatActor;
     getTechniqueOutcomes = mockTechniqueOutcomes;
     getChainDepth = mockChainDepth;
+    getDefenseScoreByTechnique = mockByTechnique;
     getOutcomeBreakdown = mockOutcomeBreakdown;
     getTestResults = mockTestResults;
     getPaginatedExecutions = mockGetPaginatedExecutions;
@@ -619,6 +621,15 @@ describe('analytics routes', () => {
     it('passes scoringMode=all-stages through', async () => {
       await request(createApp()).get('/api/analytics/defense-score?scoringMode=all-stages');
       expect(mockGetDefenseScore).toHaveBeenCalledWith(expect.objectContaining({ scoringMode: 'all-stages' }));
+    });
+
+    it('/defense-score/by-technique stays per-stage unless any-stage is asked for', async () => {
+      // A technique must not be marked protected because a sibling stage was.
+      mockByTechnique.mockResolvedValue([]);
+      await request(createApp()).get('/api/analytics/defense-score/by-technique?from=now-7d');
+      expect(mockByTechnique).toHaveBeenLastCalledWith(expect.objectContaining({ scoringMode: 'all-stages' }));
+      await request(createApp()).get('/api/analytics/defense-score/by-technique?scoringMode=any-stage');
+      expect(mockByTechnique).toHaveBeenLastCalledWith(expect.objectContaining({ scoringMode: 'any-stage' }));
     });
 
     it('rejects an unknown scoringMode with 400', async () => {
