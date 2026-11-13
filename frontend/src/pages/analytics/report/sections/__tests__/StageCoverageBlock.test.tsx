@@ -2,7 +2,7 @@ import { describe, it, expect } from 'vitest';
 import { render, screen, within } from '@testing-library/react';
 import { StageCoverageBlock } from '../StageCoverageBlock';
 import { ExecutiveSummary } from '../ExecutiveSummary';
-import { makeReport } from '../../__tests__/fixtures';
+import { makeReport, makeWindow } from '../../__tests__/fixtures';
 import type { StageCoverageResponse } from '@/services/api/analytics';
 
 const HEADING = 'Attack chains: how many stages caught them';
@@ -34,6 +34,21 @@ describe('StageCoverageBlock', () => {
     expect(screen.getByText('87%')).toBeInTheDocument();
     expect(screen.getByText(/of these chains protected \(20 of 23\)/)).toBeInTheDocument();
     expect(screen.getByRole('img', { name: 'Blocked 28, Detected 13, Got through 56' })).toBeInTheDocument();
+  });
+
+  it('says the last 365 days when the period is longer (All time), since older chains are not counted', () => {
+    const report = withCoverage();
+    report.meta.window = makeWindow({ effectiveFrom: '2000-01-01T00:00:00.000Z', effectiveTo: '2026-10-13T23:40:00.000Z' });
+    render(<StageCoverageBlock report={report} />);
+    expect(screen.getByText(/23 chains · latest run of each multi-stage test per endpoint in the last 365 days of this period/)).toBeInTheDocument();
+    expect(screen.getByText(/Only the latest run of each chain in the last 365 days of the period is counted/)).toBeInTheDocument();
+  });
+
+  it('keeps "in this period" for a period of exactly 365 days', () => {
+    const report = withCoverage();
+    report.meta.window = makeWindow({ effectiveFrom: '2025-10-13T23:40:00.000Z', effectiveTo: '2026-10-13T23:40:00.000Z' });
+    render(<StageCoverageBlock report={report} />);
+    expect(screen.getByText(/per endpoint in this period/)).toBeInTheDocument();
   });
 
   it('lists the four groups in order, with chain counts and test names', () => {

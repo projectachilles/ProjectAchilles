@@ -105,15 +105,15 @@ describe('buildVerdict: chains resting on a single stage', () => {
   });
   const SENTENCE = /attack chain/;
 
-  it('says how many chains were caught by a single stage, before the Defense Score', () => {
+  it('says how many chains rest on a single stage, before the Defense Score', () => {
     const sentences = buildVerdict(makeReport({ stageCoverage: coverage(6) }));
-    const at = sentences.indexOf('Of 23 attack chains, 6 were caught by a single stage.');
+    const at = sentences.indexOf('Of 23 attack chains, 6 rest on a single stage: every stage ran and only one was caught.');
     expect(at).toBeGreaterThan(-1);
     expect(sentences[at + 1]).toBe('The Defense Score for these filters is 61.5%.');
   });
 
   it('uses the singular for one chain', () => {
-    expect(buildVerdict(makeReport({ stageCoverage: coverage(1, 1) }))).toContain('Of 1 attack chain, 1 was caught by a single stage.');
+    expect(buildVerdict(makeReport({ stageCoverage: coverage(1, 1) }))).toContain('Of 1 attack chain, 1 rests on a single stage: every stage ran and only one was caught.');
   });
 
   it('says nothing when no chain rests on a single stage, or without stage coverage', () => {

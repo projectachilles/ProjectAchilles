@@ -175,7 +175,7 @@ html:has(.report-print) body {
 .report-print .rp-sc-figs .rp-kpi { padding-top: 2px; padding-bottom: 2px; }
 .report-print .rp-seg-through { background: var(--rp-unprotected); }
 .report-print .rp-sc-table { margin-top: 8px; }
-.report-print .rp-sc-table td { vertical-align: top; }
+.report-print .rp-table.rp-sc-table td { vertical-align: top; }
 .report-print .rp-sc-table td:first-child { white-space: nowrap; }
 .report-print .rp-sc-table td:first-child span { display: block; font-size: 7.5pt; color: var(--rp-ink-2); }
 /* Test names wrap, at any character if they must, so one long name never widens the page. */

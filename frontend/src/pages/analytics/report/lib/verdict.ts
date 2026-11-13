@@ -54,7 +54,7 @@ function singleStageSentence(report: ExecutionReport): string | null {
   const sc = report.stageCoverage;
   if (!sc || sc.singleStage.count === 0) return null;
   const n = sc.singleStage.count;
-  return `Of ${plural(sc.chains, 'attack chain')}, ${n} ${n === 1 ? 'was' : 'were'} caught by a single stage.`;
+  return `Of ${plural(sc.chains, 'attack chain')}, ${n} ${n === 1 ? 'rests' : 'rest'} on a single stage: every stage ran and only one was caught.`;
 }
 
 export function buildVerdict(report: ExecutionReport): string[] {

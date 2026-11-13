@@ -28,6 +28,16 @@ function names(group: StageCoverageGroup): string {
   return more > 0 ? `${shown.join('; ')}; and ${more} more` : shown.join('; ');
 }
 
+/** Stage coverage looks back at most this far (the dashboard's latest-result cap). */
+const MAX_LOOKBACK_DAYS = 365;
+
+/** True when the report period is longer than stage coverage looks back (All time, multi-year ranges). */
+function exceedsLookback(report: ExecutionReport): boolean {
+  const { effectiveFrom, effectiveTo } = report.meta.window;
+  const span = Date.parse(effectiveTo) - Date.parse(effectiveFrom);
+  return Number.isFinite(span) && span > MAX_LOOKBACK_DAYS * 86_400_000;
+}
+
 const pct = (part: number, whole: number) => `${Math.round((part / whole) * 100)}%`;
 
 /**
@@ -47,13 +57,15 @@ export function StageCoverageBlock({ report }: { report: ExecutionReport }) {
   if (!sc || sc.chains === 0) return null;
 
   const caught = sc.blocked + sc.detected;
+  // A chain whose latest run is older than the lookback is not in these figures, so say so.
+  const capped = exceedsLookback(report);
   const present = SEGMENTS.filter((s) => sc[s.key] > 0);
   const barLabel = SEGMENTS.map((s) => `${s.label} ${sc[s.key]}`).join(', ');
 
   return (
     <div className="rp-avoid">
       <h3 className="rp-h3">
-        {TITLE} <small>{plural(sc.chains, 'chain')} · latest run of each multi-stage test per endpoint in this period</small>
+        {TITLE} <small>{plural(sc.chains, 'chain')} · latest run of each multi-stage test per endpoint in {capped ? `the last ${MAX_LOOKBACK_DAYS} days of this period` : 'this period'}</small>
       </h3>
       <div className="rp-sc-figs">
         <div className="rp-kpi">
@@ -103,8 +115,9 @@ export function StageCoverageBlock({ report }: { report: ExecutionReport }) {
         </tbody>
       </table>
       <p className="rp-caption">
-        A chain is one multi-stage test on one endpoint. Only the latest run of each chain in the period is counted, so
-        these figures differ from the bar above, which counts every stage result. Runs the EDR stopped before any stage
+        A chain is one multi-stage test on one endpoint. Only the latest run of each chain in{' '}
+        {capped ? `the last ${MAX_LOOKBACK_DAYS} days of the period` : 'the period'} is counted, so these figures differ
+        from the bar above, which counts every stage result. Runs the EDR stopped before any stage
         ran are not counted. A test appears in more than one row when its chains differ by endpoint.
       </p>
     </div>
