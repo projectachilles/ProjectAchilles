@@ -19,6 +19,7 @@ This project uses two version streams:
 - **Windows installer `-NoBuild`**: starts the images already loaded (e.g. from the offline kit) instead of rebuilding them.
 
 ### Changed
+- **API calls without `scoringMode` now use the any-stage rule.** The dashboard scores a multi-stage test on a host once, protected if any stage is blocked or detected (`any-stage`). An analytics API call that left `scoringMode` out was scored per stage instead (`all-stages`), so the API and CLI could show a different "Defense Score" than the console. The default is now `any-stage`: an unparameterised `/defense-score` (and its trend and by-test, by-severity, by-category and by-hostname breakdowns) counts a multi-stage test once per host instead of once per stage; pass `scoringMode=all-stages` to keep the per-stage numbers. `/defense-score/by-technique` keeps its per-stage default, so a technique is never credited for a sibling stage. An unknown `scoringMode` now returns 400 `Invalid scoringMode` instead of silently meaning per-stage. No console screen changes, and the Defense Score alert is unchanged (it still scores every stage result of the last 7 days). `backend-serverless` is unchanged.
 - **The local Elasticsearch seed has its own image** (`deploy/es-seed/`, `docker-compose.yml`): its Python client is installed when the image is built, not by `pip` on the first `up`. `docker-compose.server.yml` is unchanged.
 
 ### Fixed
