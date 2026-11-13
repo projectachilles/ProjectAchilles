@@ -257,7 +257,7 @@ export function AlertsConfig({ onStatusChange }: AlertsConfigProps) {
           placeholder="70"
           value={defenseScoreMin}
           onChange={(e) => setDefenseScoreMin(e.target.value)}
-          helperText="Alert when Defense Score drops below this value"
+          helperText="Alert when the Defense Score drops below this value. It is the dashboard's score: the latest result of each test on each host, over the last 30 days."
         />
 
         <Input
