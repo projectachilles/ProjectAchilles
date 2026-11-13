@@ -23,7 +23,7 @@ vi.mock('../../analytics/settings.js', () => ({
 vi.mock('../../analytics/elasticsearch.js', () => ({
   ElasticsearchService: function () {
     return {
-      getDefenseScore: vi.fn().mockResolvedValue({ score: 50, protectedCount: 5, unprotectedCount: 5, totalExecutions: 10 }),
+      getLatestScoreSummary: vi.fn().mockResolvedValue({ score: 50, pairCount: 10, windowLabel: '30d' }),
       getErrorRate: vi.fn().mockResolvedValue({ errorRate: 0, errorCount: 0, conclusiveCount: 10, totalTestActivity: 10 }),
     };
   },

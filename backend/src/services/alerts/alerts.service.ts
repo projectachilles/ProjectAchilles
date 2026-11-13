@@ -1,6 +1,7 @@
 // Core alerting service — evaluates thresholds, enforces cooldown, dispatches
 // to configured channels (Slack, email).  History is kept in-memory (ring buffer).
 
+import { isDeepStrictEqual } from 'node:util';
 import { IntegrationsSettingsService } from '../integrations/settings.js';
 import { SettingsService } from '../analytics/settings.js';
 import { ElasticsearchService } from '../analytics/elasticsearch.js';
@@ -20,6 +21,8 @@ export interface MetricStatus {
   threshold: number;
   unit: string;
   direction: 'below' | 'above';
+  /** What the number is based on, printed next to it in the alert. */
+  detail?: string;
 }
 
 export interface AlertHistoryEntry {
@@ -36,12 +39,46 @@ export interface AlertHistoryEntry {
 
 const MAX_HISTORY = 50;
 
+/**
+ * The Defense Score the alert compares to its threshold: the dashboard
+ * tile's rule (latest conclusive result per test and host, a multi-stage test
+ * protected if any stage is), over a fixed window, because the tile's own
+ * range is whatever the viewer picked.
+ */
+const DEFENSE_SCORE_WINDOW_DAYS = 30;
+/**
+ * How long after a result the trailing evaluation runs: past the posture
+ * snapshot's 30 s lifetime, with room for the fetch itself.
+ */
+const TRAILING_EVALUATION_MS = 35_000;
+const DEFENSE_SCORE_DETAIL = `latest result per test and host, last ${DEFENSE_SCORE_WINDOW_DAYS} days`;
+
 // ---------------------------------------------------------------------------
 // Service
 // ---------------------------------------------------------------------------
 
+type AnalyticsConnection = ConstructorParameters<typeof ElasticsearchService>[0];
+
 export class AlertsService {
   private history: AlertHistoryEntry[] = [];
+  /**
+   * Kept between evaluations: an evaluation runs on every task result, and the
+   * service's short-lived posture cache then answers a burst of results (a
+   * campaign finishing on many hosts) from one fetch. Rebuilt when the
+   * analytics settings change.
+   */
+  private es: { settings: AnalyticsConnection; service: ElasticsearchService } | null = null;
+  private trailing: ReturnType<typeof setTimeout> | null = null;
+
+  private esFor(settings: AnalyticsConnection): ElasticsearchService {
+    // Compared by value: the settings are re-read (a new object) on every
+    // evaluation. No digest or serialized copy of them is kept; the service
+    // already holds this same object.
+    if (!this.es || !isDeepStrictEqual(this.es.settings, settings)) {
+      this.es = { settings, service: new ElasticsearchService(settings) };
+    }
+    return this.es.service;
+  }
 
   // ── Public API ──────────────────────────────────────────────
 
@@ -50,46 +87,76 @@ export class AlertsService {
    * alerts to enabled channels when any metric breaches its threshold.
    */
   async evaluateAndNotify(triggerTest: string, triggerAgent: string): Promise<void> {
+    if (await this.evaluate(triggerTest, triggerAgent)) this.scheduleTrailing(triggerTest, triggerAgent);
+  }
+
+  /**
+   * One more evaluation after the last result of a burst. The Defense Score
+   * comes from a snapshot cached for about 30 s, so an evaluation can be
+   * answered from before the result that triggered it; without this, the last
+   * results of a burst would not be evaluated until some later result arrived.
+   * Each new result pushes the trailing evaluation back, so a burst gets one.
+   */
+  private scheduleTrailing(triggerTest: string, triggerAgent: string): void {
+    if (this.trailing) clearTimeout(this.trailing);
+    this.trailing = setTimeout(() => {
+      this.trailing = null;
+      this.evaluate(triggerTest, triggerAgent).catch((err) => {
+        console.error('[Alerts] Trailing evaluation failed:', err instanceof Error ? err.message : err);
+      });
+    }, TRAILING_EVALUATION_MS);
+    // Never keep the process alive for an alert check.
+    this.trailing.unref?.();
+  }
+
+  /** Returns false when nothing was evaluated (alerting off, in cooldown, Elasticsearch not configured). */
+  private async evaluate(triggerTest: string, triggerAgent: string): Promise<boolean> {
     // 1. Check alerting is configured
     const integrationsSettings = new IntegrationsSettingsService();
-    if (!integrationsSettings.isAlertingConfigured()) return;
+    if (!integrationsSettings.isAlertingConfigured()) return false;
 
     // 2. Get alert settings — bail if thresholds disabled
     const alertSettings = integrationsSettings.getAlertSettings();
-    if (!alertSettings?.thresholds?.enabled) return;
+    if (!alertSettings?.thresholds?.enabled) return false;
 
     // 3. Cooldown check
     if (alertSettings.last_alert_at) {
       const elapsed = Date.now() - new Date(alertSettings.last_alert_at).getTime();
-      if (elapsed < alertSettings.cooldown_minutes * 60_000) return;
+      if (elapsed < alertSettings.cooldown_minutes * 60_000) return false;
     }
 
     // 4. Verify Elasticsearch is configured
     const analyticsSettings = new SettingsService();
-    if (!analyticsSettings.isConfigured()) return;
+    if (!analyticsSettings.isConfigured()) return false;
 
     const esSettings = analyticsSettings.getSettings();
-    const esService = new ElasticsearchService(esSettings);
+    const esService = this.esFor(esSettings);
 
     const breaches: MetricStatus[] = [];
     const passing: MetricStatus[] = [];
 
-    // 5. Defense Score
+    // 5. Defense Score (latest-result basis). No pair with a conclusive
+    // result means there is no score: the check is skipped, never read as 0%.
     if (alertSettings.thresholds.defense_score_min != null) {
-      const result = await esService.getDefenseScore({});
-      const current = result.score;
-      const threshold = alertSettings.thresholds.defense_score_min;
-      const status: MetricStatus = {
-        metric: 'Defense Score',
-        current,
-        threshold,
-        unit: '%',
-        direction: 'below',
-      };
-      if (current < threshold) {
-        breaches.push(status);
-      } else {
-        passing.push(status);
+      const { score } = await esService.getLatestScoreSummary({
+        from: `now-${DEFENSE_SCORE_WINDOW_DAYS}d`,
+        scoringMode: 'any-stage',
+      });
+      if (score !== null) {
+        const threshold = alertSettings.thresholds.defense_score_min;
+        const status: MetricStatus = {
+          metric: 'Defense Score',
+          current: score,
+          threshold,
+          unit: '%',
+          direction: 'below',
+          detail: DEFENSE_SCORE_DETAIL,
+        };
+        if (score < threshold) {
+          breaches.push(status);
+        } else {
+          passing.push(status);
+        }
       }
     }
 
@@ -165,7 +232,7 @@ export class AlertsService {
     }
 
     // 8. No breaches — nothing to alert
-    if (breaches.length === 0) return;
+    if (breaches.length === 0) return true;
 
     // 9. Build alert payload
     const dashboardUrl =
@@ -221,6 +288,7 @@ export class AlertsService {
     if (this.history.length > MAX_HISTORY) {
       this.history.length = MAX_HISTORY;
     }
+    return true;
   }
 
   // ── Agent Alerts ──────────────────────────────────────────────

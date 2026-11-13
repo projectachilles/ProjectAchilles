@@ -219,17 +219,19 @@ interface PostureShapeSpec extends PairFetchOptions {
   withRaw: boolean;
 }
 
-type PostureShape = 'series' | 'metadata' | 'breakdown';
+type PostureShape = 'series' | 'metadata' | 'breakdown' | 'score';
 
 /**
  * The snapshot shapes: tile + trend share 'series'; the four breakdowns share
  * 'metadata'; the outcome breakdown card uses 'breakdown' (latest run per pair,
- * no lookback, no metadata, with rawRuns for risk-accepted pairs).
+ * no lookback, no metadata, with rawRuns for risk-accepted pairs); 'score' is
+ * the same without rawRuns, for the alert, which needs only the adjusted score.
  */
 const POSTURE_SHAPES: Record<PostureShape, PostureShapeSpec> = {
   series: { lookback: true, withMetadata: false, withRaw: true, latestOnly: false },
   metadata: { lookback: false, withMetadata: true, withRaw: false, latestOnly: true },
   breakdown: { lookback: false, withMetadata: false, withRaw: true, latestOnly: true },
+  score: { lookback: false, withMetadata: false, withRaw: false, latestOnly: true },
 };
 
 /**
@@ -919,7 +921,7 @@ export class ElasticsearchService {
   }
 
   // Get overall defense score (basis=executions). Its score is never null —
-  // an empty range scores 0, as it always has (alerts.service relies on it).
+  // an empty range scores 0, as it always has.
   async getDefenseScore(
     params: AnalyticsQueryParams & Partial<ExtendedAnalyticsQueryParams>,
   ): Promise<DefenseScoreResponse & { score: number }> {
@@ -1968,6 +1970,22 @@ export class ElasticsearchService {
       };
     }
     return out;
+  }
+
+  /**
+   * The latest-result score on its own, for the Defense Score alert: the
+   * tile's rule (latest conclusive result per test x endpoint pair, risk
+   * acceptances excluded) from the lightest snapshot (latest run per pair,
+   * no trend history, no metadata, no unadjusted copy). Outcome filters are ignored: the alert
+   * scores every pair. score is null when no pair has a conclusive result.
+   */
+  async getLatestScoreSummary(
+    params: AnalyticsQueryParams & Partial<ExtendedAnalyticsQueryParams>,
+  ): Promise<{ score: number | null; pairCount: number; windowLabel: string }> {
+    const scope = await this.resolvePostureScope({ ...params, result: undefined, errorCodes: undefined, errorNames: undefined });
+    const { window, runs } = await this.latestPostureFor(scope, 'score');
+    const summary = summarizePairs(latestPairsAsOf(runs, window.toMs, window.freshnessMs));
+    return { score: summary.score, pairCount: summary.pairCount, windowLabel: window.label };
   }
 
   /** Defense Score, basis=latest. Same snapshot and calculation as the trend's last point. */
