@@ -144,13 +144,13 @@ function StageCoverageCard({ data, loading, onRowClick }: StageCoverageCardProps
                   onClick={() => onRowClick?.(row.group.bundleNames)}
                   aria-label={rowName(row)}
                   title={names || undefined}
-                  className="grid w-full grid-cols-[minmax(0,150px)_minmax(0,1fr)_64px] items-center gap-x-2.5 rounded px-1 py-1 text-left transition-colors enabled:hover:bg-raised disabled:cursor-default"
+                  className="grid w-full grid-cols-[minmax(0,1fr)_64px] items-center sm:grid-cols-[172px_minmax(0,1fr)_64px] gap-x-2.5 rounded px-1 py-1 text-left transition-colors enabled:hover:bg-raised disabled:cursor-default"
                 >
                   <span className={cn('flex min-w-0 flex-col text-xs leading-tight', active ? ROW_COLOR[row.kind] : 'text-muted')}>
                     <span className="truncate">{row.label}</span>
                     <span className="truncate text-[10.5px] opacity-80">{row.sub}</span>
                   </span>
-                  <span className="truncate text-[11.5px] text-muted">{names}</span>
+                  <span className="hidden truncate text-[11.5px] text-muted sm:block">{names}</span>
                   <span
                     className={cn(
                       'text-right font-mono text-[11px]',
