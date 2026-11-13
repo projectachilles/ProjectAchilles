@@ -115,7 +115,7 @@ graph TB
     ADP --> DefT
 
     DT --> TRIO[Error Types · ATT&CK Distribution · Chain Depth]
-    DT --> COV[Stage Coverage]
+    DT --> STG[Stage Coverage]
     DT --> LED[Defense Score Ledger]
     DT --> SEC[Secure Score]
     DT --> TREND[Trend Overview]
@@ -189,9 +189,10 @@ always shown.
   - **Rest on a single stage**: the chain ran every stage and exactly one was
     caught. If the attacker changes that one technique, nothing else stopped
     this chain. These are the chains to work on first.
-  - **Depth not tested**: one stage was caught and the test stopped there, so
-    its later stages were skipped. Nothing says whether they would have been
-    caught. This is not a weakness; it is a gap in what was measured.
+  - **Depth not tested**: one stage was caught and the rest of the chain
+    produced no result: the test stopped there and skipped its later stages,
+    or those stages errored after the block. Nothing says whether they would
+    have been caught. This is not a weakness; it is a gap in what was measured.
   - **Two or more stages caught**: more than one layer stopped or saw the chain.
   - **No stage caught**: the chain ran end to end with no stage caught on its
     own evidence.

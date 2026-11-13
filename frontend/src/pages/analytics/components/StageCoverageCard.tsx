@@ -29,7 +29,7 @@ const chainCount = (n: number) => `${n} ${n === 1 ? 'chain' : 'chains'}`;
 function rowsOf(data: StageCoverageResponse): Row[] {
   return [
     { kind: 'single', label: 'Rest on a single stage', sub: 'ran every stage, one caught', group: data.singleStage },
-    { kind: 'untested', label: 'Depth not tested', sub: 'stopped at first block', group: data.depthNotTested },
+    { kind: 'untested', label: 'Depth not tested', sub: 'later stages did not run', group: data.depthNotTested },
     { kind: 'layered', label: 'Two or more stages caught', sub: 'layered', group: data.layered },
     { kind: 'none', label: 'No stage caught', sub: 'ran end to end', group: data.noneCaught },
   ];
@@ -45,7 +45,7 @@ const ROW_COLOR: Record<RowKind, string> = {
 /** What a row means, for screen readers (the visible sub-label is terse). */
 const ROW_MEANING: Record<RowKind, string> = {
   single: 'ran every stage and exactly one was caught',
-  untested: 'stopped at the first block, so later stages never ran',
+  untested: 'had one stage caught and later stages that did not run',
   layered: 'had two or more stages caught',
   none: 'ran end to end with no stage caught',
 };

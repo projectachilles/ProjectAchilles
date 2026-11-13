@@ -3669,20 +3669,24 @@ export class ElasticsearchService {
    * Stage coverage, basis=latest: for each settled chain (the chains chain
    * depth counts), the stages of its latest run that were blocked, detected
    * on their own alert, or got through, plus how many chains rest on a single
-   * caught stage. A chain with one caught stage whose later stages were
-   * Skipped stopped at its first block, so its depth was not tested. Runs
+   * caught stage. A chain with one caught stage whose other stages were
+   * Skipped or errored after the block has an untested depth. Runs
    * with no stages (EDR killed the agent, or blocked the test at launch) are
    * left out. The Defense Score is not affected: this reads the same runs.
    */
   async getStageCoverage(params: AnalyticsQueryParams & Partial<ExtendedAnalyticsQueryParams>): Promise<StageCoverageResponse> {
     const scope = await this.resolvePostureScope({ ...params, scoringMode: 'any-stage' });
-    const [{ outcome, settled }, skipped] = await Promise.all([
+    const [{ outcome, settled, inconclusiveRuns }, skipped] = await Promise.all([
       this.settledChains(scope),
       this.getBundleSkippedRuns(scope),
     ]);
     const chains = applyOutcomeFilters(settled, outcome)
       .filter(isChainRun)
       .filter((p) => !p.agentTerminated && !p.launchBlocked);
+    // A settled run can still have stages that errored after its block
+    // (errorsAfterStop): like Skipped stages, they produced no result, so
+    // they count as not run (how many is not fetched; one is enough).
+    const erroredInRun = (p: ChainRun) => (inconclusiveRuns.get(p.pairKey)?.ts === p.ts ? 1 : 0);
     return summarizeStageCoverage(
       chains.map((p) => ({
         bundleName: p.testName,
@@ -3690,7 +3694,7 @@ export class ElasticsearchService {
         ran: p.stagesRun,
         blocked: p.blockedCount,
         detected: p.detectedCount,
-        skipped: skipped.get(runKey(p.pairKey, p.ts)) ?? 0,
+        skipped: (skipped.get(runKey(p.pairKey, p.ts)) ?? 0) + erroredInRun(p),
       })),
     );
   }

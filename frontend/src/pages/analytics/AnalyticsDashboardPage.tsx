@@ -777,6 +777,7 @@ export default function AnalyticsDashboardPage() {
       await Promise.all([
         loadDashboardData(),
         capabilities.loaded ? loadSlotData() : Promise.resolve(),
+        capabilities.loaded && capabilities.stageCoverage ? loadStageCoverage() : Promise.resolve(),
         loadDefenderSummary(),
         loadCrowdStrikeSummary(),
         loadSentinelOneSummary(),
@@ -786,7 +787,7 @@ export default function AnalyticsDashboardPage() {
       await loadExecutionsData();
     }
     setIsRefreshing(false);
-  }, [activeTab, loadDashboardData, loadDefenderSummary, loadCrowdStrikeSummary, loadSentinelOneSummary, loadSophosSummary, loadExecutionsData]);
+  }, [activeTab, loadDashboardData, loadStageCoverage, capabilities.loaded, capabilities.stageCoverage, loadDefenderSummary, loadCrowdStrikeSummary, loadSentinelOneSummary, loadSophosSummary, loadExecutionsData]);
 
   // Handle sort change
   const handleSort = (field: string, order: 'asc' | 'desc') => {

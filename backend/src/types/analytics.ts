@@ -403,7 +403,7 @@ export interface StageCoverageResponse {
   coverage: number | null;
   /** Ran every stage, exactly one caught. */
   singleStage: StageCoverageGroup;
-  /** One stage caught, later stages skipped: the orchestrator stopped at its first block. */
+  /** One stage caught, other stages skipped or errored after the block: the rest of the chain was not tested. */
   depthNotTested: StageCoverageGroup;
   /** Two or more stages caught. */
   layered: StageCoverageGroup;

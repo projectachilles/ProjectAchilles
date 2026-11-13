@@ -326,6 +326,15 @@ describe('Stage coverage card wiring', () => {
     expect(mocks.analytics.api.getStageCoverage).toHaveBeenCalledTimes(1);
   });
 
+  it('Refresh reloads stage coverage with the rest of the dashboard', async () => {
+    renderPage();
+    await screen.findByText('Stage coverage');
+    await waitFor(() => expect(mocks.analytics.api.getChainDepth).toHaveBeenCalledTimes(1));
+    fireEvent.click(screen.getByRole('button', { name: /Refresh/ }));
+    await waitFor(() => expect(mocks.analytics.api.getChainDepth).toHaveBeenCalledTimes(2));
+    await waitFor(() => expect(mocks.analytics.api.getStageCoverage).toHaveBeenCalledTimes(2));
+  });
+
   it('neither asks nor shows the card when the backend has no stage coverage', async () => {
     mocks.caps = { outcomeBreakdown: false, loaded: true, stageCoverage: false };
     renderPage();

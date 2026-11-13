@@ -292,7 +292,7 @@ Accepts the shared filter parameters. Always latest-result posture: `basis` and 
 - `stagesRan` is the stages with a conclusive result; `stagesRan = blocked + detected + through`. `blocked` is a stage blocked by the endpoint (exit 105/126/127) or an error-coded stage the EDR's own action stopped. `detected` is an unblocked stage an EDR alert named itself; an alert that only named the bundle or a sibling stage does not count. `coverage` is `(blocked + detected) / stagesRan` as a percentage, `null` when no stage ran.
 - The four groups add up to `chains`; each has a `count` and the distinct, sorted `bundleNames` (a bundle can be in more than one group when its chains differ by host):
   - `singleStage`: every stage ran and exactly one was caught.
-  - `depthNotTested`: one stage was caught and later stages were Skipped (exit 0), so the run stopped at its first block and its depth is unknown.
+  - `depthNotTested`: one stage was caught and other stages produced no result, either Skipped (exit 0, the run stopped at its first block) or errored after the block, so its depth is unknown.
   - `layered`: two or more stages caught.
   - `noneCaught`: no stage caught on its own evidence. This includes the rare chain that is protected only through an alert naming the bundle.
 

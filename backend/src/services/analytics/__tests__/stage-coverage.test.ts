@@ -171,6 +171,17 @@ describe('getStageCoverage', () => {
     expect(res.depthNotTested.count).toBe(0);
   });
 
+  it('a chain blocked once whose later stages errored is depth not tested, not single stage', async () => {
+    // Chain depth keeps this run (its errors all come after the block), but
+    // the errored stages never produced a result, so nothing says the chain
+    // rests on that one stage.
+    useIndex([stage(T0, 1, 126), stage(T0, 2, 999), stage(T0, 3, 999), stage(T0, 4, 260)]);
+    const res = await createService().getStageCoverage(RANGE);
+    expect(res.chains).toBe(1);
+    expect(res.depthNotTested.count).toBe(1);
+    expect(res.singleStage.count).toBe(0);
+  });
+
   it('leaves out runs the EDR stopped before any stage', async () => {
     useIndex([stageless(T0, 'host-1', 'edr_terminated'), stageless(T0, 'host-2', 'edr_launch_blocked')]);
     const res = await createService().getStageCoverage(RANGE);

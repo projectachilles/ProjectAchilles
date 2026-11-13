@@ -17,7 +17,7 @@ export interface ChainStageCounts {
   blocked: number;
   /** Stages an EDR alert named itself, not blocked. */
   detected: number;
-  /** Stages reported as Skipped: the orchestrator stopped before them. */
+  /** Stages of the run with no result: Skipped (the orchestrator stopped before them) or errored after the block. */
   skipped: number;
 }
 
