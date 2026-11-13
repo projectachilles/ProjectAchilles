@@ -170,6 +170,17 @@ html:has(.report-print) body {
 .report-print .rp-kc-rate { font: 500 14pt/1.1 var(--rp-mono); margin: 4px 0 3px; }
 .report-print .rp-kc-sub { color: var(--rp-ink-2); font-size: 8pt; margin-top: 3px; }
 
+/* ── Stage coverage of attack chains ── */
+.report-print .rp-sc-figs { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); margin: 6px 0 8px; }
+.report-print .rp-sc-figs .rp-kpi { padding-top: 2px; padding-bottom: 2px; }
+.report-print .rp-seg-through { background: var(--rp-unprotected); }
+.report-print .rp-sc-table { margin-top: 8px; }
+.report-print .rp-table.rp-sc-table td { vertical-align: top; }
+.report-print .rp-sc-table td:first-child { white-space: nowrap; }
+.report-print .rp-sc-table td:first-child span { display: block; font-size: 7.5pt; color: var(--rp-ink-2); }
+/* Test names wrap, at any character if they must, so one long name never widens the page. */
+.report-print .rp-sc-table td:last-child { overflow-wrap: anywhere; }
+
 /* ── Tables and blocks ── */
 .report-print .rp-table { width: 100%; border-collapse: collapse; font-size: 8.5pt; }
 .report-print .rp-table th { font: 500 7.5pt var(--rp-sans); color: var(--rp-ink-2); text-align: left; padding: 4px 6px; border-bottom: 1px solid var(--rp-ink-3); white-space: nowrap; }

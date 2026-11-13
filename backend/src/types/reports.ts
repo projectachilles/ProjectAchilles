@@ -2,6 +2,7 @@
 // Mirrored in frontend/src/services/api/reports.ts; change both together.
 
 import type { EdrVendorKey } from '../services/outcomes/vendors.js';
+import type { StageCoverageResponse } from './analytics.js';
 
 export type StageOutcome =
   | 'protected'
@@ -32,7 +33,7 @@ export interface ReportWindow {
 }
 
 /** Optional report sections that depend on a fallible lookup outside the required queries. */
-export type ReportEnrichment = 'defenseScore' | 'alerts' | 'startTimes' | 'acceptedRisks';
+export type ReportEnrichment = 'defenseScore' | 'stageCoverage' | 'alerts' | 'startTimes' | 'acceptedRisks';
 
 export interface ReportMeta {
   reportId: string;
@@ -239,6 +240,12 @@ export interface ExecutionReport {
   meta: ReportMeta;
   totals: ReportTotals;
   defenseScore: ReportDefenseScore | null;
+  /**
+   * Stage coverage of the attack chains for the report's filters: the latest run of each chain in
+   * the window, like the dashboard card (not every run, unlike the rest of the report). null when
+   * the lookup failed ('stageCoverage' in meta.unavailable) or the report is empty.
+   */
+  stageCoverage: StageCoverageResponse | null;
   timeline: ReportTimeline;
   tests: ReportTest[];
   otherTests: ReportOtherTest[];
