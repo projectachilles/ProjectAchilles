@@ -659,6 +659,16 @@ router.get('/chain-depth', asyncHandler(async (req, res) => {
   res.json(result);
 }));
 
+// GET /api/analytics/stage-coverage - Stages caught in each chain's latest run,
+// and the chains that rest on a single caught stage (same chains as chain-depth).
+// Always latest-result posture; basis is ignored.
+router.get('/stage-coverage', asyncHandler(async (req, res) => {
+  const es = await getEsService();
+  const { basis: _basis, ...query } = req.query;
+  const result = await es.getStageCoverage(extractFilterParams(query));
+  res.json(result);
+}));
+
 // GET /api/analytics/outcome-breakdown - Protected / prevented / detected / silent
 // split of the latest-basis pairs. Basis is ignored; outcome filters are ignored by the service.
 router.get('/outcome-breakdown', asyncHandler(async (req, res) => {
