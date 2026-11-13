@@ -10,6 +10,8 @@ interface MetricStatus {
   current: number;
   threshold: number;
   unit: string;
+  /** What the number is based on, printed under the metric name. */
+  detail?: string;
   direction: 'below' | 'above';
 }
 
@@ -33,7 +35,7 @@ function metricRow(m: MetricStatus, breached: boolean): string {
   const status = breached ? 'Breached' : 'Passing';
   return `
     <tr>
-      <td style="padding:8px 12px;border-bottom:1px solid #e5e7eb;">${m.metric}</td>
+      <td style="padding:8px 12px;border-bottom:1px solid #e5e7eb;">${m.metric}${m.detail ? `<br><span style="font-size:12px;color:#6b7280;">${m.detail}</span>` : ''}</td>
       <td style="padding:8px 12px;border-bottom:1px solid #e5e7eb;">${m.current}${m.unit}</td>
       <td style="padding:8px 12px;border-bottom:1px solid #e5e7eb;">${m.direction === 'below' ? '&ge; ' : '&le; '}${m.threshold}${m.unit}</td>
       <td style="padding:8px 12px;border-bottom:1px solid #e5e7eb;color:${color};font-weight:600;">${icon} ${status}</td>

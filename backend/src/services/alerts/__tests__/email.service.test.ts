@@ -87,6 +87,14 @@ describe('email.service', () => {
       expect(html).toContain('\u2717');
     });
 
+    it('prints what a metric is based on under its name', () => {
+      const html = buildAlertEmailHtml({
+        ...baseEmailData,
+        breaches: [{ ...breachMetric, detail: 'latest result per test and host, last 30 days' }],
+      });
+      expect(html).toContain('latest result per test and host, last 30 days');
+    });
+
     it('includes passing metrics when provided', () => {
       const html = buildAlertEmailHtml({
         ...baseEmailData,

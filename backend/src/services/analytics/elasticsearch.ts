@@ -919,7 +919,7 @@ export class ElasticsearchService {
   }
 
   // Get overall defense score (basis=executions). Its score is never null —
-  // an empty range scores 0, as it always has (alerts.service relies on it).
+  // an empty range scores 0, as it always has.
   async getDefenseScore(
     params: AnalyticsQueryParams & Partial<ExtendedAnalyticsQueryParams>,
   ): Promise<DefenseScoreResponse & { score: number }> {

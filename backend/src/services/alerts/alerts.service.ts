@@ -20,6 +20,8 @@ export interface MetricStatus {
   threshold: number;
   unit: string;
   direction: 'below' | 'above';
+  /** What the number is based on, printed next to it in the alert. */
+  detail?: string;
 }
 
 export interface AlertHistoryEntry {
@@ -36,12 +38,34 @@ export interface AlertHistoryEntry {
 
 const MAX_HISTORY = 50;
 
+/**
+ * The Defense Score the alert compares to its threshold: the dashboard
+ * tile's rule (latest conclusive result per test and host, a multi-stage test
+ * protected if any stage is), over a fixed window, because the tile's own
+ * range is whatever the viewer picked.
+ */
+const DEFENSE_SCORE_WINDOW_DAYS = 30;
+const DEFENSE_SCORE_DETAIL = `latest result per test and host, last ${DEFENSE_SCORE_WINDOW_DAYS} days`;
+
 // ---------------------------------------------------------------------------
 // Service
 // ---------------------------------------------------------------------------
 
 export class AlertsService {
   private history: AlertHistoryEntry[] = [];
+  /**
+   * Kept between evaluations: an evaluation runs on every task result, and the
+   * service's short-lived posture cache then answers a burst of results (a
+   * campaign finishing on many hosts) from one fetch. Rebuilt when the
+   * analytics settings change.
+   */
+  private es: { key: string; service: ElasticsearchService } | null = null;
+
+  private esFor(settings: ConstructorParameters<typeof ElasticsearchService>[0]): ElasticsearchService {
+    const key = JSON.stringify(settings);
+    if (this.es?.key !== key) this.es = { key, service: new ElasticsearchService(settings) };
+    return this.es.service;
+  }
 
   // ── Public API ──────────────────────────────────────────────
 
@@ -69,27 +93,33 @@ export class AlertsService {
     if (!analyticsSettings.isConfigured()) return;
 
     const esSettings = analyticsSettings.getSettings();
-    const esService = new ElasticsearchService(esSettings);
+    const esService = this.esFor(esSettings);
 
     const breaches: MetricStatus[] = [];
     const passing: MetricStatus[] = [];
 
-    // 5. Defense Score
+    // 5. Defense Score (latest-result basis). No pair with a conclusive
+    // result means there is no score: the check is skipped, never read as 0%.
     if (alertSettings.thresholds.defense_score_min != null) {
-      const result = await esService.getDefenseScore({});
-      const current = result.score;
-      const threshold = alertSettings.thresholds.defense_score_min;
-      const status: MetricStatus = {
-        metric: 'Defense Score',
-        current,
-        threshold,
-        unit: '%',
-        direction: 'below',
-      };
-      if (current < threshold) {
-        breaches.push(status);
-      } else {
-        passing.push(status);
+      const { score } = await esService.getLatestScoreSummary({
+        from: `now-${DEFENSE_SCORE_WINDOW_DAYS}d`,
+        scoringMode: 'any-stage',
+      });
+      if (score !== null) {
+        const threshold = alertSettings.thresholds.defense_score_min;
+        const status: MetricStatus = {
+          metric: 'Defense Score',
+          current: score,
+          threshold,
+          unit: '%',
+          direction: 'below',
+          detail: DEFENSE_SCORE_DETAIL,
+        };
+        if (score < threshold) {
+          breaches.push(status);
+        } else {
+          passing.push(status);
+        }
       }
     }
 

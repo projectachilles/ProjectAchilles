@@ -7,6 +7,8 @@ interface MetricStatus {
   current: number;
   threshold: number;
   unit: string;
+  /** What the number is based on, printed after it. */
+  detail?: string;
   direction: 'below' | 'above';
 }
 
@@ -82,7 +84,8 @@ function requireSlackEndpoint(url: string): string {
 function formatMetricLine(m: MetricStatus, breached: boolean): string {
   const icon = breached ? '\u2717' : '\u2713';
   const dirLabel = m.direction === 'below' ? '<' : '>';
-  return `${icon}  *${m.metric}:*  ${m.current}${m.unit}  (threshold: ${dirLabel} ${m.threshold}${m.unit})`;
+  const detail = m.detail ? ` — ${m.detail}` : '';
+  return `${icon}  *${m.metric}:*  ${m.current}${m.unit}  (threshold: ${dirLabel} ${m.threshold}${m.unit})${detail}`;
 }
 
 function buildSummaryText(data: AlertData): string {

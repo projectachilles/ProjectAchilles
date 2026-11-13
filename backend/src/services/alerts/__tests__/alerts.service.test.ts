@@ -25,15 +25,13 @@ vi.mock('../../integrations/settings.js', () => ({
 // ---------------------------------------------------------------------------
 // Mock: SettingsService (analytics)
 // ---------------------------------------------------------------------------
+const ANALYTICS_SETTINGS = { node: 'http://localhost:9200', indexPattern: 'achilles-results-*', configured: true };
+const mockGetAnalyticsSettings = vi.fn().mockReturnValue(ANALYTICS_SETTINGS);
 vi.mock('../../analytics/settings.js', () => ({
   SettingsService: function () {
     return {
       isConfigured: vi.fn().mockReturnValue(true),
-      getSettings: vi.fn().mockReturnValue({
-        node: 'http://localhost:9200',
-        indexPattern: 'achilles-results-*',
-        configured: true,
-      }),
+      getSettings: mockGetAnalyticsSettings,
     };
   },
 }));
@@ -41,12 +39,9 @@ vi.mock('../../analytics/settings.js', () => ({
 // ---------------------------------------------------------------------------
 // Mock: ElasticsearchService
 // ---------------------------------------------------------------------------
-const mockGetDefenseScore = vi.fn().mockResolvedValue({
-  score: 80,
-  protectedCount: 80,
-  unprotectedCount: 20,
-  totalExecutions: 100,
-});
+const mockGetLatestScoreSummary = vi.fn().mockResolvedValue({ score: 80, pairCount: 100, windowLabel: '30d' });
+/** One call per ElasticsearchService built, with the settings it was built from. */
+const mockEsConstructed = vi.fn();
 const mockGetErrorRate = vi.fn().mockResolvedValue({
   errorRate: 10,
   errorCount: 10,
@@ -55,9 +50,10 @@ const mockGetErrorRate = vi.fn().mockResolvedValue({
 });
 
 vi.mock('../../analytics/elasticsearch.js', () => ({
-  ElasticsearchService: function () {
+  ElasticsearchService: function (settings: unknown) {
+    mockEsConstructed(settings);
     return {
-      getDefenseScore: mockGetDefenseScore,
+      getLatestScoreSummary: mockGetLatestScoreSummary,
       getErrorRate: mockGetErrorRate,
     };
   },
@@ -145,12 +141,8 @@ describe('AlertsService', () => {
     mockIsAlertingConfigured.mockReturnValue(false);
     mockGetAlertSettings.mockReturnValue(null);
     mockIsDefenderConfigured.mockReturnValue(false);
-    mockGetDefenseScore.mockResolvedValue({
-      score: 80,
-      protectedCount: 80,
-      unprotectedCount: 20,
-      totalExecutions: 100,
-    });
+    mockGetLatestScoreSummary.mockResolvedValue({ score: 80, pairCount: 100, windowLabel: '30d' });
+    mockGetAnalyticsSettings.mockReturnValue(ANALYTICS_SETTINGS);
     mockGetErrorRate.mockResolvedValue({
       errorRate: 10,
       errorCount: 10,
@@ -269,6 +261,79 @@ describe('AlertsService', () => {
 
     expect(mockSendSlackAlert).not.toHaveBeenCalled();
     expect(mockSendEmailAlert).not.toHaveBeenCalled();
+  });
+
+  it('compares the latest-result, any-stage score of the last 30 days to the threshold', async () => {
+    mockIsAlertingConfigured.mockReturnValue(true);
+    mockGetAlertSettings.mockReturnValue(defaultAlertSettings());
+
+    await service.evaluateAndNotify('test-1', 'agent-1');
+
+    expect(mockGetLatestScoreSummary).toHaveBeenCalledWith({ from: 'now-30d', scoringMode: 'any-stage' });
+    const data = mockSendSlackAlert.mock.calls[0][1];
+    expect(data.breaches[0]).toMatchObject({
+      metric: 'Defense Score',
+      current: 80,
+      threshold: 90,
+      detail: 'latest result per test and host, last 30 days',
+    });
+  });
+
+  it('skips the Defense Score check when no test has a conclusive result', async () => {
+    mockIsAlertingConfigured.mockReturnValue(true);
+    mockGetAlertSettings.mockReturnValue(defaultAlertSettings());
+    mockGetLatestScoreSummary.mockResolvedValue({ score: null, pairCount: 0, windowLabel: '30d' });
+
+    await service.evaluateAndNotify('test-1', 'agent-1');
+
+    expect(mockSendSlackAlert).not.toHaveBeenCalled();
+    expect(mockSendEmailAlert).not.toHaveBeenCalled();
+  });
+
+  it('still checks the error rate when there is no Defense Score', async () => {
+    mockIsAlertingConfigured.mockReturnValue(true);
+    mockGetAlertSettings.mockReturnValue(
+      defaultAlertSettings({ thresholds: { enabled: true, defense_score_min: 90, error_rate_max: 5 } }),
+    );
+    mockGetLatestScoreSummary.mockResolvedValue({ score: null, pairCount: 0, windowLabel: '30d' });
+
+    await service.evaluateAndNotify('test-1', 'agent-1');
+
+    const data = mockSendSlackAlert.mock.calls[0][1];
+    expect(data.breaches.map((b: { metric: string }) => b.metric)).toEqual(['Error Rate']);
+    expect((data.passing ?? []).some((m: { metric: string }) => m.metric === 'Defense Score')).toBe(false);
+  });
+
+  it('does not turn a failed score query into a pass', async () => {
+    mockIsAlertingConfigured.mockReturnValue(true);
+    mockGetAlertSettings.mockReturnValue(defaultAlertSettings());
+    mockGetLatestScoreSummary.mockRejectedValue(new Error('cluster busy'));
+
+    await expect(service.evaluateAndNotify('test-1', 'agent-1')).rejects.toThrow('cluster busy');
+    expect(mockSendSlackAlert).not.toHaveBeenCalled();
+  });
+
+  it('reuses one Elasticsearch service across evaluations, so a burst of results shares its cache', async () => {
+    mockIsAlertingConfigured.mockReturnValue(true);
+    mockGetAlertSettings.mockReturnValue(defaultAlertSettings({ thresholds: { enabled: true, defense_score_min: 70 } }));
+
+    await service.evaluateAndNotify('test-1', 'agent-1');
+    await service.evaluateAndNotify('test-2', 'agent-2');
+
+    expect(mockEsConstructed).toHaveBeenCalledTimes(1);
+    expect(mockGetLatestScoreSummary).toHaveBeenCalledTimes(2);
+  });
+
+  it('builds a new Elasticsearch service when the analytics settings change', async () => {
+    mockIsAlertingConfigured.mockReturnValue(true);
+    mockGetAlertSettings.mockReturnValue(defaultAlertSettings({ thresholds: { enabled: true, defense_score_min: 70 } }));
+
+    await service.evaluateAndNotify('test-1', 'agent-1');
+    mockGetAnalyticsSettings.mockReturnValue({ ...ANALYTICS_SETTINGS, node: 'http://other:9200' });
+    await service.evaluateAndNotify('test-2', 'agent-2');
+
+    expect(mockEsConstructed).toHaveBeenCalledTimes(2);
+    expect(mockEsConstructed).toHaveBeenLastCalledWith(expect.objectContaining({ node: 'http://other:9200' }));
   });
 
   // 7.
