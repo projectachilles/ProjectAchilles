@@ -18,6 +18,7 @@ import TechniqueDistributionCard from './components/TechniqueDistributionCard';
 import CoverageTreemap from './components/CoverageTreemap';
 import DefenseScoreByHostChart from './components/DefenseScoreByHostChart';
 import ChainDepthCard from './components/ChainDepthCard';
+import StageCoverageCard from './components/StageCoverageCard';
 import TestActivityCard from './components/TestActivityCard';
 import { mapGroupsToDisplayRows, type DisplayRow } from './components/executions/shared';
 import ExecutionsDataTable from './components/ExecutionsDataTable';
@@ -57,6 +58,7 @@ import type {
   HostTestMatrixCell,
   FilterOption,
   ChainDepthResponse,
+  StageCoverageResponse,
   DefenseScoreByHostItem,
   ErrorRateTrendDataPoint,
   GroupedPaginatedResponse,
@@ -226,6 +228,8 @@ export default function AnalyticsDashboardPage() {
   // New visualization data
   // null after a failed fetch (the card shows its error state)
   const [chainDepth, setChainDepth] = useState<ChainDepthResponse | null>(null);
+  const [stageCoverage, setStageCoverage] = useState<StageCoverageResponse | null>(null);
+  const [loadingStageCoverage, setLoadingStageCoverage] = useState(true);
   const [recentRuns, setRecentRuns] = useState<DisplayRow[]>([]);
   const [recentRunsTotal, setRecentRunsTotal] = useState<number | null>(null);
   const [defenseScoreByHost, setDefenseScoreByHost] = useState<DefenseScoreByHostItem[]>([]);
@@ -297,6 +301,15 @@ export default function AnalyticsDashboardPage() {
     }
   }, [filterState.filters, activeTab, settingsVersion, scoringMode, capabilities.loaded, capabilities.outcomeBreakdown]);
 
+  // Stage coverage is capability-gated like the slot above and loads on its
+  // own: a failure (or an older backend without the endpoint) blanks only
+  // this card.
+  useEffect(() => {
+    if (activeTab === 'dashboard' && capabilities.loaded && capabilities.stageCoverage) {
+      loadStageCoverage();
+    }
+  }, [filterState.filters, activeTab, settingsVersion, capabilities.loaded, capabilities.stageCoverage]);
+
   // Leaving Executions (tab click, URL, back button) drops the outcome chip
   useEffect(() => {
     if (activeTab !== 'executions') setExecutionsVerdict(null);
@@ -355,6 +368,19 @@ export default function AnalyticsDashboardPage() {
       setLoadingSlot(false);
     }
   }, [filterState, scoringMode, capabilities.outcomeBreakdown]);
+
+  // Load the Stage coverage card (see the effect above)
+  const loadStageCoverage = useCallback(async () => {
+    setLoadingStageCoverage(true);
+    try {
+      setStageCoverage(await analyticsApi.getStageCoverage(filterState.getApiParams()));
+    } catch (error) {
+      console.error('Failed to load stage coverage:', error);
+      setStageCoverage(null);
+    } finally {
+      setLoadingStageCoverage(false);
+    }
+  }, [filterState]);
 
   // Load dashboard data
   const loadDashboardData = useCallback(async () => {
@@ -924,6 +950,20 @@ export default function AnalyticsDashboardPage() {
                 }}
               />
             </div>
+
+            {/* Stage coverage — full width under the trio, so that row stays
+                a clean three. The Defense Score counts a chain once any stage
+                is caught; this shows how many stages were. */}
+            {capabilities.stageCoverage && (
+              <StageCoverageCard
+                data={stageCoverage}
+                loading={loadingStageCoverage}
+                onRowClick={(bundleNames) => {
+                  filterState.setBundleNames(bundleNames);
+                  handleTabChange('executions');
+                }}
+              />
+            )}
 
             {/* Posture section — a true two-row 3-column grid so the
                 horizontal seams align across columns:

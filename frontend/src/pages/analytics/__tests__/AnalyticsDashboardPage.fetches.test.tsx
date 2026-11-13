@@ -38,7 +38,7 @@ const mocks = vi.hoisted(() => {
     defender: apiProxy(),
     crowdstrike: apiProxy(),
     defenderFlipsTo: true,
-    caps: { outcomeBreakdown: false, loaded: true } as { outcomeBreakdown: boolean; loaded: boolean },
+    caps: { outcomeBreakdown: false, loaded: true } as { outcomeBreakdown: boolean; loaded: boolean; stageCoverage?: boolean },
   };
 });
 
@@ -286,5 +286,75 @@ describe('Outcome breakdown card wiring', () => {
       expect(last).not.toHaveProperty('verdict');
     });
     expect(screen.queryByText(/Outcome: Silent/)).toBeNull();
+  });
+});
+
+describe('Stage coverage card wiring', () => {
+  const group = { count: 0, bundleNames: [] as string[] };
+  const coverage = {
+    chains: 3, chainsProtected: 2, stagesRan: 9, blocked: 2, detected: 1, through: 6, coverage: 33.33,
+    singleStage: { count: 1, bundleNames: ['Chain A, with a comma'] }, depthNotTested: group, layered: { count: 1, bundleNames: ['Chain B'] }, noneCaught: { count: 1, bundleNames: ['Chain C'] },
+  };
+
+  beforeEach(() => {
+    mocks.defenderFlipsTo = false;
+    mocks.caps = { outcomeBreakdown: false, loaded: true, stageCoverage: true };
+    mocks.analytics.reset({
+      getDefenseScore: { score: 50, totalExecutions: 0, protectedCount: 0 },
+      getUniqueHostnames: 0,
+      getUniqueTests: 0,
+      getChainDepth: null,
+      getStageCoverage: coverage,
+      getPaginatedExecutions: { data: [], pagination: { totalItems: 0 } },
+      getCanonicalTestCount: { count: 0 },
+      listAcceptances: { total: 0 },
+      getGroupedPaginatedExecutions: { groups: [], pagination: { page: 1, pageSize: 25, totalGroups: 0, totalDocuments: 0, totalPages: 0, hasNext: false, hasPrevious: false } },
+      getFilterOptions: {
+        tests: [], techniques: [], hostnames: [], categories: [],
+        threatActors: [], tags: [], errorNames: [], errorCodes: [], bundleNames: [],
+      },
+    });
+    mocks.defender.reset({});
+    mocks.crowdstrike.reset({});
+  });
+
+  it('asks for stage coverage once and shows the card', async () => {
+    renderPage();
+    expect(await screen.findByText('Stage coverage')).toBeInTheDocument();
+    expect(screen.getByText('3 of 9 stages caught')).toBeInTheDocument();
+    await new Promise((r) => setTimeout(r, 50));
+    expect(mocks.analytics.api.getStageCoverage).toHaveBeenCalledTimes(1);
+  });
+
+  it('neither asks nor shows the card when the backend has no stage coverage', async () => {
+    mocks.caps = { outcomeBreakdown: false, loaded: true, stageCoverage: false };
+    renderPage();
+    await waitFor(() => expect(mocks.analytics.api.getErrorRateTrend).toHaveBeenCalledTimes(1));
+    await new Promise((r) => setTimeout(r, 50));
+    expect(mocks.analytics.api.getStageCoverage).not.toHaveBeenCalled();
+    expect(screen.queryByText('Stage coverage')).not.toBeInTheDocument();
+  });
+
+  it('keeps the rest of the dashboard when the stage coverage request fails', async () => {
+    mocks.analytics.api.getStageCoverage.mockRejectedValue(new Error('404'));
+    vi.spyOn(console, 'error').mockImplementation(() => {});
+    renderPage();
+    expect(await screen.findByText("Couldn't load stage coverage")).toBeInTheDocument();
+    expect(mocks.analytics.api.getDefenseScore).toHaveBeenCalledTimes(1);
+  });
+
+  it('a row click filters All Executions to those chains, commas intact', async () => {
+    renderPage();
+    fireEvent.click(await screen.findByRole('button', { name: /Rest on a single stage/ }));
+    await waitFor(() =>
+      expect(mocks.analytics.api.getGroupedPaginatedExecutions).toHaveBeenCalledWith(
+        expect.objectContaining({ bundleNames: expect.stringContaining('Chain A') }),
+      ),
+    );
+    const call = mocks.analytics.api.getGroupedPaginatedExecutions.mock.calls
+      .map((c: unknown[]) => (c[0] as { bundleNames?: string } | undefined)?.bundleNames)
+      .find((b: string | undefined) => b?.includes('Chain A'));
+    // One name, with its comma escaped so the backend doesn't split it in two.
+    expect(call).toBe('Chain A\\, with a comma');
   });
 });
