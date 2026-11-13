@@ -96,3 +96,29 @@ describe('describeOutcomeFilters', () => {
     expect(describeOutcomeFilters(makeReport())).toBeNull();
   });
 });
+
+describe('buildVerdict: chains resting on a single stage', () => {
+  const group = { count: 0, bundleNames: [] };
+  const coverage = (single: number, chains = 23) => ({
+    chains, chainsProtected: 20, stagesRan: 97, blocked: 28, detected: 13, through: 56, coverage: 42.27,
+    singleStage: { count: single, bundleNames: ['Chain A'] }, depthNotTested: group, layered: group, noneCaught: group,
+  });
+  const SENTENCE = /attack chain/;
+
+  it('says how many chains were caught by a single stage, before the Defense Score', () => {
+    const sentences = buildVerdict(makeReport({ stageCoverage: coverage(6) }));
+    const at = sentences.indexOf('Of 23 attack chains, 6 were caught by a single stage.');
+    expect(at).toBeGreaterThan(-1);
+    expect(sentences[at + 1]).toBe('The Defense Score for these filters is 61.5%.');
+  });
+
+  it('uses the singular for one chain', () => {
+    expect(buildVerdict(makeReport({ stageCoverage: coverage(1, 1) }))).toContain('Of 1 attack chain, 1 was caught by a single stage.');
+  });
+
+  it('says nothing when no chain rests on a single stage, or without stage coverage', () => {
+    for (const report of [makeReport({ stageCoverage: coverage(0) }), makeReport({ stageCoverage: null }), makeReport()]) {
+      expect(buildVerdict(report).some((s) => SENTENCE.test(s))).toBe(false);
+    }
+  });
+});
