@@ -1970,6 +1970,22 @@ export class ElasticsearchService {
     return out;
   }
 
+  /**
+   * The latest-result score on its own, for the Defense Score alert: the
+   * tile's rule (latest conclusive result per test x endpoint pair, risk
+   * acceptances excluded) from the lightest snapshot (latest run per pair,
+   * no trend history, no metadata). Outcome filters are ignored: the alert
+   * scores every pair. score is null when no pair has a conclusive result.
+   */
+  async getLatestScoreSummary(
+    params: AnalyticsQueryParams & Partial<ExtendedAnalyticsQueryParams>,
+  ): Promise<{ score: number | null; pairCount: number; windowLabel: string }> {
+    const scope = await this.resolvePostureScope({ ...params, result: undefined, errorCodes: undefined, errorNames: undefined });
+    const { window, runs } = await this.latestPostureFor(scope, 'breakdown');
+    const summary = summarizePairs(latestPairsAsOf(runs, window.toMs, window.freshnessMs));
+    return { score: summary.score, pairCount: summary.pairCount, windowLabel: window.label };
+  }
+
   /** Defense Score, basis=latest. Same snapshot and calculation as the trend's last point. */
   async getDefenseScoreLatest(
     params: AnalyticsQueryParams & Partial<ExtendedAnalyticsQueryParams>,
