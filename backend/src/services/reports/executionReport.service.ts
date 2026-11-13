@@ -75,7 +75,7 @@ export interface ExecutionReportParams extends FilterParams {
 
 export interface ExecutionReportDeps {
   client: Client;
-  es: Pick<ElasticsearchService, 'buildExtendedFilters' | 'getDefenseScore'>;
+  es: Pick<ElasticsearchService, 'buildExtendedFilters' | 'getDefenseScore' | 'getStageCoverage'>;
   vendors: Record<EdrVendorKey, boolean>;
   getTestMetadata: (uuid: string) => TestMetadata | null;
   readGuidance: (testKey: string) => string | null;
@@ -92,7 +92,7 @@ export interface ExecutionReportDeps {
 const consoleIdentity = new ConsoleIdentityService();
 
 /** Fixed order for meta.unavailable, whatever order the steps finished in. */
-const ENRICHMENT_ORDER: readonly ReportEnrichment[] = ['defenseScore', 'alerts', 'startTimes', 'acceptedRisks'];
+const ENRICHMENT_ORDER: readonly ReportEnrichment[] = ['defenseScore', 'stageCoverage', 'alerts', 'startTimes', 'acceptedRisks'];
 
 /** What `correlate()` hands back: warnings are returned, not pushed, so a step abandoned at the deadline cannot add any late. */
 interface Correlation {
@@ -283,6 +283,7 @@ function emptyReport(meta: ReportMeta): ExecutionReport {
       tactics: 0, actors: 0, outcomes: emptyCounts(), highImpactUnprotected: 0,
     },
     defenseScore: null,
+    stageCoverage: null,
     timeline: { lanes: [], buckets: [] },
     tests: [],
     otherTests: [],
@@ -414,8 +415,10 @@ export class ExecutionReportService {
     const taskIds = runs.flatMap((r) => (r.taskId ? [r.taskId] : []));
     const stageNames = [...new Set(allTests.flatMap((t) => t.stages.map((s) => s.name)))];
 
-    const [defense, correlation, startTimes, acceptances] = await Promise.all([
+    const [defense, stageCoverage, correlation, startTimes, acceptances] = await Promise.all([
       optional('Defense Score', 'defenseScore', () => this.deps.es.getDefenseScore({ ...filterParams, scoringMode: 'any-stage' })),
+      // The dashboard card's numbers for these filters: the latest run of each chain in the window.
+      optional('Stage coverage', 'stageCoverage', () => this.deps.es.getStageCoverage(filterParams)),
       optional('EDR alerts', 'alerts', () => this.correlate(runs, deadline)),
       scope.runs <= RUN_STRIP_MAX_RUNS && taskIds.length > 0
         ? optional('Run start times', 'startTimes', () => this.deps.getRunStartTimes(taskIds))
@@ -460,6 +463,7 @@ export class ExecutionReportService {
         highImpactUnprotected: scope.highImpactUnprotected,
       },
       defenseScore: toDefenseScore(defense),
+      stageCoverage,
       timeline: { lanes: buildLanes(allTests), buckets: parseTimeline(timelineRes, laneKeys) },
       tests: allTests.slice(0, TESTS_CAP),
       otherTests: allTests.slice(TESTS_CAP).map((t) => ({ testKey: t.testKey, name: t.name, runs: t.runs, outcomes: t.outcomes })),
