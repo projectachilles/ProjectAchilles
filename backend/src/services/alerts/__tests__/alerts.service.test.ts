@@ -382,6 +382,17 @@ describe('AlertsService', () => {
     });
   });
 
+  it('reuses the service when the settings are re-read as a new, equal object', async () => {
+    mockIsAlertingConfigured.mockReturnValue(true);
+    mockGetAlertSettings.mockReturnValue(defaultAlertSettings({ thresholds: { enabled: true, defense_score_min: 70 } }));
+    mockGetAnalyticsSettings.mockImplementation(() => ({ ...ANALYTICS_SETTINGS }));
+
+    await service.evaluateAndNotify('test-1', 'agent-1');
+    await service.evaluateAndNotify('test-2', 'agent-2');
+
+    expect(mockEsConstructed).toHaveBeenCalledTimes(1);
+  });
+
   it('builds a new Elasticsearch service when the analytics settings change', async () => {
     mockIsAlertingConfigured.mockReturnValue(true);
     mockGetAlertSettings.mockReturnValue(defaultAlertSettings({ thresholds: { enabled: true, defense_score_min: 70 } }));

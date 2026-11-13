@@ -1,7 +1,7 @@
 // Core alerting service — evaluates thresholds, enforces cooldown, dispatches
 // to configured channels (Slack, email).  History is kept in-memory (ring buffer).
 
-import { createHash } from 'node:crypto';
+import { isDeepStrictEqual } from 'node:util';
 import { IntegrationsSettingsService } from '../integrations/settings.js';
 import { SettingsService } from '../analytics/settings.js';
 import { ElasticsearchService } from '../analytics/elasticsearch.js';
@@ -57,6 +57,8 @@ const DEFENSE_SCORE_DETAIL = `latest result per test and host, last ${DEFENSE_SC
 // Service
 // ---------------------------------------------------------------------------
 
+type AnalyticsConnection = ConstructorParameters<typeof ElasticsearchService>[0];
+
 export class AlertsService {
   private history: AlertHistoryEntry[] = [];
   /**
@@ -65,13 +67,16 @@ export class AlertsService {
    * campaign finishing on many hosts) from one fetch. Rebuilt when the
    * analytics settings change.
    */
-  private es: { key: string; service: ElasticsearchService } | null = null;
+  private es: { settings: AnalyticsConnection; service: ElasticsearchService } | null = null;
   private trailing: ReturnType<typeof setTimeout> | null = null;
 
-  private esFor(settings: ConstructorParameters<typeof ElasticsearchService>[0]): ElasticsearchService {
-    // A digest, so the connection secrets are not kept in a second plain copy.
-    const key = createHash('sha256').update(JSON.stringify(settings)).digest('hex');
-    if (this.es?.key !== key) this.es = { key, service: new ElasticsearchService(settings) };
+  private esFor(settings: AnalyticsConnection): ElasticsearchService {
+    // Compared by value: the settings are re-read (a new object) on every
+    // evaluation. No digest or serialized copy of them is kept; the service
+    // already holds this same object.
+    if (!this.es || !isDeepStrictEqual(this.es.settings, settings)) {
+      this.es = { settings, service: new ElasticsearchService(settings) };
+    }
     return this.es.service;
   }
 
