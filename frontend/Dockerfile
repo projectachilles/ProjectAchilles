@@ -11,7 +11,7 @@ RUN npx vite build
 
 # Stage 2: Serve via nginx
 # Pin updated: 2026-03-26. Run 'docker pull nginx:alpine' to get latest digest.
-FROM nginx:alpine@sha256:785835ea65db4bba6f021acc0f3be91b0fef76a53fe41f8588c6698d2aed0606
+FROM nginx:alpine@sha256:713fc2ebfd92e8217db451477182ee91944b123d2b1ee9fd5a8c6e91ca6c3a11
 # No `apk add` here: the image must build without reaching the Alpine package
 # CDN (some installs only allow Docker Hub and npm egress). The entrypoint
 # JSON-encodes env vars with busybox awk instead of jq.
