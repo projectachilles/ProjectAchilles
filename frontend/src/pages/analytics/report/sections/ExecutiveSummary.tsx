@@ -7,6 +7,7 @@ import { OutcomeBar } from '../diagrams/OutcomeBar';
 import { firstAlertMinutes, median } from '../diagrams/LatencyDotPlot';
 import { Sheet, type SheetHead } from './Sheet';
 import { AlertsIncompleteNote, PartialBanner, defenseScoreText } from './scope';
+import { StageCoverageBlock } from './StageCoverageBlock';
 
 const HOSTS_SHOWN = 12;
 
@@ -62,6 +63,7 @@ export function ExecutiveSummary({ report, head }: { report: ExecutionReport; he
         <h3 className="rp-h3">Outcome of every stage <small>{plural(totals.stageResults, 'stage result')}</small></h3>
         <OutcomeBar counts={totals.outcomes} />
       </div>
+      <StageCoverageBlock report={report} />
       <div className="rp-avoid">
         <h3 className="rp-h3">Campaign timeline</h3>
         <CampaignTimeline report={report} />

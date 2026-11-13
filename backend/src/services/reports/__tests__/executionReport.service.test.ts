@@ -104,6 +104,13 @@ const msearchHits = (titleByIndex: Record<string, string>) => async ({ searches 
   responses: Array.from({ length: searches.length / 2 }, (_, i) => alertHit(titleByIndex[searches[i * 2].index ?? ''] ?? 'Alert')),
 });
 
+const GROUP = { count: 0, bundleNames: [] as string[] };
+const STAGE_COVERAGE = {
+  chains: 2, chainsProtected: 1, stagesRan: 6, blocked: 1, detected: 0, through: 5, coverage: 16.67,
+  singleStage: { count: 1, bundleNames: ['Chain A'] }, depthNotTested: GROUP, layered: GROUP,
+  noneCaught: { count: 1, bundleNames: ['Chain B'] },
+};
+
 function makeDeps(over: Record<string, unknown> = {}): any {
   return {
     client: {
@@ -117,6 +124,7 @@ function makeDeps(over: Record<string, unknown> = {}): any {
         score: 61.5, rawScore: 58, riskAcceptedCount: 3, totalExecutions: 40,
         protectedCount: 20, detectedCount: 4, unprotectedCount: 16, realScore: 50,
       })),
+      getStageCoverage: vi.fn(async () => STAGE_COVERAGE),
     },
     vendors: { defender: true, crowdstrike: false },
     getTestMetadata: vi.fn(() => ({
@@ -154,6 +162,26 @@ describe('ExecutionReportService.generate', () => {
     expect(deps.es.buildExtendedFilters).toHaveBeenCalledWith(scope);
     expect(deps.es.getDefenseScore).toHaveBeenCalledWith({ ...scope, scoringMode: 'any-stage' });
     for (const [req] of deps.client.search.mock.calls) expect(req.index).toBe('achilles-results-*');
+  });
+
+  it('adds the stage coverage of the same filters and window', async () => {
+    const deps = makeDeps();
+    const report = await new ExecutionReportService(settings, deps).generate(params({ hostnames: 'WS-FIN-014' }), NOW);
+    expect(deps.es.getStageCoverage).toHaveBeenCalledWith({
+      hostnames: 'WS-FIN-014', from: '2026-09-13T23:40:00.000Z', to: '2026-10-13T23:40:00.000Z',
+    });
+    expect(report.stageCoverage).toEqual(STAGE_COVERAGE);
+    expect(report.meta.unavailable).toEqual([]);
+  });
+
+  it('keeps the report when stage coverage fails, and says the section is unavailable', async () => {
+    const deps = makeDeps();
+    deps.es.getStageCoverage.mockRejectedValue(new Error('cluster busy'));
+    const report = await new ExecutionReportService(settings, deps).generate(params(), NOW);
+    expect(report.stageCoverage).toBeNull();
+    expect(report.meta.unavailable).toEqual(['stageCoverage']);
+    expect(report.meta.warnings.some((w: string) => w.startsWith('Stage coverage'))).toBe(true);
+    expect(report.defenseScore).not.toBeNull();
   });
 
   it('assembles the report', async () => {
@@ -220,6 +248,8 @@ describe('ExecutionReportService.generate', () => {
     expect(report.runs).toEqual([]);
     expect(deps.client.search).toHaveBeenCalledTimes(3);
     expect(deps.es.getDefenseScore).not.toHaveBeenCalled();
+    expect(deps.es.getStageCoverage).not.toHaveBeenCalled();
+    expect(report.stageCoverage).toBeNull();
     expect(deps.client.msearch).not.toHaveBeenCalled();
   });
 

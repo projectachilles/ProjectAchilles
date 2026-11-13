@@ -46,6 +46,17 @@ function defenseScoreSentence(report: ExecutionReport): string | null {
   return `The Defense Score for these filters is ${ds.score.toFixed(1)}%${raw}.`;
 }
 
+/**
+ * Chains that ran every stage and were caught by exactly one: the Defense Score counts them as
+ * protected, but one changed technique would let them through. Silent when there is none.
+ */
+function singleStageSentence(report: ExecutionReport): string | null {
+  const sc = report.stageCoverage;
+  if (!sc || sc.singleStage.count === 0) return null;
+  const n = sc.singleStage.count;
+  return `Of ${plural(sc.chains, 'attack chain')}, ${n} ${n === 1 ? 'rests' : 'rest'} on a single stage: every stage ran and only one was caught.`;
+}
+
 export function buildVerdict(report: ExecutionReport): string[] {
   const sentences: string[] = [];
   const outcomeFilter = describeOutcomeFilters(report);
@@ -94,6 +105,9 @@ export function buildVerdict(report: ExecutionReport): string[] {
       ? `The stage protection rate held steady at ${a} across the period.`
       : `The stage protection rate moved from ${a} in the first half of the period to ${b} in the second.`);
   }
+
+  const single = singleStageSentence(report);
+  if (single) sentences.push(single);
 
   if (score) sentences.push(score);
   return sentences;

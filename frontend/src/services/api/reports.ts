@@ -1,5 +1,5 @@
 import { apiClient } from '@/hooks/useAuthenticatedApi';
-import type { ExtendedFilterParams } from './analytics';
+import type { ExtendedFilterParams, StageCoverageResponse } from './analytics';
 import type { EdrVendorKey } from '@/lib/edrVendors';
 
 // ─── SB-PC-2026-001 compliance report ─────────────────────────────
@@ -120,7 +120,7 @@ export interface ReportWindow {
 }
 
 /** Optional report sections that depend on a fallible lookup outside the required queries. */
-export type ReportEnrichment = 'defenseScore' | 'alerts' | 'startTimes' | 'acceptedRisks';
+export type ReportEnrichment = 'defenseScore' | 'stageCoverage' | 'alerts' | 'startTimes' | 'acceptedRisks';
 
 export interface ReportMeta {
   reportId: string;
@@ -327,6 +327,12 @@ export interface ExecutionReport {
   meta: ReportMeta;
   totals: ReportTotals;
   defenseScore: ReportDefenseScore | null;
+  /**
+   * Stage coverage of the attack chains for the report's filters: the latest run of each chain in
+   * the window, like the dashboard card. null when the lookup failed ('stageCoverage' in
+   * meta.unavailable) or the report is empty; absent on backends without it.
+   */
+  stageCoverage?: StageCoverageResponse | null;
   timeline: ReportTimeline;
   tests: ReportTest[];
   otherTests: ReportOtherTest[];
