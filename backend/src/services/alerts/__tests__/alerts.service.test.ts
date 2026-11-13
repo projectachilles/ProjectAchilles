@@ -271,19 +271,6 @@ describe('AlertsService', () => {
     expect(mockSendEmailAlert).not.toHaveBeenCalled();
   });
 
-  it('compares the any-stage Defense Score (the dashboard rule) to the threshold', async () => {
-    mockIsAlertingConfigured.mockReturnValue(true);
-    mockGetAlertSettings.mockReturnValue(
-      defaultAlertSettings({
-        thresholds: { enabled: true, defense_score_min: 70 },
-      }),
-    );
-
-    await service.evaluateAndNotify('test-1', 'agent-1');
-
-    expect(mockGetDefenseScore).toHaveBeenCalledWith({ scoringMode: 'any-stage' });
-  });
-
   // 7.
   it('respects cooldown — does NOT alert within cooldown period', async () => {
     const fiveMinutesAgo = new Date(Date.now() - 5 * 60_000).toISOString();

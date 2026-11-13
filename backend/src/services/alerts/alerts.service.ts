@@ -76,9 +76,7 @@ export class AlertsService {
 
     // 5. Defense Score
     if (alertSettings.thresholds.defense_score_min != null) {
-      // Any-stage, like the dashboard's Defense Score: a multi-stage test
-      // counts once, not once per stage.
-      const result = await esService.getDefenseScore({ scoringMode: 'any-stage' });
+      const result = await esService.getDefenseScore({});
       const current = result.score;
       const threshold = alertSettings.thresholds.defense_score_min;
       const status: MetricStatus = {
