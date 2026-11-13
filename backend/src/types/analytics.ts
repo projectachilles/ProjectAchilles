@@ -378,6 +378,39 @@ export interface ChainDepthResponse {
   stageErrors: number;
 }
 
+/** A group of chains on the Stage coverage card: how many, and their distinct bundle names (sorted). */
+export interface StageCoverageGroup {
+  count: number;
+  bundleNames: string[];
+}
+
+/**
+ * Stages caught in each attack chain's latest run (basis=latest). Same chains
+ * as chain depth, minus runs with no stages (EDR killed the agent, or blocked
+ * the test at launch). The four groups add up to `chains`.
+ */
+export interface StageCoverageResponse {
+  chains: number;
+  /** Of those, protected under the Defense Score's any-stage rule. */
+  chainsProtected: number;
+  /** Stages with a conclusive result. stagesRan = blocked + detected + through. */
+  stagesRan: number;
+  blocked: number;
+  /** Stages an EDR alert named itself, not blocked. */
+  detected: number;
+  through: number;
+  /** (blocked + detected) / stagesRan as a percentage; null when no stage ran. */
+  coverage: number | null;
+  /** Ran every stage, exactly one caught. */
+  singleStage: StageCoverageGroup;
+  /** One stage caught, other stages skipped or errored after the block: the rest of the chain was not tested. */
+  depthNotTested: StageCoverageGroup;
+  /** Two or more stages caught. */
+  layered: StageCoverageGroup;
+  /** No stage caught on its own evidence. */
+  noneCaught: StageCoverageGroup;
+}
+
 // Defense score by hostname item
 export interface DefenseScoreByHostItem {
   hostname: string;

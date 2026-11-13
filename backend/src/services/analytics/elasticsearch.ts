@@ -19,6 +19,7 @@ import {
 import type { OutcomeFilters, PairRun, PostureWindow } from './posture.js';
 import type { OutcomeRun } from './outcomeBreakdown.js';
 import { countPairOutcomes } from './outcomeBreakdown.js';
+import { summarizeStageCoverage } from './stageCoverage.js';
 import { TtlPromiseCache } from './postureCache.js';
 import type { TtlCacheOptions } from './postureCache.js';
 import {
@@ -60,6 +61,7 @@ import type {
   TestResultItem,
   ChainDepthBucket,
   ChainDepthResponse,
+  StageCoverageResponse,
   OutcomeBreakdownResponse,
   DefenseScoreByHostItem,
   CanonicalTestCountResponse,
@@ -159,10 +161,21 @@ interface ChainRun extends PairRun {
   edrStoppedStages: number[] | null;
   /** The EDR killed the agent mid-run: one whole-test kill doc, stages unknown. */
   agentTerminated: boolean;
+  /** An EDR blocked the test at launch: one whole-test doc, no stage ran. */
+  launchBlocked: boolean;
+  /** Stage coverage: stages blocked, or error-coded and stopped by the EDR itself. */
+  blockedCount: number;
+  /** Stage coverage: unblocked stages an EDR alert named themselves. */
+  detectedCount: number;
 }
 
 function isChainRun(run: PairRun): run is ChainRun {
   return typeof (run as Partial<ChainRun>).stagesRun === 'number';
+}
+
+/** Key of one run of a pair: the pair plus the run's exact event time. */
+function runKey(pairKey: string, ts: number): string {
+  return `${pairKey}|${ts}`;
 }
 
 /** Pair key of an any-stage bundle pair: one per (oid, bundle_id, hostname). */
@@ -1270,6 +1283,15 @@ export class ElasticsearchService {
     weigh: (m) => m.size,
   });
 
+  /** Skipped stages per bundle run (stage coverage): same TTL and budget as the inconclusive runs. */
+  private readonly skippedCache = new TtlPromiseCache<Map<string, number>>({
+    ttlMs: POSTURE_CACHE_OPTIONS.ttlMs,
+    maxEntries: POSTURE_CACHE_OPTIONS.maxEntries,
+    maxEntryWeight: INCONCLUSIVE_CACHE_MAX_ENTRIES,
+    maxTotalWeight: INCONCLUSIVE_CACHE_MAX_ENTRIES,
+    weigh: (m) => m.size,
+  });
+
   private readonly PAIR_DAY_SOURCE = {
     day: { date_histogram: { field: 'routing.event_time', calendar_interval: 'day', time_zone: 'UTC' } },
   };
@@ -1523,6 +1545,8 @@ export class ElasticsearchService {
         names: { terms: { field: 'f0rtika.error_name', size: 20 } },
         // Chain depth: a kill run has no stage to bucket at.
         edr_terminated: { filter: { term: { 'f0rtika.edr_terminated': true } } },
+        // Stage coverage: a launch block has no stages either.
+        edr_launch_blocked: { filter: { term: { 'f0rtika.edr_launch_blocked': true } } },
       },
       (b) => {
         const ts = parseEsTime(b.key?.ts);
@@ -1552,6 +1576,11 @@ export class ElasticsearchService {
           edrStopped: (b.edr_stopped?.doc_count ?? 0) > 0,
           edrStoppedStages: stageNumbers(b.edr_stopped),
           agentTerminated: (b.edr_terminated?.doc_count ?? 0) > 0,
+          launchBlocked: (b.edr_launch_blocked?.doc_count ?? 0) > 0,
+          // Never the same doc: is_protected is set only for the protected exit
+          // codes, and an EDR-stopped stage is error-coded.
+          blockedCount: (Number(b.strict?.doc_count) || 0) + (Number(b.edr_stopped?.doc_count) || 0),
+          detectedCount: Number(b.alerted_stages?.doc_count) || 0,
         };
         all.push(run);
         allBundles.push(bundleId);
@@ -1814,6 +1843,32 @@ export class ElasticsearchService {
       });
     });
     return latest;
+  }
+
+  /** Skipped stages of each bundle run in the freshness window, served from its own short cache. */
+  private getBundleSkippedRuns(scope: PostureScope): Promise<Map<string, number>> {
+    const key = JSON.stringify({ ...scope.keyBase, kind: 'bundle-skipped' });
+    return this.skippedCache.get(key, () => this.fetchBundleSkippedRuns(scope));
+  }
+
+  /**
+   * runKey(pairKey, ts) -> how many stages of that run were Skipped (exit 0:
+   * the orchestrator stopped before them). The conclusive filter keeps these
+   * docs out of the posture snapshot, so they are counted here, with the same
+   * window, org, filter-bar and risk-acceptance clauses. Every stage of a run
+   * shares routing.event_time, so the run key matches the snapshot's runs.
+   */
+  private async fetchBundleSkippedRuns(scope: PostureScope): Promise<Map<string, number>> {
+    const filters = this.buildPostureFilters(scope.window.fromMs, scope.window.toMs, this.SKIPPED_STAGE, scope.org, scope.clauses);
+    if (scope.exclusionFilter) filters.push(scope.exclusionFilter);
+    const skipped = new Map<string, number>();
+    await this.paginateComposite(filters, 'bundle_skipped', this.PAIR_PAGE_SIZE, this.BUNDLE_RUN_SOURCES, {}, (b) => {
+      const ts = parseEsTime(b.key?.ts);
+      if (!Number.isFinite(ts)) return;
+      const key = bundlePairKey(b.key.oid, String(b.key.bundle), String(b.key.host));
+      skipped.set(runKey(key, ts), Number(b.doc_count) || 0);
+    });
+    return skipped;
   }
 
   private async fetchPostureSnapshot(
@@ -3515,21 +3570,7 @@ export class ElasticsearchService {
    */
   async getChainDepth(params: AnalyticsQueryParams & Partial<ExtendedAnalyticsQueryParams>): Promise<ChainDepthResponse> {
     const scope = await this.resolvePostureScope({ ...params, scoringMode: 'any-stage' });
-    const [{ window, runs, outcome }, inconclusiveRuns] = await Promise.all([
-      this.latestPostureFor(scope, 'metadata'),
-      this.getBundleInconclusiveRuns(scope),
-    ]);
-
-    const inconclusiveKeys = new Set(inconclusiveRuns.keys());
-    const settled: PairRun[] = [];
-    for (const p of latestPairsAsOf(runs, window.toMs, window.freshnessMs)) {
-      if (!isChainRun(p)) continue;
-      const errored = inconclusiveRuns.get(p.pairKey);
-      // The latest run is inconclusive, unless its errors all came after its block.
-      if (errored !== undefined && errored.ts >= p.ts && !errorsAfterStop(p, errored)) continue;
-      inconclusiveKeys.delete(p.pairKey);
-      settled.push(p);
-    }
+    const { outcome, settled, inconclusiveRuns, inconclusiveKeys } = await this.settledChains(scope);
     const result = outcome.result ?? 'all';
     const showInconclusive = (result === 'all' || result === 'inconclusive') && !outcome.errorCodes && !outcome.errorNames;
 
@@ -3591,6 +3632,71 @@ export class ElasticsearchService {
       blockedBeforeRunBundleNames: showInconclusive ? sorted(new Set(blockedBeforeRun.flatMap(r => (r.bundleName ? [r.bundleName] : [])))) : [],
       stageErrors: showInconclusive ? inconclusiveKeys.size - blockedBeforeRun.length : 0,
     };
+  }
+
+  /**
+   * The settled chains of a latest-basis scope: the latest run of each
+   * non-cyber-hygiene bundle on a host, unless that run is inconclusive (see
+   * getChainDepth). Chain depth and stage coverage both read their chains
+   * from here, so the two cards always count the same ones. Outcome filters
+   * are NOT applied; inconclusiveKeys is what is left of the inconclusive
+   * pairs once the settled ones are taken out.
+   */
+  private async settledChains(scope: PostureScope): Promise<{
+    outcome: OutcomeFilters;
+    settled: ChainRun[];
+    inconclusiveRuns: Map<string, InconclusiveRun>;
+    inconclusiveKeys: Set<string>;
+  }> {
+    const [{ window, runs, outcome }, inconclusiveRuns] = await Promise.all([
+      this.latestPostureFor(scope, 'metadata'),
+      this.getBundleInconclusiveRuns(scope),
+    ]);
+    const inconclusiveKeys = new Set(inconclusiveRuns.keys());
+    const settled: ChainRun[] = [];
+    for (const p of latestPairsAsOf(runs, window.toMs, window.freshnessMs)) {
+      if (!isChainRun(p)) continue;
+      const errored = inconclusiveRuns.get(p.pairKey);
+      // The latest run is inconclusive, unless its errors all came after its block.
+      if (errored !== undefined && errored.ts >= p.ts && !errorsAfterStop(p, errored)) continue;
+      inconclusiveKeys.delete(p.pairKey);
+      settled.push(p);
+    }
+    return { outcome, settled, inconclusiveRuns, inconclusiveKeys };
+  }
+
+  /**
+   * Stage coverage, basis=latest: for each settled chain (the chains chain
+   * depth counts), the stages of its latest run that were blocked, detected
+   * on their own alert, or got through, plus how many chains rest on a single
+   * caught stage. A chain with one caught stage whose other stages were
+   * Skipped or errored after the block has an untested depth. Runs
+   * with no stages (EDR killed the agent, or blocked the test at launch) are
+   * left out. The Defense Score is not affected: this reads the same runs.
+   */
+  async getStageCoverage(params: AnalyticsQueryParams & Partial<ExtendedAnalyticsQueryParams>): Promise<StageCoverageResponse> {
+    const scope = await this.resolvePostureScope({ ...params, scoringMode: 'any-stage' });
+    const [{ outcome, settled, inconclusiveRuns }, skipped] = await Promise.all([
+      this.settledChains(scope),
+      this.getBundleSkippedRuns(scope),
+    ]);
+    const chains = applyOutcomeFilters(settled, outcome)
+      .filter(isChainRun)
+      .filter((p) => !p.agentTerminated && !p.launchBlocked);
+    // A settled run can still have stages that errored after its block
+    // (errorsAfterStop): like Skipped stages, they produced no result, so
+    // they count as not run (how many is not fetched; one is enough).
+    const erroredInRun = (p: ChainRun) => (inconclusiveRuns.get(p.pairKey)?.ts === p.ts ? 1 : 0);
+    return summarizeStageCoverage(
+      chains.map((p) => ({
+        bundleName: p.testName,
+        protected: p.protected,
+        ran: p.stagesRun,
+        blocked: p.blockedCount,
+        detected: p.detectedCount,
+        skipped: (skipped.get(runKey(p.pairKey, p.ts)) ?? 0) + erroredInRun(p),
+      })),
+    );
   }
 
   // Get canonical test count (stable denominator for coverage calculations)

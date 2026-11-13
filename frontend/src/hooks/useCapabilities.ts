@@ -24,6 +24,8 @@ export interface Capabilities {
   outcomeBreakdown: boolean;
   /** Per-test fleet results (/api/analytics/test-results/:uuid/stages; backend-only) */
   testFleet: boolean;
+  /** Stage coverage card (/api/analytics/stage-coverage; backend-only; backend-serverless has none) */
+  stageCoverage: boolean;
   /** Per-agent last run of a test (/api/agent/admin/tasks/test-recency; backend-only) */
   testRunRecency: boolean;
   platform: string;
@@ -50,6 +52,7 @@ const DEFAULT_CAPABILITIES: Capabilities = {
   randomizedOnce: false,
   outcomeBreakdown: false,
   testFleet: false,
+  stageCoverage: false,
   testRunRecency: false,
   platform: 'docker',
 };

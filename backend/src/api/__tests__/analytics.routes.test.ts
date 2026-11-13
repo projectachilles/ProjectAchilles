@@ -60,6 +60,7 @@ const mockThreatActor = vi.fn();
 const mockTechniqueOutcomes = vi.fn();
 const mockChainDepth = vi.fn();
 const mockByTechnique = vi.fn();
+const mockStageCoverage = vi.fn();
 const mockOutcomeBreakdown = vi.fn();
 const mockTestResults = vi.fn();
 const mockGetPaginatedExecutions = vi.fn();
@@ -88,6 +89,7 @@ vi.mock('../../services/analytics/elasticsearch.js', () => ({
     getTechniqueOutcomes = mockTechniqueOutcomes;
     getChainDepth = mockChainDepth;
     getDefenseScoreByTechnique = mockByTechnique;
+    getStageCoverage = mockStageCoverage;
     getOutcomeBreakdown = mockOutcomeBreakdown;
     getTestResults = mockTestResults;
     getPaginatedExecutions = mockGetPaginatedExecutions;
@@ -531,6 +533,31 @@ describe('analytics routes', () => {
         expect(r.status).toBe(200);
       }
       expect(mockChainDepth).toHaveBeenCalledTimes(3);
+    });
+
+    it('/stage-coverage returns the stage coverage of the filtered chains and ignores basis', async () => {
+      const group = { count: 0, bundleNames: [] };
+      const body = {
+        chains: 1, chainsProtected: 1, stagesRan: 3, blocked: 1, detected: 0, through: 2, coverage: 33.33,
+        singleStage: { count: 1, bundleNames: ['Chain One'] }, depthNotTested: group, layered: group, noneCaught: group,
+      };
+      mockStageCoverage.mockResolvedValue(body);
+      const res = await request(createApp()).get('/api/analytics/stage-coverage?from=now-30d&org=o1&threatActors=APT29&bundleNames=Chain%20One');
+      expect(res.status).toBe(200);
+      expect(res.body).toEqual(body);
+      expect(mockStageCoverage).toHaveBeenCalledWith(expect.objectContaining({ from: 'now-30d', org: 'o1', threatActors: 'APT29', bundleNames: 'Chain One' }));
+
+      for (const basis of ['executions', 'bogus']) {
+        const r = await request(createApp()).get(`/api/analytics/stage-coverage?basis=${basis}`);
+        expect(r.status).toBe(200);
+      }
+      expect(mockStageCoverage).toHaveBeenCalledTimes(3);
+    });
+
+    it('advertises stageCoverage: true on the backend and false on serverless', async () => {
+      const fs = await import('fs');
+      expect(fs.readFileSync(new URL('../../server.ts', import.meta.url), 'utf8')).toMatch(/stageCoverage:\s*true/);
+      expect(fs.readFileSync(new URL('../../../../backend-serverless/src/app.ts', import.meta.url), 'utf8')).toMatch(/stageCoverage:\s*false/);
     });
   });
 

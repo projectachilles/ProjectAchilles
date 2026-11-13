@@ -333,6 +333,7 @@ async function startServer() {
       alerting: true,
       randomizedOnce: true,
       testFleet: true,
+      stageCoverage: true,
       testRunRecency: true,
       platform: 'docker',
     });
