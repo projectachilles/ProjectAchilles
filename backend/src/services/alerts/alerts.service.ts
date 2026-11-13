@@ -1,6 +1,7 @@
 // Core alerting service — evaluates thresholds, enforces cooldown, dispatches
 // to configured channels (Slack, email).  History is kept in-memory (ring buffer).
 
+import { createHash } from 'node:crypto';
 import { IntegrationsSettingsService } from '../integrations/settings.js';
 import { SettingsService } from '../analytics/settings.js';
 import { ElasticsearchService } from '../analytics/elasticsearch.js';
@@ -45,6 +46,11 @@ const MAX_HISTORY = 50;
  * range is whatever the viewer picked.
  */
 const DEFENSE_SCORE_WINDOW_DAYS = 30;
+/**
+ * How long after a result the trailing evaluation runs: past the posture
+ * snapshot's 30 s lifetime, with room for the fetch itself.
+ */
+const TRAILING_EVALUATION_MS = 35_000;
 const DEFENSE_SCORE_DETAIL = `latest result per test and host, last ${DEFENSE_SCORE_WINDOW_DAYS} days`;
 
 // ---------------------------------------------------------------------------
@@ -60,9 +66,11 @@ export class AlertsService {
    * analytics settings change.
    */
   private es: { key: string; service: ElasticsearchService } | null = null;
+  private trailing: ReturnType<typeof setTimeout> | null = null;
 
   private esFor(settings: ConstructorParameters<typeof ElasticsearchService>[0]): ElasticsearchService {
-    const key = JSON.stringify(settings);
+    // A digest, so the connection secrets are not kept in a second plain copy.
+    const key = createHash('sha256').update(JSON.stringify(settings)).digest('hex');
     if (this.es?.key !== key) this.es = { key, service: new ElasticsearchService(settings) };
     return this.es.service;
   }
@@ -74,23 +82,47 @@ export class AlertsService {
    * alerts to enabled channels when any metric breaches its threshold.
    */
   async evaluateAndNotify(triggerTest: string, triggerAgent: string): Promise<void> {
+    if (await this.evaluate(triggerTest, triggerAgent)) this.scheduleTrailing(triggerTest, triggerAgent);
+  }
+
+  /**
+   * One more evaluation after the last result of a burst. The Defense Score
+   * comes from a snapshot cached for about 30 s, so an evaluation can be
+   * answered from before the result that triggered it; without this, the last
+   * results of a burst would not be evaluated until some later result arrived.
+   * Each new result pushes the trailing evaluation back, so a burst gets one.
+   */
+  private scheduleTrailing(triggerTest: string, triggerAgent: string): void {
+    if (this.trailing) clearTimeout(this.trailing);
+    this.trailing = setTimeout(() => {
+      this.trailing = null;
+      this.evaluate(triggerTest, triggerAgent).catch((err) => {
+        console.error('[Alerts] Trailing evaluation failed:', err instanceof Error ? err.message : err);
+      });
+    }, TRAILING_EVALUATION_MS);
+    // Never keep the process alive for an alert check.
+    this.trailing.unref?.();
+  }
+
+  /** Returns false when nothing was evaluated (alerting off, in cooldown, Elasticsearch not configured). */
+  private async evaluate(triggerTest: string, triggerAgent: string): Promise<boolean> {
     // 1. Check alerting is configured
     const integrationsSettings = new IntegrationsSettingsService();
-    if (!integrationsSettings.isAlertingConfigured()) return;
+    if (!integrationsSettings.isAlertingConfigured()) return false;
 
     // 2. Get alert settings — bail if thresholds disabled
     const alertSettings = integrationsSettings.getAlertSettings();
-    if (!alertSettings?.thresholds?.enabled) return;
+    if (!alertSettings?.thresholds?.enabled) return false;
 
     // 3. Cooldown check
     if (alertSettings.last_alert_at) {
       const elapsed = Date.now() - new Date(alertSettings.last_alert_at).getTime();
-      if (elapsed < alertSettings.cooldown_minutes * 60_000) return;
+      if (elapsed < alertSettings.cooldown_minutes * 60_000) return false;
     }
 
     // 4. Verify Elasticsearch is configured
     const analyticsSettings = new SettingsService();
-    if (!analyticsSettings.isConfigured()) return;
+    if (!analyticsSettings.isConfigured()) return false;
 
     const esSettings = analyticsSettings.getSettings();
     const esService = this.esFor(esSettings);
@@ -195,7 +227,7 @@ export class AlertsService {
     }
 
     // 8. No breaches — nothing to alert
-    if (breaches.length === 0) return;
+    if (breaches.length === 0) return true;
 
     // 9. Build alert payload
     const dashboardUrl =
@@ -251,6 +283,7 @@ export class AlertsService {
     if (this.history.length > MAX_HISTORY) {
       this.history.length = MAX_HISTORY;
     }
+    return true;
   }
 
   // ── Agent Alerts ──────────────────────────────────────────────

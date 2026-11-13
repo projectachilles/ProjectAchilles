@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 
 // ---------------------------------------------------------------------------
 // Mock: IntegrationsSettingsService
@@ -322,6 +322,64 @@ describe('AlertsService', () => {
 
     expect(mockEsConstructed).toHaveBeenCalledTimes(1);
     expect(mockGetLatestScoreSummary).toHaveBeenCalledTimes(2);
+  });
+
+  describe('trailing evaluation', () => {
+    // The score comes from a snapshot cached for about 30 s, so an evaluation
+    // can be answered from before the result that triggered it. One more
+    // evaluation after the burst sees every result.
+    const passing = () => defaultAlertSettings({ thresholds: { enabled: true, defense_score_min: 70 } });
+
+    beforeEach(() => {
+      vi.useFakeTimers();
+      mockIsAlertingConfigured.mockReturnValue(true);
+      mockGetAlertSettings.mockReturnValue(passing());
+    });
+    afterEach(() => {
+      vi.useRealTimers();
+    });
+
+    it('evaluates once more after the last result of a burst, and catches a breach the burst missed', async () => {
+      await service.evaluateAndNotify('test-1', 'host-1');
+      await vi.advanceTimersByTimeAsync(10_000);
+      await service.evaluateAndNotify('test-1', 'host-2');
+      expect(mockGetLatestScoreSummary).toHaveBeenCalledTimes(2);
+      expect(mockSendSlackAlert).not.toHaveBeenCalled();
+
+      // By now the fresh snapshot shows the regression.
+      mockGetLatestScoreSummary.mockResolvedValue({ score: 40, pairCount: 100, windowLabel: '30d' });
+      await vi.advanceTimersByTimeAsync(34_000); // 34 s after the last result: not yet
+      expect(mockGetLatestScoreSummary).toHaveBeenCalledTimes(2);
+      await vi.advanceTimersByTimeAsync(2_000);
+      expect(mockGetLatestScoreSummary).toHaveBeenCalledTimes(3);
+      expect(mockSendSlackAlert).toHaveBeenCalledTimes(1);
+      expect(mockSendSlackAlert.mock.calls[0][1]).toMatchObject({ triggerTest: 'test-1', triggerAgent: 'host-2' });
+    });
+
+    it('runs the trailing evaluation once, not in a loop', async () => {
+      await service.evaluateAndNotify('test-1', 'host-1');
+      await vi.advanceTimersByTimeAsync(200_000);
+      expect(mockGetLatestScoreSummary).toHaveBeenCalledTimes(2);
+    });
+
+    it('schedules nothing when alerting is off or in cooldown', async () => {
+      mockIsAlertingConfigured.mockReturnValue(false);
+      await service.evaluateAndNotify('test-1', 'host-1');
+      mockIsAlertingConfigured.mockReturnValue(true);
+      mockGetAlertSettings.mockReturnValue({ ...passing(), last_alert_at: new Date().toISOString() });
+      await service.evaluateAndNotify('test-1', 'host-1');
+      await vi.advanceTimersByTimeAsync(200_000);
+      expect(mockGetLatestScoreSummary).not.toHaveBeenCalled();
+    });
+
+    it('logs a failed trailing evaluation instead of throwing', async () => {
+      const error = vi.spyOn(console, 'error').mockImplementation(() => {});
+      await service.evaluateAndNotify('test-1', 'host-1');
+      mockGetLatestScoreSummary.mockRejectedValue(new Error('cluster busy'));
+      await vi.advanceTimersByTimeAsync(40_000);
+      expect(error).toHaveBeenCalledWith(expect.stringContaining('[Alerts] Trailing evaluation failed'), 'cluster busy');
+      error.mockRestore();
+    });
   });
 
   it('builds a new Elasticsearch service when the analytics settings change', async () => {

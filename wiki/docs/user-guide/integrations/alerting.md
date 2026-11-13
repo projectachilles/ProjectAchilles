@@ -46,14 +46,14 @@ Configure two types of thresholds:
 The alert compares your threshold to the same score as the dashboard tile:
 
 - Each test on each host counts once, by its **latest** conclusive result. A multi-stage test is protected if any of its stages was blocked or detected.
-- The window is fixed at the **last 30 days**. The dashboard tile follows the date range you pick there, so the two numbers match when the dashboard is set to 30 days with no filters.
+- The window is fixed at the **last 30 days**. The dashboard tile follows the date range you pick there, so the two numbers match when the dashboard is set to 30 days with no filters. On an install with several organizations the alert scores all of them together, while the dashboard shows the viewer's organization.
 - Results covered by a risk acceptance are left out, as on the dashboard.
-- A test that starts failing lowers the score as soon as its failing result arrives.
+- A test that starts failing lowers the score on its next run. The score is read from a snapshot kept for about 30 seconds, so the check runs when a result arrives and once more about 35 seconds after the last result of a burst; a breach is noticed within about a minute.
 - If no test has a conclusive result in the last 30 days, there is no score and this check is skipped. The other checks still run.
 
 The alert message prints this basis next to the number.
 
-The score is checked the moment a result arrives. EDR detections are attached to results a few minutes later, when the EDR integration next syncs. A result that an EDR detected can therefore count as unprotected at that moment and trigger an alert, while the dashboard shows it as detected a few minutes later.
+EDR detections are attached to results a few minutes later, when the EDR integration next syncs. A result that an EDR detected can therefore count as unprotected when the alert is checked and trigger an alert, while the dashboard shows it as detected a few minutes later.
 
 ## Notification Bell
 
