@@ -23,7 +23,7 @@ The marking appears on the cover and in the bottom-left footer of every page, ne
 | Section | What it shows |
 |---|---|
 | Cover | Organization, window, active filters, report ID, generation time and handling marking. Smaller scopes also get a column for each run. |
-| Executive summary | A plain-language verdict, the Defense Score, the outcome of every stage, the campaign timeline and the lowest endpoints by stage protection rate. The median time to first EDR alert appears when an EDR vendor is configured. |
+| Executive summary | A plain-language verdict, the Defense Score, the outcome of every stage, the stage coverage of attack chains, the campaign timeline and the lowest endpoints by stage protection rate. The median time to first EDR alert appears when an EDR vendor is configured. |
 | Threat actors and ATT&CK coverage | Emulated actors with their techniques, then every technique grouped by tactic and marked Held, Partial, Gap or No verdict. Tests without their own page are listed in a table. |
 | One page per test | A kill-chain flow for multi-stage bundles, or a control table for cyber-hygiene bundles and single tests. Shows the latest result on each endpoint and the most recent correlated EDR alerts. Up to 40 tests get a page. |
 | Findings | Up to six techniques whose stage protection rate is below 75% (with at least three conclusive results), ranked and weighted toward exfiltration and impact, with remediation excerpts from the test's defense guidance. Also the techniques that held, the time to first EDR alert, and accepted risks when you are allowed to see them. |
@@ -51,6 +51,11 @@ Keep the name to 56 characters or fewer, so the page header fits on one line bes
 
 - **Defense Score** in the report is the **executions-basis** score: protected or detected conclusive executions divided by all conclusive executions in the window. The report describes what happened during the period, so it counts every execution. The Analytics dashboard headline uses the [latest-result score](./defense-score.md#latest-result-score) instead, which counts each test × endpoint pair once, by its most recent result. **The two numbers can differ for the same filters.** That is expected: a test that failed early in the window and has passed since counts against the report but not against the dashboard. When accepted risks are excluded, the summary also prints the score before accepted risks.
 - **Stage protection rate** is every other percentage: protected, prevented or detected stage results divided by conclusive stage results. Skipped bundle stages (exit code 0) are not results and are not counted. Rates are truncated to whole percents, so 74.9% prints as 74% and matches its Partial band.
+- **Attack chains: how many stages caught them** shows the same figures as the dashboard's [Stage coverage card](./defense-score.md#dashboard-tab) for the report's filters and period. A chain is one multi-stage test on one endpoint. Unlike the rest of the report, this block counts only the **latest run** of each chain in the period, so its figures differ from "Outcome of every stage", which counts every stage result.
+  - The first figure is the share of stages that were caught (blocked, or detected by an EDR alert that names that stage). The second is the share of these chains the Defense Score counts as protected, which needs only one caught stage.
+  - The table sorts the chains into four groups and names their tests (up to six per row). **Rest on a single stage** are the chains to work on first: they ran every stage and exactly one was caught. **Depth not tested** means one stage was caught and the later stages did not run, so nothing says whether they would have been caught.
+  - When any chain rests on a single stage, the opening paragraph says how many.
+  - The block is left out when the period has no multi-stage chains, and on installs whose backend does not offer stage coverage (Vercel).
 - Outcomes use the same labels as the executions panel: **Protected**, **Prevented**, **Detected**, **Unprotected** and **Inconclusive**. Squares mean the stage was stopped or detected, circles mean it got through, and a hollow mark means no verdict. A dark red mark flags an unprotected exfiltration or impact stage.
 - Coverage bands are **Held** at 75% or more, **Partial** from 40% to 74%, and **Gap** below 40%. A technique with no conclusive result reads **No verdict**.
 - If a **Result**, **Error name** or **Exit code** filter is active, the cover says so. The rates then describe that subset, not your overall posture.
@@ -64,6 +69,7 @@ A missing value is never printed as "none". If an optional lookup fails or times
 - **Defense Score** shows *unavailable* in place of the number.
 - **EDR alerts** that could not be fully checked show a one-line notice. Any alerts that were found are still listed, and alert counts read as a lower bound (for example *≥2*), with *—* where none were found.
 - A run whose EDR alerts were not searched reads **not checked**. It is not counted as silent.
+- **Stage coverage** that could not be loaded reads *unavailable* under its heading.
 - **Accepted risks** that could not be loaded read *unavailable*.
 - **Run start times** that could not be loaded mean the timelines show completion only.
 - When part of the data in scope could not be read, the cover and summary show a banner with the number of shards affected, and the totals may be incomplete.
