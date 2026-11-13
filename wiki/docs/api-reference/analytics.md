@@ -33,7 +33,7 @@ Most endpoints accept the same filter vocabulary. Pass any combination:
 | `bundleNames` | string | Comma-separated bundle test names. |
 | `result` | string | One of: `all`, `protected`, `unprotected`, `inconclusive`. |
 | `basis` | string | `executions` (default) or `latest`. Selects how the Defense Score endpoints count; see [Score basis](#score-basis). Anything else returns `400 Invalid basis`. |
-| `scoringMode` | string | `all-stages` (default — bundle protected only if every stage protected) or `any-stage` (bundle protected if any stage protected). |
+| `scoringMode` | string | `any-stage` (default): a multi-stage test on a host counts once and is protected if any stage is blocked or detected; this is the rule the dashboard uses. `all-stages`: every stage is scored on its own. Any other value returns 400 `Invalid scoringMode`. Before this default changed, an omitted `scoringMode` meant `all-stages`; pass it explicitly to keep the per-stage numbers. |
 
 :::warning[Default time window is 7 days]
 If you don't pass `from`/`to`, every endpoint applies a **`now-7d`** date filter. The dashboard UI defaults to **Last 30 days** — so the same query that fills the UI may return zero rows when called from the API without explicit dates. Always pass `from` (and optionally `to`) when scripting against the API.

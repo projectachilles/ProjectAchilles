@@ -24,6 +24,18 @@ function parseBasis(value: unknown): 'latest' | 'executions' | undefined {
   throw new AppError('Invalid basis', 400);
 }
 
+/**
+ * `scoringMode` query param. Omitted means any-stage, the rule the dashboard's
+ * Defense Score uses (a multi-stage test on a host counts once, protected if
+ * any stage is), so an API caller gets the number the console shows.
+ * `all-stages` (every stage scored on its own) must be asked for.
+ */
+function parseScoringMode(value: unknown): 'all-stages' | 'any-stage' {
+  if (value === undefined || value === '') return 'any-stage';
+  if (value === 'all-stages' || value === 'any-stage') return value;
+  throw new AppError('Invalid scoringMode', 400);
+}
+
 // Extract extended filter params from Express query object.
 // Dashboard endpoints pass these through so filter bar affects all metrics.
 function extractFilterParams(query: Record<string, any>): AnalyticsQueryParams & Partial<ExtendedAnalyticsQueryParams> {
@@ -42,7 +54,7 @@ function extractFilterParams(query: Record<string, any>): AnalyticsQueryParams &
     errorCodes: query.errorCodes as string,
     bundleNames: query.bundleNames as string,
     result: query.result as 'all' | 'protected' | 'unprotected' | 'inconclusive',
-    scoringMode: query.scoringMode as 'all-stages' | 'any-stage' | undefined,
+    scoringMode: parseScoringMode(query.scoringMode),
     basis: parseBasis(query.basis),
   };
 }

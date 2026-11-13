@@ -609,6 +609,27 @@ describe('analytics routes', () => {
       expect(mockGetDefenseScoreLatest).not.toHaveBeenCalled();
     });
 
+    it('defaults scoringMode to any-stage, the rule the dashboard uses', async () => {
+      await request(createApp()).get('/api/analytics/defense-score?from=now-7d');
+      expect(mockGetDefenseScore).toHaveBeenCalledWith(expect.objectContaining({ scoringMode: 'any-stage' }));
+      await request(createApp()).get('/api/analytics/defense-score?basis=latest&scoringMode=');
+      expect(mockGetDefenseScoreLatest).toHaveBeenCalledWith(expect.objectContaining({ scoringMode: 'any-stage' }), expect.anything());
+    });
+
+    it('passes scoringMode=all-stages through', async () => {
+      await request(createApp()).get('/api/analytics/defense-score?scoringMode=all-stages');
+      expect(mockGetDefenseScore).toHaveBeenCalledWith(expect.objectContaining({ scoringMode: 'all-stages' }));
+    });
+
+    it('rejects an unknown scoringMode with 400', async () => {
+      for (const q of ['scoringMode=bogus', 'scoringMode=any-stage&scoringMode=all-stages']) {
+        const res = await request(createApp()).get(`/api/analytics/defense-score?${q}`);
+        expect(res.status).toBe(400);
+        expect(res.body.error).toBe('Invalid scoringMode');
+      }
+      expect(mockGetDefenseScore).not.toHaveBeenCalled();
+    });
+
     it('/defense-score with basis=executions calls the executions method', async () => {
       await request(createApp()).get('/api/analytics/defense-score?basis=executions');
       expect(mockGetDefenseScore).toHaveBeenCalledTimes(1);
