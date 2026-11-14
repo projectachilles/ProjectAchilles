@@ -20,6 +20,7 @@ import { asyncHandler, AppError } from '../middleware/error.middleware.js';
 import { validate } from '../middleware/validation.js';
 import { VerifyCodeSchema, PollDeviceCodeSchema, RefreshTokenSchema } from '../schemas/cli.schemas.js';
 import { getDatabase } from '../services/agent/database.js';
+import type { AppRole } from '../types/roles.js';
 import { revokeCliSessions } from '../services/cliSessions.js';
 
 const router = Router();
@@ -59,6 +60,46 @@ function getCliSecret(): string {
   const secret = process.env.CLI_AUTH_SECRET;
   if (!secret) throw new AppError('CLI_AUTH_SECRET environment variable is required for CLI authentication. Generate one with: openssl rand -base64 32', 500);
   return secret;
+}
+
+/**
+ * The Clerk user behind a CLI session, as they are now. Every token the CLI
+ * flow issues (first sign-in and each refresh) goes through this, so a user
+ * removed or demoted since they approved the code gets no token, or one with
+ * their current role.
+ *
+ *   - deleted or banned: their CLI sessions are ended, 401;
+ *   - locked (temporary, failed sign-in attempts): 401, sessions kept;
+ *   - Clerk unreachable: 503. We don't issue a token for a user we can't
+ *     vouch for, and nothing is deleted, so the CLI can try again.
+ */
+async function loadActiveCliUser(userId: string): Promise<{
+  role: AppRole | null;
+  email: string | undefined;
+  displayName: string | undefined;
+}> {
+  let user: Awaited<ReturnType<typeof clerkClient.users.getUser>>;
+  try {
+    user = await clerkClient.users.getUser(userId);
+  } catch (err) {
+    if ((err as { status?: number })?.status === 404) {
+      revokeCliSessions(userId);
+      throw new AppError('This account can no longer sign in', 401);
+    }
+    throw new AppError('Could not confirm your account. Try again shortly.', 503);
+  }
+  if (user.banned) {
+    revokeCliSessions(userId);
+    throw new AppError('This account can no longer sign in', 401);
+  }
+  if (user.locked) {
+    throw new AppError('This account is locked. Try again later.', 401);
+  }
+  return {
+    role: getUserRole({ sessionClaims: { metadata: user.publicMetadata } }) ?? null,
+    email: user.emailAddresses?.[0]?.emailAddress,
+    displayName: [user.firstName, user.lastName].filter(Boolean).join(' ') || undefined,
+  };
 }
 
 function generateUserCode(): string {
@@ -191,16 +232,10 @@ router.post('/poll', pollLimiter, validate(PollDeviceCodeSchema), asyncHandler(a
     return res.status(202).json({ success: false, error: 'authorization_pending' });
   }
 
-  // Verified — fetch user details from Clerk for display name
-  let email: string | undefined;
-  let displayName: string | undefined;
-  try {
-    const user = await clerkClient.users.getUser(code.user_id!);
-    email = user.emailAddresses?.[0]?.emailAddress;
-    displayName = [user.firstName, user.lastName].filter(Boolean).join(' ') || undefined;
-  } catch {
-    // Non-fatal — user info is cosmetic
-  }
+  // Verified. The role stored on the code is the one the user had when they
+  // approved it; they may have been removed or demoted since, so the token is
+  // issued for the user as Clerk has them now.
+  const { role, email, displayName } = await loadActiveCliUser(code.user_id);
 
   // Issue CLI token
   const secret = getCliSecret();
@@ -208,7 +243,7 @@ router.post('/poll', pollLimiter, validate(PollDeviceCodeSchema), asyncHandler(a
     {
       sub: code.user_id,
       org_id: code.org_id,
-      role: code.role,
+      role,
       type: 'cli',
     },
     secret,
@@ -230,7 +265,7 @@ router.post('/poll', pollLimiter, validate(PollDeviceCodeSchema), asyncHandler(a
     crypto.createHash('sha256').update(refreshToken).digest('hex'),
     code.user_id,
     code.org_id,
-    code.role,
+    role,
     expiresAt,
   );
 
@@ -245,7 +280,7 @@ router.post('/poll', pollLimiter, validate(PollDeviceCodeSchema), asyncHandler(a
       expires_at: expiresAt,
       user_id: code.user_id,
       org_id: code.org_id,
-      role: code.role,
+      role,
       email,
       display_name: displayName,
     },
@@ -277,29 +312,9 @@ router.post('/refresh', refreshLimiter, validate(RefreshTokenSchema), asyncHandl
     throw new AppError('Invalid or expired refresh token', 401);
   }
 
-  // The session was opened by a Clerk user: before extending it, confirm that
-  // user still exists and may sign in, and take their role as it is now.
-  let user: Awaited<ReturnType<typeof clerkClient.users.getUser>>;
-  try {
-    user = await clerkClient.users.getUser(stored.user_id);
-  } catch (err) {
-    if ((err as { status?: number })?.status === 404) {
-      revokeCliSessions(stored.user_id);
-      throw new AppError('Invalid or expired refresh token', 401);
-    }
-    // Clerk unreachable: don't extend a session we can't vouch for, but keep
-    // the refresh token so the CLI can try again.
-    throw new AppError('Could not confirm your account. Try again shortly.', 503);
-  }
-  if (user.banned) {
-    revokeCliSessions(stored.user_id);
-    throw new AppError('Invalid or expired refresh token', 401);
-  }
-  if (user.locked) {
-    // A lockout is temporary (failed sign-in attempts): refuse, keep the session.
-    throw new AppError('Invalid or expired refresh token', 401);
-  }
-  const role = getUserRole({ sessionClaims: { metadata: user.publicMetadata } }) ?? null;
+  // Before extending the session, confirm the user still exists and may sign
+  // in, and take their role as it is now.
+  const { role } = await loadActiveCliUser(stored.user_id);
 
   // Issue new access token
   const secret = getCliSecret();

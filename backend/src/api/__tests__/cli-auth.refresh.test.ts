@@ -125,3 +125,88 @@ describe('POST /api/cli/auth/refresh', () => {
     expect(getUser).not.toHaveBeenCalled();
   });
 });
+
+function storeVerifiedCode(opts: { deviceCode?: string; userId?: string; role?: string | null } = {}): string {
+  const deviceCode = opts.deviceCode ?? crypto.randomBytes(32).toString('hex');
+  testDb.prepare(`
+    INSERT INTO cli_auth_codes (device_code_hash, user_code, expires_at, verified_at, user_id, org_id, role)
+    VALUES (?, ?, ?, ?, ?, 'default', ?)
+  `).run(
+    sha256(deviceCode),
+    `CODE-${crypto.randomBytes(3).toString('hex')}`,
+    new Date(Date.now() + 5 * 60 * 1000).toISOString(),
+    new Date().toISOString(),
+    opts.userId ?? 'user_1',
+    opts.role === undefined ? 'admin' : opts.role,
+  );
+  return deviceCode;
+}
+
+const codeCount = (userId = 'user_1') =>
+  (testDb.prepare('SELECT COUNT(*) AS n FROM cli_auth_codes WHERE user_id = ?').get(userId) as { n: number }).n;
+
+const poll = async (device_code: string) =>
+  request(await makeApp()).post('/api/cli/auth/poll').send({ device_code });
+
+describe('POST /api/cli/auth/poll (a verified device code)', () => {
+  it('issues tokens for an active user', async () => {
+    const res = await poll(storeVerifiedCode());
+    expect(res.status).toBe(200);
+    expect((jwt.verify(res.body.data.access_token, SECRET) as { role: string }).role).toBe('admin');
+    expect(res.body.data.role).toBe('admin');
+    expect(tokenCount()).toBe(1);
+  });
+
+  it('issues the role the user has now, not the one stored when the code was approved', async () => {
+    getUser.mockResolvedValue({ id: 'user_1', banned: false, locked: false, publicMetadata: { role: 'analyst' } });
+    const res = await poll(storeVerifiedCode({ role: 'admin' }));
+    expect(res.status).toBe(200);
+    expect((jwt.verify(res.body.data.access_token, SECRET) as { role: string }).role).toBe('analyst');
+    expect(res.body.data.role).toBe('analyst');
+    const row = testDb.prepare('SELECT role FROM cli_refresh_tokens WHERE user_id = ?').get('user_1') as { role: string };
+    expect(row.role).toBe('analyst');
+  });
+
+  it('refuses a user who no longer exists: no tokens, code gone', async () => {
+    getUser.mockRejectedValue(Object.assign(new Error('Not Found'), { status: 404 }));
+    const res = await poll(storeVerifiedCode());
+    expect(res.status).toBe(401);
+    expect(res.body.data).toBeUndefined();
+    expect(tokenCount()).toBe(0);
+    expect(codeCount()).toBe(0);
+  });
+
+  it('refuses a banned user: no tokens, code gone', async () => {
+    getUser.mockResolvedValue({ id: 'user_1', banned: true, locked: false, publicMetadata: { role: 'admin' } });
+    const res = await poll(storeVerifiedCode());
+    expect(res.status).toBe(401);
+    expect(tokenCount()).toBe(0);
+    expect(codeCount()).toBe(0);
+  });
+
+  it('refuses a locked user', async () => {
+    getUser.mockResolvedValue({ id: 'user_1', banned: false, locked: true, publicMetadata: { role: 'admin' } });
+    const res = await poll(storeVerifiedCode());
+    expect(res.status).toBe(401);
+    expect(tokenCount()).toBe(0);
+  });
+
+  it('fails closed with 503 when the user cannot be checked, keeping the code', async () => {
+    getUser.mockRejectedValue(Object.assign(new Error('upstream'), { status: 500 }));
+    const code = storeVerifiedCode();
+    const res = await poll(code);
+    expect(res.status).toBe(503);
+    expect(tokenCount()).toBe(0);
+    expect(codeCount()).toBe(1);
+  });
+
+  it('still answers 202 for a code nobody approved yet, without asking Clerk', async () => {
+    const deviceCode = crypto.randomBytes(32).toString('hex');
+    testDb.prepare(`
+      INSERT INTO cli_auth_codes (device_code_hash, user_code, expires_at) VALUES (?, 'PEND-CODE', ?)
+    `).run(sha256(deviceCode), new Date(Date.now() + 5 * 60 * 1000).toISOString());
+    const res = await poll(deviceCode);
+    expect(res.status).toBe(202);
+    expect(getUser).not.toHaveBeenCalled();
+  });
+});

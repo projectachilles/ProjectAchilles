@@ -73,6 +73,27 @@ describe('user changes end that user\'s CLI sessions', () => {
     expect(isCliTokenRevoked('user_gone', iat)).toBe(true);
   });
 
+  // A code the user approved in the browser but the CLI has not collected yet
+  // would otherwise be exchanged for a fresh token after the revocation.
+  it.each([
+    ['DELETE /api/users/:id', (app: express.Express) => request(app).delete('/api/users/user_gone')],
+    ['PUT /api/users/:id/role', (app: express.Express) => request(app).put('/api/users/user_gone/role').send({ role: 'analyst' })],
+    ['DELETE /api/users/:id/role', (app: express.Express) => request(app).delete('/api/users/user_gone/role')],
+  ])('%s drops the device codes the user approved but has not collected', async (_name, call) => {
+    const insert = testDb.prepare(`
+      INSERT INTO cli_auth_codes (device_code_hash, user_code, expires_at, verified_at, user_id, org_id, role)
+      VALUES (?, ?, ?, ?, ?, 'default', 'admin')
+    `);
+    const soon = new Date(Date.now() + 5 * 60 * 1000).toISOString();
+    insert.run('code-gone', 'AAAA-AAAA', soon, new Date().toISOString(), 'user_gone');
+    insert.run('code-other', 'BBBB-BBBB', soon, new Date().toISOString(), 'user_other');
+
+    const res = await call(await makeApp());
+    expect(res.status).toBe(200);
+    const left = testDb.prepare('SELECT device_code_hash FROM cli_auth_codes').all() as { device_code_hash: string }[];
+    expect(left.map((r) => r.device_code_hash)).toEqual(['code-other']);
+  });
+
   it('leaves other users\' CLI sessions alone', async () => {
     await request(await makeApp()).delete('/api/users/user_gone');
     expect(tokenCount('user_other')).toBe(1);
