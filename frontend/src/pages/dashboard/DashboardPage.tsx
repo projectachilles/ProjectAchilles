@@ -4,7 +4,6 @@ import { cn } from '@/lib/utils';
 import { isLowSample, POSTURE_HELP, postureCaption, postureWindowLabel } from '@/lib/posture';
 import { isSameTimeRange, TIME_RANGE_PRESETS, timeRangeButtonLabel } from '@/lib/timeRange';
 import { PageHeader } from '@/components/layout/PageHeader';
-import { useHasPermission } from '@/hooks/useAppRole';
 import { useSharedTimeRange } from '@/hooks/useSharedTimeRange';
 import { AttentionBanner } from './components/AttentionBanner';
 import { AttackOutcomeMatrix } from './components/AttackOutcomeMatrix';
@@ -12,7 +11,6 @@ import { FleetHealthCard } from './components/FleetHealthCard';
 import { KpiCard, type KpiCardProps } from './components/KpiCard';
 import { KpiGrid } from './components/KpiGrid';
 import { RecentExecutionsCard } from './components/RecentExecutionsCard';
-import { SyncChip } from './components/SyncChip';
 import { TestingCadenceCard } from './components/TestingCadenceCard';
 import { ThreatActorReadinessCard } from './components/ThreatActorReadinessCard';
 import { TopControlsCard } from './components/TopControlsCard';
@@ -28,7 +26,6 @@ function formatRangeDay(iso: string | undefined): string {
 export default function DashboardPage() {
   const [range, setRange] = useSharedTimeRange();
   const data = useDashboardData(range);
-  const canSync = useHasPermission('tests:sync:execute');
   // '30d', '1d', 'last 365d' (All), or a custom range's length
   const windowLabel = postureWindowLabel(range);
 
@@ -179,14 +176,6 @@ export default function DashboardPage() {
             </span>
           )}
         </div>
-        <SyncChip
-          branch={data.syncStatus?.branch}
-          commit={data.syncStatus?.commitHash ?? undefined}
-          lastSyncedAgo={data.lastSyncedAgo}
-          syncing={data.syncing}
-          canSync={canSync}
-          onSync={() => void data.handleSync()}
-        />
       </PageHeader>
 
       <AttentionBanner items={data.attentionItems} loading={data.loading} />

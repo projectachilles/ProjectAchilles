@@ -9,6 +9,8 @@ import {
   X,
 } from 'lucide-react';
 import { browserApi } from '@/services/api/browser';
+import type { SyncStatus } from '@/types/test';
+import { formatRelativeTime } from '@/utils/dateFormatters';
 import { analyticsApi, type TestResultItem } from '@/services/api/analytics';
 import type { TestMetadata } from '@/types/test';
 import { PageHeader } from '@/components/layout/PageHeader';
@@ -33,6 +35,7 @@ import { tacticLabel, tacticToSlug } from '@/lib/mitreTactics';
 import { TestListHeader, TestListRow } from './components/TestListRow';
 import { fleetResultText, type FleetState } from './components/fleetResult';
 import { FacetRail } from './components/FacetRail';
+import { SyncChip } from './components/SyncChip';
 import {
   DEFAULT_FILTERS,
   computeFacetCounts,
@@ -69,11 +72,16 @@ export default function TestsPage() {
   const [searchParams, setSearchParams] = useSearchParams();
   const { favorites, recentTests, isFavorite, toggleFavorite } = useTestPreferences();
   const canCreateTasks = useHasPermission('endpoints:tasks:create');
+  const canSync = useHasPermission('tests:sync:execute');
   const { configured: esConfigured } = useAnalyticsAuth();
 
   const [tests, setTests] = useState<TestMetadata[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  // Git state of the test library; null when it cannot be read (e.g. sync not configured).
+  const [syncStatus, setSyncStatus] = useState<SyncStatus | null>(null);
+  const [syncing, setSyncing] = useState(false);
+  const [syncFailed, setSyncFailed] = useState(false);
 
   const [query, setQuery] = useState('');
   const [sortField, setSortField] = useState<SortField>('createdDate');
@@ -175,6 +183,30 @@ export default function TestsPage() {
         setError('Failed to load tests');
       })
       .finally(() => setLoading(false));
+    browserApi
+      .getSyncStatus()
+      .then(setSyncStatus)
+      .catch(() => setSyncStatus(null));
+  }, []);
+
+  // Pull the library, then show what the pull brought: the new commit and the new list.
+  const handleSync = useCallback(async () => {
+    setSyncing(true);
+    setSyncFailed(false);
+    try {
+      const result = await browserApi.syncTests();
+      setSyncStatus(result.syncStatus);
+      setTests(await browserApi.getAllTests());
+      browserApi
+        .getBuiltTestUuids()
+        .then((uuids) => setBuiltUuids(new Set(uuids)))
+        .catch(() => setBuiltUuids(null));
+    } catch (err) {
+      console.error('Test library sync failed:', err);
+      setSyncFailed(true);
+    } finally {
+      setSyncing(false);
+    }
   }, []);
 
   useEffect(() => {
@@ -267,6 +299,19 @@ export default function TestsPage() {
         <span className="text-sm text-muted">
           {filtered.length}/{tests.length} tests
         </span>
+        {syncFailed && (
+          <span role="alert" className="text-sm text-danger">
+            Sync failed
+          </span>
+        )}
+        <SyncChip
+          branch={syncStatus?.branch}
+          commit={syncStatus?.commitHash ?? undefined}
+          lastSyncedAgo={syncStatus?.lastSyncTime ? formatRelativeTime(syncStatus.lastSyncTime) : undefined}
+          syncing={syncing}
+          canSync={canSync}
+          onSync={() => void handleSync()}
+        />
       </PageHeader>
 
       <div className="mb-4 flex flex-wrap items-center gap-2">
