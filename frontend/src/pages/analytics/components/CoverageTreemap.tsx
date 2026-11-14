@@ -1,326 +1,201 @@
 import { useState, useMemo, useCallback, memo } from 'react';
-import { Treemap, ResponsiveContainer, Tooltip } from 'recharts';
 import { ChevronLeft } from 'lucide-react';
 import type { HostTestMatrixCell } from '../../../services/api/analytics';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Skeleton } from '@/components/ui/skeleton';
+import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
 import { useChartTokens } from '@/lib/chartTokens';
 import { pickAccessibleLabel } from '@/lib/contrast';
+import { plural } from '../report/lib/format';
+import { buildBreadthModel, breadthStep, breadthWord, type BreadthHost, type BreadthStep } from './testBreadth';
 
 interface CoverageTreemapProps {
   data: HostTestMatrixCell[];
   loading?: boolean;
   title?: string;
-  /** Stable test count from last 90 days for consistent coverage calculation */
-  canonicalTestCount?: number;
-  /** Stable test count from last 30 days */
-  canonicalTestCount30d?: number;
+  /** Names of the tests run in the last 90 days: the default test set. */
+  baselineTests90d?: string[];
+  /** Names of the tests run in the last 30 days. */
+  baselineTests30d?: string[];
+  /**
+   * Hostnames of the active enrolled agents, already narrowed by the org and hostname filters.
+   * null when the agent list could not be read: the card then shows tested hosts only.
+   */
+  enrolledHostnames?: string[] | null;
+  /** A filter other than date/org is active, so a hollow tile is "no matching result". */
+  filtered?: boolean;
 }
 
-interface TreemapNode {
+type BaselineMode = '90d' | '30d' | 'window';
+
+/** One tile. Every tile has the same size: the card shows breadth, not run volume. */
+interface TileNode {
   name: string;
-  size?: number;
-  children?: TreemapNode[];
-  // Custom fields for our coverage data
-  totalCount?: number;
-  testCount?: number;
-  coverage?: number;
+  /** Second line of the tile. */
+  label: string;
+  /** 0 = hollow (not tested / not run), 1..4 = the breadth ramp. */
+  step: BreadthStep;
   fill?: string;
-  missingTests?: string[];
-}
-
-interface TooltipPayload {
-  payload?: TreemapNode;
+  /** A fold of several hosts or tests: neutral surface, not a breadth shade. */
+  fold?: boolean;
+  host?: BreadthHost;
+  foldTested?: number;
+  foldUntested?: number;
+  runs?: number;
 }
 
 const MAX_VISIBLE_HOSTS = 25;
 const MAX_VISIBLE_TESTS = 25;
+const OTHERS = '__others__';
 
-// Coverage ratio → governed sequential heat ramp (resolved via useChartTokens so the
-// SVG `fill` attribute gets a concrete color, not an unresolved `var(...)` string).
-// heat[4]/[2]/[0] give the high/medium/low contrast steps; theme-awareness comes
-// from the token values themselves (see --chart-heat-* in index.css), not branching here.
-function getCoverageColor(coverage: number, heat: readonly string[]): string {
-  if (coverage >= 0.8) return heat[4];
-  if (coverage >= 0.5) return heat[2];
-  return heat[0];
-}
+const BREADTH_TOKENS = ['--chart-breadth-1', '--chart-breadth-2', '--chart-breadth-3', '--chart-breadth-4'] as const;
+const LEGEND: { step: BreadthStep; label: string }[] = [
+  { step: 1, label: '<25%' },
+  { step: 2, label: '25-49%' },
+  { step: 3, label: '50-79%' },
+  { step: 4, label: '≥80%' },
+];
 
-function getCoverageLabel(coverage: number): string {
-  if (coverage >= 0.8) return 'Good';
-  if (coverage >= 0.5) return 'Fair';
-  return 'Poor';
-}
+const num = (n: number) => n.toLocaleString('en-US');
+const pct = (breadth: number) => `${Math.round(breadth * 100)}%`;
+const isFoldName = (name: string | undefined) => !!name?.startsWith('Others (');
 
-// Coverage band → swatch color (used only as a small color-cue dot beside the
-// label; the label TEXT itself always renders in --foreground so it stays
-// legible on --popover/--card regardless of band — --chart-warn (amber) fails
-// WCAG AA as a text color on those surfaces in light mode).
-function getCoverageBandColor(coverage: number): string {
-  if (coverage >= 0.8) return 'var(--chart-protected)';
-  if (coverage >= 0.5) return 'var(--chart-warn)';
-  return 'var(--chart-bypassed)';
-}
-
-// Pick a readable label color for a treemap cell by computing the ACTUAL WCAG
-// contrast ratio of each candidate label against the cell's own resolved
-// "oklch(L C H)" fill (contrast depends on the cell background — including its
-// chroma, not just lightness — and NOT on the page theme). Delegates to
-// pickAccessibleLabel, which returns whichever label has the higher computed
-// contrast; unresolved fills (e.g. jsdom, which never resolves CSS custom
-// properties) fall back to candidates[0] without throwing.
-function pickLabelFill(fill: string | undefined, labelOnLight: string, labelOnDark: string): string {
-  return pickAccessibleLabel(fill ?? '', [labelOnDark, labelOnLight]);
-}
-
-// Custom content renderer for treemap cells
-interface CustomContentProps {
-  x?: number;
-  y?: number;
-  width?: number;
-  height?: number;
-  name?: string;
-  coverage?: number;
-  testCount?: number;
-  fill?: string;
+interface TileProps {
+  node: TileNode;
   onClick?: () => void;
-  isClickable?: boolean;
-  hideCoverageStats?: boolean;
-  labelOnLight?: string;
-  labelOnDark?: string;
+  labelOnLight: string;
+  labelOnDark: string;
+  children: React.ReactNode;
 }
 
-function CustomTreemapContent(props: CustomContentProps) {
-  const {
-    x = 0, y = 0, width = 0, height = 0, name, coverage: rawCoverage, testCount: rawTestCount, fill,
-    isClickable = true, hideCoverageStats = false, labelOnLight = '', labelOnDark = '',
-  } = props;
-  // Contrast-aware label color: chosen against this cell's own background
-  // lightness, not the surrounding page theme, so text stays legible across
-  // the whole --chart-heat-1..5 range (WCAG 2.2 AA, both theme directions).
-  const textFill = pickLabelFill(fill, labelOnLight, labelOnDark);
-  const coverage = hideCoverageStats ? undefined : rawCoverage;
-  const testCount = hideCoverageStats ? undefined : rawTestCount;
-
-  // Don't render tiny cells
-  if (width < 30 || height < 20) return null;
-
-  // Adjusted visibility thresholds for bottom-anchored layout
-  const showName = width > 50 && height > 30;
-  const showDetails = width > 70 && height > 45;
-
-  // Truncate name based on available width
-  const maxChars = Math.floor(width / 9);
-  const displayName = name && name.length > maxChars ? name.slice(0, maxChars) + '…' : name;
-
-  // Responsive font sizes: larger for better readability
-  const fontSize = Math.min(14, Math.max(11, width / 8));
-  const detailsFontSize = Math.min(11, Math.max(9, width / 10));
-  const fontFamily = 'Inter, ui-sans-serif, system-ui, -apple-system, sans-serif';
-
-  // Bottom-left anchored positioning
-  const textPadding = 10;
-  const textX = x + textPadding;
-  const statsY = y + height - 12;      // Stats line near bottom
-  // Only leave room for stats if we'll actually show them
-  const willShowStats = showDetails && coverage !== undefined;
-  const hostnameY = willShowStats ? y + height - 28 : y + height - 14;  // Hostname above stats
-
-  // Compact stats format: "95% · 19 tests" — append "⋯" for "Others" aggregate node
-  const isOthersNode = name?.startsWith('Others (');
-  const statsText = coverage !== undefined
-    ? `${(coverage * 100).toFixed(0)}% · ${testCount} tests${isOthersNode ? ' ⋯' : ''}`
-    : '';
-
+/** One equal tile: a button (keyboard reachable) whose tooltip opens on hover and focus. */
+function Tile({ node, onClick, labelOnLight, labelOnDark, children }: TileProps) {
+  const hollow = node.step === 0 && !node.fold;
+  // A filled tile picks its label by computed contrast against its own fill (see contrast.ts);
+  // hollow and fold tiles sit on the card surface, so they use the theme's text colours.
+  const style = hollow || node.fold
+    ? undefined
+    : { backgroundColor: node.fill, color: pickAccessibleLabel(node.fill ?? '', [labelOnDark, labelOnLight]) };
   return (
-    <g style={{ cursor: isClickable ? 'pointer' : 'default' }}>
-      {/* Cell background */}
-      <rect
-        x={x}
-        y={y}
-        width={width}
-        height={height}
-        fill={fill}
-        stroke="var(--background)"
-        strokeWidth={3}
-        rx={6}
-        className="transition-opacity hover:opacity-80"
-      />
-
-      {/* Hostname text - bottom-left anchored */}
-      {showName && (
-        <text
-          x={textX}
-          y={hostnameY}
-          textAnchor="start"
-          dominantBaseline="auto"
-          fill={textFill}
-          stroke="none"
-          fontSize={fontSize}
-          fontWeight={500}
-          fontFamily={fontFamily}
-          letterSpacing={0.2}
+    <Tooltip>
+      <TooltipTrigger asChild>
+        <button
+          type="button"
+          data-testid="tile"
+          data-name={node.name}
+          data-step={node.step}
+          onClick={onClick}
+          style={style}
+          className={`h-[72px] min-w-0 rounded-md px-2.5 pb-2 flex flex-col justify-end text-left transition-opacity hover:opacity-80 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring ${
+            onClick ? 'cursor-pointer' : 'cursor-default'
+          } ${
+            hollow
+              ? 'border border-dashed border-border-strong text-muted-foreground'
+              : node.fold ? 'bg-secondary text-foreground' : ''
+          }`}
         >
-          {displayName}
-        </text>
-      )}
-
-      {/* Coverage stats text - compact format below hostname */}
-      {showDetails && coverage !== undefined && (
-        <text
-          x={textX}
-          y={statsY}
-          textAnchor="start"
-          dominantBaseline="auto"
-          fill={textFill}
-          stroke="none"
-          fontSize={detailsFontSize}
-          fontWeight={400}
-          fontFamily={fontFamily}
-          letterSpacing={0.3}
-        >
-          {statsText}
-        </text>
-      )}
-    </g>
+          <span className="block truncate text-[13px] font-medium leading-tight">{node.name}</span>
+          <span className="block truncate text-[11px] leading-tight mt-0.5">{node.label}</span>
+        </button>
+      </TooltipTrigger>
+      <TooltipContent className="p-3 max-w-xs text-left text-wrap">{children}</TooltipContent>
+    </Tooltip>
   );
 }
 
-// Custom tooltip
-function CustomTooltip({ active, payload, baselineLabel }: { active?: boolean; payload?: TooltipPayload[]; baselineLabel?: string }) {
-  if (!active || !payload || !payload.length) return null;
-
-  const data = payload[0].payload;
-  if (!data) return null;
-
-  const { name, totalCount, testCount, coverage, missingTests } = data;
-  const isOthersNode = name?.startsWith('Others (');
-
-  return (
-    <div className="bg-popover border border-border rounded-lg shadow-lg p-3 max-w-xs">
-      <p className="font-semibold text-foreground mb-1">{name}</p>
-      <div className="space-y-1 text-sm text-muted-foreground">
-        {isOthersNode ? (
-          <>
-            <p>
-              <span className="font-medium text-foreground">{totalCount}</span> total executions across aggregated hosts
-            </p>
-            {coverage !== undefined && (
-              <p>
-                Combined coverage:{' '}
-                <span className="font-medium text-foreground">
-                  <span
-                    className="inline-block w-2 h-2 rounded-full mr-1 align-middle"
-                    style={{ backgroundColor: getCoverageBandColor(coverage) }}
-                  />
-                  {(coverage * 100).toFixed(0)}% ({getCoverageLabel(coverage)})
-                </span>
-                {baselineLabel && (
-                  <span className="text-xs text-muted-foreground"> — {baselineLabel}</span>
-                )}
-              </p>
-            )}
-          </>
-        ) : (
-          <>
-            <p>
-              <span className="font-medium text-foreground">{testCount}</span> unique tests run
-            </p>
-            <p>
-              <span className="font-medium text-foreground">{totalCount}</span> total executions
-            </p>
-            {coverage !== undefined && (
-              <p>
-                Coverage:{' '}
-                <span className="font-medium text-foreground">
-                  <span
-                    className="inline-block w-2 h-2 rounded-full mr-1 align-middle"
-                    style={{ backgroundColor: getCoverageBandColor(coverage) }}
-                  />
-                  {(coverage * 100).toFixed(0)}% ({getCoverageLabel(coverage)})
-                </span>
-                {baselineLabel && (
-                  <span className="text-xs text-muted-foreground"> — {baselineLabel}</span>
-                )}
-              </p>
-            )}
-            {missingTests && missingTests.length > 0 && (
-              <div className="mt-2 pt-2 border-t border-border">
-                <p className="text-xs text-muted-foreground mb-1">
-                  Missing {missingTests.length} test{missingTests.length !== 1 ? 's' : ''}:
-                </p>
-                <ul className="text-xs text-red-400 space-y-0.5">
-                  {missingTests.slice(0, 5).map(test => (
-                    <li key={test}>• {test}</li>
-                  ))}
-                  {missingTests.length > 5 && (
-                    <li className="text-muted-foreground">...and {missingTests.length - 5} more</li>
-                  )}
-                </ul>
-              </div>
-            )}
-          </>
-        )}
-      </div>
-      <p className="text-xs text-muted-foreground mt-2 italic">
-        {isOthersNode ? 'Click to expand' : 'Click to drill down'}
-      </p>
-    </div>
+/** A swatch in the tile's own shade; dashed outline for "not tested". */
+function StepSwatch({ step, className = 'w-3 h-3' }: { step: BreadthStep; className?: string }) {
+  return step === 0 ? (
+    <span className={`inline-block rounded border border-dashed border-border-strong ${className}`} />
+  ) : (
+    <span className={`inline-block rounded ${className}`} style={{ backgroundColor: `var(--chart-breadth-${step})` }} />
   );
 }
 
-// Tooltip for "Others" drill-down view (shows host-level stats)
-function OthersDrillDownTooltip({ active, payload }: { active?: boolean; payload?: TooltipPayload[] }) {
-  if (!active || !payload || !payload.length) return null;
+interface BreadthTooltipProps {
+  tile: Pick<TileNode, 'name' | 'host' | 'foldTested' | 'foldUntested'>;
+  /** Size of the test set the hosts are measured against. */
+  setSize: number;
+  baselineLabel?: string;
+  filtered?: boolean;
+}
 
-  const data = payload[0].payload;
-  if (!data) return null;
+/** Tooltip body of a host tile (overview and the Others view) and of the Others fold. */
+export function BreadthTooltip({ tile, setSize, baselineLabel, filtered }: BreadthTooltipProps) {
+  if (!tile.host) {
+    return (
+      <>
+        <p className="text-sm font-semibold text-foreground mb-1">{tile.name}</p>
+        <p className="text-sm text-muted-foreground">
+          <span className="font-medium text-foreground">{tile.foldTested ?? 0}</span> tested,{' '}
+          <span className="font-medium text-foreground">{tile.foldUntested ?? 0}</span> not tested
+        </p>
+        <p className="text-xs text-muted-foreground mt-2 italic">Click to expand</p>
+      </>
+    );
+  }
 
+  const { host } = tile;
   return (
-    <div className="bg-popover border border-border rounded-lg shadow-lg p-3">
-      <p className="font-semibold text-foreground mb-1">{data.name}</p>
+    <>
+      <p className="text-sm font-semibold text-foreground mb-1">{host.hostname}</p>
       <div className="space-y-1 text-sm text-muted-foreground">
-        <p>
-          <span className="font-medium text-foreground">{data.testCount}</span> unique tests
-        </p>
-        <p>
-          <span className="font-medium text-foreground">{data.totalCount}</span> total executions
-        </p>
-        {data.coverage !== undefined && (
-          <p>
-            Coverage:{' '}
-            <span className="font-medium text-foreground">
-              <span
-                className="inline-block w-2 h-2 rounded-full mr-1 align-middle"
-                style={{ backgroundColor: getCoverageBandColor(data.coverage) }}
-              />
-              {(data.coverage * 100).toFixed(0)}% ({getCoverageLabel(data.coverage)})
-            </span>
+        {!host.tested && (
+          <p className="font-medium text-foreground">
+            {filtered ? 'No result matches the current filters' : 'Not tested in this window'}
           </p>
         )}
+        <p>
+          <span className="font-medium text-foreground">{host.ranCount} of {setSize}</span>{' '}
+          {setSize === 1 ? 'test' : 'tests'} run
+        </p>
+        {host.tested && (
+          <>
+            <p>
+              <span className="font-medium text-foreground">{plural(host.totalRuns, 'run')}</span> in this window
+            </p>
+            <p>
+              Breadth:{' '}
+              <span className="font-medium text-foreground">
+                <StepSwatch step={breadthStep(host)} className="w-2 h-2 mr-1 align-middle" />
+                {pct(host.breadth)} ({breadthWord(host.breadth)})
+              </span>
+              {baselineLabel && <span className="text-xs text-muted-foreground"> — {baselineLabel}</span>}
+            </p>
+          </>
+        )}
+        {host.missing.length > 0 && (
+          <div className="mt-2 pt-2 border-t border-border">
+            <p className="text-xs text-muted-foreground mb-1">Missing {plural(host.missing.length, 'test')}:</p>
+            <ul className="text-xs text-foreground space-y-0.5">
+              {host.missing.slice(0, 5).map((test) => (
+                <li key={test}>• {test}</li>
+              ))}
+            </ul>
+            {host.missing.length > 5 && (
+              <p className="text-xs text-muted-foreground mt-0.5">and {host.missing.length - 5} more</p>
+            )}
+          </div>
+        )}
       </div>
-      <p className="text-xs text-muted-foreground mt-2 italic">Click to drill down</p>
-    </div>
+      <p className="text-xs text-muted-foreground mt-2 italic">Click to see its tests</p>
+    </>
   );
 }
 
-// Drill-down tooltip for individual tests
-function DrillDownTooltip({ active, payload }: { active?: boolean; payload?: TooltipPayload[] }) {
-  if (!active || !payload || !payload.length) return null;
-
-  const data = payload[0].payload;
-  if (!data) return null;
-
-  const isOthersTestNode = data.name?.startsWith('Others (');
-
+/** Tooltip body of a test tile inside one host. */
+function TestTooltip({ tile }: { tile: TileNode }) {
   return (
-    <div className="bg-popover border border-border rounded-lg shadow-lg p-3">
-      <p className="font-semibold text-foreground">{data.name}</p>
+    <>
+      <p className="text-sm font-semibold text-foreground">{tile.name}</p>
       <p className="text-sm text-muted-foreground">
-        <span className="font-medium text-foreground">{data.size}</span>
-        {isOthersTestNode ? ' total executions across aggregated tests' : ' executions'}
+        {tile.fold
+          ? `${plural(tile.runs ?? 0, 'run')} across these tests`
+          : tile.runs
+            ? `${plural(tile.runs, 'run')} on this host in this window`
+            : 'Not run on this host in this window'}
       </p>
-    </div>
+    </>
   );
 }
 
@@ -328,230 +203,107 @@ function CoverageTreemap({
   data,
   loading,
   title = 'Test Breadth by Host',
-  canonicalTestCount,
-  canonicalTestCount30d
+  baselineTests90d,
+  baselineTests30d,
+  enrolledHostnames = null,
+  filtered = false,
 }: CoverageTreemapProps) {
-  // Resolved sequential heat ramp + neutral "aggregate bucket" token — re-reads on
-  // theme flips via useChartTokens' MutationObserver, so no manual isDark branching.
-  const heatTokens = useChartTokens([
-    '--chart-heat-1', '--chart-heat-2', '--chart-heat-3', '--chart-heat-4', '--chart-heat-5', '--chart-cat-5',
-    '--chart-label-on-light', '--chart-label-on-dark',
-  ]);
-  const HEAT = [
-    heatTokens['--chart-heat-1'], heatTokens['--chart-heat-2'], heatTokens['--chart-heat-3'],
-    heatTokens['--chart-heat-4'], heatTokens['--chart-heat-5'],
-  ];
+  // Resolved ramp + label tokens: a concrete colour is needed to pick a readable label per tile.
+  const tokens = useChartTokens([...BREADTH_TOKENS, '--chart-label-on-light', '--chart-label-on-dark']);
 
-  // Drill-down state: null = overview, string = hostname to show tests for
+  // Drill-down state: null = overview, OTHERS = the folded hosts, else a hostname
   const [drillDownHost, setDrillDownHost] = useState<string | null>(null);
   // Track whether we navigated to a host from the "Others" view (for back-navigation)
   const [cameFromOthers, setCameFromOthers] = useState(false);
-  // Coverage denominator toggle: '90d'/'30d' uses canonical count, 'window' uses current window's unique tests
-  const [baselineMode, setBaselineMode] = useState<'90d' | '30d' | 'window'>('90d');
+  const [baselineMode, setBaselineMode] = useState<BaselineMode>('90d');
 
-  // Transform flat data to hierarchical treemap structure
-  const { treemapData, effectiveTestCount, remainingHostnames } = useMemo(() => {
-    if (!data || data.length === 0) {
-      return { treemapData: null, allUniqueTests: new Set<string>(), effectiveTestCount: 0, remainingHostnames: new Set<string>() };
-    }
+  const has90d = !!baselineTests90d && baselineTests90d.length > 0;
+  const has30d = !!baselineTests30d && baselineTests30d.length > 0;
+  // A baseline that is not loaded (or empty) falls back to the window's own tests.
+  const effectiveMode: BaselineMode =
+    baselineMode === '90d' && has90d ? '90d' : baselineMode === '30d' && has30d ? '30d' : 'window';
+  const baselineLabel =
+    effectiveMode === '90d' ? '90d baseline' : effectiveMode === '30d' ? '30d baseline' : 'current window';
 
-    // Get all unique tests across all hosts (for coverage calculation)
-    const allTests = new Set(data.map(d => d.testName));
+  const model = useMemo(
+    () =>
+      buildBreadthModel(
+        data ?? [],
+        effectiveMode === '90d' ? baselineTests90d! : effectiveMode === '30d' ? baselineTests30d! : null,
+        enrolledHostnames,
+      ),
+    [data, effectiveMode, baselineTests90d, baselineTests30d, enrolledHostnames],
+  );
 
-    // Use canonical test count (90d/30d) or current window's unique test count based on toggle
-    const baselineCount =
-      baselineMode === '90d' && canonicalTestCount && canonicalTestCount > 0
-        ? canonicalTestCount
-        : baselineMode === '30d' && canonicalTestCount30d && canonicalTestCount30d > 0
-          ? canonicalTestCount30d
-          : allTests.size;
-
-    // Group by hostname
-    const hostMap = new Map<string, { tests: Map<string, number>; totalCount: number }>();
-
-    data.forEach(cell => {
-      if (!hostMap.has(cell.hostname)) {
-        hostMap.set(cell.hostname, { tests: new Map(), totalCount: 0 });
-      }
-      const hostData = hostMap.get(cell.hostname)!;
-      hostData.tests.set(cell.testName, cell.count);
-      hostData.totalCount += cell.count;
-    });
-
-    // Build treemap children (overview mode - NO nested children to avoid nested cells)
-    const children: TreemapNode[] = Array.from(hostMap.entries()).map(([hostname, hostData]) => {
-      const testCount = hostData.tests.size;
-      const coverage = baselineCount > 0 ? testCount / baselineCount : 0;
-
-      // Find missing tests
-      const runTests = new Set(hostData.tests.keys());
-      const missingTests = Array.from(allTests).filter(t => !runTests.has(t));
-
+  const hostTile = useCallback(
+    (host: BreadthHost): TileNode => {
+      const step = breadthStep(host);
       return {
-        name: hostname,
-        size: hostData.totalCount, // Size by total executions
-        totalCount: hostData.totalCount,
-        testCount,
-        coverage,
-        fill: getCoverageColor(coverage, HEAT),
-        missingTests,
-        // NOTE: Don't include children here - Recharts renders them as nested cells
+        name: host.hostname,
+        label: host.tested
+          ? `${pct(host.breadth)} · ${host.ranCount} of ${model.tests.length}`
+          : filtered ? 'no matching result' : 'not tested',
+        step,
+        fill: step === 0 ? undefined : tokens[BREADTH_TOKENS[step - 1]],
+        host,
       };
-    });
+    },
+    [model.tests.length, filtered, tokens],
+  );
 
-    // Sort by total count descending (biggest hosts first)
-    children.sort((a, b) => (b.totalCount || 0) - (a.totalCount || 0));
-
-    // Aggregate tail hosts into "Others" if there are too many
-    let finalChildren = children;
-    let remaining = new Set<string>();
-
-    if (children.length > MAX_VISIBLE_HOSTS) {
-      const topHosts = children.slice(0, MAX_VISIBLE_HOSTS);
-      const remainingHosts = children.slice(MAX_VISIBLE_HOSTS);
-
-      remaining = new Set(remainingHosts.map(h => h.name));
-
-      // Compute aggregate stats for "Others" node
-      const othersTotalCount = remainingHosts.reduce((sum, h) => sum + (h.totalCount || 0), 0);
-
-      // Union of unique tests across remaining hosts
-      const othersTestSet = new Set<string>();
-      data.forEach(cell => {
-        if (remaining.has(cell.hostname)) {
-          othersTestSet.add(cell.testName);
-        }
-      });
-      const othersTestCount = othersTestSet.size;
-      const othersCoverage = baselineCount > 0 ? othersTestCount / baselineCount : 0;
-
-      // Union of missing tests across remaining hosts (deduplicated)
-      const othersMissingTests = Array.from(allTests).filter(t => !othersTestSet.has(t));
-
-      const othersNode: TreemapNode = {
-        name: `Others (${remainingHosts.length} hosts)`,
-        size: othersTotalCount,
-        totalCount: othersTotalCount,
-        testCount: othersTestCount,
-        coverage: othersCoverage,
-        fill: getCoverageColor(othersCoverage, HEAT),
-        missingTests: othersMissingTests,
-      };
-
-      finalChildren = [...topHosts, othersNode];
+  // The model is ordered worst first, so the fold hides the best-tested hosts, never the gaps.
+  const { overviewTiles, foldedHosts } = useMemo(() => {
+    if (model.hosts.length <= MAX_VISIBLE_HOSTS) {
+      return { overviewTiles: model.hosts.map(hostTile), foldedHosts: [] as BreadthHost[] };
     }
-
-    return {
-      treemapData: { name: 'root', children: finalChildren },
-      allUniqueTests: allTests,
-      effectiveTestCount: baselineCount,
-      remainingHostnames: remaining,
+    const folded = model.hosts.slice(MAX_VISIBLE_HOSTS);
+    const foldTested = folded.filter((h) => h.tested).length;
+    const others: TileNode = {
+      name: `Others (${plural(folded.length, 'host')})`,
+      label: `${plural(folded.length, 'host')} ⋯`,
+      step: 0,
+      fold: true,
+      foldTested,
+      foldUntested: folded.length - foldTested,
     };
-  }, [data, heatTokens, canonicalTestCount, canonicalTestCount30d, baselineMode]);
+    return { overviewTiles: [...model.hosts.slice(0, MAX_VISIBLE_HOSTS).map(hostTile), others], foldedHosts: folded };
+  }, [model.hosts, hostTile]);
 
-  // Get drill-down data if a host is selected (build test children from original data)
-  const drillDownData = useMemo(() => {
-    if (!drillDownHost || !data) return null;
+  const selectedHost = useMemo(
+    () => (drillDownHost && drillDownHost !== OTHERS ? model.hosts.find((h) => h.hostname === drillDownHost) : undefined),
+    [drillDownHost, model.hosts],
+  );
 
-    // "Others" drill-down: show remaining hosts as treemap cells
-    if (drillDownHost === '__others__' && remainingHostnames.size > 0) {
-      // Use same baseline as the overview
-      const allTests = new Set(data.map(d => d.testName));
-      const baselineCount =
-        baselineMode === '90d' && canonicalTestCount && canonicalTestCount > 0
-          ? canonicalTestCount
-          : baselineMode === '30d' && canonicalTestCount30d && canonicalTestCount30d > 0
-            ? canonicalTestCount30d
-            : allTests.size;
-
-      const hostMap = new Map<string, { tests: Map<string, number>; totalCount: number }>();
-      data.forEach(cell => {
-        if (!remainingHostnames.has(cell.hostname)) return;
-        if (!hostMap.has(cell.hostname)) {
-          hostMap.set(cell.hostname, { tests: new Map(), totalCount: 0 });
-        }
-        const hostData = hostMap.get(cell.hostname)!;
-        hostData.tests.set(cell.testName, cell.count);
-        hostData.totalCount += cell.count;
-      });
-
-      const hostChildren: TreemapNode[] = Array.from(hostMap.entries())
-        .map(([hostname, hostData]) => {
-          const testCount = hostData.tests.size;
-          const coverage = baselineCount > 0 ? testCount / baselineCount : 0;
-          return {
-            name: hostname,
-            size: hostData.totalCount,
-            totalCount: hostData.totalCount,
-            testCount,
-            coverage,
-            fill: getCoverageColor(coverage, HEAT),
-          };
-        })
-        .sort((a, b) => (b.totalCount || 0) - (a.totalCount || 0));
-
-      return {
-        name: '__others__',
-        children: hostChildren,
-      };
-    }
-
-    // Single-host drill-down: show individual tests
-    const hostTests = data.filter(d => d.hostname === drillDownHost);
-    if (hostTests.length === 0) return null;
-
-    const testChildren: TreemapNode[] = hostTests
-      .map(test => ({
-        name: test.testName,
-        size: test.count,
-        fill: getCoverageColor(1, HEAT), // Tests shown as "covered"
-      }))
-      .sort((a, b) => (b.size || 0) - (a.size || 0));
-
-    // Aggregate tail tests into "Others" if there are too many
-    let finalTestChildren = testChildren;
-    if (testChildren.length > MAX_VISIBLE_TESTS) {
-      const topTests = testChildren.slice(0, MAX_VISIBLE_TESTS);
-      const remainingTests = testChildren.slice(MAX_VISIBLE_TESTS);
-      const othersSize = remainingTests.reduce((sum, t) => sum + (t.size || 0), 0);
-
-      const othersTestNode: TreemapNode = {
-        name: `Others (${remainingTests.length} tests)`,
-        size: othersSize,
-        totalCount: othersSize,
-        fill: heatTokens['--chart-cat-5'],
-      };
-
-      finalTestChildren = [...topTests, othersTestNode];
-    }
-
-    return {
-      name: drillDownHost,
-      children: finalTestChildren,
-    };
-  }, [drillDownHost, data, heatTokens, remainingHostnames, baselineMode, canonicalTestCount, canonicalTestCount30d]);
-
-  const handleCellClick = useCallback((node: TreemapNode) => {
-    if (!node.name) return;
-
-    if (!drillDownHost) {
-      // Overview: click host → drill down, click "Others" → expand
-      if (node.name.startsWith('Others (')) {
-        setDrillDownHost('__others__');
-      } else {
-        setDrillDownHost(node.name);
-      }
-    } else if (drillDownHost === '__others__') {
-      // "Others" view: click a host → drill into its tests
-      setDrillDownHost(node.name);
-      setCameFromOthers(true);
-    }
-  }, [drillDownHost]);
+  // One tile per test of the set: the ones this host did not run first, hollow.
+  const testTiles = useMemo(() => {
+    if (!selectedHost) return null;
+    const all: TileNode[] = [
+      ...selectedHost.missing.map((name): TileNode => ({ name, label: 'not run', step: 0 })),
+      ...model.tests
+        .filter((name) => selectedHost.runsByTest.has(name))
+        .map((name): TileNode => {
+          const runs = selectedHost.runsByTest.get(name) ?? 0;
+          return { name, label: plural(runs, 'run'), step: 4, fill: tokens[BREADTH_TOKENS[3]], runs };
+        }),
+    ];
+    if (all.length <= MAX_VISIBLE_TESTS) return all;
+    const rest = all.slice(MAX_VISIBLE_TESTS);
+    return [
+      ...all.slice(0, MAX_VISIBLE_TESTS),
+      {
+        name: `Others (${plural(rest.length, 'test')})`,
+        label: `${plural(rest.length, 'test')} ⋯`,
+        step: 0 as const,
+        fold: true,
+        runs: rest.reduce((sum, t) => sum + (t.runs ?? 0), 0),
+      },
+    ];
+  }, [selectedHost, model.tests, tokens]);
 
   const handleBackClick = useCallback(() => {
     if (cameFromOthers) {
       // Go back to the "Others" view, not all the way to overview
-      setDrillDownHost('__others__');
+      setDrillDownHost(OTHERS);
       setCameFromOthers(false);
     } else {
       setDrillDownHost(null);
@@ -579,157 +331,122 @@ function CoverageTreemap({
   }
 
   // Empty state
-  if (!data || data.length === 0 || !treemapData) {
+  if (model.hosts.length === 0) {
     return (
       <Card className="h-full min-h-[280px] flex items-center justify-center">
-        <p className="text-muted-foreground">No coverage data available</p>
+        <p className="text-muted-foreground">No test results or enrolled hosts for this view</p>
       </Card>
     );
   }
 
-  const currentData = drillDownData || treemapData;
-  const isInDrillDown = drillDownHost !== null;
-  const isOthersDrillDown = drillDownHost === '__others__';
-  const isSingleHostDrillDown = isInDrillDown && !isOthersDrillDown;
+  // A host or fold that the current data no longer has falls back to the overview.
+  const isOthersView = drillDownHost === OTHERS && foldedHosts.length > 0;
+  const isHostView = !!selectedHost && !!testTiles;
+  const isOverview = !isOthersView && !isHostView;
+  const tiles = isHostView ? testTiles : isOthersView ? foldedHosts.map(hostTile) : overviewTiles;
+
+  // Decided from the view on screen, not from the stored selection: the selection can name a
+  // host the data no longer has, and the overview shown in its place must still be clickable.
+  const handleCellClick = (name: string) => {
+    if (isOthersView) {
+      // "Others" view: click a host → drill into its tests
+      setDrillDownHost(name);
+      setCameFromOthers(true);
+    } else {
+      // Overview: click host → drill down, click "Others" → expand
+      setDrillDownHost(isFoldName(name) ? OTHERS : name);
+      setCameFromOthers(false);
+    }
+  };
+
+  const hostsSummary =
+    enrolledHostnames === null
+      ? `${plural(model.testedCount, 'host')} tested · enrolled hosts unavailable`
+      : `${plural(model.hosts.length, 'host')} · ${num(model.testedCount)} tested · ${num(model.untestedCount)} not tested`;
 
   return (
     <Card className="h-full flex flex-col overflow-hidden">
       <CardHeader className="pb-2 flex-shrink-0">
-        <div className="flex items-center justify-between">
+        <div className="flex items-center justify-between gap-2 flex-wrap">
           <div className="flex items-center gap-2">
-            {isInDrillDown && (
+            {!isOverview && (
               <button
                 onClick={handleBackClick}
                 className="p-1 hover:bg-secondary rounded transition-colors"
                 title="Back to overview"
+                aria-label="Back to overview"
               >
                 <ChevronLeft className="w-4 h-4" />
               </button>
             )}
             <CardTitle className="text-sm font-medium">
-              {isInDrillDown
-                ? drillDownHost === '__others__'
-                  ? `Other Hosts (${remainingHostnames.size})`
-                  : `${drillDownHost} Tests`
-                : title}
+              {isHostView
+                ? `${selectedHost.hostname} · ${selectedHost.ranCount} of ${model.tests.length} ${model.tests.length === 1 ? 'test' : 'tests'}`
+                : isOthersView
+                  ? `Other Hosts (${foldedHosts.length})`
+                  : title}
             </CardTitle>
           </div>
-          {!isInDrillDown && (
-            <div className="flex items-center gap-2 text-xs text-muted-foreground">
+          {!isHostView && (
+            <div className="flex items-center gap-x-3 gap-y-1 flex-wrap text-xs text-muted-foreground">
+              <span>Share of tests run:</span>
+              {LEGEND.map(({ step, label }) => (
+                <span key={step} className="flex items-center gap-1">
+                  <StepSwatch step={step} />
+                  {label}
+                </span>
+              ))}
               <span className="flex items-center gap-1">
-                <span
-                  className="w-3 h-3 rounded"
-                  style={{ backgroundColor: 'var(--chart-heat-5)' }}
-                />
-                ≥80%
-              </span>
-              <span className="flex items-center gap-1">
-                <span
-                  className="w-3 h-3 rounded"
-                  style={{ backgroundColor: 'var(--chart-heat-3)' }}
-                />
-                50-79%
-              </span>
-              <span className="flex items-center gap-1">
-                <span
-                  className="w-3 h-3 rounded"
-                  style={{ backgroundColor: 'var(--chart-heat-1)' }}
-                />
-                &lt;50%
+                <StepSwatch step={0} />
+                {filtered ? 'no matching result' : 'not tested'}
               </span>
             </div>
           )}
         </div>
-        {!isInDrillDown && (
+        {isOverview && (
           <div className="flex items-center justify-between mt-1 gap-2">
             <p className="text-xs text-muted-foreground">
-              {remainingHostnames.size > 0
-                ? (MAX_VISIBLE_HOSTS + remainingHostnames.size)
-                : (treemapData.children?.length || 0)} hosts • {effectiveTestCount} unique tests
-              {canonicalTestCount
-                ? baselineMode === '90d' ? ' (90d baseline)'
-                  : baselineMode === '30d' ? ' (30d baseline)'
-                  : ' (current window)'
-                : ''}
-              {' '}• Click host to drill down
+              {hostsSummary} · {plural(model.tests.length, 'test')} ({baselineLabel}) · Click a host to see its tests
             </p>
-            {canonicalTestCount && canonicalTestCount > 0 && (
+            {has90d && (
               <div className="flex items-center border border-border rounded-md overflow-hidden flex-shrink-0">
-                <button
-                  onClick={() => setBaselineMode('90d')}
-                  className={`px-2 py-0.5 text-xs transition-colors ${
-                    baselineMode === '90d'
-                      ? 'bg-secondary text-foreground font-medium'
-                      : 'text-muted-foreground hover:text-foreground hover:bg-secondary/50'
-                  }`}
-                >
-                  90d
-                </button>
-                <button
-                  onClick={() => setBaselineMode('30d')}
-                  className={`px-2 py-0.5 text-xs transition-colors border-l border-border ${
-                    baselineMode === '30d'
-                      ? 'bg-secondary text-foreground font-medium'
-                      : 'text-muted-foreground hover:text-foreground hover:bg-secondary/50'
-                  }`}
-                >
-                  30d
-                </button>
-                <button
-                  onClick={() => setBaselineMode('window')}
-                  className={`px-2 py-0.5 text-xs transition-colors border-l border-border ${
-                    baselineMode === 'window'
-                      ? 'bg-secondary text-foreground font-medium'
-                      : 'text-muted-foreground hover:text-foreground hover:bg-secondary/50'
-                  }`}
-                >
-                  Window
-                </button>
+                {(['90d', '30d', 'window'] as const).map((mode, i) => (
+                  <button
+                    key={mode}
+                    onClick={() => setBaselineMode(mode)}
+                    aria-pressed={baselineMode === mode}
+                    className={`px-2 py-0.5 text-xs transition-colors ${i > 0 ? 'border-l border-border' : ''} ${
+                      baselineMode === mode
+                        ? 'bg-secondary text-foreground font-medium'
+                        : 'text-muted-foreground hover:text-foreground hover:bg-secondary/50'
+                    }`}
+                  >
+                    {mode === 'window' ? 'Window' : mode}
+                  </button>
+                ))}
               </div>
             )}
           </div>
         )}
       </CardHeader>
-      {/* Numeric plot height: the page places this card in an auto-height
-          flex column, so percentage heights (height="100%" against flex-1)
-          resolve to 0 and the treemap silently vanishes — the header/legend
-          keep intrinsic height, which is why only they survived. */}
+      {/* A plain grid, not a treemap: equal tiles of one shape, so neither area nor shape
+          carries meaning, and a small fleet does not stretch into a few huge cells. */}
       <CardContent className="flex-1 pb-4">
-        <ResponsiveContainer width="100%" height={400}>
-          <Treemap
-            data={currentData.children}
-            dataKey="size"
-            isAnimationActive={false}
-            aspectRatio={4 / 3}
-            stroke="var(--background)"
-            onClick={isSingleHostDrillDown ? undefined : (node) => {
-              if (node && node.name) {
-                handleCellClick({ name: node.name });
-              }
-            }}
-            content={
-              <CustomTreemapContent
-                isClickable={!isSingleHostDrillDown}
-                hideCoverageStats={isSingleHostDrillDown}
-                labelOnLight={heatTokens['--chart-label-on-light']}
-                labelOnDark={heatTokens['--chart-label-on-dark']}
-              />
-            }
-          >
-            <Tooltip content={isSingleHostDrillDown
-              ? <DrillDownTooltip />
-              : isOthersDrillDown
-                ? <OthersDrillDownTooltip />
-                : <CustomTooltip baselineLabel={
-                    canonicalTestCount
-                      ? baselineMode === '90d' ? '90d baseline'
-                        : baselineMode === '30d' ? '30d baseline'
-                        : 'current window'
-                      : undefined
-                  } />
-            } />
-          </Treemap>
-        </ResponsiveContainer>
+        <div className="grid gap-1.5" style={{ gridTemplateColumns: 'repeat(auto-fill, minmax(150px, 1fr))' }}>
+          {tiles.map((node) => (
+            <Tile
+              key={node.name}
+              node={node}
+              onClick={isHostView ? undefined : () => handleCellClick(node.name)}
+              labelOnLight={tokens['--chart-label-on-light']}
+              labelOnDark={tokens['--chart-label-on-dark']}
+            >
+              {isHostView
+                ? <TestTooltip tile={node} />
+                : <BreadthTooltip tile={node} setSize={model.tests.length} baselineLabel={baselineLabel} filtered={filtered} />}
+            </Tile>
+          ))}
+        </div>
       </CardContent>
     </Card>
   );

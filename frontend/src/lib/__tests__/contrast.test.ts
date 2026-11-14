@@ -58,15 +58,16 @@ function extractBlock(selectorLine: RegExp): string {
   return css.slice(braceStart, braceEnd);
 }
 
-function extractHeatRamp(block: string): string[] {
+function extractRamp(block: string, name: string, steps: number): string[] {
   const values: string[] = [];
-  for (let i = 1; i <= 5; i++) {
-    const m = block.match(new RegExp(`--chart-heat-${i}:\\s*(oklch\\([^;]+\\));`));
-    if (!m) throw new Error(`--chart-heat-${i} not found in block`);
+  for (let i = 1; i <= steps; i++) {
+    const m = block.match(new RegExp(`--chart-${name}-${i}:\\s*(oklch\\([^;]+\\));`));
+    if (!m) throw new Error(`--chart-${name}-${i} not found in block`);
     values.push(m[1].trim());
   }
   return values;
 }
+const extractHeatRamp = (block: string) => extractRamp(block, 'heat', 5);
 
 const lightBlock = extractBlock(/^:root\s*{/m);
 const darkBlock = extractBlock(/^\.dark\s*{/m);
@@ -87,5 +88,24 @@ describe('pickAccessibleLabel — AA guarantee across the full heat ramp', () =>
     expect(labelLum).not.toBeNull();
     const ratio = contrastRatio(bgLum as number, labelLum as number);
     expect(ratio).toBeGreaterThanOrEqual(4.5);
+  });
+});
+
+// The Test Breadth by Host tiles: a neutral ramp (no outcome colour), same AA rule.
+describe('pickAccessibleLabel — AA guarantee across the breadth ramp', () => {
+  const cases = [
+    ...extractRamp(lightBlock, 'breadth', 4).map((value, i) => ({ theme: 'light', step: i + 1, value })),
+    ...extractRamp(darkBlock, 'breadth', 4).map((value, i) => ({ theme: 'dark', step: i + 1, value })),
+  ];
+
+  it.each(cases)('$theme --chart-breadth-$step ($value) reaches AA (>=4.5:1)', ({ value }) => {
+    const chosen = pickAccessibleLabel(value, [LABEL_ON_LIGHT, LABEL_ON_DARK]);
+    const ratio = contrastRatio(relativeLuminance(value) as number, relativeLuminance(chosen) as number);
+    expect(ratio).toBeGreaterThanOrEqual(4.5);
+  });
+
+  it('gets lighter with every step', () => {
+    const lum = extractRamp(darkBlock, 'breadth', 4).map((v) => relativeLuminance(v) as number);
+    expect([...lum].sort((a, b) => a - b)).toEqual(lum);
   });
 });

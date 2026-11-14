@@ -189,6 +189,8 @@ export interface CreateCommandTasksRequest {
 }
 
 export interface ListAgentsRequest {
+  /** Narrows the list to one organization. A caller that belongs to an organization always gets its own. */
+  org_id?: string;
   status?: AgentStatus;
   os?: AgentOS;
   hostname?: string;
