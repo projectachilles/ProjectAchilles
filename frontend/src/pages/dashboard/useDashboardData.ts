@@ -25,6 +25,7 @@ import { sophosAnalyticsApi, type SophosHealthCheckResponse } from '@/services/a
 import { agentApi } from '@/services/api/agent';
 import type { AgentMetrics, AgentTask, FleetHealthMetrics, Schedule } from '@/types/agent';
 import { browserApi, type SyncStatus } from '@/services/api/browser';
+import { formatRelativeTime } from '@/utils/dateFormatters';
 import type { TestMetadata } from '@/types/test';
 import { useAnalyticsAuth } from '@/hooks/useAnalyticsAuth';
 import { useDefenderConfig } from '@/hooks/useDefenderConfig';
@@ -88,16 +89,6 @@ export function settleSchedules(
   return isAxiosError(result.reason) && result.reason.response?.status === 403 ? null : prev;
 }
 
-function relativeTime(iso: string): string {
-  const diffMs = Date.now() - new Date(iso).getTime();
-  const minutes = Math.floor(diffMs / 60_000);
-  if (minutes < 1) return 'just now';
-  if (minutes < 60) return `${minutes}m ago`;
-  const hours = Math.floor(minutes / 60);
-  if (hours < 24) return `${hours}h ago`;
-  return `${Math.floor(hours / 24)}d ago`;
-}
-
 /** Join secure/zta/error series onto the defense days by UTC day key. */
 export function buildTrendPoints(
   defense: TrendDataPoint[] | null,
@@ -144,11 +135,6 @@ export function buildTrendDescription(parts: {
 
 export interface DashboardData {
   loading: boolean;
-  // header
-  syncStatus: SyncStatus | null;
-  syncing: boolean;
-  handleSync: () => Promise<void>;
-  lastSyncedAgo?: string;
   // banner
   attentionItems: AttentionItem[];
   // KPIs + cards
@@ -202,7 +188,6 @@ export function useDashboardData(range: DateRangeValue = DEFAULT_TIME_RANGE): Da
   const { outdatedCount } = useOutdatedAgentCount();
 
   const [loading, setLoading] = useState(true);
-  const [syncing, setSyncing] = useState(false);
 
   const [tests, setTests] = useState<TestMetadata[] | null>(null);
   const [syncStatus, setSyncStatus] = useState<SyncStatus | null>(null);
@@ -320,17 +305,6 @@ export function useDashboardData(range: DateRangeValue = DEFAULT_TIME_RANGE): Da
 
   usePolling(loadAgentData, AGENT_POLL_MS);
 
-  const handleSync = useCallback(async () => {
-    setSyncing(true);
-    try {
-      const result = await browserApi.syncTests();
-      setSyncStatus(result.syncStatus);
-      await loadTestData();
-    } finally {
-      setSyncing(false);
-    }
-  }, [loadTestData]);
-
   const testStats = useMemo(() => (tests ? computeTestStats(tests) : null), [tests]);
 
   const cadence = useMemo(
@@ -391,7 +365,7 @@ export function useDashboardData(range: DateRangeValue = DEFAULT_TIME_RANGE): Da
         testName: t.payload?.test_name || t.type,
         hostname: t.agent_hostname ?? undefined,
         status: t.status as 'completed' | 'failed',
-        timeAgo: relativeTime(t.completed_at ?? t.created_at),
+        timeAgo: formatRelativeTime(t.completed_at ?? t.created_at),
         to: `/tasks?search=${encodeURIComponent(t.payload?.test_name || t.id)}`,
       }));
   }, [recentTasks]);
@@ -412,10 +386,6 @@ export function useDashboardData(range: DateRangeValue = DEFAULT_TIME_RANGE): Da
 
   return {
     loading: loading || analyticsAuthLoading || defenderConfigLoading || crowdstrikeConfigLoading || sophosConfigLoading,
-    syncStatus,
-    syncing,
-    handleSync,
-    lastSyncedAgo: syncStatus?.lastSyncTime ? relativeTime(syncStatus.lastSyncTime) : undefined,
     attentionItems,
     defenseScore,
     defenseCurrentScore: current.score,

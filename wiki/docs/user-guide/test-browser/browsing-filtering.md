@@ -230,8 +230,9 @@ From the Browse tab, select multiple tests using checkboxes, then:
 
 ## Git Sync Status
 
-The browser shows the sync status of the test library in the top bar:
+The **Tests** page shows the sync status of the test library in its header:
 
-- A **sync indicator** shows when the library was last updated from the Git repository
-- Click **Sync Now** to trigger a manual sync if you have the `tests:sync:execute` permission
-- After syncing, the test list refreshes automatically with any new or updated tests
+- A **sync indicator** shows the branch, the commit and when the library was last updated from the Git repository
+- Click **Sync** to trigger a manual sync if you have the `tests:sync:execute` permission
+- After syncing, the test list refreshes automatically with any new or updated tests; a failed sync shows "Sync failed" next to the button
+- The Dashboard no longer has the Sync button. Its "library sync failed" attention chip links to the Tests page

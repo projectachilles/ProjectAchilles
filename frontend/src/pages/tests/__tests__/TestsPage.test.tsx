@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { render, screen, waitFor, within } from '@testing-library/react';
+import { fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { MemoryRouter } from 'react-router-dom';
 import type { TestMetadata } from '@/types/test';
 
@@ -13,6 +13,7 @@ const mk = (uuid: string, category = 'intel-driven'): TestMetadata => ({
 });
 
 const analytics = vi.hoisted(() => ({ configured: false }));
+const perms = vi.hoisted(() => ({ granted: new Set<string>() }));
 
 vi.mock('@/services/api/browser', () => ({
   browserApi: {
@@ -22,6 +23,18 @@ vi.mock('@/services/api/browser', () => ({
       mk('c', 'cyber-hygiene'),
     ]),
     getBuiltTestUuids: vi.fn(async () => []),
+    getSyncStatus: vi.fn(async () => ({
+      status: 'synced',
+      branch: 'main',
+      commitHash: 'abcdef1234567',
+      lastSyncTime: new Date(Date.now() - 34 * 60_000).toISOString(),
+    })),
+    syncTests: vi.fn(async () => ({
+      success: true,
+      message: 'ok',
+      testCount: 3,
+      syncStatus: { status: 'synced', branch: 'main', commitHash: '9999999aaaa', lastSyncTime: new Date().toISOString() },
+    })),
   },
 }));
 vi.mock('@/services/api/analytics', () => ({
@@ -38,12 +51,13 @@ vi.mock('@/hooks/useTestPreferences', () => ({
     toggleFavorite: vi.fn(),
   }),
 }));
-vi.mock('@/hooks/useAppRole', () => ({ useHasPermission: () => false }));
+vi.mock('@/hooks/useAppRole', () => ({ useHasPermission: (p: string) => perms.granted.has(p) }));
 vi.mock('@/hooks/useAnalyticsAuth', () => ({ useAnalyticsAuth: () => ({ configured: analytics.configured }) }));
 vi.mock('@/hooks/useMediaQuery', () => ({ useIsDesktop: () => true }));
 vi.mock('@/components/browser/execution', () => ({ ExecutionDrawer: () => null }));
 
 import { analyticsApi } from '@/services/api/analytics';
+import { browserApi } from '@/services/api/browser';
 import TestsPage from '../TestsPage';
 
 function renderPage(path = '/') {
@@ -58,6 +72,43 @@ describe('TestsPage', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     analytics.configured = false;
+    perms.granted.clear();
+  });
+
+  it('shows the library branch, commit and last sync, with no Sync button for a reader', async () => {
+    renderPage();
+    expect(await screen.findByText('main')).toBeTruthy();
+    expect(screen.getByText('(abcdef1)')).toBeTruthy();
+    expect(screen.getByText('· 34m ago')).toBeTruthy();
+    expect(screen.queryByRole('button', { name: 'Sync' })).toBeNull();
+  });
+
+  it('Sync pulls the library, then reloads the list and the sync status', async () => {
+    perms.granted.add('tests:sync:execute');
+    renderPage();
+    await screen.findByRole('button', { name: 'test a' });
+    fireEvent.click(await screen.findByRole('button', { name: 'Sync' }));
+    await waitFor(() => expect(browserApi.syncTests).toHaveBeenCalledTimes(1));
+    expect(await screen.findByText('(9999999)')).toBeTruthy();
+    await waitFor(() => expect(browserApi.getAllTests).toHaveBeenCalledTimes(2));
+    expect(screen.getByText('· just now')).toBeTruthy();
+  });
+
+  it('says so when the sync fails, and keeps the list', async () => {
+    perms.granted.add('tests:sync:execute');
+    vi.mocked(browserApi.syncTests).mockRejectedValueOnce(new Error('boom'));
+    vi.spyOn(console, 'error').mockImplementation(() => {});
+    renderPage();
+    fireEvent.click(await screen.findByRole('button', { name: 'Sync' }));
+    expect(await screen.findByText('Sync failed')).toBeTruthy();
+    expect(screen.getByRole('button', { name: 'test a' })).toBeTruthy();
+  });
+
+  it('lists the tests when the sync status cannot be read', async () => {
+    vi.mocked(browserApi.getSyncStatus).mockRejectedValueOnce(new Error('503'));
+    renderPage();
+    expect(await screen.findByRole('button', { name: 'test a' })).toBeTruthy();
+    expect(screen.queryByText('main')).toBeNull();
   });
 
   it('ignores a legacy ?severity= link and lists every test', async () => {
