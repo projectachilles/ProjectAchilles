@@ -58,7 +58,25 @@ These features shipped since the v1.0.0 release:
 
 ---
 
-## Near-Term (Q3 2026)
+## Completed (Aug–Nov 2026)
+
+- &check; **EDR Integrations** — CrowdStrike Falcon, SentinelOne and Sophos Central next to Microsoft Defender, each with alert correlation and auto-resolve
+- &check; **Evidence-Based Verdicts** — Protected / Prevented / Detected from the EDR's own evidence per stage; EDR-killed runs and launch blocks counted as protection
+- &check; **Latest-Result Defense Score** — Scored per test and endpoint, with chain depth and stage coverage for multi-stage tests
+- &check; **Test Campaigns** — Tests x endpoints, one-click runs, evidence matrix
+- &check; **Pre-Execution Notices** — Email before every run with a server-side hold, plus a daily advance digest
+- &check; **Execution Report** — Print-ready PDF report, CSV/JSON exports
+- &check; **Server Installer** — `achilles-installer` TUI for on-prem LAN and cloud servers, with a name-constrained CA
+- &check; **Windows Hyper-V Appliance** and an offline kit for workshops
+- &check; **Console Identity** — Code, name and colour per install
+- &check; **Agent Hardening** — Update safety checks, per-OS test binaries, capacity work for fleets of thousands of agents
+- &check; **f0 Design Language** — Console rebuilt on a single dark theme
+
+---
+
+## Near-Term
+
+*The quarters these sections were first listed under have passed; the items below are not yet scheduled.*
 
 ### Agent Enhancements
 - &empty; Agent groups with bulk command execution
@@ -72,19 +90,19 @@ These features shipped since the v1.0.0 release:
 - &empty; Scheduled report delivery (email/webhook)
 
 ### Test Management
-- &empty; Test campaigns — grouped multi-test execution with aggregate results
+- &check; Test campaigns — grouped multi-test execution with aggregate results
 - &empty; Test result comparison across time periods
 - &empty; Test tagging and custom metadata
 
 ---
 
-## Medium-Term (Q3 2026)
+## Medium-Term
 
 ### Platform
-- &empty; Multi-tenancy with role-based access control (RBAC)
+- &empty; Multi-tenancy — *deferred:* one install per organization is the supported separation model; what shared installs would need is tracked in [#715](https://github.com/projectachilles/ProjectAchilles/issues/715)
 - &cir; Public API — API keys v1 shipped (`pa_` tokens, scoped permissions); OpenAPI specification pending
 - &empty; Kubernetes deployment (Helm charts)
-- &empty; Executive PDF report generation
+- &check; Executive PDF report generation
 
 ### Integrations
 - &empty; SIEM connectors (Splunk, Microsoft Sentinel)
@@ -93,7 +111,23 @@ These features shipped since the v1.0.0 release:
 
 ---
 
-## Long-Term (Q4 2026+)
+## Built on Request
+
+Designed but not scheduled. Each is built when an organization needs it.
+
+### Sign-in without Clerk (generic OIDC)
+
+ProjectAchilles signs people in with Clerk. Organizations that use Microsoft Entra ID can already keep their own accounts, MFA and Conditional Access through a Clerk enterprise connection ([guide](../wiki/docs/user-guide/authentication/entra-id-sso.md)). That doesn't cover an install that can't depend on a hosted sign-in service, such as an air-gapped network.
+
+- &empty; **Generic OpenID Connect sign-in for self-hosted installs** — works with Entra ID, AD FS, Keycloak and other providers; no password handling and no LDAP in ProjectAchilles
+- &empty; Chosen per install; Clerk stays the default, and the only option for Vercel and hosted installs
+- &empty; Roles from an identity-provider claim, mapped to the existing `admin` / `operator` / `analyst` / `explorer` roles
+
+**Triggers:** an organization says Clerk prevents adoption; someone needs an install with no internet access; Clerk's pricing or terms change in a way that hurts self-hosted installs. If one of these is you, open a [GitHub Discussion](https://github.com/projectachilles/ProjectAchilles/discussions) and say which identity provider you use.
+
+---
+
+## Long-Term
 
 - &empty; Test SDK — author security tests in Go or Python with a standard interface
 - &empty; Plugin/extension system for custom modules
