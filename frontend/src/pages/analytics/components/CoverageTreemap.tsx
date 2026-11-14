@@ -1,6 +1,6 @@
 import { useState, useMemo, useCallback, memo } from 'react';
 import { ChevronLeft } from 'lucide-react';
-import type { HostTestMatrixCell } from '../../../services/api/analytics';
+import type { DefenseScoreByHostItem, HostTestMatrixCell } from '../../../services/api/analytics';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Skeleton } from '@/components/ui/skeleton';
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
@@ -24,6 +24,11 @@ interface CoverageTreemapProps {
   enrolledHostnames?: string[] | null;
   /** A filter other than date/org is active, so a host with no result is "no matching result". */
   filtered?: boolean;
+  /**
+   * Per-host Defense Score, as loaded for the Defense Score by Host card (same basis and
+   * filters as the dashboard's score tile). A host absent from it shows no score line.
+   */
+  hostScores?: DefenseScoreByHostItem[];
 }
 
 type BaselineMode = '90d' | '30d' | 'window';
@@ -120,10 +125,12 @@ interface BreadthTooltipProps {
   setSize: number;
   baselineLabel?: string;
   filtered?: boolean;
+  /** This host's Defense Score; shown under breadth, for a tested host only. */
+  score?: DefenseScoreByHostItem;
 }
 
 /** Tooltip body of a host (tile or not-tested chip) and of the Others fold. */
-export function BreadthTooltip({ tile, setSize, baselineLabel, filtered }: BreadthTooltipProps) {
+export function BreadthTooltip({ tile, setSize, baselineLabel, filtered, score }: BreadthTooltipProps) {
   if (!tile.host) {
     return (
       <>
@@ -164,6 +171,15 @@ export function BreadthTooltip({ tile, setSize, baselineLabel, filtered }: Bread
               </span>
               {baselineLabel && <span className="text-xs text-muted-foreground"> — {baselineLabel}</span>}
             </p>
+            {score && (
+              // How well the host defended, next to how much was tested. No outcome colour:
+              // the card is about breadth. The counts show how much evidence is behind it.
+              <p>
+                Defense Score:{' '}
+                <span className="font-medium text-foreground">{Math.round(score.score)}%</span> · {num(score.protected)} of{' '}
+                {num(score.total)} protected
+              </p>
+            )}
           </>
         )}
         {host.missing.length > 0 && (
@@ -209,6 +225,7 @@ function CoverageTreemap({
   baselineTests30d,
   enrolledHostnames = null,
   filtered = false,
+  hostScores,
 }: CoverageTreemapProps) {
   // Resolved ramp + label tokens: a concrete colour is needed to pick a readable label per tile.
   const tokens = useChartTokens([...BREADTH_TOKENS, '--chart-label-on-light', '--chart-label-on-dark']);
@@ -236,6 +253,12 @@ function CoverageTreemap({
         enrolledHostnames,
       ),
     [data, effectiveMode, baselineTests90d, baselineTests30d, enrolledHostnames],
+  );
+
+  // Results and scores can spell a hostname in different case.
+  const scoreByHost = useMemo(
+    () => new Map((hostScores ?? []).map((item) => [item.hostname.toLowerCase(), item])),
+    [hostScores],
   );
 
   const hostTile = useCallback(
@@ -445,7 +468,15 @@ function CoverageTreemap({
             >
               {isHostView
                 ? <TestTooltip tile={node} />
-                : <BreadthTooltip tile={node} setSize={model.tests.length} baselineLabel={baselineLabel} filtered={filtered} />}
+                : (
+                  <BreadthTooltip
+                    tile={node}
+                    setSize={model.tests.length}
+                    baselineLabel={baselineLabel}
+                    filtered={filtered}
+                    score={node.host && scoreByHost.get(node.host.hostname.toLowerCase())}
+                  />
+                )}
             </Tile>
           ))}
         </div>

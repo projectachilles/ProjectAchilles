@@ -306,7 +306,10 @@ well the host defended, so it uses a neutral blue ramp and never green or red.
 - **Order.** Tiles run from the lowest breadth to the highest. Past 25 tested
   hosts the best-tested ones fold into "Others"; click it to see them. Hosts
   not tested never take a tile, so they cannot push results out of view.
-- **Tooltip and drill-down.** The tooltip lists the tests the host is missing.
+- **Tooltip and drill-down.** The tooltip lists the tests the host is missing,
+  and the host's Defense Score with its counts ("75% · 3 of 4 protected"), the
+  same figure as the Defense Score by Host card. A host outside that card's 50
+  most-tested hosts, or with no conclusive result, shows no score.
   Clicking a host, tested or not, shows one tile per test: filled with its run count when the
   host ran it, hollow when it did not.
 

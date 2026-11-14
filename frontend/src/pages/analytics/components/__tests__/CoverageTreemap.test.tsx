@@ -1,9 +1,12 @@
-import { describe, it, expect } from 'vitest';
-import { render, screen, within, fireEvent } from '@testing-library/react';
+import { describe, it, expect, vi } from 'vitest';
+import { act, render, screen, within, fireEvent } from '@testing-library/react';
 
 import CoverageTreemap, { BreadthTooltip } from '../CoverageTreemap';
 import { buildBreadthModel } from '../testBreadth';
 import type { HostTestMatrixCell } from '@/services/api/analytics';
+
+// The open tooltip measures itself; jsdom has no ResizeObserver.
+vi.stubGlobal('ResizeObserver', class { observe() {} unobserve() {} disconnect() {} });
 
 const cell = (hostname: string, testName: string, count = 1): HostTestMatrixCell => ({ hostname, testName, count });
 const SIX = ['T1', 'T2', 'T3', 'T4', 'T5', 'T6'];
@@ -72,6 +75,14 @@ describe('CoverageTreemap (Test Breadth by Host)', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Show all 45' }));
     expect(chips()).toHaveLength(45);
     expect(screen.queryByRole('button', { name: 'Show all 45' })).toBeNull();
+  });
+
+  it('matches host scores to tiles ignoring hostname case', async () => {
+    render(
+      <CoverageTreemap {...base} hostScores={[{ hostname: 'H-ONE', score: 50, protected: 1, unprotected: 1, total: 2 }]} />,
+    );
+    act(() => tile('h-one').focus());
+    expect((await screen.findByRole('tooltip')).textContent).toContain('Defense Score: 50% · 1 of 2 protected');
   });
 
   it('says the order of the tiles', () => {
@@ -198,6 +209,31 @@ describe('BreadthTooltip', () => {
   it('the Others fold says which hosts it holds', () => {
     const { container } = render(<BreadthTooltip tile={{ name: 'Others (3 hosts)', foldCount: 3 }} setSize={6} />);
     expect(container).toHaveTextContent('The 3 tested hosts with the highest breadth');
+  });
+
+  it('shows the host Defense Score with its counts, below breadth', () => {
+    const { container } = render(
+      <BreadthTooltip
+        tile={tileFor('h-one')}
+        setSize={6}
+        score={{ hostname: 'h-one', score: 74.6, protected: 3, unprotected: 1, total: 4 }}
+      />,
+    );
+    expect(container).toHaveTextContent('Defense Score: 75% · 3 of 4 protected');
+    expect(container.textContent!.indexOf('Breadth:')).toBeLessThan(container.textContent!.indexOf('Defense Score:'));
+  });
+
+  it('has no Defense Score line without a score, or for an untested host', () => {
+    const { container, rerender } = render(<BreadthTooltip tile={tileFor('h-one')} setSize={6} />);
+    expect(container).not.toHaveTextContent('Defense Score');
+    rerender(
+      <BreadthTooltip
+        tile={tileFor('h-none')}
+        setSize={6}
+        score={{ hostname: 'h-none', score: 50, protected: 1, unprotected: 1, total: 2 }}
+      />,
+    );
+    expect(container).not.toHaveTextContent('Defense Score');
   });
 
   it('uses singular forms', () => {
