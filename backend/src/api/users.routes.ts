@@ -5,6 +5,7 @@ import { requireClerkAuth, requirePermission, getUserId } from '../middleware/cl
 import type { AppRole } from '../types/roles.js';
 import { validate } from '../middleware/validation.js';
 import { InviteUserSchema, SetRoleSchema } from '../schemas/users.schemas.js';
+import { revokeCliSessions } from '../services/cliSessions.js';
 
 const router = Router();
 
@@ -106,6 +107,9 @@ router.put('/:userId/role', validate(SetRoleSchema), asyncHandler(async (req, re
   await clerkClient.users.updateUserMetadata(userId, {
     publicMetadata: { role },
   });
+  // CLI sessions carry the role they were issued with: end them so the new
+  // role applies at once (the user signs the CLI in again).
+  revokeCliSessions(userId);
 
   res.json({ success: true, data: { userId, role } });
 }));
@@ -120,6 +124,7 @@ router.delete('/:userId/role', asyncHandler(async (req, res) => {
   await clerkClient.users.updateUserMetadata(userId, {
     publicMetadata: { role: null },
   });
+  revokeCliSessions(userId);
 
   res.json({ success: true, data: { userId, role: null } });
 }));
@@ -136,6 +141,8 @@ router.delete('/:userId', asyncHandler(async (req, res) => {
   }
 
   await clerkClient.users.deleteUser(userId);
+  // Clerk ends the browser sessions; the CLI sessions are ours to end.
+  revokeCliSessions(userId);
   res.json({ success: true });
 }));
 

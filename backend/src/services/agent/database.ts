@@ -408,6 +408,14 @@ export function initializeTables(database: Database.Database): void {
       created_at TEXT NOT NULL DEFAULT (datetime('now'))
     );
     CREATE INDEX IF NOT EXISTS idx_cli_refresh_expires ON cli_refresh_tokens(expires_at);
+    CREATE INDEX IF NOT EXISTS idx_cli_refresh_user ON cli_refresh_tokens(user_id);
+
+    -- When a user's CLI sessions were last ended (user removed, role changed).
+    -- CLI access tokens issued at or before revoked_at are refused.
+    CREATE TABLE IF NOT EXISTS cli_session_revocations (
+      user_id TEXT PRIMARY KEY,
+      revoked_at TEXT NOT NULL
+    );
   `);
 
   // API keys — direct bearer credentials for programmatic API access
@@ -468,10 +476,18 @@ export function initializeTables(database: Database.Database): void {
   migrateAdminApiKeyScope(database);
 
   // Periodic cleanup of expired CLI auth codes and refresh tokens
-  database.exec(`
-    DELETE FROM cli_auth_codes WHERE expires_at < datetime('now', '-1 hour');
-    DELETE FROM cli_refresh_tokens WHERE expires_at < datetime('now');
-  `);
+  // These columns hold JS ISO strings, so they are compared with ISO strings:
+  // SQLite's datetime('now') uses a space where ISO has 'T', which made every
+  // same-day row compare as "later than now".
+  const cleanupNow = Date.now();
+  database.prepare('DELETE FROM cli_auth_codes WHERE expires_at < ?')
+    .run(new Date(cleanupNow - 60 * 60 * 1000).toISOString());
+  database.prepare('DELETE FROM cli_refresh_tokens WHERE expires_at < ?')
+    .run(new Date(cleanupNow).toISOString());
+  // A revocation only matters while an access token issued before it can still
+  // be valid (1 hour); a day leaves a wide margin.
+  database.prepare('DELETE FROM cli_session_revocations WHERE revoked_at < ?')
+    .run(new Date(cleanupNow - 24 * 60 * 60 * 1000).toISOString());
 
   // Migration: add retry columns to tasks table for automatic task retry on agent offline
   const taskRetryCheck = database.prepare(`PRAGMA table_info(tasks)`).all() as { name: string }[];

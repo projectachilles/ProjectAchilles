@@ -9,6 +9,7 @@
 import type { Request, Response, NextFunction } from 'express';
 import jwt from 'jsonwebtoken';
 import { safeClerkAuth } from './clerkAuthHelpers.js';
+import { isCliTokenRevoked } from '../services/cliSessions.js';
 
 interface CliTokenPayload {
   sub: string;
@@ -41,6 +42,10 @@ export function validateCliToken(req: Request): CliTokenPayload | null {
       issuer: 'projectachilles',
     }) as CliTokenPayload;
     if (decoded.type !== 'cli') return null;
+    // The user was removed or their role changed after this token was issued.
+    // A failed lookup throws into the catch below: no auth, never a pass.
+    if (typeof decoded.sub !== 'string' || typeof decoded.iat !== 'number') return null;
+    if (isCliTokenRevoked(decoded.sub, decoded.iat)) return null;
     return decoded;
   } catch {
     return null;
