@@ -18,8 +18,9 @@ const GUARDED_NON_GIT_ENV_KEYS = new Set(['editor', 'visual', 'pager', 'prefix',
  * v4 strips guarded variables (all `git*` keys and the set above) from the
  * child unless allow-listed, and THROWS if one is passed explicitly via
  * `.env()` — so a plain `{ ...process.env }` would crash on any shell that
- * sets EDITOR or PAGER. Stripping them also keeps GITHUB_TOKEN out of git's
- * environment (the token travels in the remote URL instead).
+ * sets EDITOR or PAGER. Stripping them also prevents ambient Git
+ * configuration or credentials from reaching the child. GitSyncService adds
+ * only its own command-scoped HTTP authentication variables when configured.
  *
  * GIT_TERMINAL_PROMPT=0 is enforced here rather than inherited from
  * scripts/start.sh so that no launch path can make a missing or expired token
@@ -38,9 +39,66 @@ export function gitChildEnv(source: NodeJS.ProcessEnv = process.env): Record<str
   return env;
 }
 
+const AUTH_ENV_KEYS = ['GIT_CONFIG_COUNT', 'GIT_CONFIG_KEY_0', 'GIT_CONFIG_VALUE_0'];
+
 /** Every simple-git instance this service uses goes through here. */
-export function createGit(baseDir?: string): SimpleGit {
-  return simpleGit({ baseDir, allowEnvironment: ['GIT_TERMINAL_PROMPT'] }).env(gitChildEnv());
+export function createGit(baseDir?: string, githubToken?: string): SimpleGit {
+  const env = gitChildEnv();
+  const allowEnvironment = ['GIT_TERMINAL_PROMPT'];
+
+  if (githubToken) {
+    // Keep credentials out of command arguments, repository remotes, and
+    // simple-git's diagnostic-bearing task metadata. Git reads this config
+    // only from the environment of the command-scoped child process.
+    const basicCredential = Buffer.from(`x-access-token:${githubToken}`, 'utf8').toString('base64');
+    env.GIT_CONFIG_COUNT = '1';
+    env.GIT_CONFIG_KEY_0 = 'http.extraHeader';
+    env.GIT_CONFIG_VALUE_0 = `Authorization: Basic ${basicCredential}`;
+    allowEnvironment.push(...AUTH_ENV_KEYS);
+  }
+
+  return simpleGit({ baseDir, allowEnvironment }).env(env);
+}
+
+/**
+ * Redact the configured credential in every representation this service sends
+ * to Git, plus URL userinfo from clones created by older versions.
+ */
+function sanitizeGitError(message: string, githubToken?: string): string {
+  const marker = '\u0000GIT_CREDENTIAL\u0000';
+  let sanitized = message;
+
+  if (githubToken) {
+    const url = new URL('https://credential.invalid');
+    url.username = githubToken;
+
+    const basicCredential = Buffer.from(`x-access-token:${githubToken}`, 'utf8').toString('base64');
+    const representations = [
+      githubToken,
+      url.username,
+      Buffer.from(githubToken, 'utf8').toString('base64'),
+      Buffer.from(githubToken, 'utf8').toString('base64url'),
+      basicCredential,
+      Buffer.from(`x-access-token:${githubToken}`, 'utf8').toString('base64url'),
+    ];
+    const values = new Set<string>();
+
+    for (const representation of representations) {
+      for (const value of [representation, encodeURIComponent(representation)]) {
+        values.add(value);
+        values.add(value.replace(/%[0-9A-F]{2}/g, match => match.toLowerCase()));
+      }
+    }
+
+    for (const value of [...values].filter(Boolean).sort((a, b) => b.length - a.length)) {
+      sanitized = sanitized.split(value).join(marker);
+    }
+  }
+
+  // Protect credentials left in an existing remote by an older deployment,
+  // or supplied directly in the configured repository URL.
+  sanitized = sanitized.replace(/(https?:\/\/)[^\s/@]+@/gi, `$1${marker}@`);
+  return sanitized.split(marker).join('[TOKEN]');
 }
 
 export interface SyncStatus {
@@ -63,7 +121,6 @@ export interface GitSyncConfig {
 
 export class GitSyncService {
   private config: GitSyncConfig;
-  private git: SimpleGit;
   private syncStatus: SyncStatus;
 
   constructor(config: GitSyncConfig) {
@@ -72,27 +129,12 @@ export class GitSyncService {
       localPath: path.resolve(config.localPath),
     };
 
-    this.git = createGit();
     this.syncStatus = {
       lastSyncTime: null,
       commitHash: null,
       branch: config.branch,
       status: 'never_synced',
     };
-  }
-
-  /**
-   * Get the authenticated repo URL (with token if provided)
-   */
-  private getAuthenticatedUrl(): string {
-    if (!this.config.githubToken) {
-      return this.config.repoUrl;
-    }
-
-    // Insert token into URL: https://TOKEN@github.com/owner/repo.git
-    const url = new URL(this.config.repoUrl);
-    url.username = this.config.githubToken;
-    return url.toString();
   }
 
   /**
@@ -133,8 +175,8 @@ export class GitSyncService {
       }
 
       // Clone with sparse checkout - only download what we need
-      const authUrl = this.getAuthenticatedUrl();
-      await this.git.clone(authUrl, this.config.localPath, [
+      const git = createGit(undefined, this.config.githubToken);
+      await git.clone(this.config.repoUrl, this.config.localPath, [
         '--branch', this.config.branch,
         '--single-branch',
         '--depth', '1',
@@ -143,7 +185,7 @@ export class GitSyncService {
       ]);
 
       // Configure sparse checkout to include only the requested paths
-      const repoGit = createGit(this.config.localPath);
+      const repoGit = createGit(this.config.localPath, this.config.githubToken);
       await repoGit.raw(['sparse-checkout', 'set', ...sparsePaths]);
 
       // Update status
@@ -151,15 +193,14 @@ export class GitSyncService {
       console.log(`✓ Repository cloned successfully (sparse checkout: ${sparsePaths.join(', ')})`);
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : 'Unknown error during clone';
-      // Remove token from error messages for security
-      const sanitizedError = errorMessage.replace(/ghp_[a-zA-Z0-9]+/g, '[TOKEN]');
+      const sanitizedError = sanitizeGitError(errorMessage, this.config.githubToken);
       this.syncStatus = {
         ...this.syncStatus,
         status: 'error',
-        error: sanitizedError,
+        error: 'Clone failed',
       };
       console.error(`✗ Failed to clone repository: ${sanitizedError}`);
-      throw new Error(`Clone failed: ${sanitizedError}`);
+      throw new Error('Clone failed');
     }
   }
 
@@ -178,12 +219,13 @@ export class GitSyncService {
       // Initialize git for the local repo
       const repoGit = createGit(this.config.localPath);
 
-      // Configure auth for pull (in case remote changed)
-      const authUrl = this.getAuthenticatedUrl();
-      await repoGit.remote(['set-url', 'origin', authUrl]);
+      // Remove credentials persisted by older versions and keep the remote
+      // suitable for status output and future diagnostics.
+      await repoGit.remote(['set-url', 'origin', this.config.repoUrl]);
 
       // Fetch and reset to handle force pushes
-      await repoGit.fetch(['--depth', '1']);
+      const fetchGit = createGit(this.config.localPath, this.config.githubToken);
+      await fetchGit.fetch(['--depth', '1']);
       await repoGit.reset(['--hard', `origin/${this.config.branch}`]);
 
       // Clean untracked files
@@ -194,14 +236,14 @@ export class GitSyncService {
       console.log(`✓ Repository synced successfully (${this.syncStatus.commitHash?.substring(0, 7)})`);
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : 'Unknown error during pull';
-      const sanitizedError = errorMessage.replace(/ghp_[a-zA-Z0-9]+/g, '[TOKEN]');
+      const sanitizedError = sanitizeGitError(errorMessage, this.config.githubToken);
       this.syncStatus = {
         ...this.syncStatus,
         status: 'error',
-        error: sanitizedError,
+        error: 'Pull failed',
       };
       console.error(`✗ Failed to pull repository: ${sanitizedError}`);
-      throw new Error(`Pull failed: ${sanitizedError}`);
+      throw new Error('Pull failed');
     }
   }
 
@@ -222,7 +264,7 @@ export class GitSyncService {
         const sourceDir = path.join(this.config.localPath, this.config.sourceSubdir || sparsePaths[0]);
         if (!fs.existsSync(sourceDir)) {
           console.log(`  Sparse checkout missing ${this.config.sourceSubdir || sparsePaths[0]}, re-applying...`);
-          const repoGit = createGit(this.config.localPath);
+          const repoGit = createGit(this.config.localPath, this.config.githubToken);
           await repoGit.raw(['sparse-checkout', 'set', ...sparsePaths]);
           await repoGit.checkout(this.config.branch);
         }
