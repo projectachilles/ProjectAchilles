@@ -376,7 +376,8 @@ describe('Stage coverage card wiring', () => {
 });
 
 describe('Test Breadth by Host wiring', () => {
-  const agent = (hostname: string, org_id = 'o1') => ({ id: hostname, hostname, org_id, status: 'active' });
+  // As the server sends it: no organization id on an agent.
+  const agent = (hostname: string) => ({ id: hostname, hostname, status: 'active' });
 
   function renderAt(url: string) {
     return render(
@@ -431,12 +432,56 @@ describe('Test Breadth by Host wiring', () => {
     expect(mocks.analytics.api.getDefenseScore).toHaveBeenCalledTimes(1);
   });
 
-  it('asks for the baseline of the selected organization and counts only its agents', async () => {
-    mocks.agent.reset({ listAgents: { agents: [agent('LAP-B', 'o1'), agent('LAP-C', 'o2')], total: 2 } });
+  it('asks the server for the selected organization: its baseline and its agents', async () => {
+    mocks.agent.reset({ listAgents: { agents: [agent('LAP-B')], total: 1 } });
     renderAt('/analytics?org=o1');
     expect(await screen.findByText(/2 hosts · 1 tested · 1 not tested/)).toBeTruthy();
+    expect(mocks.agent.api.listAgents).toHaveBeenCalledWith(expect.objectContaining({ status: 'active', org_id: 'o1' }));
     expect(mocks.analytics.api.getCanonicalTestCount).toHaveBeenCalledWith({ org: 'o1', days: 90 });
     expect(mocks.analytics.api.getCanonicalTestCount).toHaveBeenCalledWith({ org: 'o1', days: 30 });
+  });
+
+  it('a slow answer to an earlier request never replaces a later one', async () => {
+    // The first load hangs (as when the organization is switched before it answers);
+    // the next one answers at once.
+    const slow: Array<(v: unknown) => void> = [];
+    let hang = true;
+    mocks.analytics.api.getCanonicalTestCount.mockImplementation((p: { days: number }) =>
+      hang
+        ? new Promise((resolve) => { slow.push(resolve); })
+        : Promise.resolve({ count: 2, tests: ['T1', 'T2'], days: p.days }));
+    mocks.agent.api.listAgents.mockImplementation(() =>
+      hang
+        ? new Promise((resolve) => { slow.push(resolve); })
+        : Promise.resolve({ agents: [agent('LAP-B')], total: 1 }));
+
+    renderAt('/analytics');
+    await waitFor(() => expect(slow.length).toBe(3));
+    hang = false;
+    fireEvent.click(screen.getByRole('button', { name: /refresh/i }));
+    expect(await screen.findByText(/2 hosts · 1 tested · 1 not tested · 2 tests \(90d baseline\)/)).toBeTruthy();
+
+    // The first load's answers arrive late: four tests and three other agents.
+    await act(async () => {
+      for (const resolve of slow) {
+        resolve({ count: 4, tests: ['T1', 'T2', 'T3', 'T4'], days: 90, agents: [agent('X1'), agent('X2'), agent('X3')], total: 3 });
+      }
+      await new Promise((r) => setTimeout(r, 20));
+    });
+    expect(screen.getByText(/2 hosts · 1 tested · 1 not tested · 2 tests \(90d baseline\)/)).toBeTruthy();
+  });
+
+  it('a failed baseline falls back to the window, never to an older baseline', async () => {
+    let fail = false;
+    mocks.analytics.api.getCanonicalTestCount.mockImplementation(async (p: { days: number }) => {
+      if (fail) throw new Error('boom');
+      return { count: 2, tests: ['T1', 'T2'], days: p.days };
+    });
+    renderAt('/analytics');
+    expect(await screen.findByText(/2 tests \(90d baseline\)/)).toBeTruthy();
+    fail = true;
+    fireEvent.click(screen.getByRole('button', { name: /refresh/i }));
+    expect(await screen.findByText(/1 test \(current window\)/)).toBeTruthy();
   });
 
   it('narrows the fleet to the hostname filter', async () => {

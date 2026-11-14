@@ -99,7 +99,7 @@ describe('CoverageTreemap (Test Breadth by Host)', () => {
     // gaps first
     expect(tiles()[5].getAttribute('data-name')).toBe('T1');
 
-    fireEvent.click(screen.getByTitle('Back to overview'));
+    fireEvent.click(screen.getByLabelText('Back to overview'));
     expect(tiles()).toHaveLength(3);
   });
 
@@ -108,6 +108,24 @@ describe('CoverageTreemap (Test Breadth by Host)', () => {
     fireEvent.click(tile('h-none'));
     expect(screen.getByText('h-none · 0 of 6 tests')).toBeInTheDocument();
     expect(screen.getAllByText('not run')).toHaveLength(6);
+  });
+
+  it('returns to a working overview when the open host leaves the data', () => {
+    const { rerender } = render(<CoverageTreemap {...base} />);
+    fireEvent.click(tile('h-none'));
+    expect(tiles()).toHaveLength(6);
+    // e.g. a hostname filter that excludes it
+    rerender(<CoverageTreemap {...base} enrolledHostnames={['h-one', 'h-four']} />);
+    expect(tiles().map((t) => t.getAttribute('data-name'))).toEqual(['h-one', 'h-four']);
+    expect(screen.queryByLabelText('Back to overview')).toBeNull();
+    fireEvent.click(tile('h-one'));
+    expect(screen.getByText('h-one · 1 of 6 tests')).toBeInTheDocument();
+  });
+
+  it('marks the selected baseline for assistive technology', () => {
+    render(<CoverageTreemap {...base} />);
+    expect(screen.getByRole('button', { name: '90d' })).toHaveAttribute('aria-pressed', 'true');
+    expect(screen.getByRole('button', { name: 'Window' })).toHaveAttribute('aria-pressed', 'false');
   });
 
   it('shows enrolled hosts when there are no results at all', () => {

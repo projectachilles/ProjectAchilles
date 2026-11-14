@@ -111,23 +111,21 @@ describe('breadthWord', () => {
 });
 
 describe('selectEnrolledHostnames', () => {
+  // The agent list carries no organization id: the server narrows it by organization.
   const agents = [
-    { hostname: 'LAP-X', org_id: 'o1', status: 'active' as const },
-    { hostname: 'lap-y', org_id: 'o2', status: 'active' as const },
-    { hostname: 'gone', org_id: 'o1', status: 'decommissioned' as const },
-    { hostname: 'off', org_id: 'o1', status: 'disabled' as const },
+    { hostname: 'LAP-X', status: 'active' as const },
+    { hostname: 'lap-y', status: 'active' as const },
+    { hostname: 'gone', status: 'decommissioned' as const },
+    { hostname: 'off', status: 'disabled' as const },
   ];
 
   it('keeps active agents only', () => {
     expect(selectEnrolledHostnames(agents, {})).toEqual(['LAP-X', 'lap-y']);
   });
-  it('narrows by the org filter', () => {
-    expect(selectEnrolledHostnames(agents, { org: 'o1' })).toEqual(['LAP-X']);
-  });
   it('narrows by the hostname filter, ignoring case', () => {
     expect(selectEnrolledHostnames(agents, { hostnames: ['lap-x'] })).toEqual(['LAP-X']);
   });
   it('an empty hostname filter does not narrow', () => {
-    expect(selectEnrolledHostnames(agents, { hostnames: [], org: null })).toHaveLength(2);
+    expect(selectEnrolledHostnames(agents, { hostnames: [] })).toHaveLength(2);
   });
 });

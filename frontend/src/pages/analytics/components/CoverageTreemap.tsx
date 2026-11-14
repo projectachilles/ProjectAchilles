@@ -300,17 +300,6 @@ function CoverageTreemap({
     ];
   }, [selectedHost, model.tests, tokens]);
 
-  const handleCellClick = useCallback((name: string) => {
-    if (!drillDownHost) {
-      // Overview: click host → drill down, click "Others" → expand
-      setDrillDownHost(isFoldName(name) ? OTHERS : name);
-    } else if (drillDownHost === OTHERS) {
-      // "Others" view: click a host → drill into its tests
-      setDrillDownHost(name);
-      setCameFromOthers(true);
-    }
-  }, [drillDownHost]);
-
   const handleBackClick = useCallback(() => {
     if (cameFromOthers) {
       // Go back to the "Others" view, not all the way to overview
@@ -356,6 +345,20 @@ function CoverageTreemap({
   const isOverview = !isOthersView && !isHostView;
   const tiles = isHostView ? testTiles : isOthersView ? foldedHosts.map(hostTile) : overviewTiles;
 
+  // Decided from the view on screen, not from the stored selection: the selection can name a
+  // host the data no longer has, and the overview shown in its place must still be clickable.
+  const handleCellClick = (name: string) => {
+    if (isOthersView) {
+      // "Others" view: click a host → drill into its tests
+      setDrillDownHost(name);
+      setCameFromOthers(true);
+    } else {
+      // Overview: click host → drill down, click "Others" → expand
+      setDrillDownHost(isFoldName(name) ? OTHERS : name);
+      setCameFromOthers(false);
+    }
+  };
+
   const hostsSummary =
     enrolledHostnames === null
       ? `${plural(model.testedCount, 'host')} tested · enrolled hosts unavailable`
@@ -371,6 +374,7 @@ function CoverageTreemap({
                 onClick={handleBackClick}
                 className="p-1 hover:bg-secondary rounded transition-colors"
                 title="Back to overview"
+                aria-label="Back to overview"
               >
                 <ChevronLeft className="w-4 h-4" />
               </button>
@@ -410,6 +414,7 @@ function CoverageTreemap({
                   <button
                     key={mode}
                     onClick={() => setBaselineMode(mode)}
+                    aria-pressed={baselineMode === mode}
                     className={`px-2 py-0.5 text-xs transition-colors ${i > 0 ? 'border-l border-border' : ''} ${
                       baselineMode === mode
                         ? 'bg-secondary text-foreground font-medium'

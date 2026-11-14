@@ -277,16 +277,25 @@ export default function AnalyticsDashboardPage() {
   // The baselines follow the organization filter: another organization's tests are not
   // tests this one's hosts are missing.
   const orgFilter = filterState.filters.org || undefined;
+  // Only the latest request may write: an answer for the organization selected before must
+  // not replace the current one's. A failure clears the baseline (the card then measures
+  // against the window's own tests and says so) instead of keeping an older one.
+  const baselineRequest = useRef(0);
   const loadBaselineTests = useCallback(async () => {
+    const request = ++baselineRequest.current;
     try {
       const [result90d, result30d] = await Promise.all([
         analyticsApi.getCanonicalTestCount({ org: orgFilter, days: 90 }),
         analyticsApi.getCanonicalTestCount({ org: orgFilter, days: 30 }),
       ]);
+      if (request !== baselineRequest.current) return;
       setBaselineTests90d(result90d.tests ?? []);
       setBaselineTests30d(result30d.tests ?? []);
     } catch (error) {
+      if (request !== baselineRequest.current) return;
       console.error('Failed to load baseline tests:', error);
+      setBaselineTests90d([]);
+      setBaselineTests30d([]);
     }
   }, [orgFilter]);
 
@@ -294,22 +303,27 @@ export default function AnalyticsDashboardPage() {
     loadBaselineTests();
   }, [loadBaselineTests, settingsVersion]);
 
-  // Every active agent, so hosts with no result still get a tile. A user without agent
-  // access (or a failed request) gets null: the card then shows tested hosts only.
+  // Every active agent of the selected organization, so hosts with no result still get a
+  // tile. The server narrows by organization (an agent in the list has no organization id).
+  // A user without agent access (or a failed request) gets null: the card then shows tested
+  // hosts only. Only the latest request may write, as for the baseline.
+  const agentsRequest = useRef(0);
   const loadEnrolledAgents = useCallback(async () => {
     const PAGE = 1000;
+    const request = ++agentsRequest.current;
     try {
       const all: AgentSummary[] = [];
       for (;;) {
-        const page = await agentApi.listAgents({ status: 'active', limit: PAGE, offset: all.length });
+        const page = await agentApi.listAgents({ org_id: orgFilter, status: 'active', limit: PAGE, offset: all.length });
+        if (request !== agentsRequest.current) return;
         all.push(...page.agents);
         if (page.agents.length === 0 || all.length >= page.total) break;
       }
       setEnrolledAgents(all);
     } catch {
-      setEnrolledAgents(null);
+      if (request === agentsRequest.current) setEnrolledAgents(null);
     }
-  }, []);
+  }, [orgFilter]);
 
   useEffect(() => {
     if (activeTab === 'dashboard') {
@@ -318,11 +332,8 @@ export default function AnalyticsDashboardPage() {
   }, [activeTab, settingsVersion, loadEnrolledAgents]);
 
   const enrolledHostnames = useMemo(
-    () => enrolledAgents && selectEnrolledHostnames(enrolledAgents, {
-      org: filterState.filters.org,
-      hostnames: filterState.filters.hostnames,
-    }),
-    [enrolledAgents, filterState.filters.org, filterState.filters.hostnames],
+    () => enrolledAgents && selectEnrolledHostnames(enrolledAgents, { hostnames: filterState.filters.hostnames }),
+    [enrolledAgents, filterState.filters.hostnames],
   );
   // The hostname filter only narrows the fleet; any other filter means a hollow tile is
   // "no result matching the filters", not "never tested".

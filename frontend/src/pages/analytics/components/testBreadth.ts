@@ -99,17 +99,17 @@ export function breadthWord(breadth: number): 'Poor' | 'Fair' | 'Good' {
 }
 
 /**
- * Hostnames of the active agents the card should count, narrowed by the Analytics org and
- * hostname filters (an empty hostname filter does not narrow).
+ * Hostnames of the active agents the card should count, narrowed by the hostname filter (an
+ * empty one does not narrow). The organization is narrowed by the server when the list is
+ * requested: an agent in the list carries no organization id to filter on here.
  */
 export function selectEnrolledHostnames(
-  agents: readonly Pick<AgentSummary, 'hostname' | 'org_id' | 'status'>[],
-  filter: { org?: string | null; hostnames?: readonly string[] },
+  agents: readonly Pick<AgentSummary, 'hostname' | 'status'>[],
+  filter: { hostnames?: readonly string[] },
 ): string[] {
   const wanted = filter.hostnames?.length ? new Set(filter.hostnames.map((h) => h.toLowerCase())) : null;
   return agents
     .filter((a) => a.status === 'active')
-    .filter((a) => !filter.org || a.org_id === filter.org)
     .filter((a) => !wanted || wanted.has(a.hostname.toLowerCase()))
     .map((a) => a.hostname);
 }
