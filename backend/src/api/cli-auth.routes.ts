@@ -237,8 +237,39 @@ router.post('/poll', pollLimiter, validate(PollDeviceCodeSchema), asyncHandler(a
   // issued for the user as Clerk has them now.
   const { role, email, displayName } = await loadActiveCliUser(code.user_id);
 
-  // Issue CLI token
   const secret = getCliSecret();
+  const refreshToken = crypto.randomBytes(32).toString('hex');
+  const expiresAt = new Date(Date.now() + CLI_TOKEN_TTL_SECONDS * 1000).toISOString();
+
+  // A device code is good for one sign-in. The check above waits on Clerk, so
+  // by now another poll of this code may have used it, or the user's CLI
+  // sessions may have been ended (which deletes it). Take the code and store
+  // the refresh token in one step, and issue nothing unless this request is
+  // the one that took it.
+  const userId = code.user_id;
+  const claimed = db.transaction(() => {
+    const taken = db.prepare(`
+      DELETE FROM cli_auth_codes
+      WHERE device_code_hash = ? AND user_id = ? AND verified_at IS NOT NULL
+    `).run(deviceCodeHash, userId);
+    if (taken.changes !== 1) return false;
+    db.prepare(`
+      INSERT OR REPLACE INTO cli_refresh_tokens (token_hash, user_id, org_id, role, expires_at)
+      VALUES (?, ?, ?, ?, ?)
+    `).run(
+      crypto.createHash('sha256').update(refreshToken).digest('hex'),
+      userId,
+      code.org_id,
+      role,
+      expiresAt,
+    );
+    return true;
+  })();
+  if (!claimed) {
+    // Same answer as any later poll of a code that is gone.
+    throw new AppError('Unknown device code', 404);
+  }
+
   const accessToken = jwt.sign(
     {
       sub: code.user_id,
@@ -253,24 +284,6 @@ router.post('/poll', pollLimiter, validate(PollDeviceCodeSchema), asyncHandler(a
       audience: process.env.AGENT_SERVER_URL || 'http://localhost:3000',
     },
   );
-
-  const refreshToken = crypto.randomBytes(32).toString('hex');
-  const expiresAt = new Date(Date.now() + CLI_TOKEN_TTL_SECONDS * 1000).toISOString();
-
-  // Store refresh token
-  db.prepare(`
-    INSERT OR REPLACE INTO cli_refresh_tokens (token_hash, user_id, org_id, role, expires_at)
-    VALUES (?, ?, ?, ?, ?)
-  `).run(
-    crypto.createHash('sha256').update(refreshToken).digest('hex'),
-    code.user_id,
-    code.org_id,
-    role,
-    expiresAt,
-  );
-
-  // Clean up used device code
-  db.prepare('DELETE FROM cli_auth_codes WHERE device_code_hash = ?').run(deviceCodeHash);
 
   res.json({
     success: true,

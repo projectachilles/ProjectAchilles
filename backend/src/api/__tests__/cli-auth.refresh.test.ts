@@ -209,4 +209,40 @@ describe('POST /api/cli/auth/poll (a verified device code)', () => {
     expect(res.status).toBe(202);
     expect(getUser).not.toHaveBeenCalled();
   });
+
+  it('gives tokens to only one of two polls that arrive together', async () => {
+    // Both polls read the code, then wait on Clerk at the same time.
+    let release!: () => void;
+    const bothWaiting = new Promise<void>((resolve) => { release = resolve; });
+    let waiting = 0;
+    getUser.mockImplementation(async () => {
+      if (++waiting === 2) release();
+      await bothWaiting;
+      return { id: 'user_1', banned: false, locked: false, publicMetadata: { role: 'admin' } };
+    });
+
+    const app = await makeApp();
+    const deviceCode = storeVerifiedCode();
+    const send = () => request(app).post('/api/cli/auth/poll').send({ device_code: deviceCode });
+    const results = await Promise.all([send(), send()]);
+
+    expect(getUser).toHaveBeenCalledTimes(2);
+    expect(results.map((r) => r.status).sort()).toEqual([200, 404]);
+    const loser = results.find((r) => r.status !== 200)!;
+    expect(loser.body.data).toBeUndefined();
+    expect(tokenCount()).toBe(1);
+    expect(codeCount()).toBe(0);
+  });
+
+  it('issues nothing when the code is withdrawn while the user is being checked', async () => {
+    // What ending a user's CLI sessions does, landing mid-check.
+    getUser.mockImplementation(async () => {
+      testDb.prepare('DELETE FROM cli_auth_codes WHERE user_id = ?').run('user_1');
+      return { id: 'user_1', banned: false, locked: false, publicMetadata: { role: 'admin' } };
+    });
+    const res = await poll(storeVerifiedCode());
+    expect(res.status).toBe(404);
+    expect(res.body.data).toBeUndefined();
+    expect(tokenCount()).toBe(0);
+  });
 });
