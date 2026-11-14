@@ -51,6 +51,7 @@ const sidebars: SidebarsConfig = {
           items: [
             'user-guide/authentication/oauth-providers',
             'user-guide/authentication/email-password',
+            'user-guide/authentication/entra-id-sso',
           ],
         },
         {

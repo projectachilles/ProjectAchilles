@@ -193,6 +193,9 @@ The account created from it has that role, so there's nothing to set in Clerk.
 | `analyst` | Read results and analytics, add task notes |
 | `explorer` | Read dashboards and the test library (also what a user with no role gets) |
 
+To have people sign in with their Microsoft Entra ID work accounts instead of a
+separate password, see [Microsoft Entra ID SSO](../user-guide/authentication/entra-id-sso).
+
 ## Production instance
 
 Do this for a deployment under a public domain you own. There are no
