@@ -14,6 +14,13 @@ const tile = (name: string) => {
   return t;
 };
 
+const chips = () => screen.queryAllByTestId('untested-host');
+const chip = (name: string) => {
+  const c = chips().find((el) => el.getAttribute('data-name') === name);
+  if (!c) throw new Error(`no chip ${name}`);
+  return c;
+};
+
 const base = {
   data: [cell('h-one', 'T1', 2), cell('h-four', 'T1'), cell('h-four', 'T2'), cell('h-four', 'T3'), cell('h-four', 'T4')],
   baselineTests90d: SIX,
@@ -33,18 +40,43 @@ describe('CoverageTreemap (Test Breadth by Host)', () => {
     expect(tiles()).toHaveLength(2);
   });
 
-  it('a host with no result has a hollow tile labelled not tested', () => {
+  it('a host with no result is a chip in the Not tested group, not a tile', () => {
     render(<CoverageTreemap {...base} />);
-    const t = tile('h-none');
-    expect(within(t).getByText('not tested')).toBeInTheDocument();
-    expect(t.getAttribute('data-step')).toBe('0');
-    expect(t.className).toContain('border-dashed');
-    expect(t.style.backgroundColor).toBe('');
+    expect(screen.getByText('Not tested (1)')).toBeInTheDocument();
+    expect(chip('h-none').className).toContain('border-dashed');
+    expect(tiles().map((t) => t.getAttribute('data-name'))).toEqual(['h-one', 'h-four']);
   });
 
-  it('with filters on, a hollow tile reads no matching result', () => {
+  it('with filters on, the group reads No matching result', () => {
     render(<CoverageTreemap {...base} filtered />);
-    expect(within(tile('h-none')).getByText('no matching result')).toBeInTheDocument();
+    expect(screen.getByText('No matching result (1)')).toBeInTheDocument();
+  });
+
+  it('has no Not tested group when every host is tested or the fleet is unreadable', () => {
+    render(<CoverageTreemap {...base} enrolledHostnames={null} />);
+    expect(screen.queryByText(/^Not tested \(/)).toBeNull();
+    expect(chips()).toHaveLength(0);
+  });
+
+  it('untested hosts never push tested hosts out of view', () => {
+    const none = Array.from({ length: 30 }, (_, i) => `none-${String(i).padStart(2, '0')}`);
+    render(<CoverageTreemap {...base} enrolledHostnames={[...none, 'h-one', 'h-four']} />);
+    expect(tiles().map((t) => t.getAttribute('data-name'))).toEqual(['h-one', 'h-four']);
+    expect(screen.getByText('Not tested (30)')).toBeInTheDocument();
+  });
+
+  it('shows the first 40 untested hosts, and the rest on request', () => {
+    const none = Array.from({ length: 45 }, (_, i) => `none-${String(i).padStart(2, '0')}`);
+    render(<CoverageTreemap {...base} enrolledHostnames={none} />);
+    expect(chips()).toHaveLength(40);
+    fireEvent.click(screen.getByRole('button', { name: 'Show all 45' }));
+    expect(chips()).toHaveLength(45);
+    expect(screen.queryByRole('button', { name: 'Show all 45' })).toBeNull();
+  });
+
+  it('says the order of the tiles', () => {
+    render(<CoverageTreemap {...base} />);
+    expect(screen.getByText(/lowest breadth first/)).toBeInTheDocument();
   });
 
   it('a tested host shows its share and count, shaded by step', () => {
@@ -55,9 +87,9 @@ describe('CoverageTreemap (Test Breadth by Host)', () => {
     expect(tile('h-four').getAttribute('data-step')).toBe('3');
   });
 
-  it('orders tiles worst first', () => {
+  it('orders tested tiles lowest breadth first', () => {
     render(<CoverageTreemap {...base} />);
-    expect(tiles().map((t) => t.getAttribute('data-name'))).toEqual(['h-none', 'h-one', 'h-four']);
+    expect(tiles().map((t) => t.getAttribute('data-name'))).toEqual(['h-one', 'h-four']);
   });
 
   it('uses no outcome colour anywhere', () => {
@@ -100,19 +132,21 @@ describe('CoverageTreemap (Test Breadth by Host)', () => {
     expect(tiles()[5].getAttribute('data-name')).toBe('T1');
 
     fireEvent.click(screen.getByLabelText('Back to overview'));
-    expect(tiles()).toHaveLength(3);
+    expect(tiles()).toHaveLength(2);
+    expect(chips()).toHaveLength(1);
   });
 
   it('an untested host drills down to every test as not run', () => {
     render(<CoverageTreemap {...base} />);
-    fireEvent.click(tile('h-none'));
+    fireEvent.click(chip('h-none'));
     expect(screen.getByText('h-none · 0 of 6 tests')).toBeInTheDocument();
     expect(screen.getAllByText('not run')).toHaveLength(6);
+    expect(chips()).toHaveLength(0);
   });
 
   it('returns to a working overview when the open host leaves the data', () => {
     const { rerender } = render(<CoverageTreemap {...base} />);
-    fireEvent.click(tile('h-none'));
+    fireEvent.click(chip('h-none'));
     expect(tiles()).toHaveLength(6);
     // e.g. a hostname filter that excludes it
     rerender(<CoverageTreemap {...base} enrolledHostnames={['h-one', 'h-four']} />);
@@ -130,7 +164,9 @@ describe('CoverageTreemap (Test Breadth by Host)', () => {
 
   it('shows enrolled hosts when there are no results at all', () => {
     render(<CoverageTreemap data={[]} baselineTests90d={SIX} enrolledHostnames={['h-none']} />);
-    expect(within(tile('h-none')).getByText('not tested')).toBeInTheDocument();
+    expect(chip('h-none')).toBeInTheDocument();
+    expect(screen.queryAllByTestId('tile')).toHaveLength(0);
+    expect(screen.getByText('No host has a result in this view')).toBeInTheDocument();
   });
 
   it('has an empty state when there is nothing to show', () => {
@@ -159,9 +195,9 @@ describe('BreadthTooltip', () => {
     expect(screen.getByText('and 2 more')).toBeInTheDocument();
   });
 
-  it('the Others fold says how many of its hosts are tested', () => {
-    const { container } = render(<BreadthTooltip tile={{ name: 'Others (3 hosts)', foldTested: 2, foldUntested: 1 }} setSize={6} />);
-    expect(container).toHaveTextContent('2 tested, 1 not tested');
+  it('the Others fold says which hosts it holds', () => {
+    const { container } = render(<BreadthTooltip tile={{ name: 'Others (3 hosts)', foldCount: 3 }} setSize={6} />);
+    expect(container).toHaveTextContent('The 3 tested hosts with the highest breadth');
   });
 
   it('uses singular forms', () => {

@@ -493,6 +493,6 @@ describe('Test Breadth by Host wiring', () => {
   it('reads no matching result when another filter is active', async () => {
     mocks.agent.reset({ listAgents: { agents: [agent('LAP-B')], total: 1 } });
     renderAt('/analytics?tests=T1');
-    expect((await screen.findAllByText('no matching result')).length).toBeGreaterThan(0);
+    expect(await screen.findByText('No matching result (1)')).toBeTruthy();
   });
 });
