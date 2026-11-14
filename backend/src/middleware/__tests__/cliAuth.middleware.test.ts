@@ -1,8 +1,22 @@
-import { describe, it, expect, vi, beforeAll } from 'vitest';
+import { describe, it, expect, vi, beforeAll, beforeEach } from 'vitest';
 import type { Request, Response, NextFunction } from 'express';
 import jwt from 'jsonwebtoken';
-import { acceptCliAuth } from '../cliAuth.middleware.js';
-import { getUserOrgId } from '../clerk.middleware.js';
+import type Database from 'better-sqlite3';
+import { createTestDatabase } from '../../__tests__/helpers/db.js';
+
+let testDb: Database.Database;
+vi.mock('../../services/agent/database.js', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('../../services/agent/database.js')>();
+  return { ...actual, getDatabase: () => testDb };
+});
+
+const { acceptCliAuth } = await import('../cliAuth.middleware.js');
+const { getUserOrgId } = await import('../clerk.middleware.js');
+const { revokeCliSessions } = await import('../../services/cliSessions.js');
+
+beforeEach(() => {
+  testDb = createTestDatabase();
+});
 
 const SECRET = 'test-cli-secret';
 const cliToken = (org_id: string | null) =>
@@ -67,6 +81,43 @@ describe('acceptCliAuth()', () => {
     it("a token for a user in an organization carries that organization", () => {
       const { req } = run({ headers: { authorization: `Bearer ${cliToken('org_abc')}` } } as Partial<Request>);
       expect(getUserOrgId(authOf(req))).toBe('org_abc');
+    });
+  });
+
+  describe('a revoked CLI session', () => {
+    beforeAll(() => {
+      process.env.CLI_AUTH_SECRET = SECRET;
+    });
+    const tokenIssuedAt = (iat: number) =>
+      jwt.sign({ sub: 'user_1', org_id: 'default', role: 'admin', type: 'cli', iat }, SECRET, { algorithm: 'HS256', issuer: 'projectachilles' });
+    const nowSeconds = () => Math.floor(Date.now() / 1000);
+
+    it('a token issued before the user\'s sessions were revoked attaches no auth', () => {
+      const token = tokenIssuedAt(nowSeconds() - 60);
+      revokeCliSessions('user_1');
+      const { next, req } = run({ headers: { authorization: `Bearer ${token}` } } as Partial<Request>);
+      expect(next).toHaveBeenCalledOnce();
+      expect(req.auth).toBeUndefined();
+    });
+
+    it('a token issued after the revocation works', () => {
+      revokeCliSessions('user_1');
+      const { req } = run({ headers: { authorization: `Bearer ${tokenIssuedAt(nowSeconds() + 5)}` } } as Partial<Request>);
+      expect(authOf(req).userId).toBe('user_1');
+    });
+
+    it('another user\'s revocation does not affect the token', () => {
+      revokeCliSessions('user_2');
+      const { req } = run({ headers: { authorization: `Bearer ${tokenIssuedAt(nowSeconds() - 60)}` } } as Partial<Request>);
+      expect(authOf(req).userId).toBe('user_1');
+    });
+
+    it('attaches no auth when the revocation list cannot be read', () => {
+      const token = tokenIssuedAt(nowSeconds() - 60);
+      testDb.close();
+      const { next, req } = run({ headers: { authorization: `Bearer ${token}` } } as Partial<Request>);
+      expect(next).toHaveBeenCalledOnce();
+      expect(req.auth).toBeUndefined();
     });
   });
 });

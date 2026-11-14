@@ -20,6 +20,7 @@ import { asyncHandler, AppError } from '../middleware/error.middleware.js';
 import { validate } from '../middleware/validation.js';
 import { VerifyCodeSchema, PollDeviceCodeSchema, RefreshTokenSchema } from '../schemas/cli.schemas.js';
 import { getDatabase } from '../services/agent/database.js';
+import { revokeCliSessions } from '../services/cliSessions.js';
 
 const router = Router();
 
@@ -128,8 +129,8 @@ router.post('/verify', requireClerkAuth(), validate(VerifyCodeSchema), asyncHand
   // First check if this code exists and hasn't expired
   const code = db.prepare(`
     SELECT * FROM cli_auth_codes
-    WHERE user_code = ? AND expires_at > datetime('now')
-  `).get(user_code) as { device_code_hash: string; user_code: string; expires_at: string; verified_at: string | null; user_id: string | null } | undefined;
+    WHERE user_code = ? AND expires_at > ?
+  `).get(user_code, new Date().toISOString()) as { device_code_hash: string; user_code: string; expires_at: string; verified_at: string | null; user_id: string | null } | undefined;
 
   if (!code) {
     throw new AppError('Invalid or expired code', 400);
@@ -261,10 +262,11 @@ router.post('/refresh', refreshLimiter, validate(RefreshTokenSchema), asyncHandl
   const tokenHash = crypto.createHash('sha256').update(refresh_token).digest('hex');
   const db = getDatabase();
 
+  // expires_at is a JS ISO string: compare it with one, not datetime('now').
   const stored = db.prepare(`
     SELECT * FROM cli_refresh_tokens
-    WHERE token_hash = ? AND expires_at > datetime('now')
-  `).get(tokenHash) as {
+    WHERE token_hash = ? AND expires_at > ?
+  `).get(tokenHash, new Date().toISOString()) as {
     user_id: string;
     org_id: string;
     role: string | null;
@@ -275,6 +277,30 @@ router.post('/refresh', refreshLimiter, validate(RefreshTokenSchema), asyncHandl
     throw new AppError('Invalid or expired refresh token', 401);
   }
 
+  // The session was opened by a Clerk user: before extending it, confirm that
+  // user still exists and may sign in, and take their role as it is now.
+  let user: Awaited<ReturnType<typeof clerkClient.users.getUser>>;
+  try {
+    user = await clerkClient.users.getUser(stored.user_id);
+  } catch (err) {
+    if ((err as { status?: number })?.status === 404) {
+      revokeCliSessions(stored.user_id);
+      throw new AppError('Invalid or expired refresh token', 401);
+    }
+    // Clerk unreachable: don't extend a session we can't vouch for, but keep
+    // the refresh token so the CLI can try again.
+    throw new AppError('Could not confirm your account. Try again shortly.', 503);
+  }
+  if (user.banned) {
+    revokeCliSessions(stored.user_id);
+    throw new AppError('Invalid or expired refresh token', 401);
+  }
+  if (user.locked) {
+    // A lockout is temporary (failed sign-in attempts): refuse, keep the session.
+    throw new AppError('Invalid or expired refresh token', 401);
+  }
+  const role = getUserRole({ sessionClaims: { metadata: user.publicMetadata } }) ?? null;
+
   // Issue new access token
   const secret = getCliSecret();
   const newExpiresAt = new Date(Date.now() + CLI_TOKEN_TTL_SECONDS * 1000).toISOString();
@@ -282,7 +308,7 @@ router.post('/refresh', refreshLimiter, validate(RefreshTokenSchema), asyncHandl
     {
       sub: stored.user_id,
       org_id: stored.org_id,
-      role: stored.role,
+      role,
       type: 'cli',
     },
     secret,
@@ -303,7 +329,7 @@ router.post('/refresh', refreshLimiter, validate(RefreshTokenSchema), asyncHandl
     crypto.createHash('sha256').update(newRefreshToken).digest('hex'),
     stored.user_id,
     stored.org_id,
-    stored.role,
+    role,
     newExpiresAt,
   );
 
