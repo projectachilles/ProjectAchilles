@@ -131,6 +131,12 @@ function isSourceBuiltBinary(
   const buildPattern = new RegExp(`go\\s+build\\b.*-o\\s+(?:["'])?${escaped}(?:["'])?(?:\\s|$)`, 'm');
   if (buildPattern.test(buildScript)) return true;
 
+  // 5. Build-created directory: `//go:embed generated` has no individual
+  // uploadable filename, so a script that creates the directory owns it and
+  // must generate its contents before compilation.
+  const directoryPattern = new RegExp(`\\bmkdir\\s+(?:-p\\s+)?(?:["'])?${escaped}(?:["'])?(?:\\s|$)`, 'm');
+  if (directoryPattern.test(buildScript)) return true;
+
   return false;
 }
 

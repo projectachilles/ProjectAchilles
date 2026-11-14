@@ -586,6 +586,33 @@ var data string
       expect(deps).toHaveLength(1);
       expect(deps[0].sourceBuilt).toBe(true);
     });
+
+    it('marks a build-created embed directory as source-built', () => {
+      const orchestratorGo = '//go:embed generated\nvar assets embed.FS\n';
+      const buildScript = '#!/bin/bash\nrm -rf generated\nmkdir -p generated "${BUILD_DIR}"\ngo run ./cmd/generate .';
+      mockExistsSync.mockImplementation((p: string) => {
+        if (p === `${TESTS_SOURCE}/cyber-hygiene/${VALID_UUID}`) return true;
+        if (p === `${TESTS_SOURCE}/cyber-hygiene/${VALID_UUID}/build_all.sh`) return true;
+        return false;
+      });
+      mockStatSync.mockReturnValue({ isDirectory: () => true });
+      mockReaddirSync.mockReturnValue(['orchestrator.go']);
+      mockReadFileSync.mockImplementation((p: string) => {
+        if (typeof p === 'string' && p.endsWith('/build_all.sh')) return buildScript;
+        if (typeof p === 'string' && p.endsWith('/orchestrator.go')) return orchestratorGo;
+        return 'package main\n';
+      });
+
+      const deps = service.getEmbedDependencies(VALID_UUID);
+
+      expect(deps).toHaveLength(1);
+      expect(deps[0]).toEqual({
+        filename: 'generated',
+        sourceFile: 'orchestrator.go',
+        exists: false,
+        sourceBuilt: true,
+      });
+    });
   });
 
   // ── Group 5: saveUploadedFile ─────────────────────────────

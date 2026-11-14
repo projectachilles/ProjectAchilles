@@ -27,8 +27,9 @@ FROM node:22-slim@sha256:4b150b48b4116e2a22f2c39cc27025fbf4f153e2078fd3b14d159fd
 #   osslsigncode - Windows Authenticode code signing
 #   wget         - Docker healthcheck
 #   curl         - Go toolchain download (for agent builds)
+#   default-jdk-headless - compiles Java helpers used by security tests
 RUN apt-get update && \
-    apt-get install -y --no-install-recommends git openssl osslsigncode wget curl ca-certificates && \
+    apt-get install -y --no-install-recommends git openssl osslsigncode wget curl ca-certificates default-jdk-headless && \
     rm -rf /var/lib/apt/lists/*
 
 # Install Go with checksum verification (required for agent cross-compilation at runtime).
