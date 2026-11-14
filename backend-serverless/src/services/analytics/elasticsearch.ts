@@ -4,6 +4,7 @@ import { Client } from '@elastic/elasticsearch';
 import { createEsClient } from './client.js';
 import { RiskAcceptanceService } from '../risk-acceptance/risk-acceptance.service.js';
 import { attackSimulationExclusions } from './attack-simulation-filter.js';
+import { SKIPPED as SKIPPED_FILTER } from '../reports/stageOutcome.js';
 import { AppError } from '../../middleware/error.middleware.js';
 import {
   MAX_FRESHNESS_DAYS,
@@ -2344,8 +2345,8 @@ export class ElasticsearchService {
     if (!result || result === 'all') return null;
     if (result === 'protected') return { terms: { 'event.ERROR': [105, 126, 127] } };
     if (result === 'unprotected') return { term: { 'event.ERROR': 101 } };
-    // inconclusive: everything NOT in [101, 105, 126, 127]
-    return { bool: { must_not: { terms: { 'event.ERROR': [101, 105, 126, 127] } } } };
+    // Inconclusive results exclude conclusive codes and controls not assessed.
+    return { bool: { must_not: [{ terms: { 'event.ERROR': [101, 105, 126, 127] } }, SKIPPED_FILTER] } };
   }
 
   /**
@@ -2617,6 +2618,7 @@ export class ElasticsearchService {
       control_validator: getField(source, 'f0rtika.control_validator'),
       control_description: getField(source, 'f0rtika.control_description'),
       is_bundle_control: getField(source, 'f0rtika.is_bundle_control') ?? false,
+      skipped: getField(source, 'f0rtika.skipped') ?? false,
       defender_detected: getField(source, 'f0rtika.defender_detected') ?? false,
       defender_stage_detected: getField(source, 'f0rtika.defender_stage_detected') ?? false,
       defender_prevented: getField(source, 'f0rtika.defender_prevented') ?? false,
@@ -3402,7 +3404,7 @@ export class ElasticsearchService {
           },
           aggs: {
             errors: {
-              filter: { terms: { 'event.ERROR': this.ERROR_CODES } },
+              filter: { bool: { filter: [{ terms: { 'event.ERROR': this.ERROR_CODES } }], must_not: [SKIPPED_FILTER] } },
             },
             conclusive: {
               filter: { terms: { 'event.ERROR': this.CONCLUSIVE_ERROR_CODES } },
@@ -3472,7 +3474,7 @@ export class ElasticsearchService {
       },
       aggs: {
         errors: {
-          filter: { terms: { 'event.ERROR': this.ERROR_CODES } },
+          filter: { bool: { filter: [{ terms: { 'event.ERROR': this.ERROR_CODES } }], must_not: [SKIPPED_FILTER] } },
         },
         conclusive: {
           filter: { terms: { 'event.ERROR': this.CONCLUSIVE_ERROR_CODES } },

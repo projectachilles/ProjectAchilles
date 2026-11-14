@@ -43,6 +43,7 @@ interface FixtureControl {
   control_id: string;
   validator?: string;
   exit_code: number;
+  skipped?: boolean;
   techniques: string[];
   tactics: string[];
   defender_stage_detected?: boolean;
@@ -80,6 +81,7 @@ function makeBundleHit(control: FixtureControl) {
     'f0rtika.bundle_name': 'LockBit 3.0 Double Extortion Kill Chain (SB-PC-2026-001)',
     'f0rtika.control_id': control.control_id,
     'f0rtika.is_bundle_control': true,
+    'f0rtika.skipped': control.skipped ?? false,
   };
   if (control.validator !== undefined) {
     source['f0rtika.control_validator'] = control.validator;
@@ -273,15 +275,17 @@ describe('sbReport.service.ts', () => {
       expect(report.executions[2].detectedBy).toEqual([]);
     });
 
-    it('keeps exit 0 executed on a cyber-hygiene control, and a stage\'s own prevention over Skipped', async () => {
+    it('keeps unmarked cyber-hygiene exit 0 executed, honors explicit skips, and prefers a stage\'s own prevention', async () => {
       const hygiene = makeBundleHit({ control_id: 'CH-DEF-001', validator: 'Stage 1', exit_code: 0, techniques: [], tactics: ['defense-evasion'] });
       hygiene._source['f0rtika.category'] = 'cyber-hygiene';
       const killed = makeBundleHit({ control_id: 'T1486', validator: 'Stage 5', exit_code: 0, techniques: ['T1486'], tactics: ['impact'], flags: { defender_stage_detected: true, defender_stage_prevented: true } });
-      mockSearch.mockResolvedValue(esSearchResponse([hygiene, killed]));
+      const notAssessed = makeBundleHit({ control_id: 'CH-DEF-002', validator: 'Stage 6', exit_code: 0, techniques: [], tactics: ['defense-evasion'], skipped: true });
+      notAssessed._source['f0rtika.category'] = 'cyber-hygiene';
+      mockSearch.mockResolvedValue(esSearchResponse([hygiene, killed, notAssessed]));
 
       const report = await createService().generateSbReport({ ...WINDOW, org: ORG_UUID });
 
-      expect(report.executions.map((r) => r.outcome)).toEqual(['MISSED', 'PREVENTED']);
+      expect(report.executions.map((r) => r.outcome)).toEqual(['MISSED', 'PREVENTED', 'NOT_RUN']);
     });
 
     it('does not count the run-wide defender_detected flag as a detection of this stage', async () => {

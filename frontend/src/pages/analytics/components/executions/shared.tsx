@@ -137,9 +137,9 @@ export function getResultFromErrorCode(
   return 'inconclusive';
 }
 
-/** Skipped bundle stages: non-cyber-hygiene with exit code 0. */
+/** Explicitly skipped controls, plus legacy non-cyber-hygiene stages with exit code 0. */
 export function isSkippedStage(exec: EnrichedTestExecution): boolean {
-  return Boolean(exec.is_bundle_control && exec.error_code === 0 && exec.category !== 'cyber-hygiene');
+  return Boolean(exec.is_bundle_control && exec.error_code === 0 && (exec.skipped === true || exec.category !== 'cyber-hygiene'));
 }
 
 // ── Display rows (bundle grouping) ─────────────────────────────────
@@ -290,7 +290,7 @@ export function ExecResultLabel({ exec, compact }: { exec: EnrichedTestExecution
       return (
         <span className="inline-flex items-center gap-1.5 text-faint">
           <SkipForward className={iconClass} />
-          <span className={textClass}>Skipped</span>
+          <span className={textClass}>{exec.category === 'cyber-hygiene' && exec.skipped === true ? 'Not assessed' : 'Skipped'}</span>
         </span>
       );
     case 'protected':
@@ -436,7 +436,9 @@ export function getCellValue(exec: EnrichedTestExecution, key: string): string |
     case 'bundle_name': return exec.is_bundle_control ? exec.bundle_name : '';
     case 'hostname': return exec.hostname;
     // The table's own label (ExecResultLabel), not just the exit code.
-    case 'result': return EXECUTION_OUTCOME_LABEL[classifyExecution(exec)];
+    case 'result': return exec.category === 'cyber-hygiene' && exec.skipped === true && isSkippedStage(exec)
+      ? 'Not assessed'
+      : EXECUTION_OUTCOME_LABEL[classifyExecution(exec)];
     case 'category': return exec.category;
     case 'subcategory': return exec.subcategory;
     case 'threat_actor': return exec.threat_actor;

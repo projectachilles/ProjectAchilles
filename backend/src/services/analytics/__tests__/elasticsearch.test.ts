@@ -1462,7 +1462,21 @@ describe('elasticsearch.ts', () => {
       const countCall = mockCount.mock.calls[0][0];
       const filters = countCall.query.bool.filter;
       expect(filters).toContainEqual({
-        bool: { must_not: { terms: { 'event.ERROR': [101, 105, 126, 127] } } },
+        bool: {
+          must_not: [
+            { terms: { 'event.ERROR': [101, 105, 126, 127] } },
+            {
+              bool: {
+                filter: [{ term: { 'f0rtika.is_bundle_control': true } }, { term: { 'event.ERROR': 0 } }],
+                should: [
+                  { term: { 'f0rtika.skipped': true } },
+                  { bool: { must_not: [{ term: { 'f0rtika.category': 'cyber-hygiene' } }] } },
+                ],
+                minimum_should_match: 1,
+              },
+            },
+          ],
+        },
       });
     });
 
@@ -1596,16 +1610,20 @@ describe('elasticsearch.ts', () => {
   });
 
   describe('getErrorRate', () => {
-    it('a skipped stage (exit 0 on an attack bundle stage) is not an error; exit 0 elsewhere still is', async () => {
+    it('explicitly skipped controls and legacy skipped attack stages are not errors; exit 0 elsewhere still is', async () => {
       mockSearch.mockResolvedValue(esSearchResponse({ aggs: { errors: { doc_count: 0 }, conclusive: { doc_count: 0 } } }));
       await createService().getErrorRate(makeParams());
       const errors = mockSearch.mock.calls[0][0].aggs.errors.filter.bool;
       expect(errors.filter).toContainEqual({ terms: { 'event.ERROR': [0, 1, 259, 999] } });
-      // A chain stopped at stage 1 skips the rest; those stages are not test errors.
+      // Explicitly skipped controls and legacy skipped attack stages are not test errors.
       expect(errors.must_not).toContainEqual({
         bool: {
           filter: [{ term: { 'f0rtika.is_bundle_control': true } }, { term: { 'event.ERROR': 0 } }],
-          must_not: [{ term: { 'f0rtika.category': 'cyber-hygiene' } }],
+          should: [
+            { term: { 'f0rtika.skipped': true } },
+            { bool: { must_not: [{ term: { 'f0rtika.category': 'cyber-hygiene' } }] } },
+          ],
+          minimum_should_match: 1,
         },
       });
       expect(errors.must_not).toContainEqual(EDR_PREVENTED_ERROR_STAGE);

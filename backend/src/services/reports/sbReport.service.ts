@@ -12,6 +12,7 @@
 //       <vendor>_stage_detected + a confirmed <vendor>_prevention_action:
 //       the same rule as Analytics' classifyStage. The test-level
 //       <vendor>_prevented can come from a sibling stage's alert.)
+//   exit 0 + explicit skipped flag                    -> NOT_RUN
 //   exit 0 on a non-cyber-hygiene stage               -> NOT_RUN
 //      (a Skipped stage: the orchestrator never ran it, as Analytics'
 //       classifyStage; an earlier stage's block or error ended the chain)
@@ -480,8 +481,8 @@ export class SbReportService {
       const stage = parseStageFromValidator(getField(source, 'f0rtika.control_validator'))
         ?? fallbackStage.get(hit)
         ?? 0;
-      // Non-cyber-hygiene stage that ended 0 = Skipped (Analytics' classifyStage).
-      const skipped = exitCode === 0 && getField(source, 'f0rtika.category') !== 'cyber-hygiene';
+      // Explicitly skipped control, or legacy non-cyber-hygiene stage that ended 0.
+      const skipped = exitCode === 0 && (getField(source, 'f0rtika.skipped') === true || getField(source, 'f0rtika.category') !== 'cyber-hygiene');
       const outcome = mapOutcome(exitCode, rawTactics, edrDetected, anyVendorPrevented, skipped);
       const sourceEventId = String(hit._id ?? '');
 

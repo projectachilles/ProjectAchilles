@@ -161,6 +161,8 @@ export interface EnrichedTestExecution extends TestExecution {
   /** What the stage does (from bundle_results.json); absent on older documents. */
   control_description?: string;
   is_bundle_control?: boolean;
+  /** The test explicitly marked this control as not applicable; meaningful with exit code 0. */
+  skipped?: boolean;
   /** Set true by the enrichment pass when a Defender alert matches this doc's bundle UUID, hostname, and time window. */
   defender_detected?: boolean;
   /**

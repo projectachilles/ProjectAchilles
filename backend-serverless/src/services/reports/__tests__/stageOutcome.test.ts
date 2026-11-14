@@ -22,6 +22,7 @@ interface GoldenCase {
   exit?: number;
   bundle?: boolean;
   category?: string;
+  skipped?: boolean;
   flags?: Partial<Record<
     | 'defender_detected' | 'defender_stage_detected' | 'defender_prevented'
     | 'crowdstrike_detected' | 'crowdstrike_stage_detected' | 'crowdstrike_prevented',
@@ -72,7 +73,10 @@ const GOLDEN: GoldenCase[] = [
   },
   { name: 'bundle stage exit 0 (intel-driven) → skipped', exit: 0, bundle: true, category: 'intel-driven', expected: 'skipped' },
   { name: 'bundle control exit 0 (cyber-hygiene) → inconclusive', exit: 0, bundle: true, category: 'cyber-hygiene', expected: 'inconclusive' },
+  { name: 'explicitly skipped cyber-hygiene control exit 0 → skipped', exit: 0, bundle: true, category: 'cyber-hygiene', skipped: true, expected: 'skipped' },
+  { name: 'cyber-hygiene skip flag cannot hide exit 101', exit: 101, bundle: true, category: 'cyber-hygiene', skipped: true, expected: 'unprotected' },
   { name: 'standalone exit 0 → inconclusive', exit: 0, expected: 'inconclusive' },
+  { name: 'standalone skip flag does not mark exit 0 skipped', exit: 0, skipped: true, expected: 'inconclusive' },
   { name: 'exit 1 → inconclusive', exit: 1, expected: 'inconclusive' },
   { name: 'exit 200 → inconclusive', exit: 200, expected: 'inconclusive' },
   { name: 'exit 259 → inconclusive', exit: 259, expected: 'inconclusive' },
@@ -111,6 +115,7 @@ function toSource(c: GoldenCase): Record<string, unknown> {
       test_name: 'n',
       ...(c.bundle ? { is_bundle_control: true } : {}),
       ...(c.category ? { category: c.category } : {}),
+      ...(c.skipped !== undefined ? { skipped: c.skipped } : {}),
       ...(c.flags ?? {}),
       ...(c.actions ?? {}),
     },

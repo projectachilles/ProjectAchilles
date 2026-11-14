@@ -557,10 +557,22 @@ exports[`EDR vendor characterization (pre-registry refactor) > OUTCOME_FILTERS 1
                 },
               },
             ],
-            "must_not": [
+            "minimum_should_match": 1,
+            "should": [
+              {
+                "bool": {
+                  "must_not": [
+                    {
+                      "term": {
+                        "f0rtika.category": "cyber-hygiene",
+                      },
+                    },
+                  ],
+                },
+              },
               {
                 "term": {
-                  "f0rtika.category": "cyber-hygiene",
+                  "f0rtika.skipped": true,
                 },
               },
             ],
@@ -1051,10 +1063,22 @@ exports[`EDR vendor characterization (pre-registry refactor) > OUTCOME_FILTERS 1
           },
         },
       ],
-      "must_not": [
+      "minimum_should_match": 1,
+      "should": [
+        {
+          "bool": {
+            "must_not": [
+              {
+                "term": {
+                  "f0rtika.category": "cyber-hygiene",
+                },
+              },
+            ],
+          },
+        },
         {
           "term": {
-            "f0rtika.category": "cyber-hygiene",
+            "f0rtika.skipped": true,
           },
         },
       ],

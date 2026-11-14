@@ -29,7 +29,11 @@ score, with one exception: a stage that ended with an error code (for example
 `999`) because the EDR's own alert on that stage killed, quarantined or blocked
 it counts as protected (the Executions view labels it **Prevented**). EDR
 correlation flags (`defender_detected`, `crowdstrike_detected`, …) count as
-protected in the combined score.
+protected in the combined score. Bundle controls explicitly marked `skipped: true`
+with exit code 0, and legacy skipped non-cyber-hygiene stages with exit code 0,
+are excluded from both the score and error rate. An unmarked cyber-hygiene
+exit 0 remains an inconclusive error rather than evidence that the control was
+not assessed.
 
 See **[Exit Codes & Outcomes](./exit-codes-and-outcomes)** for the canonical
 reference covering every exit code, correlation flag, stage label, and SB
