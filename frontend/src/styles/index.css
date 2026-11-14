@@ -110,6 +110,14 @@
   --chart-heat-3: oklch(0.62 0.15 150);
   --chart-heat-4: oklch(0.72 0.18 150);
   --chart-heat-5: oklch(0.82 0.2 150);
+  /* Test breadth tiles: "how much", not "how well". One neutral
+     blue-slate hue (250), faint to solid; never green or red, which
+     mean protected / got through on this dashboard. Same AA label
+     rule as the heat ramp (contrast.test.ts). */
+  --chart-breadth-1: oklch(0.36 0.04 250);
+  --chart-breadth-2: oklch(0.48 0.06 250);
+  --chart-breadth-3: oklch(0.64 0.08 250);
+  --chart-breadth-4: oklch(0.8 0.09 250);
   --chart-warn: #fbbf24;
   /* Contrast-aware cell-label text — chosen against the cell's own
      fill lightness, theme-invariant */
@@ -136,6 +144,10 @@
   --chart-heat-3: oklch(0.62 0.15 150);
   --chart-heat-4: oklch(0.72 0.18 150);
   --chart-heat-5: oklch(0.82 0.2 150);
+  --chart-breadth-1: oklch(0.36 0.04 250);
+  --chart-breadth-2: oklch(0.48 0.06 250);
+  --chart-breadth-3: oklch(0.64 0.08 250);
+  --chart-breadth-4: oklch(0.8 0.09 250);
   --chart-warn: #fbbf24;
   --chart-label-on-light: oklch(0.22 0 0);
   --chart-label-on-dark: oklch(0.98 0 0);

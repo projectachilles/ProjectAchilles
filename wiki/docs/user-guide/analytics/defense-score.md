@@ -227,8 +227,7 @@ The card is not shown on installs whose backend does not offer it (Vercel).
 **Lower rows** — Test activity (the latest runs with the same result label as
 All Executions: a multi-stage run is one row), Top Remediation Controls (ranked
 by Secure Score impact), Test Coverage and Defense Score by Host as flat bar
-lists, and the Test Breadth by Host treemap (a multi-stage test is one cell per
-host, sized by its runs).
+lists, and [Test Breadth by Host](#test-breadth-by-host).
 
 :::note[Without Microsoft Defender]
 The Secure Score and Top Remediation Controls cards are Defender-only. When the
@@ -285,23 +284,34 @@ vendor-confirmed prevention always counts as detected). See the Detection Rate s
 excludes them. Auto-resolve never affects either score.
 :::
 
-## Coverage Treemap
+## Test Breadth by Host
 
-The Coverage Treemap provides a drill-down view of test coverage per endpoint:
+The card shows one tile of equal size per host: how many of
+the tests in use that host has run. It is about how much was tested, not how
+well the host defended, so it uses a neutral blue ramp and never green or red.
 
-- Each cell represents a host, sized by the number of tests executed
-- Cells are color-coded by coverage percentage:
-  - **Green** (80%+) -- Strong coverage
-  - **Amber** (50--79%) -- Partial coverage
-  - **Red** (below 50%) -- Low coverage
-- Click a host cell to drill down to individual test results on that endpoint
+- **Test set.** The tests run anywhere in the last 90 days (toggle: 30 days, or
+  only the tests run in the selected window), plus any test run in the window.
+  With an organization selected, only that organization's tests count. A
+  multi-stage test counts once.
+- **Shade.** The share of the set the host ran in the window: under 25%,
+  25–49%, 50–79%, 80% and over. The tile reads, for example, "17% · 1 of 6".
+- **Not tested.** An active enrolled agent with no result in the window gets a
+  hollow dashed tile. With filters other than date, organization or hostname
+  applied, the tile reads "no matching result", because a filtered view cannot
+  show that the host was never tested. Disabled, decommissioned and uninstalled
+  agents are left out.
+- **Order.** Hosts not tested first, then the least tested. Past 25 hosts the
+  best-tested ones fold into "Others"; click it to see them.
+- **Tooltip and drill-down.** The tooltip lists the tests the host is missing.
+  Clicking a host shows one tile per test: filled with its run count when the
+  host ran it, hollow when it did not.
 
-![Test Coverage and Defense Score by Host bar lists above the Test Breadth by Host treemap](/img/screenshots/analytics-coverage.png)
+Untested hosts come from the agent list, which needs the
+`endpoints:agents:read` permission. Without it the card shows the tested hosts
+only and says "enrolled hosts unavailable".
 
-- Three baseline comparison modes control how "100% coverage" is defined:
-  - **90-day baseline** -- Uses the total distinct tests seen in the last 90 days
-  - **30-day baseline** -- Uses the total distinct tests seen in the last 30 days
-  - **Current window** -- Uses only tests within the currently selected date range
+![Test Coverage and Defense Score by Host bar lists above the Test Breadth by Host card (shown here before it became equal tiles)](/img/screenshots/analytics-coverage.png)
 
 ## Filtering
 

@@ -26,6 +26,7 @@ function block(selector: string): string {
 const REQUIRED = [
   '--chart-cat-1', '--chart-cat-2', '--chart-cat-3', '--chart-cat-4', '--chart-cat-5',
   '--chart-heat-1', '--chart-heat-2', '--chart-heat-3', '--chart-heat-4', '--chart-heat-5',
+  '--chart-breadth-1', '--chart-breadth-2', '--chart-breadth-3', '--chart-breadth-4',
   '--chart-warn', '--chart-series-exec', '--chart-series-alert',
   '--success', '--warning',
 ];

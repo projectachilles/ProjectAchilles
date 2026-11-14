@@ -37,6 +37,7 @@ const mocks = vi.hoisted(() => {
     analytics: apiProxy(),
     defender: apiProxy(),
     crowdstrike: apiProxy(),
+    agent: apiProxy(),
     defenderFlipsTo: true,
     caps: { outcomeBreakdown: false, loaded: true } as { outcomeBreakdown: boolean; loaded: boolean; stageCoverage?: boolean },
   };
@@ -48,6 +49,7 @@ vi.mock('../../../services/api/crowdstrike', () => ({ crowdstrikeApi: mocks.crow
 vi.mock('../../../services/api/sentineloneAnalytics', () => ({ sentineloneAnalyticsApi: { getTechniqueOverlap: vi.fn(async () => []) } }));
 vi.mock('../../../services/api/sophosAnalytics', () => ({ sophosAnalyticsApi: { getTechniqueOverlap: vi.fn(async () => []) } }));
 vi.mock('../../../services/api/reports', () => ({ reportsApi: {} }));
+vi.mock('../../../services/api/agent', () => ({ agentApi: mocks.agent.api }));
 
 vi.mock('@/hooks/useAnalyticsAuth', () => ({
   useAnalyticsAuth: () => ({ configured: true, loading: false, settingsVersion: 0 }),
@@ -100,6 +102,11 @@ function renderPage() {
     </MemoryRouter>,
   );
 }
+
+// The fleet behind the Test Breadth by Host card: empty unless a test says otherwise.
+beforeEach(() => {
+  mocks.agent.reset({ listAgents: { agents: [], total: 0 } });
+});
 
 describe('AnalyticsDashboardPage request discipline', () => {
   beforeEach(() => {
@@ -365,5 +372,82 @@ describe('Stage coverage card wiring', () => {
       .find((b: string | undefined) => b?.includes('Chain A'));
     // One name, with its comma escaped so the backend doesn't split it in two.
     expect(call).toBe('Chain A\\, with a comma');
+  });
+});
+
+describe('Test Breadth by Host wiring', () => {
+  const agent = (hostname: string, org_id = 'o1') => ({ id: hostname, hostname, org_id, status: 'active' });
+
+  function renderAt(url: string) {
+    return render(
+      <MemoryRouter initialEntries={[url]}>
+        <AnalyticsDashboardPage />
+      </MemoryRouter>,
+    );
+  }
+
+  beforeEach(() => {
+    mocks.defenderFlipsTo = false;
+    mocks.caps = { outcomeBreakdown: false, loaded: true };
+    mocks.analytics.reset({
+      getDefenseScore: { score: 50, totalExecutions: 0, protectedCount: 0 },
+      getUniqueHostnames: 0,
+      getUniqueTests: 0,
+      getChainDepth: null,
+      getCanonicalTestCount: { count: 2, tests: ['T1', 'T2'], days: 90 },
+      getHostTestMatrix: [{ hostname: 'LAP-A', testName: 'T1', count: 3 }],
+      getGroupedPaginatedExecutions: { groups: [], pagination: { page: 1, pageSize: 25, totalGroups: 0, totalDocuments: 0, totalPages: 0, hasNext: false, hasPrevious: false } },
+      getFilterOptions: {
+        tests: [], techniques: [], hostnames: [], categories: [],
+        threatActors: [], tags: [], errorNames: [], errorCodes: [], bundleNames: [],
+      },
+    });
+    mocks.defender.reset({ getSecureScore: null });
+    mocks.crowdstrike.reset({ getZtaScore: null });
+  });
+
+  it('shows an enrolled host with no result as not tested', async () => {
+    mocks.agent.reset({ listAgents: { agents: [agent('lap-a'), agent('LAP-B')], total: 2 } });
+    renderAt('/analytics');
+    expect(await screen.findByText(/2 hosts · 1 tested · 1 not tested · 2 tests \(90d baseline\)/)).toBeTruthy();
+    expect(mocks.agent.api.listAgents).toHaveBeenCalledWith(expect.objectContaining({ status: 'active' }));
+  });
+
+  it('pages the agent list until every active agent is read', async () => {
+    const page1 = Array.from({ length: 1000 }, (_, i) => agent(`h-${i}`));
+    const page2 = Array.from({ length: 500 }, (_, i) => agent(`h-${1000 + i}`));
+    mocks.agent.api.listAgents.mockImplementation(async (p: { offset?: number }) =>
+      (p?.offset ?? 0) === 0 ? { agents: page1, total: 1500 } : { agents: page2, total: 1500 });
+    renderAt('/analytics');
+    expect(await screen.findByText(/1,501 hosts · 1 tested · 1,500 not tested/)).toBeTruthy();
+    expect(mocks.agent.api.listAgents).toHaveBeenCalledTimes(2);
+    expect(mocks.agent.api.listAgents).toHaveBeenLastCalledWith(expect.objectContaining({ offset: 1000 }));
+  });
+
+  it('keeps the dashboard and says so when the agent list cannot be read', async () => {
+    mocks.agent.api.listAgents.mockRejectedValue(new Error('403'));
+    renderAt('/analytics');
+    expect(await screen.findByText(/1 host tested · enrolled hosts unavailable/)).toBeTruthy();
+    expect(mocks.analytics.api.getDefenseScore).toHaveBeenCalledTimes(1);
+  });
+
+  it('asks for the baseline of the selected organization and counts only its agents', async () => {
+    mocks.agent.reset({ listAgents: { agents: [agent('LAP-B', 'o1'), agent('LAP-C', 'o2')], total: 2 } });
+    renderAt('/analytics?org=o1');
+    expect(await screen.findByText(/2 hosts · 1 tested · 1 not tested/)).toBeTruthy();
+    expect(mocks.analytics.api.getCanonicalTestCount).toHaveBeenCalledWith({ org: 'o1', days: 90 });
+    expect(mocks.analytics.api.getCanonicalTestCount).toHaveBeenCalledWith({ org: 'o1', days: 30 });
+  });
+
+  it('narrows the fleet to the hostname filter', async () => {
+    mocks.agent.reset({ listAgents: { agents: [agent('LAP-B'), agent('LAP-C')], total: 2 } });
+    renderAt('/analytics?hostnames=LAP-A,LAP-B');
+    expect(await screen.findByText(/2 hosts · 1 tested · 1 not tested/)).toBeTruthy();
+  });
+
+  it('reads no matching result when another filter is active', async () => {
+    mocks.agent.reset({ listAgents: { agents: [agent('LAP-B')], total: 1 } });
+    renderAt('/analytics?tests=T1');
+    expect((await screen.findAllByText('no matching result')).length).toBeGreaterThan(0);
   });
 });

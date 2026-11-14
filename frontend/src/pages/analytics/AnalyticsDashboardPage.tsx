@@ -45,6 +45,9 @@ import { sophosAnalyticsApi } from '../../services/api/sophosAnalytics';
 import { useScoringMode } from '@/hooks/useScoringMode';
 import { useCapabilities } from '@/hooks/useCapabilities';
 import { analyticsApi } from '../../services/api/analytics';
+import { agentApi } from '../../services/api/agent';
+import type { AgentSummary } from '@/types/agent';
+import { selectEnrolledHostnames } from './components/testBreadth';
 import { reportsApi } from '../../services/api/reports';
 import { defenderApi, type SecureScoreSummary, type SecureScoreTrendPoint } from '../../services/api/defender';
 import { crowdstrikeApi, type ZtaScoreSummary, type ZtaScoreTrendPoint } from '../../services/api/crowdstrike';
@@ -233,8 +236,11 @@ export default function AnalyticsDashboardPage() {
   const [recentRuns, setRecentRuns] = useState<DisplayRow[]>([]);
   const [recentRunsTotal, setRecentRunsTotal] = useState<number | null>(null);
   const [defenseScoreByHost, setDefenseScoreByHost] = useState<DefenseScoreByHostItem[]>([]);
-  const [canonicalTestCount, setCanonicalTestCount] = useState<number>(0);
-  const [canonicalTestCount30d, setCanonicalTestCount30d] = useState<number>(0);
+  // Test Breadth by Host: the tests run in the last 90 / 30 days (the baselines hosts are
+  // measured against) and the active agents (null = the agent list could not be read).
+  const [baselineTests90d, setBaselineTests90d] = useState<string[]>([]);
+  const [baselineTests30d, setBaselineTests30d] = useState<string[]>([]);
+  const [enrolledAgents, setEnrolledAgents] = useState<AgentSummary[] | null>(null);
 
   // Executions tab data
   const [executionsData, setExecutionsData] = useState<GroupedPaginatedResponse | null>(null);
@@ -263,25 +269,65 @@ export default function AnalyticsDashboardPage() {
   const [loadingSlot, setLoadingSlot] = useState(true);
   const [loadingExecutions, setLoadingExecutions] = useState(false);
 
-  // Load filter options and canonical test count on mount and when settings change
+  // Load filter options on mount and when settings change
   useEffect(() => {
     loadFilterOptions();
-    loadCanonicalTestCount();
   }, [settingsVersion]);
 
-  // Load canonical test counts (stable baselines for coverage calculations)
-  async function loadCanonicalTestCount() {
+  // The baselines follow the organization filter: another organization's tests are not
+  // tests this one's hosts are missing.
+  const orgFilter = filterState.filters.org || undefined;
+  const loadBaselineTests = useCallback(async () => {
     try {
       const [result90d, result30d] = await Promise.all([
-        analyticsApi.getCanonicalTestCount({ days: 90 }),
-        analyticsApi.getCanonicalTestCount({ days: 30 }),
+        analyticsApi.getCanonicalTestCount({ org: orgFilter, days: 90 }),
+        analyticsApi.getCanonicalTestCount({ org: orgFilter, days: 30 }),
       ]);
-      setCanonicalTestCount(result90d.count);
-      setCanonicalTestCount30d(result30d.count);
+      setBaselineTests90d(result90d.tests ?? []);
+      setBaselineTests30d(result30d.tests ?? []);
     } catch (error) {
-      console.error('Failed to load canonical test count:', error);
+      console.error('Failed to load baseline tests:', error);
     }
-  }
+  }, [orgFilter]);
+
+  useEffect(() => {
+    loadBaselineTests();
+  }, [loadBaselineTests, settingsVersion]);
+
+  // Every active agent, so hosts with no result still get a tile. A user without agent
+  // access (or a failed request) gets null: the card then shows tested hosts only.
+  const loadEnrolledAgents = useCallback(async () => {
+    const PAGE = 1000;
+    try {
+      const all: AgentSummary[] = [];
+      for (;;) {
+        const page = await agentApi.listAgents({ status: 'active', limit: PAGE, offset: all.length });
+        all.push(...page.agents);
+        if (page.agents.length === 0 || all.length >= page.total) break;
+      }
+      setEnrolledAgents(all);
+    } catch {
+      setEnrolledAgents(null);
+    }
+  }, []);
+
+  useEffect(() => {
+    if (activeTab === 'dashboard') {
+      loadEnrolledAgents();
+    }
+  }, [activeTab, settingsVersion, loadEnrolledAgents]);
+
+  const enrolledHostnames = useMemo(
+    () => enrolledAgents && selectEnrolledHostnames(enrolledAgents, {
+      org: filterState.filters.org,
+      hostnames: filterState.filters.hostnames,
+    }),
+    [enrolledAgents, filterState.filters.org, filterState.filters.hostnames],
+  );
+  // The hostname filter only narrows the fleet; any other filter means a hollow tile is
+  // "no result matching the filters", not "never tested".
+  const breadthFiltered =
+    filterState.activeFilterCount - (filterState.filters.hostnames.length > 0 ? 1 : 0) > 0;
 
   // Load dashboard data when filters, settings or scoring mode change. The
   // vendor summaries load in their own effects (below), so a vendor's
@@ -776,6 +822,8 @@ export default function AnalyticsDashboardPage() {
     if (activeTab === 'dashboard') {
       await Promise.all([
         loadDashboardData(),
+        loadBaselineTests(),
+        loadEnrolledAgents(),
         capabilities.loaded ? loadSlotData() : Promise.resolve(),
         capabilities.loaded && capabilities.stageCoverage ? loadStageCoverage() : Promise.resolve(),
         loadDefenderSummary(),
@@ -787,7 +835,7 @@ export default function AnalyticsDashboardPage() {
       await loadExecutionsData();
     }
     setIsRefreshing(false);
-  }, [activeTab, loadDashboardData, loadStageCoverage, capabilities.loaded, capabilities.stageCoverage, loadDefenderSummary, loadCrowdStrikeSummary, loadSentinelOneSummary, loadSophosSummary, loadExecutionsData]);
+  }, [activeTab, loadDashboardData, loadBaselineTests, loadEnrolledAgents, loadStageCoverage, capabilities.loaded, capabilities.stageCoverage, loadDefenderSummary, loadCrowdStrikeSummary, loadSentinelOneSummary, loadSophosSummary, loadExecutionsData]);
 
   // Handle sort change
   const handleSort = (field: string, order: 'asc' | 'desc') => {
@@ -1073,8 +1121,10 @@ export default function AnalyticsDashboardPage() {
               data={hostTestMatrix}
               loading={loadingDashboard}
               title="Test Breadth by Host"
-              canonicalTestCount={canonicalTestCount}
-              canonicalTestCount30d={canonicalTestCount30d}
+              baselineTests90d={baselineTests90d}
+              baselineTests30d={baselineTests30d}
+              enrolledHostnames={enrolledHostnames}
+              filtered={breadthFiltered}
             />
           </div>
         ) : (
