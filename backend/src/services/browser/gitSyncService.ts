@@ -46,18 +46,28 @@ export function createGit(baseDir?: string, githubToken?: string): SimpleGit {
   const env = gitChildEnv();
   const allowEnvironment = ['GIT_TERMINAL_PROMPT'];
 
-  if (githubToken) {
-    // Keep credentials out of command arguments, repository remotes, and
-    // simple-git's diagnostic-bearing task metadata. Git reads this config
-    // only from the environment of the command-scoped child process.
-    const basicCredential = Buffer.from(`x-access-token:${githubToken}`, 'utf8').toString('base64');
-    env.GIT_CONFIG_COUNT = '1';
-    env.GIT_CONFIG_KEY_0 = 'http.extraHeader';
-    env.GIT_CONFIG_VALUE_0 = `Authorization: Basic ${basicCredential}`;
-    allowEnvironment.push(...AUTH_ENV_KEYS);
+  if (!githubToken) {
+    return simpleGit({ baseDir, allowEnvironment }).env(env);
   }
 
-  return simpleGit({ baseDir, allowEnvironment }).env(env);
+  // Keep credentials out of command arguments, repository remotes, and
+  // simple-git's diagnostic-bearing task metadata. Git reads this config
+  // only from the environment of the command-scoped child process.
+  const basicCredential = Buffer.from(`x-access-token:${githubToken}`, 'utf8').toString('base64');
+  env.GIT_CONFIG_COUNT = '1';
+  env.GIT_CONFIG_KEY_0 = 'http.extraHeader';
+  env.GIT_CONFIG_VALUE_0 = `Authorization: Basic ${basicCredential}`;
+  allowEnvironment.push(...AUTH_ENV_KEYS);
+
+  // simple-git 4.0.x has two gates: allowEnvironment stops the keys being
+  // stripped, and GIT_CONFIG_COUNT is also refused outright unless this flag
+  // is set. The flag is on only for a token, and the only config passed is
+  // the one built above (ambient GIT_CONFIG_* is dropped by gitChildEnv).
+  return simpleGit({
+    baseDir,
+    allowEnvironment,
+    unsafe: { allowUnsafeConfigEnvCount: true },
+  }).env(env);
 }
 
 /**
