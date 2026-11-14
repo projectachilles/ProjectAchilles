@@ -1,6 +1,6 @@
 import { useState, useMemo, useCallback, memo } from 'react';
 import { ChevronLeft } from 'lucide-react';
-import type { HostTestMatrixCell } from '../../../services/api/analytics';
+import type { DefenseScoreByHostItem, HostTestMatrixCell } from '../../../services/api/analytics';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Skeleton } from '@/components/ui/skeleton';
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
@@ -22,8 +22,13 @@ interface CoverageTreemapProps {
    * null when the agent list could not be read: the card then shows tested hosts only.
    */
   enrolledHostnames?: string[] | null;
-  /** A filter other than date/org is active, so a hollow tile is "no matching result". */
+  /** A filter other than date/org is active, so a host with no result is "no matching result". */
   filtered?: boolean;
+  /**
+   * Per-host Defense Score, as loaded for the Defense Score by Host card (same basis and
+   * filters as the dashboard's score tile). A host absent from it shows no score line.
+   */
+  hostScores?: DefenseScoreByHostItem[];
 }
 
 type BaselineMode = '90d' | '30d' | 'window';
@@ -39,13 +44,15 @@ interface TileNode {
   /** A fold of several hosts or tests: neutral surface, not a breadth shade. */
   fold?: boolean;
   host?: BreadthHost;
-  foldTested?: number;
-  foldUntested?: number;
+  /** Hosts inside a host fold. */
+  foldCount?: number;
   runs?: number;
 }
 
 const MAX_VISIBLE_HOSTS = 25;
 const MAX_VISIBLE_TESTS = 25;
+/** Hosts not tested shown before "Show all": a large fleet can have thousands. */
+const MAX_VISIBLE_UNTESTED = 40;
 const OTHERS = '__others__';
 
 const BREADTH_TOKENS = ['--chart-breadth-1', '--chart-breadth-2', '--chart-breadth-3', '--chart-breadth-4'] as const;
@@ -113,22 +120,24 @@ function StepSwatch({ step, className = 'w-3 h-3' }: { step: BreadthStep; classN
 }
 
 interface BreadthTooltipProps {
-  tile: Pick<TileNode, 'name' | 'host' | 'foldTested' | 'foldUntested'>;
+  tile: Pick<TileNode, 'name' | 'host' | 'foldCount'>;
   /** Size of the test set the hosts are measured against. */
   setSize: number;
   baselineLabel?: string;
   filtered?: boolean;
+  /** This host's Defense Score; shown under breadth, for a tested host only. */
+  score?: DefenseScoreByHostItem;
 }
 
-/** Tooltip body of a host tile (overview and the Others view) and of the Others fold. */
-export function BreadthTooltip({ tile, setSize, baselineLabel, filtered }: BreadthTooltipProps) {
+/** Tooltip body of a host (tile or not-tested chip) and of the Others fold. */
+export function BreadthTooltip({ tile, setSize, baselineLabel, filtered, score }: BreadthTooltipProps) {
   if (!tile.host) {
     return (
       <>
         <p className="text-sm font-semibold text-foreground mb-1">{tile.name}</p>
         <p className="text-sm text-muted-foreground">
-          <span className="font-medium text-foreground">{tile.foldTested ?? 0}</span> tested,{' '}
-          <span className="font-medium text-foreground">{tile.foldUntested ?? 0}</span> not tested
+          The <span className="font-medium text-foreground">{num(tile.foldCount ?? 0)}</span> tested hosts with the
+          highest breadth
         </p>
         <p className="text-xs text-muted-foreground mt-2 italic">Click to expand</p>
       </>
@@ -162,6 +171,15 @@ export function BreadthTooltip({ tile, setSize, baselineLabel, filtered }: Bread
               </span>
               {baselineLabel && <span className="text-xs text-muted-foreground"> — {baselineLabel}</span>}
             </p>
+            {score && (
+              // How well the host defended, next to how much was tested. No outcome colour:
+              // the card is about breadth. The counts show how much evidence is behind it.
+              <p>
+                Defense Score:{' '}
+                <span className="font-medium text-foreground">{Math.round(score.score)}%</span> · {num(score.protected)} of{' '}
+                {num(score.total)} protected
+              </p>
+            )}
           </>
         )}
         {host.missing.length > 0 && (
@@ -207,6 +225,7 @@ function CoverageTreemap({
   baselineTests30d,
   enrolledHostnames = null,
   filtered = false,
+  hostScores,
 }: CoverageTreemapProps) {
   // Resolved ramp + label tokens: a concrete colour is needed to pick a readable label per tile.
   const tokens = useChartTokens([...BREADTH_TOKENS, '--chart-label-on-light', '--chart-label-on-dark']);
@@ -216,6 +235,7 @@ function CoverageTreemap({
   // Track whether we navigated to a host from the "Others" view (for back-navigation)
   const [cameFromOthers, setCameFromOthers] = useState(false);
   const [baselineMode, setBaselineMode] = useState<BaselineMode>('90d');
+  const [showAllUntested, setShowAllUntested] = useState(false);
 
   const has90d = !!baselineTests90d && baselineTests90d.length > 0;
   const has30d = !!baselineTests30d && baselineTests30d.length > 0;
@@ -235,39 +255,48 @@ function CoverageTreemap({
     [data, effectiveMode, baselineTests90d, baselineTests30d, enrolledHostnames],
   );
 
+  // Results and scores can spell a hostname in different case.
+  const scoreByHost = useMemo(
+    () => new Map((hostScores ?? []).map((item) => [item.hostname.toLowerCase(), item])),
+    [hostScores],
+  );
+
   const hostTile = useCallback(
     (host: BreadthHost): TileNode => {
       const step = breadthStep(host);
       return {
         name: host.hostname,
-        label: host.tested
-          ? `${pct(host.breadth)} · ${host.ranCount} of ${model.tests.length}`
-          : filtered ? 'no matching result' : 'not tested',
+        label: `${pct(host.breadth)} · ${host.ranCount} of ${model.tests.length}`,
         step,
         fill: step === 0 ? undefined : tokens[BREADTH_TOKENS[step - 1]],
         host,
       };
     },
-    [model.tests.length, filtered, tokens],
+    [model.tests.length, tokens],
   );
 
-  // The model is ordered worst first, so the fold hides the best-tested hosts, never the gaps.
-  const { overviewTiles, foldedHosts } = useMemo(() => {
-    if (model.hosts.length <= MAX_VISIBLE_HOSTS) {
-      return { overviewTiles: model.hosts.map(hostTile), foldedHosts: [] as BreadthHost[] };
+  // Tiles are the tested hosts only, lowest breadth first, so the fold hides the best-tested
+  // ones. Hosts not tested have their own group and can never push a result out of view.
+  const { overviewTiles, foldedHosts, untestedHosts } = useMemo(() => {
+    const tested = model.hosts.slice(0, model.testedCount);
+    const untested = model.hosts.slice(model.testedCount);
+    if (tested.length <= MAX_VISIBLE_HOSTS) {
+      return { overviewTiles: tested.map(hostTile), foldedHosts: [] as BreadthHost[], untestedHosts: untested };
     }
-    const folded = model.hosts.slice(MAX_VISIBLE_HOSTS);
-    const foldTested = folded.filter((h) => h.tested).length;
+    const folded = tested.slice(MAX_VISIBLE_HOSTS);
     const others: TileNode = {
       name: `Others (${plural(folded.length, 'host')})`,
       label: `${plural(folded.length, 'host')} ⋯`,
       step: 0,
       fold: true,
-      foldTested,
-      foldUntested: folded.length - foldTested,
+      foldCount: folded.length,
     };
-    return { overviewTiles: [...model.hosts.slice(0, MAX_VISIBLE_HOSTS).map(hostTile), others], foldedHosts: folded };
-  }, [model.hosts, hostTile]);
+    return {
+      overviewTiles: [...tested.slice(0, MAX_VISIBLE_HOSTS).map(hostTile), others],
+      foldedHosts: folded,
+      untestedHosts: untested,
+    };
+  }, [model.hosts, model.testedCount, hostTile]);
 
   const selectedHost = useMemo(
     () => (drillDownHost && drillDownHost !== OTHERS ? model.hosts.find((h) => h.hostname === drillDownHost) : undefined),
@@ -396,17 +425,13 @@ function CoverageTreemap({
                   {label}
                 </span>
               ))}
-              <span className="flex items-center gap-1">
-                <StepSwatch step={0} />
-                {filtered ? 'no matching result' : 'not tested'}
-              </span>
             </div>
           )}
         </div>
         {isOverview && (
           <div className="flex items-center justify-between mt-1 gap-2">
             <p className="text-xs text-muted-foreground">
-              {hostsSummary} · {plural(model.tests.length, 'test')} ({baselineLabel}) · Click a host to see its tests
+              {hostsSummary} · {plural(model.tests.length, 'test')} ({baselineLabel}) · lowest breadth first
             </p>
             {has90d && (
               <div className="flex items-center border border-border rounded-md overflow-hidden flex-shrink-0">
@@ -443,10 +468,62 @@ function CoverageTreemap({
             >
               {isHostView
                 ? <TestTooltip tile={node} />
-                : <BreadthTooltip tile={node} setSize={model.tests.length} baselineLabel={baselineLabel} filtered={filtered} />}
+                : (
+                  <BreadthTooltip
+                    tile={node}
+                    setSize={model.tests.length}
+                    baselineLabel={baselineLabel}
+                    filtered={filtered}
+                    score={node.host && scoreByHost.get(node.host.hostname.toLowerCase())}
+                  />
+                )}
             </Tile>
           ))}
         </div>
+        {isOverview && overviewTiles.length === 0 && (
+          <p className="text-sm text-muted-foreground">No host has a result in this view</p>
+        )}
+        {isOverview && untestedHosts.length > 0 && (
+          <div className="mt-4">
+            <p className="text-xs font-medium text-muted-foreground mb-1.5">
+              {filtered ? 'No matching result' : 'Not tested'} ({num(untestedHosts.length)})
+            </p>
+            <div className="flex flex-wrap gap-1.5">
+              {(showAllUntested ? untestedHosts : untestedHosts.slice(0, MAX_VISIBLE_UNTESTED)).map((host) => (
+                <Tooltip key={host.hostname}>
+                  <TooltipTrigger asChild>
+                    <button
+                      type="button"
+                      data-testid="untested-host"
+                      data-name={host.hostname}
+                      onClick={() => handleCellClick(host.hostname)}
+                      className="max-w-[220px] truncate rounded border border-dashed border-border-strong px-2 py-0.5 text-xs text-muted-foreground cursor-pointer transition-colors hover:text-foreground focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring"
+                    >
+                      {host.hostname}
+                    </button>
+                  </TooltipTrigger>
+                  <TooltipContent className="p-3 max-w-xs text-left text-wrap">
+                    <BreadthTooltip
+                      tile={{ name: host.hostname, host }}
+                      setSize={model.tests.length}
+                      baselineLabel={baselineLabel}
+                      filtered={filtered}
+                    />
+                  </TooltipContent>
+                </Tooltip>
+              ))}
+              {!showAllUntested && untestedHosts.length > MAX_VISIBLE_UNTESTED && (
+                <button
+                  type="button"
+                  onClick={() => setShowAllUntested(true)}
+                  className="rounded px-2 py-0.5 text-xs text-foreground underline underline-offset-2 hover:bg-secondary"
+                >
+                  Show all {num(untestedHosts.length)}
+                </button>
+              )}
+            </div>
+          </div>
+        )}
       </CardContent>
     </Card>
   );

@@ -286,8 +286,9 @@ excludes them. Auto-resolve never affects either score.
 
 ## Test Breadth by Host
 
-The card shows one tile of equal size per host: how many of
-the tests in use that host has run. It is about how much was tested, not how
+The card shows one tile of equal size per tested host: how many of
+the tests in use that host has run. Hosts with no result are listed below the
+tiles. It is about how much was tested, not how
 well the host defended, so it uses a neutral blue ramp and never green or red.
 
 - **Test set.** The tests run anywhere in the last 90 days (toggle: 30 days, or
@@ -296,15 +297,20 @@ well the host defended, so it uses a neutral blue ramp and never green or red.
   multi-stage test counts once.
 - **Shade.** The share of the set the host ran in the window: under 25%,
   25–49%, 50–79%, 80% and over. The tile reads, for example, "17% · 1 of 6".
-- **Not tested.** An active enrolled agent with no result in the window gets a
-  hollow dashed tile. With filters other than date, organization or hostname
-  applied, the tile reads "no matching result", because a filtered view cannot
+- **Not tested.** Active enrolled agents with no result in the window are
+  listed by name in a "Not tested" group below the tiles (the first 40, then
+  "Show all"). With filters other than date, organization or hostname
+  applied, the group reads "No matching result", because a filtered view cannot
   show that the host was never tested. Disabled, decommissioned and uninstalled
   agents are left out.
-- **Order.** Hosts not tested first, then the least tested. Past 25 hosts the
-  best-tested ones fold into "Others"; click it to see them.
-- **Tooltip and drill-down.** The tooltip lists the tests the host is missing.
-  Clicking a host shows one tile per test: filled with its run count when the
+- **Order.** Tiles run from the lowest breadth to the highest. Past 25 tested
+  hosts the best-tested ones fold into "Others"; click it to see them. Hosts
+  not tested never take a tile, so they cannot push results out of view.
+- **Tooltip and drill-down.** The tooltip lists the tests the host is missing,
+  and the host's Defense Score with its counts ("75% · 3 of 4 protected"), the
+  same figure as the Defense Score by Host card. A host outside that card's 50
+  most-tested hosts, or with no conclusive result, shows no score.
+  Clicking a host, tested or not, shows one tile per test: filled with its run count when the
   host ran it, hollow when it did not.
 
 Untested hosts come from the agent list, which needs the

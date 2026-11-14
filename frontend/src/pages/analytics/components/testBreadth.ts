@@ -19,7 +19,10 @@ export interface BreadthHost {
 export interface BreadthModel {
   /** The test set every host is measured against, sorted. */
   tests: string[];
-  /** Not tested first, then breadth ascending, then hostname. */
+  /**
+   * Tested hosts first (breadth ascending, then hostname), then the hosts not tested (by
+   * hostname): the first `testedCount` entries are the tested ones.
+   */
   hosts: BreadthHost[];
   testedCount: number;
   untestedCount: number;
@@ -76,7 +79,7 @@ export function buildBreadthModel(
   }
 
   hosts.sort(
-    (a, b) => Number(a.tested) - Number(b.tested) || a.breadth - b.breadth || byName(a.hostname, b.hostname),
+    (a, b) => Number(b.tested) - Number(a.tested) || a.breadth - b.breadth || byName(a.hostname, b.hostname),
   );
   return { tests, hosts, testedCount, untestedCount: hosts.length - testedCount };
 }

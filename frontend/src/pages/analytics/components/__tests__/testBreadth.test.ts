@@ -70,13 +70,13 @@ describe('buildBreadthModel', () => {
     expect(m.untestedCount).toBe(0);
   });
 
-  it('orders hosts: not tested, then breadth ascending, then hostname', () => {
+  it('orders hosts: tested by breadth ascending then hostname, then not tested by hostname', () => {
     const m = buildBreadthModel(
       [cell('full', 'A'), cell('full', 'B'), cell('b-half', 'A'), cell('a-half', 'B')],
       ['A', 'B'],
       ['zz-none', 'aa-none', 'full'],
     );
-    expect(m.hosts.map((h) => h.hostname)).toEqual(['aa-none', 'zz-none', 'a-half', 'b-half', 'full']);
+    expect(m.hosts.map((h) => h.hostname)).toEqual(['a-half', 'b-half', 'full', 'aa-none', 'zz-none']);
   });
 
   it('totalRuns sums the cell counts and keeps runs per test', () => {

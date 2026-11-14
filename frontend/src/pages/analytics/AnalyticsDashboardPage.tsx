@@ -1136,6 +1136,7 @@ export default function AnalyticsDashboardPage() {
               baselineTests30d={baselineTests30d}
               enrolledHostnames={enrolledHostnames}
               filtered={breadthFiltered}
+              hostScores={defenseScoreByHost}
             />
           </div>
         ) : (
