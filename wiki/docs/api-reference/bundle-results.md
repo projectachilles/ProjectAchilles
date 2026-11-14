@@ -42,4 +42,5 @@ The `::` separator is unambiguous (UUIDs and control IDs contain only hyphens). 
 The Execution Table groups bundle controls under collapsible parent rows:
 - Parent shows bundle name + "X/Y Protected" badge
 - Badge shows "X controls" for cyber-hygiene, "X stages" for other categories
-- Skipped stages (non-cyber-hygiene, exit code 0) show "Skipped" label
+- Explicitly skipped controls (`skipped: true`, exit code 0) show "Not assessed" for cyber-hygiene and "Skipped" otherwise
+- Legacy non-cyber-hygiene stages with exit code 0 show "Skipped"; unmarked cyber-hygiene exit-0 controls remain inconclusive

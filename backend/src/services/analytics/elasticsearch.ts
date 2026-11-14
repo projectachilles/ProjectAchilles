@@ -5,7 +5,7 @@ import { createEsClient } from './client.js';
 import { RiskAcceptanceService } from '../risk-acceptance/risk-acceptance.service.js';
 import { attackSimulationExclusions } from './attack-simulation-filter.js';
 import { NOT_STAGELESS } from './enrichment-eligibility.js';
-import { EDR_PREVENTED_ERROR_STAGE } from '../reports/stageOutcome.js';
+import { EDR_PREVENTED_ERROR_STAGE, SKIPPED as SKIPPED_FILTER } from '../reports/stageOutcome.js';
 import { AppError } from '../../middleware/error.middleware.js';
 import {
   MAX_FRESHNESS_DAYS,
@@ -554,12 +554,10 @@ export class ElasticsearchService {
     };
   }
 
-  /** Test errors for the error rate: error codes, minus the stages an EDR stopped (those are scored). */
   /**
-   * Error results for the error rate. A skipped stage (exit 0 on an attack
-   * bundle stage, the "Skipped" rows in Executions) is not an error: the
-   * chain was stopped before it, so counting it made better defenses look
-   * like a higher error rate. Exit 0 on a standalone test is still an error.
+   * Error results for the error rate. Skipped controls are not errors, whether
+   * explicitly marked or inferred from a legacy attack-stage exit 0. Exit 0 on
+   * a standalone test or an unmarked cyber-hygiene control is still an error.
    */
   private buildTestErrorFilter(): any {
     return {
@@ -570,13 +568,7 @@ export class ElasticsearchService {
     };
   }
 
-  /** An attack bundle stage that never ran because the chain stopped earlier (frontend isSkippedStage). */
-  private readonly SKIPPED_STAGE = {
-    bool: {
-      filter: [{ term: { 'f0rtika.is_bundle_control': true } }, { term: { 'event.ERROR': 0 } }],
-      must_not: [{ term: { 'f0rtika.category': 'cyber-hygiene' } }],
-    },
-  };
+  private readonly SKIPPED_STAGE = SKIPPED_FILTER;
 
   // Filter to exclude upload confirmations (for Error Rate — real test activity only)
   private buildTestActivityFilter(): any {
@@ -2686,8 +2678,8 @@ export class ElasticsearchService {
     if (!result || result === 'all') return null;
     if (result === 'protected') return { terms: { 'event.ERROR': [105, 126, 127] } };
     if (result === 'unprotected') return { term: { 'event.ERROR': 101 } };
-    // inconclusive: everything NOT in [101, 105, 126, 127]
-    return { bool: { must_not: { terms: { 'event.ERROR': [101, 105, 126, 127] } } } };
+    // Inconclusive results exclude conclusive codes and controls not assessed.
+    return { bool: { must_not: [{ terms: { 'event.ERROR': [101, 105, 126, 127] } }, SKIPPED_FILTER] } };
   }
 
   /**
@@ -2988,6 +2980,7 @@ export class ElasticsearchService {
       control_validator: getField(source, 'f0rtika.control_validator'),
       control_description: getField(source, 'f0rtika.control_description'),
       is_bundle_control: getField(source, 'f0rtika.is_bundle_control') ?? false,
+      skipped: getField(source, 'f0rtika.skipped') ?? false,
       ...vendorFlagsOf(source),
       edr_terminated: getField(source, 'f0rtika.edr_terminated') ?? false,
       edr_terminated_vendors: getField(source, 'f0rtika.edr_terminated_vendors'),

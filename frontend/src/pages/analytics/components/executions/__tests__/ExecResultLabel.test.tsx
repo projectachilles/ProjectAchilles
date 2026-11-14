@@ -30,6 +30,10 @@ const CASES: LabelCase[] = [
     name: 'skipped bundle stage', compact: false, label: 'Skipped', color: 'text-faint',
     exec: makeExec({ is_bundle_control: true, error_code: 0, category: 'intel-driven' }),
   },
+  {
+    name: 'not assessed cyber-hygiene control', compact: false, label: 'Not assessed', color: 'text-faint',
+    exec: makeExec({ is_bundle_control: true, error_code: 0, category: 'cyber-hygiene', skipped: true }),
+  },
   { name: 'protected', compact: false, label: 'Protected', color: 'text-accent', exec: makeExec({ error_code: 126 }) },
   {
     name: 'prevented, compact, drops the action', compact: true, label: 'Prevented', color: 'text-accent',

@@ -26,7 +26,8 @@ Tests that produce per-control results (cyber-hygiene bundles, multi-stage tests
 
 - **Parent row** shows the bundle name, a "X/Y Protected" summary badge, and an item count badge
 - **Expanding** reveals individual sub-rows with per-control results
-- **Skipped stages** (non-cyber-hygiene with exit code 0) show a "Skipped" label
+- **Not assessed controls** (`skipped: true` with exit code 0) show "Not assessed" for cyber-hygiene and "Skipped" for other categories; legacy non-cyber-hygiene exit-0 stages also show "Skipped"
+- **Unmarked cyber-hygiene exit-0 controls** remain inconclusive rather than being treated as not assessed
 - **Standalone tests** render as flat rows
 
 ### Multi-stage run detail

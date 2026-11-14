@@ -87,7 +87,7 @@ function stagePrevented(source: Record<string, unknown>): boolean {
 export function classifyStage(source: Record<string, unknown>): StageOutcome {
   const code = exitCodeOf(source);
   const isBundle = getSourceField(source, 'f0rtika.is_bundle_control') === true;
-  if (isBundle && code === 0 && getSourceField(source, 'f0rtika.category') !== 'cyber-hygiene') return 'skipped';
+  if (isBundle && code === 0 && (getSourceField(source, 'f0rtika.skipped') === true || getSourceField(source, 'f0rtika.category') !== 'cyber-hygiene')) return 'skipped';
   if (code !== undefined && PROTECTED_EXIT_CODES.includes(code)) return 'protected';
   if (code !== UNPROTECTED_EXIT_CODE) {
     // Error / non-conclusive code (e.g. 999, or a Falcon kill code coerced to
@@ -121,10 +121,14 @@ export type Clause = Record<string, unknown>;
 
 const term = (field: string, value: unknown): Clause => ({ term: { [field]: value } });
 
-const SKIPPED: Clause = {
+export const SKIPPED: Clause = {
   bool: {
     filter: [term('f0rtika.is_bundle_control', true), term('event.ERROR', 0)],
-    must_not: [term('f0rtika.category', 'cyber-hygiene')],
+    should: [
+      term('f0rtika.skipped', true),
+      { bool: { must_not: [term('f0rtika.category', 'cyber-hygiene')] } },
+    ],
+    minimum_should_match: 1,
   },
 };
 

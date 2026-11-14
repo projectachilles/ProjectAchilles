@@ -164,6 +164,8 @@ export interface EnrichedTestExecution extends TestExecution, EdrResultFlags {
   /** What the stage does (from bundle_results.json); absent on older documents. */
   control_description?: string;
   is_bundle_control?: boolean;
+  /** The test explicitly marked this control as not applicable; meaningful with exit code 0. */
+  skipped?: boolean;
   /** The EDR killed the Achilles agent mid-run: protected as a whole, stages unknown. */
   edr_terminated?: boolean;
   /** Vendors that killed the agent, earliest first ('defender' | 'crowdstrike' | 'sentinelone'). */

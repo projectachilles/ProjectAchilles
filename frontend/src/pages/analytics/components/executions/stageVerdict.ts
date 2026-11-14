@@ -174,6 +174,13 @@ export function stageVerdict(exec: EnrichedTestExecution, siblings: EnrichedTest
         body: 'Nothing on the endpoint reacted to this stage.',
       };
     case 'skipped':
+      if (exec.category === 'cyber-hygiene' && exec.skipped === true) {
+        return {
+          kind,
+          title: 'Not assessed.',
+          body: 'The test marked this control as not applicable, so it was not evaluated and is excluded from scoring.',
+        };
+      }
       return { kind, title: 'Did not run.', body: skippedBody(exec, siblings) };
     default: {
       const evidence = preventionSentence(exec);

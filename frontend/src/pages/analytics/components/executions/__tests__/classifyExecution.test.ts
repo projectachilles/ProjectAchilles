@@ -10,6 +10,7 @@ interface GoldenCase {
   exit?: number;
   bundle?: boolean;
   category?: string;
+  skipped?: boolean;
   flags?: Partial<Record<
     | 'defender_detected' | 'defender_stage_detected' | 'defender_prevented'
     | 'defender_stage_prevented' | 'crowdstrike_stage_prevented'
@@ -65,7 +66,10 @@ const GOLDEN: GoldenCase[] = [
   },
   { name: 'bundle stage exit 0 (intel-driven) → skipped', exit: 0, bundle: true, category: 'intel-driven', expected: 'skipped' },
   { name: 'bundle control exit 0 (cyber-hygiene) → inconclusive', exit: 0, bundle: true, category: 'cyber-hygiene', expected: 'inconclusive' },
+  { name: 'explicitly skipped cyber-hygiene control exit 0 → skipped', exit: 0, bundle: true, category: 'cyber-hygiene', skipped: true, expected: 'skipped' },
+  { name: 'cyber-hygiene skip flag cannot hide exit 101', exit: 101, bundle: true, category: 'cyber-hygiene', skipped: true, expected: 'unprotected' },
   { name: 'standalone exit 0 → inconclusive', exit: 0, expected: 'inconclusive' },
+  { name: 'standalone skip flag does not mark exit 0 skipped', exit: 0, skipped: true, expected: 'inconclusive' },
   { name: 'exit 1 → inconclusive', exit: 1, expected: 'inconclusive' },
   { name: 'exit 200 → inconclusive', exit: 200, expected: 'inconclusive' },
   { name: 'exit 259 → inconclusive', exit: 259, expected: 'inconclusive' },
@@ -127,6 +131,7 @@ function toExec(c: GoldenCase): EnrichedTestExecution {
     error_code: c.exit,
     is_bundle_control: c.bundle ?? false,
     category: c.category as EnrichedTestExecution['category'],
+    skipped: c.skipped ?? false,
     defender_detected: c.flags?.defender_detected ?? false,
     defender_stage_detected: c.flags?.defender_stage_detected ?? false,
     defender_prevented: c.flags?.defender_prevented ?? false,

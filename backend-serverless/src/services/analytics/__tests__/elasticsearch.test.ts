@@ -1415,7 +1415,21 @@ describe('elasticsearch.ts', () => {
       const countCall = mockCount.mock.calls[0][0];
       const filters = countCall.query.bool.filter;
       expect(filters).toContainEqual({
-        bool: { must_not: { terms: { 'event.ERROR': [101, 105, 126, 127] } } },
+        bool: {
+          must_not: [
+            { terms: { 'event.ERROR': [101, 105, 126, 127] } },
+            {
+              bool: {
+                filter: [{ term: { 'f0rtika.is_bundle_control': true } }, { term: { 'event.ERROR': 0 } }],
+                should: [
+                  { term: { 'f0rtika.skipped': true } },
+                  { bool: { must_not: [{ term: { 'f0rtika.category': 'cyber-hygiene' } }] } },
+                ],
+                minimum_should_match: 1,
+              },
+            },
+          ],
+        },
       });
     });
 
@@ -1549,6 +1563,23 @@ describe('elasticsearch.ts', () => {
   });
 
   describe('getErrorRate', () => {
+    it('excludes explicitly skipped controls and legacy skipped attack stages from errors', async () => {
+      mockSearch.mockResolvedValue(esSearchResponse({ aggs: { errors: { doc_count: 0 }, conclusive: { doc_count: 0 } } }));
+      await createService().getErrorRate(makeParams());
+      const errors = mockSearch.mock.calls[0][0].aggs.errors.filter.bool;
+      expect(errors.filter).toContainEqual({ terms: { 'event.ERROR': [0, 1, 259, 999] } });
+      expect(errors.must_not).toContainEqual({
+        bool: {
+          filter: [{ term: { 'f0rtika.is_bundle_control': true } }, { term: { 'event.ERROR': 0 } }],
+          should: [
+            { term: { 'f0rtika.skipped': true } },
+            { bool: { must_not: [{ term: { 'f0rtika.category': 'cyber-hygiene' } }] } },
+          ],
+          minimum_should_match: 1,
+        },
+      });
+    });
+
     it('computes errors/(errors+conclusive)*100 with rounding', async () => {
       mockSearch.mockResolvedValue(esSearchResponse({
         aggs: {

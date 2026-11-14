@@ -185,6 +185,15 @@ describe('stageVerdict', () => {
     expect(stageVerdict(s2, [s1, s2]).body).toBe('The chain stopped before this stage.');
   });
 
+  it('explains an explicitly skipped cyber-hygiene control without inventing a chain stop', () => {
+    const control = mk({ category: 'cyber-hygiene', error_code: 0, skipped: true });
+    expect(stageVerdict(control, [control])).toEqual({
+      kind: 'skipped',
+      title: 'Not assessed.',
+      body: 'The test marked this control as not applicable, so it was not evaluated and is excluded from scoring.',
+    });
+  });
+
   it('skipped after an errored stage names that stage, not an earlier block', () => {
     const s1 = mk({ control_validator: 'Stage 1', error_code: 126 });
     const s2 = mk({ control_validator: 'Stage 2', error_code: 999 });

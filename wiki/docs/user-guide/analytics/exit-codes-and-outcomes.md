@@ -183,7 +183,9 @@ Protected > Prevented > Detected > Unprotected.
   `*_prevented` ⊆ `*_detected` for both vendors, so prevented stages are
   covered automatically.
 - Error codes (`0`, `1`, `259`, `999`) feed the **Error Rate**, not the score,
-  except a stage the EDR stopped as above: it is scored, not an error.
+  except a stage the EDR stopped as above: it is scored, not an error. Explicitly
+  skipped controls and legacy skipped attack stages with exit 0 are excluded
+  from the Error Rate; an unmarked cyber-hygiene exit 0 still counts as an error.
 - `200` and `260` are excluded from both. A `260` that an EDR's own alert
   proves was the EDR blocking the launch is rewritten to `126` and counts as
   protected ([section 7](#7-test-blocked-at-launch-by-the-edr)).
@@ -196,6 +198,7 @@ Outcomes: `PREVENTED / DETECTED / MISSED / EXPOSED / NOT_RUN / ERROR`.
 |---|---|---|---|
 | 105 / 126 / 127 | any | **PREVENTED** | `preventedBy`: vendor(s) |
 | 999 / 259 / 0 / none | the stage's own prevention: any vendor's `*_stage_prevented` (on older documents `*_stage_detected` + a confirmed `*_prevention_action`), as in §3; the test-level `*_prevented` alone, which a sibling stage's alert can set, doesn't count | **PREVENTED** | `preventedBy`: the preventing vendor(s), all when several flagged |
+| 0 + `skipped: true` on a bundle control | no own prevention | **NOT_RUN**: not assessed, never executed (evidence reference "not run: skipped stage") | — |
 | 0 on a stage of a multi-stage test (not cyber-hygiene) | no own prevention | **NOT_RUN**: a Skipped stage, never executed (evidence reference "not run: skipped stage") | — |
 | 101 / 0 | `*_stage_detected` | **DETECTED** | `detectedBy`: vendor(s), all when several flagged |
 | 101 / 0 | none, tactic ∈ `{exfiltration, impact}` | **EXPOSED** | — |
