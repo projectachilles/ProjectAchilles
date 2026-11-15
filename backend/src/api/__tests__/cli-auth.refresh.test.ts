@@ -25,6 +25,13 @@ vi.mock('@clerk/express', () => ({
   },
 }));
 
+// The route module is imported once, so its limiters count every request in
+// this file. /refresh allows 10 per 15 minutes; more tests than that would get
+// 429 instead of the status under test.
+vi.mock('express-rate-limit', () => ({
+  default: () => (_req: unknown, _res: unknown, next: () => void) => next(),
+}));
+
 const SECRET = 'test-cli-secret';
 const sha256 = (v: string) => crypto.createHash('sha256').update(v).digest('hex');
 
