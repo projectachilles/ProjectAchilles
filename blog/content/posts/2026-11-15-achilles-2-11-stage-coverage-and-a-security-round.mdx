@@ -1,0 +1,108 @@
+---
+title: "Achilles 2.11: How Much of the Chain You Stop, and a Security Round on Our Own Platform"
+description: "The Defense Score says whether something stopped the attack. The new Stage coverage card says how much of the chain rests on that one catch. And we reviewed what every Achilles credential can do, because a platform that runs commands as root has to face the question it asks of your defenses."
+date: "2026-11-15"
+tags:
+  - release
+  - security
+  - analytics
+  - continuous-validation
+  - cli
+author: james
+lang: en
+translationKey: release-2-11-stage-coverage-security
+---
+
+## TL;DR
+
+- The new **Stage coverage** card shows, for each attack chain, how many stages your defenses blocked or detected, and separates the chains that rest on a single stage.
+- **Test Breadth by Host** now shows every host, including the ones that have run no test.
+- A security review of the whole platform narrowed what a CLI token, an API key, an enrolled agent, a task creator and a test build can do.
+- Almost every finding had the same shape: the rule existed, and one route or field did not apply it.
+- There is no agent release. If you use the `achilles` CLI, the analytics API, score alerts, or builds that read environment variables, read the upgrade notes below.
+
+---
+
+## A "protected" that rests on one stage
+
+The Defense Score counts a multi-stage test as protected when any of its stages was blocked or detected. That is the right rule for a score: if something cut the chain, the attack did not finish.
+
+It leaves one question open. Picture two six-stage chains, both green. In the first, your defenses caught five stages. In the second they caught one, and the other five went through without a sound. The score counts them the same, and the second one depends on a single detection rule: if that rule fails, or the attacker changes that one technique, nothing stands behind it.
+
+The **Stage coverage** card on the Analytics dashboard answers that question. It takes the latest run of each multi-stage test on each host and shows what share of the stages was blocked, detected or got through. Then it sorts the chains into four groups:
+
+| Group | What it means |
+|---|---|
+| **Rest on a single stage** | The chain ran every stage and only one was caught |
+| **Depth not tested** | The chain stopped at its first block, so the later stages never ran |
+| **Two or more stages caught** | Defense in depth, shown by the results |
+| **No stage caught** | The chain went through end to end |
+
+The second group matters as much as the first. A block at stage 1 is good news, but it says nothing about stages 2 to 6: they were not tested. The card says so, and does not count it as coverage.
+
+Each row opens Executions for those chains. The Defense Score does not change and there is no setting: it is another reading of the same results. The PDF execution report carries the same block in its executive summary.
+
+## Every host, including the ones you did not test
+
+**Test Breadth by Host** had three problems. It coloured a host that had run 1 of 6 tests in green, the colour for "protected". A host with no run did not appear at all. And the percentage and the list of missing tests came from different sets of tests.
+
+Each active host is now a tile of the same size, on a neutral blue ramp, ordered from lowest breadth to highest. Enrolled hosts with no result are listed by name in a "Not tested" group. The percentage, the "1 of 6" count and the missing list come from one set. The tooltip also shows the host's Defense Score, so a poorly tested host that defended well can be told apart from one that did not.
+
+Two more changes in the same direction:
+
+- **The Defense Score alert uses the dashboard's score.** It used to compare your threshold with a different number: every stage result of the last 7 days. It is now the dashboard's rule, the latest conclusive result of each test on each host, over 30 days.
+- **The API without `scoringMode` uses the dashboard's rule.** A call without that parameter was scored per stage, so the API and the CLI could show a different "Defense Score" than the console.
+
+---
+
+## The security round
+
+Achilles runs attack tests on your hosts, and an administrator credential can run commands as root or SYSTEM on any agent. A platform like that has to face the question it asks of your defenses: what happens when something fails.
+
+So we reviewed the platform from three sources: an AI security scanner over the whole repository, the static analysis that runs on every pull request, and private reports from outside researchers. We checked each finding against the current code before fixing it. Not all of them were valid, and not every automatically generated patch worked: one proposed a sandbox that cannot start inside Docker, and we replaced it with a simpler change that does work.
+
+### The same shape, again and again
+
+Almost everything we found had the same shape: **the rule existed, and one path did not apply it.** The control was not missing; it was missing in one place.
+
+| Who | What they could do | Now |
+|---|---|---|
+| A CLI token or an `admin` API key | Create API keys, invite or promote users, approve another CLI sign-in | Those routes require a browser session |
+| A CLI sign-in link | Carried the code: opening it while signed in approved it | The link has no code; you type it and confirm |
+| A CLI token | Worked on another deployment that shared the signing secret | Works only on the deployment that issued it |
+| The CLI chat | Ran the changes the model chose, with no approval | Each change waits for a confirmation typed in the terminal |
+| Anyone who can read tasks | Saw the credentials queued for the agent | They are removed from every response |
+| An enrolled agent | Downloaded any test binary | Only those of the tasks assigned to it |
+| A task creator | Wrote results to any Elasticsearch index | Only to results indices |
+| A test build | Read the backend's secrets from the environment | Gets an allowlisted environment |
+| A symlink in the test library | Exposed any file the backend can read | Symlinks are skipped and reads do not follow them |
+
+The chat deserves one more line. The CLI has 24 tools that change or delete something: commands on agents, uninstall, keys, certificates. They ran as soon as the model called them. Each one now waits for you to type `confirm` and a four-character code that the terminal shows next to the exact action. The model cannot type into your terminal, so the terminal is the trust boundary. Without an interactive terminal, the chat offers only the 42 read tools.
+
+### What was not a flaw, and what we did not fix by dismissing
+
+We received four private reports. One was correct and is published, with credit to its reporter: [GHSA-8rmw-hhp5-97rp](https://github.com/projectachilles/ProjectAchilles/security/advisories/GHSA-8rmw-hhp5-97rp), low severity, fixed in 2.11.0. The other three described code that already did what the report said was missing, or a scenario that needs control of the backend, which holds that power by design. We answered each with the file and the line.
+
+There was also a class of static-analysis alert in the test browser that we had dismissed about twenty times as a false positive. It came back whenever lines moved. It was not exploitable: every route validated the identifier. But the validation lived in six routes and the service underneath trusted what it was given, so one new route without the check would have opened the path. We moved the rule into the service: it now refuses an identifier that is not a UUID and builds paths only from names it found in the directory listing. The alert went away because the data flow went away.
+
+---
+
+## Upgrading to 2.11
+
+- **`achilles` CLI:** sign-in asks you to type the code, and the chat asks you to confirm each change. If you change `AGENT_SERVER_URL`, the CLI gets a new token on its next refresh, within the hour.
+- **Test builds:** if a test's `build_all.sh` reads an environment variable that is not on the list, add it to `BUILD_ENV_PASSTHROUGH` (comma-separated names) on that install.
+- **Scores in the API and in alerts:** they can change. Pass `scoringMode=all-stages` to keep the per-stage numbers, and review your alert thresholds.
+- **New tasks and schedules:** `target_index` must be an `achilles-results-...` index. Schedules saved earlier keep running.
+- **Agents:** there is no agent release. Version 0.7.4, published the same day, reads `bundle_results.json` only from a trusted folder; build it with **Build from source** on each install. Agents on 0.7.3 keep working.
+
+The [release notes](https://github.com/projectachilles/ProjectAchilles/releases/tag/v2.11.0) have the full list.
+
+---
+
+## What we learned
+
+- **A score answers one question, not all of them.** "Did something stop it?" and "how much rests on that?" are different questions, and the second needed its own view.
+- **What was not tested is not coverage.** A chain blocked at stage 1 says nothing about the later stages, and a host with no tests should not vanish from the dashboard.
+- **Put the rule where the risk is, not in each caller.** Almost every finding was a correct rule that one path skipped.
+- **Dismissing an alert twenty times is a signal.** Changing the code so the flow does not exist cost less than explaining again why it was not a problem.
+- **A generated patch is a proposal.** Checking each finding and each fix against the real code was the part of the work that could not be delegated.

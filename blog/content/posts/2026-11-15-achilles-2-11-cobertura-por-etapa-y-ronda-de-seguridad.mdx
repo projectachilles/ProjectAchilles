@@ -1,0 +1,108 @@
+---
+title: "Achilles 2.11: cuánto de la cadena detienes, y una ronda de seguridad sobre nuestra propia plataforma"
+description: "El Defense Score dice si algo detuvo el ataque. La nueva tarjeta Stage coverage dice cuánto de la cadena depende de esa única detección. Y revisamos qué puede hacer cada credencial de Achilles, porque una plataforma que ejecuta comandos como root tiene que aguantar la misma pregunta que les hace a tus defensas."
+date: "2026-11-15"
+tags:
+  - release
+  - security
+  - analytics
+  - continuous-validation
+  - cli
+author: james
+lang: es
+translationKey: release-2-11-stage-coverage-security
+---
+
+## TL;DR
+
+- La nueva tarjeta **Stage coverage** muestra, para cada cadena de ataque, cuántas etapas detuvieron o detectaron tus defensas, y separa las cadenas que dependen de una sola etapa.
+- **Test Breadth by Host** ahora muestra todos los equipos, también los que no han ejecutado ninguna prueba.
+- Una revisión de seguridad de toda la plataforma acotó lo que pueden hacer un token de CLI, una API key, un agente enrolado, quien crea una tarea y el build de una prueba.
+- Casi todos los hallazgos tenían la misma forma: la regla existía, y una ruta o un campo no la aplicaba.
+- No hay release de agente. Si usas el CLI `achilles`, la API de analítica, alertas de score o builds que leen variables de entorno, lee las notas de actualización más abajo.
+
+---
+
+## Un "protegido" que descansa en una sola etapa
+
+El Defense Score cuenta una prueba de varias etapas como protegida cuando cualquiera de sus etapas fue bloqueada o detectada. Es la regla correcta para un score: si algo cortó la cadena, el ataque no terminó.
+
+Pero deja una pregunta sin responder. Imagina dos cadenas de seis etapas, las dos en verde. En la primera, tus defensas atraparon cinco etapas. En la segunda atraparon una, y las otras cinco pasaron sin ruido. El score las cuenta igual, y la segunda depende de una sola regla de detección: si esa regla falla o el atacante cambia esa técnica, no queda nada detrás.
+
+La tarjeta **Stage coverage** del panel de Analytics responde esa pregunta. Toma la última ejecución de cada prueba de varias etapas en cada equipo y muestra qué parte de las etapas fue bloqueada, detectada o pasó. Después ordena las cadenas en cuatro grupos:
+
+| Grupo | Qué significa |
+|---|---|
+| **Dependen de una sola etapa** | La cadena ejecutó todas sus etapas y solo una fue atrapada |
+| **Profundidad no probada** | La cadena se detuvo en su primer bloqueo, así que las etapas siguientes nunca corrieron |
+| **Dos o más etapas atrapadas** | Hay defensa en profundidad comprobada |
+| **Ninguna etapa atrapada** | La cadena pasó completa |
+
+El segundo grupo importa tanto como el primero. Un bloqueo en la etapa 1 es una buena noticia, pero no dice nada de las etapas 2 a 6: no se probaron. La tarjeta lo dice así, en vez de contarlo como cobertura.
+
+Cada fila abre Executions con esas cadenas. El Defense Score no cambia y no hay ningún ajuste que configurar: es otra lectura de los mismos resultados. El reporte de ejecución en PDF trae el mismo bloque en su resumen ejecutivo.
+
+## Todos los equipos, también los que no probaste
+
+**Test Breadth by Host** tenía tres problemas. Pintaba en verde, el color de "protegido", a un equipo que había ejecutado 1 de 6 pruebas. Un equipo sin ninguna ejecución no aparecía. Y el porcentaje y la lista de pruebas faltantes salían de conjuntos de pruebas distintos.
+
+Ahora cada equipo activo es una ficha del mismo tamaño, en una escala azul neutra, ordenadas de menor a mayor amplitud. Los equipos enrolados sin resultados aparecen por nombre en un grupo "Not tested". El porcentaje, el conteo "1 de 6" y la lista de faltantes salen del mismo conjunto. El tooltip muestra además el Defense Score del equipo, para distinguir un equipo poco probado que se defendió bien de uno que no.
+
+Dos cambios más en la misma línea:
+
+- **La alerta de Defense Score usa el score del panel.** Antes comparaba tu umbral con otro número: cada resultado de etapa de los últimos 7 días. Ahora es la regla del panel, el último resultado concluyente de cada prueba en cada equipo, sobre 30 días.
+- **La API sin `scoringMode` usa la regla del panel.** Una llamada sin ese parámetro puntuaba por etapa, así que la API y el CLI podían mostrar un "Defense Score" distinto al de la consola.
+
+---
+
+## La ronda de seguridad
+
+Achilles ejecuta pruebas de ataque en tus equipos, y una credencial de administrador puede ejecutar comandos como root o SYSTEM en cualquier agente. Una plataforma así tiene que pasar la misma pregunta que les hace a tus defensas: qué ocurre cuando algo falla.
+
+Así que revisamos la plataforma con tres fuentes: un escáner de seguridad con IA sobre todo el repositorio, el análisis estático que corre en cada pull request y los reportes privados de investigadores externos. Comprobamos cada hallazgo contra el código actual antes de corregirlo. No todos eran válidos, y no todos los parches generados automáticamente servían: uno proponía un sandbox que no puede arrancar dentro de Docker, y lo reemplazamos por un cambio más simple que sí funciona.
+
+### La misma forma, una y otra vez
+
+Casi todo lo que encontramos tenía la misma forma: **la regla existía, y un camino no la aplicaba**. No faltaba el control; faltaba en un sitio.
+
+| Quién | Qué podía hacer | Ahora |
+|---|---|---|
+| Un token de CLI o una API key `admin` | Crear API keys, invitar o promover usuarios, aprobar otro inicio de sesión de CLI | Esas rutas exigen una sesión de navegador |
+| Un enlace de inicio de sesión de CLI | Llevaba el código: abrirlo con sesión iniciada lo aprobaba | El enlace no lleva código; se escribe a mano y se confirma |
+| Un token de CLI | Servía en otro despliegue que compartiera el mismo secreto de firma | Solo sirve en el despliegue que lo emitió |
+| El chat del CLI | Ejecutaba los cambios que el modelo elegía, sin aprobación | Cada cambio espera una confirmación escrita en la terminal |
+| Quien puede leer tareas | Veía las credenciales encoladas para el agente | Se eliminan de todas las respuestas |
+| Un agente enrolado | Descargaba cualquier binario de prueba | Solo los de las tareas que tiene asignadas |
+| Quien crea una tarea | Escribía resultados en cualquier índice de Elasticsearch | Solo en índices de resultados |
+| El build de una prueba | Leía los secretos del backend desde el entorno | Recibe un entorno con lista de permitidos |
+| Un symlink en la librería de pruebas | Mostraba cualquier archivo legible por el backend | Los symlinks se ignoran y las lecturas no los siguen |
+
+El caso del chat merece una línea más. El CLI tiene 24 herramientas que cambian o borran algo: comandos en agentes, desinstalación, llaves, certificados. Corrían en cuanto el modelo las llamaba. Ahora cada una espera a que escribas `confirm` y un código de cuatro caracteres que la terminal muestra junto a la acción exacta. El modelo no puede escribir en tu terminal, así que la terminal es el límite de confianza. Sin terminal interactiva, el chat solo ofrece las 42 herramientas de lectura.
+
+### Lo que no era un fallo, y lo que no arreglamos con un "descartar"
+
+Recibimos cuatro reportes privados. Uno era correcto y está publicado, con crédito a quien lo reportó: [GHSA-8rmw-hhp5-97rp](https://github.com/projectachilles/ProjectAchilles/security/advisories/GHSA-8rmw-hhp5-97rp), severidad baja, corregido en 2.11.0. Los otros tres describían código que ya hacía lo que el reporte daba por ausente, o un escenario que requiere controlar el backend, que por diseño ya tiene ese poder. Respondimos a cada uno con el archivo y la línea.
+
+También había una clase de alerta de análisis estático en el navegador de pruebas que habíamos descartado unas veinte veces como falso positivo. Volvía cada vez que se movían las líneas. No era explotable: cada ruta validaba el identificador. Pero la validación vivía en seis rutas y el servicio de abajo confiaba en lo que recibía, así que una ruta nueva sin la validación habría abierto el camino. Movimos la regla al servicio: ahora rechaza un identificador que no sea un UUID y construye las rutas solo con nombres que encontró en el listado del directorio. La alerta desapareció porque el flujo de datos desapareció.
+
+---
+
+## Actualizar a 2.11
+
+- **CLI `achilles`:** el inicio de sesión pide escribir el código a mano, y el chat pide confirmar cada cambio. Si cambias `AGENT_SERVER_URL`, el CLI obtiene un token nuevo en su siguiente refresh, dentro de la hora.
+- **Builds de pruebas:** si el `build_all.sh` de una prueba lee una variable de entorno que no está en la lista, añádela en `BUILD_ENV_PASSTHROUGH` (nombres separados por comas) en esa instalación.
+- **Scores en la API y en alertas:** pueden cambiar. Pasa `scoringMode=all-stages` para conservar los números por etapa, y revisa los umbrales de tus alertas.
+- **Tareas y schedules nuevos:** `target_index` debe ser un índice `achilles-results-...`. Los schedules guardados antes siguen funcionando.
+- **Agentes:** no hay release de agente. La versión 0.7.4, publicada el mismo día, lee `bundle_results.json` solo desde una carpeta de confianza; constrúyela con **Build from source** en cada instalación. Los agentes en 0.7.3 siguen funcionando.
+
+Las [notas del release](https://github.com/projectachilles/ProjectAchilles/releases/tag/v2.11.0) tienen la lista completa.
+
+---
+
+## Lo que aprendimos
+
+- **Un score responde una pregunta, no todas.** "¿Algo lo detuvo?" y "¿cuánto depende de eso?" son preguntas distintas, y la segunda necesitaba su propia vista.
+- **Lo que no se probó no es cobertura.** Una cadena bloqueada en la etapa 1 no dice nada de las etapas siguientes, y un equipo sin pruebas no debe desaparecer del panel.
+- **Pon la regla donde está el riesgo, no en cada llamador.** Casi todos los hallazgos eran una regla correcta que un camino se saltaba.
+- **Descartar una alerta veinte veces es una señal.** Cambiar el código para que el flujo no exista costó menos que seguir explicando por qué no era un problema.
+- **Un parche generado es una propuesta.** Comprobar cada hallazgo y cada arreglo contra el código real fue la parte del trabajo que no se pudo delegar.
