@@ -55,6 +55,7 @@ import cliAuthRoutes from './api/cli-auth.routes.js';
 import { acceptCliAuth } from './middleware/cliAuth.middleware.js';
 import apiKeysRoutes from './api/api-keys.routes.js';
 import consoleIdentityRoutes from './api/consoleIdentity.routes.js';
+import aboutRoutes from './api/about.routes.js';
 import { acceptApiKey } from './middleware/apiKeyAuth.middleware.js';
 import { cliBearerLimiterSkip } from './middleware/cliBearerLimiterSkip.js';
 import { uiLimiterKey, uiLimiterSkip } from './middleware/rateLimitKeys.js';
@@ -337,6 +338,7 @@ async function startServer() {
       testFleet: true,
       stageCoverage: true,
       testRunRecency: true,
+      about: true,
       platform: 'docker',
     });
   });
@@ -409,6 +411,9 @@ async function startServer() {
 
   // Console identity (org code / name / colour); writes are session-only
   app.use('/api/settings/identity', consoleIdentityRoutes);
+
+  // About dialog: running release, its notes, official agent version
+  app.use('/api/about', aboutRoutes);
 
   // ============ ERROR HANDLING ============
   app.use(notFoundHandler);

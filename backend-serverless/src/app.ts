@@ -153,6 +153,7 @@ app.get('/api/capabilities', (_req, res) => {
     sentinelone: false,
     sophos: false,
     alerting: false,
+    about: false,
     platform: 'vercel',
   });
 });
