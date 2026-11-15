@@ -2,6 +2,7 @@ import { registerCommand } from './registry.js';
 import * as api from '../api/builds.js';
 import { writeFileSync } from 'fs';
 import { colors } from '../output/colors.js';
+import { safeDownloadName } from './downloadName.js';
 
 registerCommand({
   name: 'builds',
@@ -34,8 +35,12 @@ registerCommand({
       },
       handler: async (ctx) => {
         const response = await api.downloadBuild(ctx.args.uuid);
-        const disposition = response.headers.get('content-disposition');
-        const filename = disposition?.match(/filename="?([^"]+)"?/)?.[1] ?? `${ctx.args.uuid}.bin`;
+        // The server names the file; it does not choose where it is written.
+        // Without --output the download lands in the current directory.
+        const filename = safeDownloadName(
+          response.headers.get('content-disposition'),
+          `${safeDownloadName(`filename="${ctx.args.uuid}"`, 'build')}.bin`,
+        );
         const outPath = (ctx.flags.output as string) ?? filename;
         const buffer = Buffer.from(await response.arrayBuffer());
         writeFileSync(outPath, buffer);
