@@ -24,6 +24,17 @@ function getCliSecret(): string | undefined {
   return process.env.CLI_AUTH_SECRET;
 }
 
+export const CLI_TOKEN_ISSUER = 'projectachilles';
+
+/**
+ * The deployment a CLI token is issued for and accepted by: this server's
+ * public URL. Signing and verifying both read it here, so a token minted by
+ * another deployment is refused even when the two share a CLI_AUTH_SECRET.
+ */
+export function cliTokenAudience(): string {
+  return process.env.AGENT_SERVER_URL || 'http://localhost:3000';
+}
+
 /**
  * Extracts and validates a CLI JWT from the Authorization header.
  * Returns the decoded payload if valid, null otherwise.
@@ -39,7 +50,8 @@ export function validateCliToken(req: Request): CliTokenPayload | null {
   try {
     const decoded = jwt.verify(token, secret, {
       algorithms: ['HS256'],
-      issuer: 'projectachilles',
+      issuer: CLI_TOKEN_ISSUER,
+      audience: cliTokenAudience(),
     }) as CliTokenPayload;
     if (decoded.type !== 'cli') return null;
     // The user was removed or their role changed after this token was issued.

@@ -160,6 +160,13 @@ non-GET on `/api/users/*`, and `POST /api/cli/auth/verify` (a CLI token can't
 approve another device code). An admin's CLI session can still list users and
 invitations; the CLI has no commands or chat tools for the writes.
 
+A CLI token is bound to its deployment: `aud` is `AGENT_SERVER_URL`, set at
+signing and checked at verification by the same `cliTokenAudience()`
+(`middleware/cliAuth.middleware.ts`). Two deployments that share a
+`CLI_AUTH_SECRET` don't accept each other's tokens. Changing
+`AGENT_SERVER_URL` invalidates outstanding access tokens (1 h); the CLI gets a
+new one on its next refresh.
+
 Scope → permission mapping lives in one place: `permissionsForScope()` in
 `backend/src/middleware/apiKeyAuth.middleware.ts`. The `read` scope is
 *derivational* — it is computed as "every permission whose name ends in `:read`",

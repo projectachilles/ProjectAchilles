@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, beforeAll, beforeEach } from 'vitest';
+import { describe, it, expect, vi, beforeAll, beforeEach, afterEach } from 'vitest';
 import type { Request, Response, NextFunction } from 'express';
 import jwt from 'jsonwebtoken';
 import type Database from 'better-sqlite3';
@@ -19,8 +19,10 @@ beforeEach(() => {
 });
 
 const SECRET = 'test-cli-secret';
+// With AGENT_SERVER_URL unset, the deployment's audience is the local default.
+const AUDIENCE = 'http://localhost:3000';
 const cliToken = (org_id: string | null) =>
-  jwt.sign({ sub: 'user_1', org_id, role: 'admin', type: 'cli' }, SECRET, { algorithm: 'HS256', issuer: 'projectachilles' });
+  jwt.sign({ sub: 'user_1', org_id, role: 'admin', type: 'cli' }, SECRET, { algorithm: 'HS256', issuer: 'projectachilles', audience: AUDIENCE });
 const authOf = (req: Request) => (req.auth as unknown as () => Record<string, unknown>)();
 
 function run(req: Partial<Request>): { next: ReturnType<typeof vi.fn>; req: Request } {
@@ -89,7 +91,7 @@ describe('acceptCliAuth()', () => {
       process.env.CLI_AUTH_SECRET = SECRET;
     });
     const tokenIssuedAt = (iat: number) =>
-      jwt.sign({ sub: 'user_1', org_id: 'default', role: 'admin', type: 'cli', iat }, SECRET, { algorithm: 'HS256', issuer: 'projectachilles' });
+      jwt.sign({ sub: 'user_1', org_id: 'default', role: 'admin', type: 'cli', iat }, SECRET, { algorithm: 'HS256', issuer: 'projectachilles', audience: AUDIENCE });
     const nowSeconds = () => Math.floor(Date.now() / 1000);
 
     it('a token issued before the user\'s sessions were revoked attaches no auth', () => {
@@ -116,6 +118,41 @@ describe('acceptCliAuth()', () => {
       const token = tokenIssuedAt(nowSeconds() - 60);
       testDb.close();
       const { next, req } = run({ headers: { authorization: `Bearer ${token}` } } as Partial<Request>);
+      expect(next).toHaveBeenCalledOnce();
+      expect(req.auth).toBeUndefined();
+    });
+  });
+
+  describe('the deployment a CLI token is for', () => {
+    const saved = process.env.AGENT_SERVER_URL;
+    beforeAll(() => {
+      process.env.CLI_AUTH_SECRET = SECRET;
+    });
+    afterEach(() => {
+      if (saved === undefined) delete process.env.AGENT_SERVER_URL;
+      else process.env.AGENT_SERVER_URL = saved;
+    });
+    const tokenFor = (audience?: string) =>
+      jwt.sign({ sub: 'user_1', org_id: 'org_abc', role: 'admin', type: 'cli' }, SECRET, {
+        algorithm: 'HS256', issuer: 'projectachilles', ...(audience ? { audience } : {}),
+      });
+    const attempt = (token: string) => run({ headers: { authorization: `Bearer ${token}` } } as Partial<Request>);
+
+    it("accepts a token issued for this deployment's URL", () => {
+      process.env.AGENT_SERVER_URL = 'https://one.example.test';
+      const { req } = attempt(tokenFor('https://one.example.test'));
+      expect(authOf(req).userId).toBe('user_1');
+    });
+
+    it('refuses a token another deployment issued with the same secret', () => {
+      process.env.AGENT_SERVER_URL = 'https://one.example.test';
+      const { next, req } = attempt(tokenFor('https://two.example.test'));
+      expect(next).toHaveBeenCalledOnce();
+      expect(req.auth).toBeUndefined();
+    });
+
+    it('refuses a token that names no deployment at all', () => {
+      const { next, req } = attempt(tokenFor());
       expect(next).toHaveBeenCalledOnce();
       expect(req.auth).toBeUndefined();
     });
