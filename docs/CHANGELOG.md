@@ -49,6 +49,11 @@ This project uses two version streams:
 - **Advance digest for a schedule created after 09:00** (`services/notices/digest.service.ts`): when the 09:00 pass had already recorded the day as empty (another schedule was active, but nothing ran tomorrow), a schedule created, resumed or edited later that day for tomorrow got no digest. An empty day is now re-checked once after each change to an active schedule of that org, and the digest goes out on the next tick. A day whose digest was already sent still gets no second email.
 - **The backend image's Go toolchain matches its architecture.** It always installed the amd64 toolchain, so on Apple Silicon every test and agent build ran under emulation.
 
+## Agent [0.7.4] - 2026-11-15
+
+### Security
+- **The agent reads `bundle_results.json` only from a folder it trusts, and never more than 16 MiB.** When a test wrote no per-control results in its own task folder, the agent fell back to the shared folder (`/tmp/F0` on Linux and macOS, `C:\F0` on Windows) and read the file with no checks. `/tmp/F0` sits in world-writable `/tmp` and the agent runs as root, so a local user could plant per-control results for a test, point the file at something else with a symlink, or make the agent read a very large file into memory. The shared folder is now read only when it is a real directory, owned by root or the agent and not writable by group or others (the rule the cleanup already uses). In both folders the file must be a regular file within the size limit, and it is read through the opened folder, so a path swapped after the checks can't redirect the read. A file that is refused is left in place and logged, and the run is reported as a single result. Tests that still write to the shared folder keep working. (#809)
+
 ## [2.10.1] - 2026-11-07
 
 **Evidence You Can Defend, continued.** 2.10.0 tied every detection to the stage's own alert; 2.10.1 does the same for prevention and closes the gaps the first days of live data showed. **Prevented** now means the EDR stopped the stage during the run, not a cleanup minutes later or a block on another stage's file. An alert listing several tests' files counts only through Defender's verdict on each test's own file. Defender alerts on a program a stage launched now count for that stage, as they already did for the other EDRs. And the execution report, the run panel and the SB-PC-2026-001 export follow the same evidence rules as the verdicts. Expect fewer Prevented and more Detected stages; the Defense Score barely moves, because it counts both as protected.
@@ -1076,6 +1081,7 @@ Complete platform overhaul — custom agent system, multi-deployment support, Mi
 [2.4.0]: https://github.com/projectachilles/ProjectAchilles/compare/v2.3.1...v2.4.0
 [2.3.1]: https://github.com/projectachilles/ProjectAchilles/compare/v2.3.0...v2.3.1
 [2.3.0]: https://github.com/projectachilles/ProjectAchilles/compare/v2.2.0...v2.3.0
+[Agent 0.7.4]: https://github.com/projectachilles/ProjectAchilles/compare/agent-v0.7.3...agent-v0.7.4
 [Agent 0.7.3]: https://github.com/projectachilles/ProjectAchilles/compare/agent-v0.7.2...agent-v0.7.3
 [Agent 0.7.2]: https://github.com/projectachilles/ProjectAchilles/compare/agent-v0.7.1...agent-v0.7.2
 [Agent 0.7.1]: https://github.com/projectachilles/ProjectAchilles/compare/agent-v0.7.0...agent-v0.7.1
