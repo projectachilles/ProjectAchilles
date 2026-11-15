@@ -15,6 +15,13 @@ binary should come from.
 
 ![Settings agent page — build agent binary, upload binaries, and registered versions table](/img/screenshots/settings-agent.png)
 
+Whichever route you use, the version a binary is registered as must equal the
+version compiled into it; a mismatch or an unstamped binary is rejected
+(HTTP 422). Agent versions are shared by the whole install, so when the install
+uses organizations only an administrator who is not signed in to an organization
+can add or delete them. [Agent Self-Updates](./self-updates#publishing-a-new-version)
+has the details and the rollout advice.
+
 #### Upload a pre-built binary (recommended for releases)
 
 Upload a binary from a tagged GitHub release and choose the certificate to sign
@@ -47,15 +54,24 @@ rebuilding it: upload the same file again and pick the new cert.
 #### Build from source
 
 Cross-compiles on the server and signs Windows output with the **active**
-certificate. Available where the Go toolchain is present (Docker Compose,
-self-hosted and on-prem servers, Fly.io, Render).
+certificate. Available where the Go toolchain and the agent source are present
+(Docker Compose, self-hosted and on-prem servers, Fly.io, Render).
 
-:::warning[The version field and the source are independent]
-The build compiles whatever `agent/` source is deployed **on that server**, and
-stamps the version string from the form field. Nothing cross-checks them — so
-building "0.6.3" on a server still running 0.6.2 source produces a binary that
-claims a version it does not contain. Redeploy the instance first, or upload a
-release artifact instead.
+:::warning[Check which source was built]
+The version you type is compiled into the binary, but it does not choose the
+code. Which code is built depends on the install:
+
+- **Docker Compose and server installs** build the server's own checkout (the
+  repository folder the containers were started from). Run `git pull` there
+  first, or the old code ships under the new version number.
+- **Installs with `AGENT_REPO_URL`** (Render, for example) fetch the latest
+  commit of that repository before every build, and fail the build when they
+  cannot reach it.
+
+The version's release notes record what was built, for example
+`Built from source (windows/amd64) at 1bbe749`, and add `(source says 0.7.3)`
+when the version in the source differs from the one you typed. Check them
+before agents pick the version up.
 
 Signing failure on this path is non-fatal by design (the build still produced a
 working binary), so check that **Registered Versions** shows the version as
@@ -144,3 +160,5 @@ See [Agent outside C:\F0](../../deployment/endpoint-prerequisites#agent-outside-
 ```
 
 Shows service state, connection health, configuration validation, and last heartbeat timestamp.
+
+To remove an agent, see [Remote Uninstall](./remote-uninstall).

@@ -8,27 +8,31 @@ description: "Create and monitor security test execution tasks across your agent
 
 ## Creating a Task
 
-1. Navigate to **Agents** → select an agent
-2. Click **Create Task**
+1. Navigate to **Tasks** and click **Create Task**
+2. Select the target **agents**
 3. Select the **test** to execute
-4. Choose the **platform** and **architecture** for the binary
-5. Optionally specify a target **Elasticsearch index**
-6. Click **Submit**
+4. Optionally set the timeout and priority, and under **Advanced** a target **Elasticsearch index** (it must be an Achilles results index, named `achilles-results-…`)
+5. Click **Create N Task(s)**
+
+You can also start from the test: **Run on agents** on a test's page, or the run action on a row of the **Tests** list.
+
+There is no platform to choose. Each agent receives the build for its own operating system, and a test with no build for that system is refused for that agent.
 
 The task enters the pending queue and is picked up by the agent on its next poll.
 
 ## Task Lifecycle
 
 ```
-pending → assigned → downloading → executing → reporting → completed/failed
+pending → assigned → downloading → executing → completed/failed
 ```
 
 1. **Pending** — Task created, waiting for agent to poll
 2. **Assigned** — Agent picked up the task
 3. **Downloading** — Agent downloading the test binary
 4. **Executing** — Binary running on the endpoint
-5. **Reporting** — Agent sending results back
-6. **Completed/Failed** — Final state with exit code and output
+5. **Completed/Failed** — Final state with exit code and output
+
+A task nobody picked up in time, or one you cancelled, ends as **Expired**.
 
 ### Automatic Task Retry
 
@@ -71,8 +75,8 @@ This ensures no test results are lost during extended server outages.
 
 When a task fails, the failure reason is displayed in the Tasks page:
 
-- **Expanded view** — A red error banner shows the specific failure reason (e.g., "SHA256 mismatch: expected abc, got def", "download binary: connection timeout", "Agent went offline during execution")
-- **Collapsed view** — A truncated failure reason appears below the task name in the task list row
+- **Detail panel** — A red banner shows the specific failure reason (e.g., "SHA256 mismatch: expected abc, got def", "download binary: connection timeout", "Agent went offline during execution")
+- **Task row** — A security test that did not finish shows **run failed**; hover it for the reason
 - **Exit code** — Failed tasks show exit code `-1` for pre-execution failures (download errors, verification failures) and `259` when the agent stopped a test that ran past its time limit
 
 The agent sends failure context for all error types: binary download failures, SHA256/size mismatches, execution errors, update failures, and uninstall failures. For tasks that fail because the agent went offline, the backend generates a structured error result automatically.
@@ -83,7 +87,7 @@ The header shows a one-line summary of the last 7 days: for example `last 7 days
 
 ### Outcome breakdown
 
-**Protected** and **No verdict** open a menu that lists the exit codes behind the number, for example `126 ExecutionPrevented` or `259 StillActive` (names come from the exit-code table), with a bar and a count for each. Runs that failed without an exit code get their own rows: **Agent offline**, **Timeout** and **Other failure**. **Timeout** means the server gave up waiting for a result (the task exceeded its execution timeout and the agent never reported back); a test the agent itself stopped at its time limit shows as `259 StillActive` instead. No verdict is split into groups (the test did not run, the run failed, the test reported an error, inconclusive).
+**Protected**, **Unprotected** and **No verdict** open a menu that lists the exit codes behind the number, for example `126 ExecutionPrevented` or `259 StillActive` (names come from the exit-code table), with a bar and a count for each. Runs that failed without an exit code get their own rows: **Agent offline**, **Timeout** and **Other failure**. **Timeout** means the server gave up waiting for a result (the task exceeded its execution timeout and the agent never reported back); a test the agent itself stopped at its time limit shows as `259 StillActive` instead. No verdict is split into groups (the test did not run, the run failed, the test reported an error, inconclusive).
 
 Choosing a row filters the task list to that outcome. A chip next to the search box names the filter and its **x** clears it. Press **Esc** to close the menu without choosing. The filter covers security-test tasks from the last 7 days, the same window as the numbers, so the list shows exactly the tasks counted in that row. The pager counts batches, so its total can be lower than the number you clicked. A batch shows only its matching tasks, and its header says how many of the batch's agents are listed, for example `1 of 5 agents`.
 
@@ -115,17 +119,23 @@ Results are ingested into Elasticsearch for analytics.
 
 ## Binary Verification
 
-Before execution, the agent verifies:
-1. **SHA256 checksum** — Matches the expected hash
-2. **Ed25519 signature** — Cryptographically signed by the server's private key
+Before execution, the agent verifies the downloaded binary against the task:
+1. **SHA256 checksum** — Matches the hash the server recorded for the build
+2. **File size** — Matches the recorded size
 
-If either check fails, the task is rejected.
+If either check fails, the task fails and the binary is not run. (The Ed25519 signature check applies to agent updates; see [Agent Self-Updates](./self-updates).)
+
+An agent can download a test binary only while it holds a task for that test. Any other request gets `404`, the same answer as for a test that was never built.
+
+## After the Run
+
+Agents 0.7.3 and later remove a test's binaries from the endpoint when the run ends: the task folder, and the stage binaries the test extracted into `C:\F0` (Windows) or `/tmp/F0` (Linux, macOS). At startup the agent also removes task folders and test binaries left by runs that died more than an hour earlier, for example when an EDR killed the agent. Only files named after a test UUID are removed, never the agent, its config, logs or queued results.
 
 ## Task Creation Dialog
 
-![Create task dialog — agent selection, task type, schedule configuration, and priority settings](/img/screenshots/create-task-modal.png)
+![Create Task dialog — agent picker with the Not run filter and tag chips, task type, security test search, Run Now or Schedule, timeout and priority](/img/screenshots/create-task-modal.png)
 
-The task creation dialog supports two task types and multiple scheduling options.
+The task creation dialog supports two task types and multiple scheduling options. The **Task Type** switch is shown only to users who may send commands; everyone else creates security tests.
 
 ```mermaid
 graph TD
@@ -151,7 +161,7 @@ graph TD
 ### Task Types
 
 - **Security Tests** -- Select a pre-built test from the library. The dialog validates that a compiled binary exists before allowing submission.
-- **Shell Commands** -- Run an arbitrary command across selected agents. Useful for ad-hoc diagnostics or custom scripts.
+- **Command** -- Run an arbitrary shell command across selected agents, as SYSTEM or root. Needs the `endpoints:tasks:command` permission (administrators). Commands run now; they cannot be scheduled.
 
 ### Agent Selection
 
@@ -173,12 +183,12 @@ The agent selector provides filtering and bulk operations:
 | Schedule Type | Description |
 |--------------|-------------|
 | **Run Now** | Immediate execution on next agent poll |
-| **Once** | One-time execution at a specific date and time |
+| **Once** | One-time execution on a specific date, at a set time or a random time |
 | **Daily** | Recurring daily at a fixed time, or randomized within business hours (09:00--17:00) |
 | **Weekly** | Recurring on selected days of the week |
 | **Monthly** | Recurring on a specific day of the month |
 
-All schedule types support timezone selection. Randomized scheduling distributes execution times across business hours on weekdays to avoid predictable patterns.
+All schedule types support timezone selection, and every type can use a fixed time, one random time for the fleet, or a random time per machine. See [Task Scheduling](./task-scheduling#randomized-timing).
 
 :::tip[Randomized Schedules]
 Use randomized daily schedules for production environments. This prevents defenses from learning a predictable test execution pattern, giving you a more realistic measure of detection capability.
@@ -189,38 +199,60 @@ Use randomized daily schedules for production environments. This prevents defens
 Before submitting, the dialog checks for required integrations:
 
 - Tests that target Azure/Entra ID validate that Azure credentials are configured
-- A target Elasticsearch index can be selected for result storage
+- Under **Advanced**, a target Elasticsearch index can be selected for result storage. Only Achilles results indices (`achilles-results-…`) are accepted
 
 ## Task Management Page
 
 The Tasks page is the central control panel for all task activity.
 
-![Tasks — KPI strip above the live task stream, with a selected task's detail panel showing agent, duration, exit code and stdout](/img/screenshots/tasks.png)
+![Tasks — 7-day summary line and type pills above the task stream, with a selected task's detail panel showing agent, duration, exit code and stdout](/img/screenshots/tasks.png)
+
+### Type pills
+
+The pills above the list choose which tasks it shows, each with its count:
+
+| Pill | Tasks |
+|------|-------|
+| **Security tests** (default) | Test runs |
+| **Commands** | Shell commands |
+| **Maintenance** | Agent updates and uninstalls |
+| **All** | Everything |
 
 ### Task stream
 
-Tasks render as a chronological stream rather than a paginated grid:
+Tasks render as a chronological stream:
 
 - **Date markers** separate days, so "when did this run" is answerable at a glance
-- **Status glyphs** (`✓` / `✕` / spinner) replace badges in the row itself, keeping each line to one dense mono row: time, type, agent, duration or exit code
-- **Batch rows** — a task targeting multiple agents collapses into one parent row with an aggregated `n✓` summary; expand it to see each agent's outcome
+- **One row per task**: time, a coloured dot, the test name, the host, and the result. A security test shows its **outcome** (see [Status and outcome](#status-badges)); other tasks show `✓` / `✕` with the duration or `exit N`
+- **Batch rows** — a task targeting multiple agents collapses into one parent row that counts its outcomes by colour; expand it to see each agent's result. The row also carries the run tag when a pre-execution notice was sent
 - **Single tasks** render as flat rows
 
 Selecting a row opens the **detail panel** on the right: status, agent,
-duration, exit code, created time, batch id, and the full `STDOUT` / `STDERR`.
+duration, exit code with its meaning, created time, batch id, and the full
+`stdout` / `stderr`. For a multi-stage test the exit code is labelled **Final
+exit**, because it is the last stage's code and can differ from the outcome; a
+line under the title says what decided the outcome (for example
+`Blocked at stage 2 (…), exit 126.`).
+
+**Requested by** names who asked for the task: the user who clicked Run, the
+creator of the schedule that ran it, or `API key · <name>`. Users who cannot
+manage users see the name without the email address.
+
+When the retention policy has removed a task's full output
+(`TASK_OUTPUT_RETENTION_DAYS`, 90 days by default), the panel says so.
 
 ### Expanded output view
 
 Click either output block — or focus it and press `Enter` — to open it in a
 full-width dialog with a `70vh` scroll area. Long bundle output (a
 cyber-hygiene run can emit hundreds of lines) is readable without scrolling a
-200-pixel box.
+200-pixel box. Each block has a copy button, and the dialog has **Copy all**.
 
-![Expanded STDOUT dialog — full-width scrollable output for a completed task](/img/screenshots/task-output-expanded.png)
+![Task detail panel — outcome, agent, duration, final exit, who requested it, and the STDOUT and STDERR blocks with their Copy buttons](/img/screenshots/task-output-expanded.png)
 
-### Retrying a failed task
+### Retrying a task
 
-Failed `execute_test` tasks carry a **Retry** action in the detail panel. It
+Finished `execute_test` tasks (completed, failed or expired) carry a **Retry** action in the detail panel. It
 re-dispatches the same test to the same agent as a new pending task and links
 the two through `original_task_id`, so the retry chain stays auditable. The
 stream marks retried tasks with a `Retry n/m` chip.
@@ -231,15 +263,16 @@ from **Create Task** instead.
 
 ### Scheduled tasks
 
-The **Scheduled Tasks** section sits above the stream, collapsed by default so
-the day's activity is what you see first. Expand it for each schedule's
-cadence, next and last run, agent count, and run-now / delete actions.
+Schedules have their own section, **Schedules** (`/tasks/schedules`), next to
+the **Tasks** title. It lists each schedule's cadence, next and last run and
+agent count, with pause/resume and delete actions. See
+[Schedule Management](#schedule-management).
 
-![Scheduled tasks expanded — weekly and monthly bundle schedules with cadence, next run, and agent counts](/img/screenshots/tasks-scheduled.png)
+![Schedules — weekly and monthly bundle schedules with cadence, next run, and agent counts](/img/screenshots/tasks-scheduled.png)
 
-### Status Badges
+### Status and outcome \{#status-badges}
 
-Each task shows a color-coded status badge:
+While a task is in flight, its badge shows the lifecycle status:
 
 | Status | Color | Description |
 |--------|-------|-------------|
@@ -247,9 +280,22 @@ Each task shows a color-coded status badge:
 | Assigned | Green | Agent picked up the task |
 | Downloading | Green | Agent downloading binary |
 | Executing | Amber | Binary running on endpoint |
-| Completed | Green | Finished, and the result reported a zero exit code |
-| Failed | Red | Finished with error — including tasks that technically completed but reported a non-zero exit code |
-| Expired | Gray | Agent did not pick up in time |
+| Expired | Gray | Agent did not pick up in time, or the task was cancelled |
+
+A finished **security test** shows its outcome instead of Completed or Failed, because its exit code is the result: `126` is good news, not a failure.
+
+| Outcome | Color | Meaning |
+|---------|-------|---------|
+| Protected | Green | Blocked: exit `105`, `126` or `127`, or a stage of a multi-stage test was blocked. Also a run the agent could not finish when an EDR alert proves the EDR killed it |
+| Unprotected | Red | The attack ran: exit `101`, or at least one stage ran and none was blocked |
+| Not run | Amber | Blocked before launch (exit `260`) |
+| Run failed | Amber | The run did not finish (agent offline, timeout, download or verification error) |
+| Test error | Amber | The test reported an error (exit `999` or `1`) |
+| Inconclusive | Gray | Any other exit code, for example `0` or `259` |
+
+Only **Unprotected** is red: a run that never happened says nothing about the endpoint. Hover an outcome for its one-line reason. The Tasks page reads the task's own result; Analytics can still show the same run as **Prevented** or **Detected** from EDR alerts. See [Exit Codes & Outcomes](../analytics/exit-codes-and-outcomes).
+
+Commands, agent updates and uninstalls keep **Completed** (green) and **Failed** (red).
 
 When [pre-execution notices](../integrations/pre-execution-notices) are on, a test task can also show:
 
@@ -260,11 +306,12 @@ When [pre-execution notices](../integrations/pre-execution-notices) are on, a te
 | Not run | Gray | The task ended without running. Hover for the reason: `Not run: notice not delivered` (the email was never accepted within the max wait) or `Not run: host offline during notice window` (the host didn't pick the task up before the pickup window closed) |
 
 :::info[Honest status]
-Task tables render *honest* status: a task the agent marked `completed` whose result carries a non-zero exit code is displayed as **Failed**, not Completed. The stored status is unchanged — only the display tells the truth about the outcome.
+For commands, updates and uninstalls, a task the agent marked `completed` whose result carries a non-zero exit code is displayed as **Failed**, not Completed. The stored status is unchanged, and the status filter above the list works on the stored status.
 :::
 
 ### Filtering and Search
 
+- Choose the task type with the [type pills](#type-pills)
 - Filter by task status using the status dropdown
 - Free-text search across task content (test names, hostnames, commands)
 - Search is debounced to avoid excessive API calls while typing
@@ -276,7 +323,7 @@ Select multiple tasks using checkboxes, then use bulk actions to:
 - **Cancel** all selected pending/assigned tasks
 - **Delete** the selected finished tasks (completed, failed or expired) from the list
 
-Only finished tasks can be deleted; cancel an active one instead. A deleted task
+Only finished tasks can be deleted; cancel an active one instead (the API answers `409` for a task that has not finished). A deleted task
 leaves every list, but ProjectAchilles keeps an archived copy with who deleted it
 and when. Results already in Analytics stay there, and a run that failed because
 the agent went offline can still be recorded as **Protected** when an EDR's
@@ -284,7 +331,7 @@ alert later proves it stopped the test.
 
 ### Pagination
 
-Configure page sizes of 25, 50, or 100 tasks per page with navigation controls at the bottom.
+Choose 25, 50 or 100 rows per page at the bottom of the list, and move with **Newest**, **Newer**, **Older** and **Oldest**. A batch counts as one row.
 
 ### Real-Time Updates
 
@@ -294,11 +341,11 @@ The task list polls every 10 seconds for status changes. Polling is silent -- it
 
 The **Schedules** section of the Tasks page displays all schedules:
 
-- Human-readable schedule descriptions (e.g., "Every weekday at 09:30 UTC")
+- Human-readable schedule descriptions (e.g., "Weekly Mon, Wed, at 09:30 UTC")
 - Next and last run timestamps with relative formatting
 - Status indicators: **Active**, **Paused**, or **Completed**
 - Agent count per schedule
-- Actions: **Pause/Resume** and **Delete** (with confirmation)
+- Actions: **Pause/Resume** and **Delete**. A completed schedule can only be deleted
 
 :::warning[Pausing vs. Deleting]
 Pausing a schedule stops future executions but preserves the configuration. Deleting is permanent. Pause first if you are unsure.
@@ -306,7 +353,7 @@ Pausing a schedule stops future executions but preserves the configuration. Dele
 
 ## Task Notes
 
-Add annotations to any task by clicking the notes icon. Notes are useful for documenting:
+Add annotations to any task with **Notes** in its detail panel (a dot marks a task that has a note). Earlier versions of a note are kept under **Edit history**. Notes are useful for documenting:
 
 - Why a task failed and what was investigated
 - Follow-up actions taken after a test result
@@ -318,10 +365,13 @@ Task-related actions are gated by role-based permissions:
 
 | Action | Required Permission |
 |--------|-------------------|
-| Create tasks | `endpoints:tasks:create` |
+| Create tasks, retry | `endpoints:tasks:create` |
+| Send shell commands | `endpoints:tasks:command` |
 | Cancel tasks | `endpoints:tasks:cancel` |
 | Delete tasks | `endpoints:tasks:delete` |
-| Manage schedules | `endpoints:schedules:write` |
+| Edit task notes | `endpoints:tasks:notes` |
+| Create schedules | `endpoints:schedules:create` |
+| Pause, resume, edit schedules | `endpoints:schedules:write` |
 | Delete schedules | `endpoints:schedules:delete` |
 
 Actions are hidden from the UI when the current user lacks the required permission.

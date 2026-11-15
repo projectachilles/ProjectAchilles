@@ -148,8 +148,8 @@ Generated files (gitignored, mode 600): `backend/.env` (app config) and `.env`
 
 ## Enrolling agents
 
-Agents connect to the same public host over HTTPS. In the UI go to **Endpoints →
-enrollment**, generate a token, and run the printed command on the endpoint. The
+Agents connect to the same public host over HTTPS. In the UI open the **Agents** page, click
+**Enroll agent**, generate a token, and run the printed command on the endpoint. The
 enrollment command uses `AGENT_SERVER_URL` (`https://achilles.example.com`),
 which the installer set for you. Because the certificate is publicly trusted, no
 extra CA configuration is needed on the agent.
@@ -167,7 +167,9 @@ docker compose -f docker-compose.server.yml ps          # status
 docker compose -f docker-compose.server.yml logs -f      # logs
 docker compose -f docker-compose.server.yml restart      # restart all
 
-# Upgrade: pull new code, then re-run the installer (idempotent)
+# Upgrade: pull new code, then re-run the installer (idempotent). Always re-run
+# it after a pull: the Caddy configuration is rendered from the checkout into
+# deploy/caddy/rendered/, and the images are rebuilt for the new commit.
 git pull
 ./scripts/deploy-server.sh
 

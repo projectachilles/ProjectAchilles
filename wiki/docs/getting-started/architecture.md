@@ -13,12 +13,12 @@ ProjectAchilles follows a three-tier architecture: a React SPA frontend, an Expr
 ```mermaid
 graph TB
     subgraph Clients
-        FE["Frontend<br/>React 19 · Vite · Tailwind CSS<br/><i>Browser · Analytics · Agents · Settings</i>"]
+        FE["Frontend<br/>React 19 · Vite · Tailwind CSS<br/><i>Dashboard · Tests · Analytics · Agents · Tasks · Settings</i>"]
         CLI["CLI<br/>Bun · Ink · AI SDK v6<br/><i>Commands · AI Chat Agent</i>"]
     end
 
     FE -->|Clerk JWT| BE
-    CLI -->|Clerk JWT| BE
+    CLI -->|CLI token or API key| BE
 
     subgraph BE ["Backend — Express + TypeScript"]
         BRS[Browser Service]
@@ -27,6 +27,8 @@ graph TB
         BDS[Build Service]
         DFS[Defender Service]
         CSF[CrowdStrike Service]
+        S1S[SentinelOne Service]
+        SPS[Sophos Service]
         ALS[Alerting Service]
     end
 
@@ -36,6 +38,8 @@ graph TB
     BDS --> GO[Go Toolchain + Code Signing]
     DFS --> GRAPH[Microsoft Graph API]
     CSF --> FALCON[CrowdStrike Falcon API]
+    S1S --> S1API[SentinelOne Management API]
+    SPS --> SPAPI[Sophos Central API]
     ALS --> NOTIFY[Slack · Email]
 
     AGS <-->|Agent API Key| AGENT
@@ -59,10 +63,10 @@ sequenceDiagram
 
     Admin->>Backend: Create task (test UUID, agent IDs)
     Backend->>DB: Store task (status: pending)
-    Agent->>Backend: Poll for tasks (heartbeat)
+    Agent->>Backend: Poll for tasks
     Backend->>Agent: Return pending task
     Agent->>Backend: Download test binary
-    Agent->>Agent: Verify SHA256 + Ed25519 signature
+    Agent->>Agent: Verify SHA256 and size
     Agent->>Agent: Execute test binary
     Agent->>Backend: Report result (exit code, stdout, stderr)
     Backend->>DB: Update task (status: completed)
@@ -92,21 +96,21 @@ sequenceDiagram
 
 | Layer | Technology | Version | Purpose |
 |-------|------------|---------|---------|
-| **Frontend** | React | 19.2 | UI framework |
-| | Vite | 7.2 | Build tool and dev server |
+| **Frontend** | React | 19.3 | UI framework |
+| | Vite | 8.3 | Build tool and dev server |
 | | Tailwind CSS | 4.1 | Utility-first styling |
-| | Redux Toolkit | 2.10 | State management |
-| | React Router | 7.13 | Client-side routing |
+| | Redux Toolkit | 2.14 | State management |
+| | React Router | 7.18 | Client-side routing |
 | | Clerk | 5.x | Authentication |
-| **Backend** | Express | 4.18 | HTTP framework |
+| **Backend** | Express | 4.22 | HTTP framework |
 | | TypeScript | 5.9 | Type-safe development |
 | | better-sqlite3 | — | Agent database |
 | | @elastic/elasticsearch | 8.x | Analytics queries |
-| **Agent** | Go | 1.24 | Cross-platform binary |
+| **Agent** | Go | 1.26 | Cross-platform binary |
 | **Analytics** | Elasticsearch | 8.17 | Result storage and aggregation |
 | **Signing** | osslsigncode | — | Windows Authenticode |
 | | rcodesign | — | macOS ad-hoc signing |
-| **CI** | GitHub Actions | — | Test + security review |
+| **CI** | GitHub Actions | — | Tests, CodeQL, Semgrep, dependency audit, releases |
 
 ## Project Structure
 
@@ -114,8 +118,8 @@ sequenceDiagram
 ProjectAchilles/
 ├── frontend/                  # React 19 + TypeScript + Vite
 │   └── src/
-│       ├── components/        # Shared UI primitives (Button, Card, etc.)
-│       ├── pages/             # Module pages (browser, analytics, agents, settings)
+│       ├── components/        # Layout shell and shared UI primitives (Button, Card, etc.)
+│       ├── pages/             # Pages (dashboard, tests, analytics, endpoints, campaigns, settings)
 │       ├── services/api/      # API client modules
 │       ├── hooks/             # Custom hooks (useAuthenticatedApi, etc.)
 │       └── store/             # Redux slices
@@ -127,44 +131,59 @@ ProjectAchilles/
 │       │   ├── analytics/     # Elasticsearch queries, client factory
 │       │   ├── browser/       # Git sync, test indexing
 │       │   ├── tests/         # Go cross-compilation, cert management
+│       │   ├── campaigns/     # Saved campaigns, runs, evidence matrix
+│       │   ├── notices/       # Pre-execution notices
+│       │   ├── outcomes/      # Verdict rules, EDR vendor registry
+│       │   ├── reports/       # Execution report and export payloads
+│       │   ├── edr/           # Vendor-neutral EDR enrichment and analytics
 │       │   ├── defender/      # Microsoft Graph API client
 │       │   ├── crowdstrike/   # CrowdStrike Falcon API client
-│       │   └── alerting/      # Slack + email dispatch
+│       │   ├── sentinelone/   # SentinelOne Management API client
+│       │   ├── sophos/        # Sophos Central API client
+│       │   └── alerts/        # Slack + email dispatch
 │       ├── middleware/        # Auth, error handling, rate limiting
 │       └── types/             # TypeScript definitions
 ├── backend-serverless/        # Vercel serverless fork (Turso + Blob)
 ├── agent/                     # Go agent source
-│   ├── main.go                # CLI entry point (--enroll, --run, --install)
+│   ├── main.go                # CLI entry point (--enroll, --run, --install, --status)
 │   └── internal/              # Agent modules
 │       ├── config/            # Configuration management
 │       ├── enrollment/        # Token-based registration
-│       ├── executor/          # Test binary execution
+│       ├── executor/          # Test binary execution, leftover cleanup
 │       ├── httpclient/        # HTTP client with auth
 │       ├── poller/            # Task polling loop
+│       ├── queue/             # On-disk queue for unsent results
 │       ├── reporter/          # Result reporting
 │       ├── service/           # OS service management
-│       ├── store/             # Encrypted credential storage
+│       ├── store/             # Persistent agent state
 │       ├── sysinfo/           # Platform-specific system info
 │       └── updater/           # Self-update mechanism
-├── scripts/                   # Shell scripts and PowerShell bootstrap
-├── docs/                      # Documentation source files
+├── installer/                 # achilles-installer (Go TUI wizard for server installs)
+├── appliance/                 # Windows Hyper-V appliance image
+├── cli/                       # Command-line client
+├── scripts/                   # Start, deploy and install scripts
+├── deploy/                    # Caddy config, lab endpoint, offline kit
+├── docs/                      # Changelog, deployment guides, design notes
 ├── wiki/                      # This documentation site (Docusaurus)
-└── docker-compose.yml         # Multi-service deployment
+├── blog/                      # Blog (Next.js)
+└── docker-compose*.yml        # Local, single-server and lab deployments
 ```
 
 ## Deployment Architecture
 
-ProjectAchilles supports five deployment targets, each with different trade-offs:
+ProjectAchilles supports several deployment targets, each with different trade-offs:
 
 | Target | Backend | Database | File Storage | Agent Builds | Cost |
 |--------|---------|----------|-------------|-------------|------|
 | **Docker Compose** | `backend/` | SQLite (volume) | Filesystem (volume) | Yes | Free |
+| **Public or on-prem server** (Caddy, one origin) | `backend/` | SQLite (volume) | Filesystem (volume) | Yes | Your server |
+| **Windows Hyper-V appliance** | `backend/` | SQLite (volume) | Filesystem (volume) | Yes | Your host |
 | **Railway** | `backend/` | SQLite (volume) | Filesystem (volume) | Partial | ~$10-13/mo |
 | **Render** | `backend/` | SQLite (persistent disk) | Filesystem (disk) | Partial | ~$14/mo |
 | **Fly.io** | `backend/` | SQLite (volume) | Filesystem (volume) | Yes | ~$8/mo |
 | **Vercel** | `backend-serverless/` | Turso (libSQL) | Vercel Blob | No | ~$20/mo |
 
-The Vercel target uses a purpose-built serverless fork (`backend-serverless/`) that replaces SQLite with Turso, filesystem with Vercel Blob, and process-based scheduling with Vercel Cron jobs. See [Deployment Overview](../deployment/overview) for detailed comparisons.
+The Vercel target uses a purpose-built serverless fork (`backend-serverless/`) that replaces SQLite with Turso, filesystem with Vercel Blob, and process-based scheduling with Vercel Cron jobs. It lacks several features: Go builds, campaigns, pre-execution notices, alerting, SentinelOne, Sophos, console identity, API keys and CLI sign-in. See [Deployment Overview](../deployment/overview) for detailed comparisons.
 
 ## End-to-End Data Flow
 
@@ -190,7 +209,7 @@ graph LR
 
     subgraph "4. Execution"
         AGENT -->|Download binary| BIN
-        AGENT -->|Verify signature| AGENT
+        AGENT -->|Verify SHA256| AGENT
         AGENT -->|Execute| RESULT[Exit Code + Output]
     end
 
@@ -202,9 +221,9 @@ graph LR
 
     subgraph "6. Analytics"
         ES -->|Aggregate| DEFENSE[Defense Score]
-        ES -->|Aggregate| HEATMAP[MITRE Heatmap]
+        ES -->|Aggregate| HEATMAP[ATT&CK Coverage Matrix]
         ES -->|Aggregate| TRENDS[Trend Charts]
-        ES -->|Correlate| DEFENDER[EDR Cross-Correlation<br/>Defender · CrowdStrike]
+        ES -->|Correlate| DEFENDER[EDR Cross-Correlation<br/>Defender · CrowdStrike · SentinelOne · Sophos]
     end
 ```
 
@@ -223,18 +242,21 @@ sequenceDiagram
     User->>API: Create task (test UUID, target agents)
     API->>DB: INSERT task (status: pending)
 
-    loop Heartbeat polling (default: 30s)
-        Agent->>API: POST /heartbeat (system info)
+    loop Heartbeat (default: 60s)
+        Agent->>API: POST /api/agent/heartbeat (system info)
         API->>DB: Update agent last_seen
-        API-->>Agent: Pending task list
     end
 
-    Agent->>API: GET /download?task_id=...
-    API-->>Agent: Signed binary (SHA256 + Ed25519)
-    Agent->>Agent: Verify SHA256 hash
-    Agent->>Agent: Verify Ed25519 signature
-    Agent->>Agent: Execute binary (30s timeout)
-    Agent->>API: POST /result (exit_code, stdout, stderr, bundle_results)
+    loop Task poll (default: 30s)
+        Agent->>API: GET /api/agent/tasks
+        API-->>Agent: Next pending task
+    end
+
+    Agent->>API: GET /api/agent/binary/:name?test_uuid=...
+    API-->>Agent: Test binary (only for a task the agent holds)
+    Agent->>Agent: Verify SHA256 hash and size
+    Agent->>Agent: Execute binary (default timeout: 5 min)
+    Agent->>API: POST /api/agent/tasks/:id/result (exit_code, stdout, stderr, bundle_results)
 
     API->>DB: UPDATE task status → completed
     API->>ES: Index result document(s)
@@ -265,6 +287,14 @@ Microsoft Graph API → Graph Client → Sync Service → achilles-defender inde
 ```
 CrowdStrike Falcon API → Falcon Client → Sync Service → achilles-crowdstrike index
 ```
+
+**SentinelOne and Sophos Sync** (background, backend only; alerts every few minutes, posture every 6 hours):
+```
+SentinelOne Management API → S1 Client → Sync Service → achilles-sentinelone index
+Sophos Central API → Sophos Client → Sync Service → achilles-sophos index
+```
+
+**EDR Evidence** (after every EDR poll): the enrichment pass matches alerts to the test runs that caused them and writes detection and prevention flags on the result documents. Two further passes turn an agent run that the EDR killed, and a test launch that the EDR blocked (exit 260), into Protected results when an alert proves it.
 
 **Alert Evaluation** (triggered per result ingestion):
 ```

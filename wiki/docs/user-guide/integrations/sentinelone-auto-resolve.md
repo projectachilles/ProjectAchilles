@@ -352,6 +352,12 @@ Auto-resolve `enabled` and every automatic-mitigation mode need the
 integration saved in Response mode. Switch the permission mode and save first.
 The API returns `400` with the same reason.
 
+### Changing a mode returns 403 "EDR integrations are shared by every organization"
+
+The install runs with `REQUIRE_ORG_ISOLATION=true`. The SentinelOne
+configuration is shared by every organization there, so the auto-resolve mode
+and automatic mitigation can't be changed from the UI or the API.
+
 ### 401 or 403 on the first write
 
 **Symptom:** the pass result lists `401: ...` or `403: ...` and stops.

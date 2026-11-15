@@ -28,15 +28,18 @@ The Agents page pairs a fleet-pulse rail with the agent table.
 ![Agents — grouped fleet table with status dots, hostnames, health bars, 24 h heartbeat sparklines, versions and last-seen times](/img/screenshots/agents.png)
 
 The **rail** on the left carries, top to bottom: an online/offline/stale ring,
-the attention strip, version rollout, groups, key-rotation settings, and
-downloadable binaries per platform.
+the attention chip (stale agents: active, but no completed task in 7 days;
+click it to list only those), version rollout, tag groups, key-rotation
+settings, and downloadable binaries per platform. On a narrow window the rail
+is replaced by a summary bar that opens it as a bottom sheet.
 
-The **table** groups agents by tag and shows, per row:
+The **table** groups agents by their first tag and shows, per row:
 
 - Status dot (accent = online, danger = offline) and hostname in mono
 - Operating system and architecture
 - Health score with a proportional bar
 - A **24-hour heartbeat sparkline**
+- Tags, with **×** to remove one and **+ tag** to add one ([Tag Management](./enrollment#tag-management))
 - Agent version, plus `outdated` / `stale` / `key rotating` chips
 - Last-seen, coloured by staleness
 
@@ -121,4 +124,4 @@ The score is color-coded in the UI:
 - **Amber** (50–79) — Some reliability issues
 - **Red** (0–49) — Unreliable, investigate
 
-The fleet average health score is also shown on the Endpoints Dashboard.
+The Dashboard's **Fleet health** card shows fleet-wide numbers next to it: agents online, the 7-day task success rate and the mean time between failures.

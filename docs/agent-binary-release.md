@@ -2,7 +2,7 @@
 
 ## Prerequisites
 
-- Go 1.21+ installed
+- Go 1.26+ installed (`agent/go.mod`)
 - `make` utility
 - ProjectAchilles backend running
 - A valid Clerk JWT (for the admin API), or direct SQLite access for dev
@@ -12,12 +12,14 @@
 ```bash
 cd agent/
 
-# Build both Linux and Windows (amd64) + SHA256SUMS
+# Build Windows, Linux and macOS + SHA256SUMS
 make build-all
 
 # Or individually:
 make build-linux
 make build-windows
+make build-darwin-amd64
+make build-darwin-arm64
 ```
 
 Output in `agent/dist/`:
@@ -26,7 +28,11 @@ Output in `agent/dist/`:
 |------|----------|
 | `achilles-agent-linux-amd64` | Linux x86_64 |
 | `achilles-agent-windows-amd64.exe` | Windows x86_64 |
-| `SHA256SUMS` | Checksums for both |
+| `achilles-agent-darwin-amd64` | macOS Intel |
+| `achilles-agent-darwin-arm64` | macOS Apple Silicon |
+| `SHA256SUMS` | Checksums for all four |
+
+The Makefile has no Linux arm64 target. For that platform use **Build Agent Binary** in the UI, or run `GOOS=linux GOARCH=arm64 CGO_ENABLED=0 go build` with the same `-ldflags`.
 
 ### Custom version
 
@@ -34,13 +40,21 @@ Output in `agent/dist/`:
 make build-all VERSION=0.2.0
 ```
 
-### Optional: sign the Windows binary
+Without `VERSION`, the build is stamped with the version in `agent/Makefile` (currently `0.7.4`).
 
-Requires a code-signing certificate at `~/.projectachilles/certs/cert.pfx`:
+### Optional: sign the binaries
 
 ```bash
+# Windows (Authenticode, needs osslsigncode)
+export F0_SIGN_CERT_PATH=/path/to/cert.pfx
+export F0_SIGN_CERT_PASS='<pfx password>'
 make sign-windows
+
+# macOS (ad-hoc, needs rcodesign)
+make sign-darwin
 ```
+
+`sign-windows` also accepts the legacy layout (`~/.projectachilles/certs/cert.pfx` plus `cert-pass.txt`). It can't use a certificate uploaded in the UI by itself: that password is stored encrypted, so either export the two variables or let the UI build and sign. With no certificate (or no `rcodesign`) the target prints a notice and leaves the binary unsigned.
 
 ## 2. Register Binaries with the Backend
 
@@ -49,7 +63,7 @@ make sign-windows
 > **⚠️ The registered version must equal the version compiled into the binary.** If they differ, every agent that installs it restarts still reporting the old version, is offered the "new" one again, and reinstalls it in a loop. The backend enforces this for **Upload Agent Binary** and for **Option A** (both return 422 on a mismatch or an unstamped binary). **Option B (direct SQLite) bypasses it**, so check first:
 >
 > ```bash
-> go version -m build/achilles-agent-windows-amd64.exe | grep ldflags
+> go version -m dist/achilles-agent-windows-amd64.exe | grep ldflags
 > #   build   -ldflags="-s -w -X main.version=0.2.0"   ← must equal "version" below
 > ```
 
@@ -129,35 +143,30 @@ sqlite3 ~/.projectachilles/agents.db \
 
 ## 3. How Users Get the Binary
 
-Once registered, binaries are available via the public download endpoint (no auth required, rate-limited to 10 req / 15 min per IP):
+Once registered, binaries are available via the public download endpoint (no auth required, rate-limited to 300 requests / 15 min per IP):
 
 ```
-GET /api/agent/download?os={linux|windows}&arch={amd64|arm64}
+GET /api/agent/download?os={linux|windows|darwin}&arch={amd64|arm64}
 ```
 
 ### One-liner install commands
 
-These are shown in the UI when a user generates an enrollment token (Endpoints > Agents > Enroll Agent).
+These are shown in the UI when a user generates an enrollment token on the **Agents** page (**Enroll agent** dialog → **Generate Enrollment Token**), one per platform: Windows, Linux amd64 / arm64, macOS Apple Silicon / Intel. Copy them from there. They install the agent into one fixed folder, `C:\F0` on Windows and `/opt/f0` elsewhere, because the service runs the binary from where `--install` runs it and the endpoint guides name that path.
 
-**Linux (amd64):**
+**Linux and macOS** (change `os` and `arch` as needed):
 ```bash
-curl -fSL "https://YOUR_SERVER/api/agent/download?os=linux&arch=amd64" -o achilles-agent \
-  && chmod +x achilles-agent \
-  && sudo ./achilles-agent --enroll TOKEN --server https://YOUR_SERVER --install
+sudo mkdir -p /opt/f0 && \
+  sudo curl -fSL "https://YOUR_SERVER/api/agent/download?os=linux&arch=amd64" -o /opt/f0/achilles-agent && \
+  sudo chmod 700 /opt/f0/achilles-agent && \
+  sudo /opt/f0/achilles-agent --enroll TOKEN --server https://YOUR_SERVER --install
 ```
 
-**Linux (arm64):**
-```bash
-curl -fSL "https://YOUR_SERVER/api/agent/download?os=linux&arch=arm64" -o achilles-agent \
-  && chmod +x achilles-agent \
-  && sudo ./achilles-agent --enroll TOKEN --server https://YOUR_SERVER --install
-```
-
-**Windows (PowerShell):**
+**Windows (elevated PowerShell):** the UI command first creates `C:\F0`, or refuses an existing one that is a link or not owned by SYSTEM or Administrators, and locks it to SYSTEM and Administrators. Then it downloads and enrolls:
 ```powershell
-Invoke-WebRequest -Uri "https://YOUR_SERVER/api/agent/download?os=windows&arch=amd64" -OutFile achilles-agent.exe
-.\achilles-agent.exe --enroll TOKEN --server https://YOUR_SERVER --install
+Invoke-WebRequest -UseBasicParsing -Uri "https://YOUR_SERVER/api/agent/download?os=windows&arch=amd64" -OutFile C:\F0\achilles-agent.exe
+& C:\F0\achilles-agent.exe --enroll TOKEN --server https://YOUR_SERVER --install
 ```
+Use the full command from the UI rather than these two lines alone: without the folder checks, a `C:\F0` created earlier by a non-administrator would let that user replace the binary the service runs as SYSTEM.
 
 ### Server URL for remote/tunneled deployments
 
@@ -205,7 +214,7 @@ sha256sum /tmp/test-agent  # should match SHA256SUMS
 | Build output | `agent/dist/` |
 | Runtime DB | `~/.projectachilles/agents.db` |
 | DB table | `agent_versions` |
-| Download endpoint | `GET /api/agent/download?os=...&arch=...` |
+| Download endpoint | `GET /api/agent/download?os=...&arch=...` (public, 300 / 15 min per IP) |
 | Config endpoint | `GET /api/agent/config` |
 | Register endpoint | `POST /api/agent/admin/versions` (auth required) |
 | Version check endpoint | `GET /api/agent/version?os=...&arch=...` |

@@ -29,8 +29,8 @@ These features shipped since the v1.0.0 release:
 - &check; **Trend Alerting** — Slack + email notifications with threshold configuration
 - &check; **Notification Bell** — In-app alert dropdown in top bar
 - &check; **MITRE ATT&CK Coverage Matrix** — Visual technique heatmap on browse page
-- &check; **Visual Themes** — Neobrutalism + Hacker Terminal with phosphor variants
-- &check; **Browse Overview Dashboard** — 3-tab layout with category metrics
+- &check; **Visual Themes** — Neobrutalism + Hacker Terminal with phosphor variants (replaced in 2026 by the single f0 dark theme; there is no theme selector now)
+- &check; **Browse Overview Dashboard** — 3-tab layout with category metrics (later replaced by the unified Security Dashboard and the Tests page)
 - &check; **Remote Agent Uninstall** — Two-phase cleanup from admin UI
 - &check; **Risk Acceptance** — Accept risk on individual security controls
 - &check; **5 Deployment Targets** — Docker Compose, Railway, Render, Fly.io, Vercel

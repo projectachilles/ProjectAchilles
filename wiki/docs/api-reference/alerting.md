@@ -6,6 +6,19 @@ description: "REST API endpoints for configuring alert thresholds and notificati
 
 # Alerting Endpoints
 
+All alerting endpoints require Clerk authentication. Reads need the
+`integrations:read` permission and writes need `integrations:write`. Settings
+are per organization: the caller's Clerk organization is used, and an
+organization without its own alert settings falls back to the deployment-wide
+(legacy) settings.
+
+:::info[Not on Vercel]
+The alerting routes exist only in `backend/` (Docker Compose, the public /
+on-prem server, Railway, Render, Fly.io). `GET /api/capabilities` reports
+`alerting: false` on Vercel, where `backend-serverless/` mounts no
+`/api/integrations/alerts` routes.
+:::
+
 ## Endpoints
 
 ### Get Alert Configuration
@@ -14,7 +27,7 @@ description: "REST API endpoints for configuring alert thresholds and notificati
 GET /api/integrations/alerts
 ```
 
-Returns current alert thresholds and notification channel configuration. Secrets are never returned: the Slack webhook is reported as `webhook_url_set`, the SMTP password is omitted, and `smtp_user` is masked as `****` plus its last four characters.
+Returns current alert thresholds and notification channel configuration (`configured`, `thresholds`, `cooldown_minutes`, `last_alert_at`, `slack`, `email`, `agent_alerts`). Secrets are never returned: the Slack webhook is reported as `webhook_url_set`, the SMTP password is omitted, and `smtp_user` is masked as `****` plus its last four characters. Before anything is saved the response is `{ "configured": false }`.
 
 ### Save Alert Configuration
 
@@ -44,6 +57,17 @@ A partial update. Any field you leave out, or send blank, keeps its saved value.
 }
 ```
 
+| Field | Validation |
+|-------|------------|
+| `thresholds.defense_score_min`, `error_rate_max`, `secure_score_min` | 0 to 100. Send `null` to clear a saved threshold |
+| `thresholds.s1_infected_agents_max`, `s1_detect_only_agents_max`, `s1_outdated_agents_max` | Integer, 0 or more (SentinelOne agent health; alert when the count is above it). `null` clears |
+| `cooldown_minutes` | Integer, 1 or more (default 15) |
+| `slack.webhook_url` | An `https://hooks.slack.com/...` URL with no port, credentials, query or fragment. Empty keeps the saved webhook |
+| `email.smtp_port` | 1 to 65535 |
+| `agent_alerts` | `enabled`, `offline_hours_threshold`, `flapping_threshold` (integer), `fleet_online_percent_min` (0 to 100), `cooldown_minutes` (integer) |
+
+A body that fails validation returns `400`.
+
 Credentials are encrypted at rest with AES-256-GCM.
 
 ### Test Channels
@@ -54,7 +78,34 @@ POST /api/integrations/alerts/test
 
 Takes the same `slack_webhook_url` and `email` fields as the form, and checks the channels without saving anything. Email fields are merged over the saved settings field by field. A blank password or a blank or masked username reuses the saved one, **but only when `smtp_host` matches the saved host**. That way a test can't send the stored password to a different server. Changing the host therefore means typing the credentials again.
 
-**Response:** `{ "success": true, "data": { "email": { "success": false, "message": "SMTP connection failed: Connection timeout" } } }`. A connection timeout usually means an outbound firewall is dropping traffic to the SMTP host.
+**Response:** `{ "success": true, "data": { "email": { "success": false, "message": "SMTP connection failed: Connection timeout" } } }`. A connection timeout usually means an outbound firewall is dropping traffic to the SMTP host. `data.slack` and `data.email` are present only for the channels that were tested (a webhook or an SMTP host in the body or in the saved settings). An SMTP host that resolves to a private or reserved IP address is not contacted: `data.email` is `{ "success": false, "message": "SMTP host targets a private or reserved IP address" }`.
+
+### Alert History
+
+```
+GET /api/integrations/alerts/history
+```
+
+Requires `integrations:read`. Returns the most recent alerts that were sent, newest first, at most 50:
+
+```json
+{
+  "success": true,
+  "data": [
+    {
+      "timestamp": "2026-11-10T09:12:00.000Z",
+      "breaches": [
+        { "metric": "Defense Score", "current": 62.5, "threshold": 70, "unit": "%", "direction": "below" }
+      ],
+      "channels": { "slack": true, "email": false },
+      "triggerTest": "Test name",
+      "triggerAgent": "WS-0142"
+    }
+  ]
+}
+```
+
+The history is kept in memory. It is empty after a backend restart and is not split by organization.
 
 ## Pre-execution notices
 

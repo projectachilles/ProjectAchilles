@@ -14,7 +14,7 @@ write pillar documented separately.
 
 | Pillar | Direction | Graph permission | Default |
 |--------|-----------|------------------|---------|
-| 1. **Analytics ingest** — Secure Score, alerts, control profiles | Graph → ES | `SecurityAlert.Read.All` | On once credentials are set |
+| 1. **Analytics ingest** — Secure Score, alerts, control profiles | Graph → ES | `SecurityEvents.Read.All` (Secure Score, control profiles) and `SecurityAlert.Read.All` (alerts) | On once credentials are set |
 | 2. **Evidence correlation** — test ↔ alert matching | ES ↔ ES | None extra | Automatic |
 | 3. **[Auto-resolve](./defender-auto-resolve)** — resolve correlated alerts in Defender | ES → Graph | `SecurityAlert.ReadWrite.All` | Opt-in, disabled by default |
 
@@ -24,14 +24,15 @@ This page covers pillars 1 and 2. Pillar 3 has its own setup walkthrough — see
 ## Prerequisites
 
 - Microsoft 365 with Defender enabled
-- Azure AD App Registration with `SecurityAlert.Read.All` (Application type, admin consent)
+- Azure AD App Registration with `SecurityEvents.Read.All` and `SecurityAlert.Read.All` (Application type, admin consent)
 
 ## Azure AD Setup
 
 1. Go to [Azure Portal](https://portal.azure.com) → App Registrations → New Registration
 2. Name: "ProjectAchilles Defender Integration"
 3. Under **API Permissions**, add:
-   - `SecurityAlert.Read.All` (Application type) — covers Secure Score, alerts, and control profiles
+   - `SecurityEvents.Read.All` (Application type) — Secure Score and control profiles (`/security/secureScores`, `/security/secureScoreControlProfiles`)
+   - `SecurityAlert.Read.All` (Application type) — alerts (`/security/alerts_v2`)
    - Click **Grant admin consent**
 4. Under **Certificates & Secrets**, create a client secret **or** upload a certificate (see [Certificate authentication](#certificate-authentication) below)
 5. Note the **Application (client) ID**, **Directory (tenant) ID**, and **Client Secret** (or certificate thumbprint)
@@ -48,11 +49,17 @@ later — the read-only integration runs fine without it.
 2. Choose an authentication method — **Client Secret** or **Certificate**
 3. Enter:
    - **Tenant ID** — Azure AD Directory (tenant) ID
-   - **Client ID** — Application (client) ID
+   - **Client ID (Application ID)** — Application (client) ID
    - **Client Secret** — The secret you created (client-secret method), *or* the certificate + private key (certificate method)
-4. Click **Save** and then **Test Connection**
+4. Click **Test Connection**, then **Save Settings**
 
 Credentials are encrypted at rest with AES-256-GCM.
+
+The credentials can also come from the `DEFENDER_TENANT_ID`, `DEFENDER_CLIENT_ID` and `DEFENDER_CLIENT_SECRET` environment variables. Settings saved in the UI take priority over them.
+
+:::info[One Defender connection per deployment]
+The Defender settings are deployment-wide: the sync, the correlation and auto-resolve run once for the whole install, whichever Clerk organization the admin who saved them belongs to. With `REQUIRE_ORG_ISOLATION=true` the settings are read-only in the UI (saving, disconnecting and changing the auto-resolve mode return 403), so one organization's admin can't change what runs for every organization. Configure Defender with the `DEFENDER_*` environment variables there.
+:::
 
 :::info[Elasticsearch API key]
 With a scoped Elasticsearch API key, this integration needs grants on its own
@@ -267,6 +274,15 @@ graph TB
 - **Tier 3 — Technique-only:** falls back to MITRE technique ID alone. Used for
   alerts with no evidence metadata.
 
+Technique IDs are compared through ATT&CK's revoked-by aliases, so an alert
+that reports a renumbered technique still matches a test that carries the old
+ID.
+
+The drawer lists related alerts. It does not decide the verdict: a stage is
+marked Detected or Prevented only by the evidence rules described under
+*Vendor-confirmed prevention* below and in
+[Exit Codes & Outcomes](../analytics/exit-codes-and-outcomes).
+
 The **-5 min to +30 min** window accounts for Defender's real-time telemetry
 generating alerts *during* test execution while excluding unrelated pre-test
 alerts. This per-test correlation also feeds the `f0rtika.achilles_correlated`
@@ -311,10 +327,27 @@ Defender reports what it *did* about each alert via
 `evidence[].remediationStatus` (`prevented` = blocked at launch, `blocked` =
 killed while executing, `remediated` = quarantined/cleaned). The sync
 normalizes this into `prevention_action` on the alert doc (shared vocabulary
-with CrowdStrike), and enrichment upgrades matched test stages with
-`defender_prevented: true` under the same qualification rule: stage-binary
-matches always qualify; bundle-level matches qualify only when the stage
-never reached a conclusive outcome. Prevented stages render as **Prevented**
+with the other EDRs), and enrichment marks a matched test stage as prevented
+under these rules (v2.10.0 and v2.10.1):
+
+- **Own alert only.** A stage is credited by an alert that names its own
+  binary, or a program it started (the sync stores parent process files as
+  evidence). An alert that only names the bundle, or a sibling stage, does not
+  mark the stage.
+- **Own action only.** The sync stores Defender's verdict and action per
+  evidence file and per child process. A stage is Prevented only when the
+  action was on its own file or on a process it started, not when the alert
+  carries a block for something else.
+- **During the run.** For a stage that ran to completion (exit `101`), the
+  action counts only if it happened before the run ended (the result's time
+  plus 2 minutes, judged by the alert's last activity). A later cleanup leaves
+  the stage **Detected**. Error-coded stages are not time-gated.
+- **Alerts that list several tests' files** count for a test only when
+  Defender's verdict on that test's own file is `malicious`, and prevention
+  only from that file's own action. Listings where every file is merely
+  `suspicious` count for nothing.
+
+Prevented stages render as **Prevented**
 in the executions view and report as PREVENTED with
 `preventedBy: ['Microsoft Defender for Endpoint']` in the SB compliance
 report. Alert rows also carry `portal_url` (the Graph `alertWebUrl`) for
@@ -339,13 +372,14 @@ When `configured` is `false`, Defender panels, tabs, and cross-correlation widge
 | Sync trigger | `setInterval` at server startup | Vercel Cron (`/api/cron/defender-sync`) |
 | Credentials | Encrypted file or env vars | Env vars or encrypted blob |
 
-Both variants expose identical API endpoints and analytics capabilities.
+Both variants expose the same API endpoints. The evidence rules of v2.10.0 and v2.10.1 (own-alert credit, in-run prevention, multi-test alerts), EDR-killed agent runs and the Elasticsearch readiness check are in `backend/` only.
 
 ## Troubleshooting
 
 :::warning[Common Issues]
-- **"Test Connection" fails with 401**: Verify that admin consent has been granted for the `SecurityAlert.Read.All` permission in Azure AD. Application permissions (not delegated) are required.
-- **No data after saving credentials**: The first sync runs on the next interval (up to 6 hours for scores, 5 minutes for alerts). Click **Sync Now** in the integration settings to trigger an immediate sync.
-- **Missing alerts, scores, or controls**: All three document types — alerts, Secure Score, and control profiles — are read with `SecurityAlert.Read.All`. A 403 on any of them means the permission is missing or admin consent was not granted.
+- **"Test Connection" fails with 401**: Verify that admin consent has been granted for the `SecurityEvents.Read.All` and `SecurityAlert.Read.All` permissions in Azure AD. Application permissions (not delegated) are required.
+- **No data after saving credentials**: The first sync runs on the next interval (up to 6 hours for scores, 5 minutes for alerts). Click **Sync Now** on the **Analytics → Defender** tab to trigger an immediate sync.
+- **Missing alerts, scores, or controls**: Alerts are read with `SecurityAlert.Read.All`; Secure Score and control profiles with `SecurityEvents.Read.All`. A 403 on one of them means that permission is missing or admin consent was not granted.
+- **Saving returns 403 "EDR integrations are shared by every organization"**: the install runs with `REQUIRE_ORG_ISOLATION=true`. Set the `DEFENDER_*` environment variables instead.
 - **403 when enabling auto-resolve**: Auto-resolve needs the separate `SecurityAlert.ReadWrite.All` scope. See [Auto-Resolve → Troubleshooting](./defender-auto-resolve#troubleshooting).
 :::

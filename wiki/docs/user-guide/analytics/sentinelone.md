@@ -16,6 +16,8 @@ It also shows the SentinelOne posture that explains the answer: the Achilles
 Endpoint Protection score, agent health, protection policy per scope, and
 missed tests that sit under an exclusion.
 
+![SentinelOne tab — Endpoint Protection, SentinelOne Alerts, Detected / Prevented, Agent response and Auto-Resolve cards above the agent health strip and the test execution vs alert volume chart](/img/screenshots/analytics-sentinelone.png)
+
 If the integration is not configured the tab is hidden entirely: the
 `useSentinelOneConfig()` hook gates the tab, so unconfigured users never see
 empty panels. The integration exists only on Docker-style backends; on Vercel

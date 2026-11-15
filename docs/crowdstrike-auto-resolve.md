@@ -10,7 +10,7 @@ Third pillar of the CrowdStrike Falcon integration. Reads Achilles-correlated al
 | 2. Evidence correlation — test ↔ alert matching | ES ↔ ES | None extra | Automatic |
 | 3. **Auto-resolve** — alert → closed in Falcon | ES → Falcon API | `Alerts: write` | **Opt-in, disabled by default** |
 
-Pillars 1 and 2 are read-only. Pillar 3 is the first write pillar. Enabling it requires a separate scope grant from pillar 1, so customers can run the read-only integration indefinitely without ever granting write access.
+Pillars 1 and 2 are read-only. Pillar 3 is the first write pillar. Enabling it requires a separate scope grant from pillar 1, so organizations can run the read-only integration indefinitely without ever granting write access.
 
 ## Required API scopes
 
@@ -32,7 +32,11 @@ The auto-resolve pillar has three modes, chosen from the UI or API:
 | `dry_run` | Compute candidates, log `[CrowdStrike-AutoResolve-DryRun]`, write a receipt with `mode='dry_run'`. **Does not call the Falcon API.** Use this for 7+ days to audit correlation quality before flipping live. |
 | `enabled` | PATCH the correlated alert in Falcon to `update_status='closed'` with an appended comment naming the Achilles test UUID. |
 
-Receipts are written in both `dry_run` and `enabled` modes so the same candidate isn't reprocessed on every 5-minute cycle.
+Receipts are written in both `dry_run` and `enabled` modes so the same candidate isn't reprocessed on every 5-minute cycle. An alert that got a dry-run receipt is not closed later, when you switch to `enabled`.
+
+The mode is deployment-wide, like the CrowdStrike credentials. With `REQUIRE_ORG_ISOLATION=true` it can't be changed from the UI or the API (403).
+
+Alerts matched to an EDR-killed agent run are linked to the run but never marked `achilles_correlated`, so they are never auto-resolved. An alert that proves an EDR launch block (exit 260 rewritten to 126) is marked `achilles_correlated` and is closed like any other correlated alert.
 
 ## Which alerts are eligible
 
@@ -62,7 +66,7 @@ PATCH /alerts/entities/alerts/v3
   "composite_ids": ["<alert-composite-id>"],
   "action_parameters": [
     { "name": "update_status", "value": "closed" },
-    { "name": "append_comment", "value": "Achilles test <uuid> — authorized continuous validation. Closed automatically by Project Achilles." }
+    { "name": "append_comment", "value": "Achilles test <uuid> — authorized continuous validation. Resolved automatically by Project Achilles." }
   ]
 }
 ```
@@ -102,7 +106,7 @@ Once dry-run looks clean, select **Enabled**. The next sync cycle will start PAT
 
 In the Falcon console, auto-resolved alerts appear with:
 - **Status**: Closed
-- **Comment**: "Achilles test `<bundle-uuid>` — authorized continuous validation. Closed automatically by Project Achilles."
+- **Comment**: "Achilles test `<test-uuid>` — authorized continuous validation. Resolved automatically by Project Achilles."
 
 ## How to spot-check it's working
 
@@ -187,9 +191,9 @@ The mode is persisted in the encrypted integrations settings (`~/.projectachille
 
 ## Non-goals (v1)
 
-- **No retroactive cleanup**. When you enable auto-resolve, existing open alerts from before the switch are ignored. Only alerts correlated going forward will be auto-resolved.
+- **No cleanup of alerts audited in dry-run**. An alert with a dry-run receipt stays open in Falcon. Correlated alerts that are still `new` and have no receipt (for example when you go straight from `disabled` to `enabled`) are closed, oldest first, 30 per pass.
 - **No tag or assignment updates.** Auto-resolve writes status + comment only; Falcon's detection tagging and assignments are untouched.
-- **No per-customer correlation tuning.** Single correlation policy (bundle-UUID prefix + hostname + time window) applies uniformly.
+- **No per-organization correlation tuning.** Single correlation policy (bundle-UUID prefix + hostname + time window) applies uniformly.
 
 ## Architecture reference
 

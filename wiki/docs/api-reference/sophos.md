@@ -28,7 +28,7 @@ The alert, trend and correlation endpoints run the
 [CrowdStrike analytics queries](./crowdstrike#analytics-endpoints) against the
 `achilles-sophos` index. All vendors share the same normalized alert document
 shape, and the Sophos enrichment pass writes `f0rtika.sophos_detected` /
-`_stage_detected` / `_prevented` on result documents with the same rules, so
+`_stage_detected` / `_stage_prevented` / `_prevented` on result documents with the same rules, so
 parameters and response shapes match. Only the differences are listed here.
 
 | Difference from CrowdStrike | Detail |
@@ -91,6 +91,9 @@ Same execution set, evidence rule and response shapes as the
 [CrowdStrike Technique Coverage](./crowdstrike#technique-coverage) (default
 window: last 30 days) and the
 [SentinelOne cross-correlation endpoints](./sentinelone#cross-correlation).
+The host scope is the stored Sophos endpoint list (`scope.source:
+"inventory"`), falling back to hosts that raised a Sophos alert in the last 90
+days.
 `/correlation/alerts-for-test` requires `techniques` and `timestamp` (`400`
 otherwise); `windowMinutes` (default 30), `hostname`, `binaryName` and
 `bundleName` are optional. `POST /correlation/alerts-for-tests` answers many executions in one request (same body, limits and response as the [Defender batch endpoint](./defender#cross-correlation)). `/correlation/scores` points are
@@ -143,7 +146,10 @@ POST   /api/integrations/sophos/test
 ```
 
 - **`GET /sophos`** (`integrations:read`): masked settings. The secret is never
-  returned, only `client_secret_set`, plus `configured` and `env_configured`.
+  returned, only `client_secret_set`. Returns `configured`, `env_configured`,
+  `client_id`, `label`, `permission_mode`, `poll_interval_minutes`,
+  `detection_backfill_days`, `tenant_id`, `data_region`, `capabilities`,
+  `last_auth_ok_at`, `auto_resolve_mode` and `sync_gap`.
 - **`POST /sophos`** (`integrations:write`): save settings (partial update).
   `client_id` and `client_secret` are required on the first save, and a changed
   `client_id` requires its `client_secret` (`400` otherwise). Refused with
@@ -157,7 +163,9 @@ POST   /api/integrations/sophos/test
 - **`POST /sophos/test`** (`integrations:write`): signs in with the body's
   `client_id` / `client_secret` (the stored secret is only used with the stored
   client ID), identifies the tenant, rejects partner and organization
-  credentials, and probes each capability once. Always HTTP 200:
+  credentials, and probes each capability once. A test of the stored
+  credentials saves the tenant, region and capabilities it found. Always HTTP
+  200:
 
   ```jsonc
   { "success": true, "region": "eu01", "tenantId": "<tenant-id>",
@@ -251,7 +259,8 @@ GET /api/integrations/sophos/auto-resolve/receipts?limit=<n>&offset=<n>
   defaults to 20 (1-100). Each item has `alert_id`, `alert_title`, `severity`,
   `source_type`, `achilles_test_uuid`, `auto_resolved_at`,
   `auto_resolve_dry_run_at`, `auto_resolve_mode` and `auto_resolve_error`
-  (`not_found`, `not_actionable`, `invalid_id` or `null`).
+  (`not_found`, `not_actionable`, `invalid_id` or `null`). An Elasticsearch
+  failure other than a missing index returns `502`.
 
 :::note[No manual response actions]
 There are no routes to isolate, scan, clean or allow-list on demand. The only

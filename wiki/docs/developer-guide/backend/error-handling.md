@@ -36,6 +36,11 @@ router.get('/resource/:id', asyncHandler(async (req, res) => {
 
 ## How It Works
 
-1. `asyncHandler` wraps the async function in a try/catch
-2. If the handler throws an `AppError`, the error middleware sends the appropriate HTTP status and message
-3. If an unexpected error occurs, the middleware sends a 500 with a generic message (no stack trace in production)
+1. `asyncHandler` passes a rejected promise from the handler to Express (`.catch(next)`)
+2. If the handler throws an `AppError`, the error middleware (`errorHandler`) sends its `statusCode` and message
+3. Any other error is sent as a 500 with the error's message. A `stack` field is added only when `NODE_ENV=development`
+4. Unknown routes are answered by `notFoundHandler` with a 404: `{ "success": false, "error": "Not Found", "message": "Cannot GET /api/unknown" }`
+
+:::warning[Error messages reach the client]
+The message of any thrown error is returned in the response, not only `AppError` messages. Do not put secrets, file paths or upstream response bodies in error messages.
+:::

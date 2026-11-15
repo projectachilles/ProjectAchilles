@@ -6,11 +6,11 @@ Third pillar of the Microsoft Defender integration. Reads Achilles-correlated al
 
 | Pillar | Direction | Graph permission | Default |
 |---|---|---|---|
-| 1. Analytics ingest — Secure Score, alerts, control profiles | Graph → ES | `SecurityAlert.Read.All` | On once credentials are set |
+| 1. Analytics ingest — Secure Score, alerts, control profiles | Graph → ES | `SecurityEvents.Read.All` (Secure Score, control profiles) and `SecurityAlert.Read.All` (alerts) | On once credentials are set |
 | 2. Evidence correlation — test ↔ alert matching | ES ↔ ES | None extra | Automatic |
 | 3. **Auto-resolve** — alert → resolved in Defender | ES → Graph | `SecurityAlert.ReadWrite.All` | **Opt-in, disabled by default** |
 
-Pillars 1 and 2 are read-only. Pillar 3 is the first write pillar. Enabling it requires a separate permission grant from pillar 1, so customers can run the read-only integration indefinitely without ever granting write access.
+Pillars 1 and 2 are read-only. Pillar 3 is the first write pillar. Enabling it requires a separate permission grant from pillar 1, so organizations can run the read-only integration indefinitely without ever granting write access.
 
 ## Operational modes
 
@@ -22,7 +22,11 @@ The auto-resolve pillar has three modes, chosen from the UI or API:
 | `dry_run` | Compute candidates, log `[Defender-AutoResolve-DryRun]`, write a receipt with `mode='dry_run'`. **Does not call Microsoft Graph.** Use this for 7+ days to audit correlation quality before flipping live. |
 | `enabled` | PATCH the correlated alert in Defender to `status=resolved`, `classification=informationalExpectedActivity`, `determination=securityTesting`, with an audit-trail comment naming the Achilles test UUID. |
 
-Receipts are written in both `dry_run` and `enabled` modes so the same candidate isn't reprocessed on every 5-minute cycle.
+Receipts are written in both `dry_run` and `enabled` modes so the same candidate isn't reprocessed on every 5-minute cycle. An alert that got a dry-run receipt is not resolved later, when you switch to `enabled`.
+
+The mode is deployment-wide, like the Defender credentials. With `REQUIRE_ORG_ISOLATION=true` it can't be changed from the UI or the API (403).
+
+Alerts matched to an EDR-killed agent run are linked to the run but never marked `achilles_correlated`, so they are never auto-resolved.
 
 ## Which alerts are eligible
 
@@ -129,6 +133,8 @@ If you enable auto-resolve and observe the Defense Score change, that is a bug w
 
 ## Troubleshooting
 
+The last pass's errors appear on the auto-resolve card in **Settings → Integrations** (**Last pass: N errors**, the counts and the first error) and in the backend log as `[Defender-AutoResolve-ERROR] …`.
+
 ### 403 on the first PATCH
 
 Symptom: backend logs show `[Defender-AutoResolve-ERROR] 403: ... SecurityAlert.ReadWrite.All`.
@@ -158,10 +164,10 @@ The mode is persisted in the encrypted integrations settings (`~/.projectachille
 
 ## Non-goals (v1)
 
-- **No retroactive cleanup**. When you enable auto-resolve, existing open alerts from before the switch are ignored. Only alerts correlated going forward will be auto-resolved.
+- **No cleanup of alerts audited in dry-run**. An alert with a dry-run receipt stays open in Defender. Correlated alerts that are still `new` and have no receipt (for example when you go straight from `disabled` to `enabled`) are resolved, oldest first, 30 per pass.
 - **No incident-level PATCHes.** Defender auto-cascades incident status when all child alerts resolve, so this v1 only touches individual alerts.
 - **No bulk Graph `$batch` calls.** Individual PATCHes per alert; adequate for the ~30 candidates per pass cap.
-- **No per-customer correlation tuning.** Single correlation policy (bundle-UUID prefix + hostname + time window) applies uniformly.
+- **No per-organization correlation tuning.** Single correlation policy (bundle-UUID prefix + hostname + time window) applies uniformly.
 
 ## Architecture reference
 

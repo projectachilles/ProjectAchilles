@@ -14,7 +14,7 @@ flood your SOC queue with alerts that are expected and authorized.
 
 | Pillar | Direction | Graph permission | Default |
 |--------|-----------|------------------|---------|
-| 1. Analytics ingest | Graph → ES | `SecurityAlert.Read.All` | On once credentials are set |
+| 1. Analytics ingest | Graph → ES | `SecurityEvents.Read.All` (Secure Score, control profiles) and `SecurityAlert.Read.All` (alerts) | On once credentials are set |
 | 2. Evidence correlation | ES ↔ ES | None extra | Automatic |
 | 3. **Auto-resolve** | ES → Graph | `SecurityAlert.ReadWrite.All` | **Opt-in, disabled by default** |
 
@@ -33,7 +33,11 @@ Auto-resolve has three modes, selected from the UI or API:
 | `enabled` | PATCHes the correlated alert in Defender to `status=resolved`, `classification=informationalExpectedActivity`, `determination=securityTesting`, with an audit-trail comment naming the Achilles test UUID. |
 
 Receipts are written in both `dry_run` and `enabled` modes so the same
-candidate isn't reprocessed on every sync cycle.
+candidate isn't reprocessed on every sync cycle. An alert that got a dry-run
+receipt is not resolved later, when you switch to `enabled`.
+
+The mode is deployment-wide, like the Defender credentials. With
+`REQUIRE_ORG_ISOLATION=true` it can't be changed from the UI or the API (403).
 
 
 Alerts matched to an EDR-killed agent run (see [Exit Codes & Outcomes](../analytics/exit-codes-and-outcomes#6-agent-terminated-by-the-edr)) are never auto-resolved.
@@ -106,7 +110,7 @@ with:
 
 - **Classification**: Informational — expected activity
 - **Determination**: Security testing
-- **Resolution comment**: naming the Achilles bundle UUID
+- **Comment**: "Achilles test `<test-uuid>` — authorized continuous validation. Resolved automatically by Project Achilles."
 
 ## Verifying It Works
 
@@ -187,11 +191,13 @@ cause is settings-file corruption or an env-var override — check that
 
 ## Non-Goals (v1)
 
-- **No retroactive cleanup** — open alerts from before you enabled auto-resolve
-  are ignored. Only alerts correlated going forward are resolved.
+- **No cleanup of alerts audited in dry-run** — an alert with a dry-run
+  receipt stays open in Defender. Correlated alerts that are still `new` and
+  have no receipt (for example when you go straight from `disabled` to
+  `enabled`) are resolved, oldest first, 30 per pass.
 - **No incident-level PATCHes** — Defender auto-cascades incident status when
   all child alerts resolve, so v1 only touches individual alerts.
-- **No per-customer correlation tuning** — a single correlation policy
+- **No per-organization correlation tuning** — a single correlation policy
   (bundle-UUID prefix + hostname + time window) applies uniformly.
 
 ## API Reference

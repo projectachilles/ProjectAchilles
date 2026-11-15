@@ -179,8 +179,10 @@ Protected > Prevented > Detected > Unprotected.
   §3, and counts on the combined (protected) side, not the strict one.
 - **Strict score**: `protected (105/126/127) / scored results`
 - **Combined score** ("detected counts as protected"): adds
-  `defender_detected OR crowdstrike_detected` to the protected side.
-  `*_prevented` ⊆ `*_detected` for both vendors, so prevented stages are
+  any connected EDR's `*_detected` flag (`defender_detected`,
+  `crowdstrike_detected`, `sentinelone_detected`, `sophos_detected`) to the
+  protected side.
+  `*_prevented` ⊆ `*_detected` for every vendor, so prevented stages are
   covered automatically.
 - Error codes (`0`, `1`, `259`, `999`) feed the **Error Rate**, not the score,
   except a stage the EDR stopped as above: it is scored, not an error. Explicitly
@@ -353,7 +355,7 @@ cover the last 2 days.
 The task database keeps the agent's raw result, so these places still show the
 run as **Not run** (exit 260) after Analytics shows Protected:
 
-- the Tasks page, its task rows and its 7-day outcome tiles;
+- the Tasks page, its task rows and its 7-day outcome line;
 - the pre-execution **Finished** email, when it is sent before the next EDR
   poll reconciles the run. Unlike an EDR-killed run, nothing holds the email
   back for a `260`.

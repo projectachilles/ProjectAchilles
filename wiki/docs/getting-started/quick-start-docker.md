@@ -39,7 +39,10 @@ CLERK_PUBLISHABLE_KEY=pk_test_your_key_here
 CLERK_SECRET_KEY=sk_test_your_key_here
 NODE_ENV=production
 EOF
+echo "ENCRYPTION_SECRET=$(openssl rand -base64 32)" >> backend/.env
 ```
+
+`ENCRYPTION_SECRET` is required: without it the backend can't save the Elasticsearch connection, integrations or certificates. The wizard generates it for you.
 
 ### 3. Create the Root `.env` for Docker Compose
 
@@ -134,6 +137,8 @@ The PowerShell script will:
 - Start services
 - Open the dashboard in your browser
 
+With `-NoBuild` the script starts the images that are already loaded instead of building them, and Git is not required. It is meant for the [offline kit](../deployment/docker-compose#offline-kit-workshops-slow-networks).
+
 ### Manual Path
 
 If you prefer to configure manually, follow the Linux/macOS steps above using a WSL2 terminal or Git Bash.
@@ -153,6 +158,17 @@ After startup, configure the Analytics module:
 3. Enter `http://elasticsearch:9200` as the node URL (Docker internal DNS)
 4. No credentials needed for the local instance
 
+## Try It Without a Real Endpoint
+
+To run tests before you enroll a real machine, add the lab endpoint, a throwaway Linux container that runs the agent:
+
+```bash
+docker compose -f docker-compose.yml -f docker-compose.lab.yml up -d
+docker exec achilles-lab-endpoint enroll <TOKEN>   # enrollment token from the UI
+```
+
+It appears as `lab-endpoint` and runs Linux tests. It is for demos, not production. See [Docker Compose: lab endpoint](../deployment/docker-compose#with-a-lab-endpoint-demos).
+
 ## Docker Compose Services
 
 | Service | Port | Description |
@@ -160,7 +176,9 @@ After startup, configure the Analytics module:
 | `backend` | 3000 (internal) | Express API server |
 | `frontend` | 80 | nginx serving the React SPA + API proxy |
 | `elasticsearch` | 9200 | Elasticsearch 8.17 (optional profile) |
-| `es-seed` | — | One-shot container that seeds synthetic data |
+| `es-seed` | — | One-shot container that seeds synthetic data (optional profile) |
+| `wiki` | 3001 | This documentation, served locally at `http://localhost:3001` |
+| `lab-endpoint` | — | Demo Linux endpoint (only with `docker-compose.lab.yml`) |
 
 ## Stopping Services
 
@@ -179,6 +197,8 @@ git pull
 docker compose build
 docker compose up -d
 ```
+
+Unless `AGENT_REPO_URL` is set, agent *Build from source* compiles the `agent/` folder of this checkout, so run `git pull` before you build a new agent version. The build's release notes record the commit it compiled.
 
 ## Troubleshooting
 
@@ -233,6 +253,6 @@ Ensure `CORS_ORIGIN` in the **root** `.env` matches the exact URL you're accessi
 
 ## Next Steps
 
-- **[Deployment Overview](../deployment/overview)** — Compare all 5 deployment targets
+- **[Deployment Overview](../deployment/overview)** — Compare all deployment targets
 - **[Production Checklist](../deployment/production-checklist)** — Harden your deployment
 - **[Features Overview](./features)** — Explore all platform capabilities

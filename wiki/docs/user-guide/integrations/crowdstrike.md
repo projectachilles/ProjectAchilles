@@ -75,15 +75,25 @@ failures: a client created in US-2 does not authenticate against US-1.
 ## Configuration
 
 1. Navigate to **Settings** → **Integrations** → **CrowdStrike Falcon**
-2. Select your **cloud region** (US-1 by default)
+2. Select your cloud region under **Falcon Cloud** (US-1 by default)
 3. Enter:
    - **Client ID** — the API client's Client ID
    - **Client Secret** — the API client's Client Secret
-   - **Label** — optional display name (e.g. "Production Falcon")
-4. Click **Save** and then **Test Connection**
+   - **Label (optional)** — display name (e.g. "Production Falcon")
+4. Click **Test Connection**, then **Save Settings**
 
 Credentials are encrypted at rest with AES-256-GCM. Saving a configuration
 kicks off an initial sync in the background.
+
+:::info[One CrowdStrike connection per deployment]
+The CrowdStrike settings are deployment-wide: the sync, the correlation and
+auto-resolve run once for the whole install, whichever Clerk organization the
+admin who saved them belongs to. With `REQUIRE_ORG_ISOLATION=true` the settings
+are read-only in the UI (saving, disconnecting and changing the auto-resolve
+mode return 403), so one organization's admin can't change what runs for every
+organization. Configure CrowdStrike with the `CROWDSTRIKE_*` environment
+variables there.
+:::
 
 :::info[Elasticsearch API key]
 With a scoped Elasticsearch API key, this integration needs grants on its own
@@ -95,8 +105,8 @@ index and `write` on the results index. Saving checks them and shows a red
 ### Environment Variable Alternative
 
 Instead of the UI, the integration can be configured entirely via environment
-variables. When set, they **override** the file-based settings (same pattern as
-Defender):
+variables. They are used when nothing is saved in the UI; settings saved in the
+UI take priority (same pattern as Defender):
 
 | Variable | Description |
 |----------|-------------|
@@ -379,11 +389,22 @@ Falcon reports what it *did* about each alert via `pattern_disposition`
 (e.g. "Prevention, process killed."). The sync extracts this into
 `prevention_action` (`quarantined` / `process_killed` / `blocked` /
 `kill_failed`) on the alert doc, and enrichment upgrades matched test stages
-with `crowdstrike_prevented: true` (plus the action) under a deliberate
-qualification rule: stage-binary matches always qualify, while bundle-level
-matches qualify only when the stage never reached a conclusive outcome — a
-sibling stage that already ran to completion was not prevented by the kill
-of a later stage. Prevented stages render
+with `crowdstrike_prevented: true` (plus the action) under these rules
+(v2.10.0 and v2.10.1):
+
+- **Own alert only.** A stage is credited by an alert that names its own
+  binary as the process, its parent or its grandparent. An alert that only
+  names the bundle, or a sibling stage, does not mark the stage: a sibling
+  that already ran to completion was not prevented by the kill of a later
+  stage.
+- **During the run.** For a stage that ran to completion (exit `101`), the
+  action counts only if the alert was raised before the run ended (the
+  result's time plus 2 minutes). A later action leaves the stage **Detected**.
+  Error-coded stages are not time-gated.
+- **Alerts that name several tests' files** count for none of them:
+  CrowdStrike gives no per-file verdict to tell which test the alert is about.
+
+Prevented stages render
 as **Prevented** in the executions view — stronger than Detected — count as
 protected in the Defense Score, and report as PREVENTED with
 `preventedBy: ['CrowdStrike Falcon']` in the SB compliance report. A failed
@@ -416,7 +437,7 @@ analytics.
 | Sync trigger | `setInterval` at server startup | Vercel Cron (`/api/cron/crowdstrike-sync`) |
 | Credentials | Encrypted file or env vars | Env vars or encrypted blob |
 
-Both variants expose identical API endpoints and analytics capabilities.
+Both variants expose the same API endpoints. The evidence rules of v2.10.0 and v2.10.1 (own-alert credit, in-run prevention, multi-test alerts), EDR-killed agent runs, EDR launch blocks and the Elasticsearch readiness check are in `backend/` only.
 
 ## Troubleshooting
 
@@ -426,8 +447,8 @@ Both variants expose identical API endpoints and analytics capabilities.
   client was created. CrowdStrike scopes take effect per client — no admin
   consent step is required beyond saving the scope on the client.
 - **No data after saving credentials**: The first sync runs in the background
-  (alerts every 5 minutes, ZTA every 6 hours). Click **Sync Now** in the
-  integration settings to trigger an immediate sync.
+  (alerts every 5 minutes, ZTA every 6 hours). Click **Sync Now** on the
+  **Analytics → CrowdStrike** tab to trigger an immediate sync.
 - **No alerts syncing**: Alert sync requires the `Alerts: read` scope. A 403
   from `/alerts/combined/alerts/v1` means the scope is missing on the API
   client.
@@ -435,6 +456,9 @@ Both variants expose identical API endpoints and analytics capabilities.
   integration records `zta_status: "not_licensed"` and keeps everything else
   working; grant `Zero Trust Assessment: read` and confirm licensing if you
   want the posture score.
+- **Saving returns 403 "EDR integrations are shared by every organization"**:
+  the install runs with `REQUIRE_ORG_ISOLATION=true`. Set the `CROWDSTRIKE_*`
+  environment variables instead.
 - **403 when enabling auto-resolve**: Auto-resolve needs the separate
   `Alerts: write` scope. See
   [Auto-Resolve → Troubleshooting](./crowdstrike-auto-resolve#troubleshooting).

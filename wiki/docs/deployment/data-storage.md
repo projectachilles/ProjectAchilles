@@ -21,6 +21,7 @@ If that surprises you, this page is the page you need.
 | Linux / macOS (local) | `~/.projectachilles/` |
 | Windows (local) | `C:\Users\<user>\.projectachilles\` |
 | Docker Compose | `/root/.projectachilles/` (inside container, backed by named volume `achilles-data`) |
+| Server install (Caddy, `docker-compose.server.yml`) and the Hyper-V appliance | `/root/.projectachilles/` (inside the backend container, backed by the `achilles-data` volume of the compose project: `achilles-server_achilles-data` unless `COMPOSE_PROJECT_NAME` is set) |
 | Render | `/root/.projectachilles/` (backed by persistent disk) |
 | Fly.io | `/root/.projectachilles/` (backed by the `achilles_data` volume, 1 GB) |
 | Vercel (serverless) | Turso database + Vercel Blob store (no filesystem state) |
@@ -29,17 +30,51 @@ If that surprises you, this page is the page you need.
 
 | Path | Contents |
 |------|----------|
-| `agents.db` | SQLite database: agents, enrollment tokens, tasks, schedules, `agent_versions` |
+| `agents.db` | SQLite database (see the table list below) |
 | `analytics.json` | Encrypted Elasticsearch credentials (AES-256-GCM) |
-| `integrations.json` | Encrypted Defender, Slack, and email credentials |
+| `integrations.json` | Integration settings with encrypted secrets: Defender, CrowdStrike, SentinelOne, Sophos, Azure, alerts (Slack, email) and pre-execution notices |
 | `tests.json` | Test library configuration |
+| `agent-settings.json` | Agent key auto-rotation settings |
+| `console-identity.json` | [Console identity](../user-guide/settings/console-identity) saved in Settings → General (code, name, colour) |
 | `certs/cert-*/` | Code-signing PFX certificates (max 5, active cert tracked in `active-cert.txt`) |
 | `binaries/<os>-<arch>/` | Compiled Go agents ready to download |
 | `builds/<test-uuid>/` | Per-test compiled binaries |
 | `signing/` | Agent API key signing keypair |
 | `custom-tests/` | User-authored tests outside the git-synced library |
+| `go-cache/` | Go module cache used by agent builds |
 
-Additionally, test results and Defender alerts are stored in **Elasticsearch** (`achilles-results-*`, `achilles-defender` indices) — that data lives in your ES cluster, not on the local filesystem.
+Additionally, test results and EDR alerts are stored in **Elasticsearch**. That data lives in your ES cluster, not on the local filesystem:
+
+| Index | Contents |
+|-------|----------|
+| `achilles-results-*` | Test results |
+| `achilles-risk-acceptances` | Risk acceptances |
+| `achilles-defender`, `achilles-crowdstrike`, `achilles-sentinelone`, `achilles-sophos` | Alerts and posture data synced from each EDR |
+| `achilles-sentinelone-posture` | SentinelOne posture (policies, agents, exclusions, Endpoint Protection score) |
+
+### Tables in `agents.db`
+
+| Table | Contents |
+|-------|----------|
+| `agents`, `enrollment_tokens`, `agent_versions` | Enrolled agents, enrollment tokens, registered agent builds |
+| `tasks`, `schedules` | Task runs with their results, and schedules |
+| `deleted_tasks` | Tasks deleted from the Tasks page. The full row is archived here with who deleted it and when |
+| `heartbeat_history`, `agent_events` | Agent heartbeat metrics and events (online, offline, task, key and version events) |
+| `agent_key_digests` | A digest of each agent key the backend has already verified, so agent requests stay fast after a restart |
+| `run_notices`, `notice_digests` | [Pre-execution notices](../user-guide/integrations/pre-execution-notices) and the daily advance digest |
+| `campaigns`, `campaign_runs` | Saved [campaigns](../user-guide/agent-management/campaigns) and a snapshot of each run |
+| `api_keys` | API keys (stored hashed) |
+| `cli_auth_codes`, `cli_refresh_tokens`, `cli_session_revocations` | CLI sign-in state |
+
+### What is pruned automatically
+
+The backend prunes SQLite on its own, hourly:
+
+- Heartbeat history older than 30 days is deleted.
+- Task output older than `TASK_OUTPUT_RETENTION_DAYS` (default 90) is compacted: the exit code, error and stage results stay.
+- Agent events older than `AGENT_EVENT_RETENTION_DAYS` (default 90) are deleted, except each agent's latest went-offline event.
+
+See [Retention](./environment-variables#retention) for the exact rules. The database file does not shrink (no VACUUM); freed pages are reused, so growth stops. Elasticsearch data is not pruned by ProjectAchilles.
 
 :::tip[Design rationale]
 Storing runtime state outside the repo means `git pull`, re-clones, or even `rm -rf` on the repo folder can never destroy production data. That's a safety feature, not an oversight.
@@ -72,9 +107,11 @@ Remove-Item -Recurse -Force $HOME\.projectachilles
 ### Docker Compose
 
 ```bash
-docker compose down --volumes   # removes the achilles-data volume
+docker compose down --volumes   # removes every volume: achilles-data, repo-cache, go-cache and esdata (local Elasticsearch)
 docker compose up -d
 ```
+
+On a server install, add `-f docker-compose.server.yml` (and `--profile elasticsearch` when Elasticsearch runs on the server), then run `./scripts/deploy-server.sh` again. Take a backup first with `achilles-installer backup` if you may need the data.
 
 ### Render
 
@@ -116,15 +153,18 @@ If you want to keep your Clerk config, certificates, and ES credentials but remo
 sqlite3 ~/.projectachilles/agents.db <<'SQL'
 DELETE FROM tasks;
 DELETE FROM schedules;
+DELETE FROM heartbeat_history;
+DELETE FROM agent_events;
+DELETE FROM agent_key_digests;
 DELETE FROM agents;
 DELETE FROM enrollment_tokens;
 SQL
 ```
 
-Restart the backend afterwards so it reopens the database cleanly.
+Stop the backend first and start it afterwards, so it reopens the database cleanly. Campaigns, past campaign runs, notices and archived deleted tasks are left in place; a campaign that names a removed agent has to be edited before its next run.
 
 :::warning[Foreign keys]
-The `tasks` table references `agents` via FK. Delete in the order above (tasks → schedules → agents → enrollment_tokens) or disable foreign keys first with `PRAGMA foreign_keys = OFF;`.
+The `tasks`, `heartbeat_history` and `agent_events` tables reference `agents` via FK. Delete in the order above (agents after the tables that reference it) or disable foreign keys first with `PRAGMA foreign_keys = OFF;`.
 :::
 
 ## Backing up state

@@ -28,6 +28,27 @@ description: "Key differences between backend/ and backend-serverless/ — Turso
 Changes to `backend/` do **not** propagate to `backend-serverless/`. If modifying shared logic (types, API contracts, ES mappings), update both codebases.
 :::
 
+## Features Not Available on Vercel
+
+The serverless backend is a subset of `backend/`. New features are often built for `backend/` only. `GET /api/capabilities` tells the frontend what the running backend supports, and the frontend hides the matching navigation entries, tabs and settings cards.
+
+| Capability flag | `backend/` | `backend-serverless/` | What is missing on Vercel |
+|-----------------|-----------|----------------------|---------------------------|
+| `build`, `agentBuild` | `true` | `false` | Go builds of tests and of the agent (upload a binary instead) |
+| `gitSync` | `true` | `false` | Runtime sync of the test library (updated at deploy time) |
+| `campaigns` | `true` | `false` | Saved campaigns and the evidence matrix |
+| `preExecutionNotices` | `true` | `false` | Pre-execution notices and the advance digest (no email stack) |
+| `alerting` | `true` | `false` | Threshold alerts by Slack and email |
+| `consoleIdentity` | `true` | `false` | Console identity (Settings → General) |
+| `sentinelone`, `sophos` | `true` | `false` | SentinelOne and Sophos integrations |
+| `outcomeBreakdown`, `stageCoverage` | `true` | `false` | Outcome breakdown and Stage coverage cards |
+| `randomizedOnce`, `testFleet`, `testRunRecency` | `true` | not reported | Randomized Once schedules, per-test fleet results, last-run recency |
+| `buildUpload`, `certGenerate`, `certUpload` | `true` | `true` | |
+
+Also not on Vercel, with no flag: API keys, CLI sign-in (`/api/cli/auth/*`), the EDR-killed-agent and EDR launch-block passes, and task archiving (`deleted_tasks`). Microsoft Defender and CrowdStrike are implemented in both backends.
+
+When you add a backend-only feature, add a capability flag to both `/api/capabilities` handlers (`backend/src/server.ts`, `backend-serverless/src/app.ts`) and gate the UI on it through `useCapabilities`.
+
 ## Architecture
 
 The serverless backend is a layered Express.js application exported as a Vercel serverless function. Unlike the standard backend which calls `app.listen()`, the serverless variant exports the Express app and lets Vercel handle HTTP serving.
@@ -52,7 +73,7 @@ graph TB
         BROWSER[Browser Routes]
         TESTS[Tests Routes]
         INTEGRATIONS[Integration Routes]
-        DEFENDER[Defender Routes]
+        DEFENDER[Defender + CrowdStrike Routes]
         USERS[Users Routes]
         CRON[Cron Routes<br/>CRON_SECRET auth]
     end
@@ -126,10 +147,12 @@ All file operations (certificates, settings, binaries) use Vercel Blob instead o
 
 | Operation | Standard Backend | Serverless Backend |
 |-----------|-----------------|-------------------|
-| Read file | `fs.readFileSync(path)` | `await fetch(blobUrl)` |
-| Write file | `fs.writeFileSync(path, data)` | `await put(path, data, { access: 'public' })` |
-| Delete file | `fs.unlinkSync(path)` | `await del(blobUrl)` |
-| List files | `fs.readdirSync(dir)` | `await list({ prefix })` |
+| Read file | `fs.readFileSync(path)` | `await blobRead(key)` / `blobReadText(key)` |
+| Write file | `fs.writeFileSync(path, data)` | `await blobWrite(key, data)` |
+| Delete file | `fs.unlinkSync(path)` | `await blobDelete(key)` |
+| List files | `fs.readdirSync(dir)` | `await blobList(prefix)` |
+
+The helpers live in `src/services/storage.ts` and wrap `@vercel/blob` (`put`, `del`, `list`, `head`).
 
 ### Certificate Generation (`node-forge`)
 
@@ -145,11 +168,17 @@ Background tasks that run via `setInterval` in the standard backend are replaced
 
 | Task | Standard Backend | Serverless Backend |
 |------|-----------------|-------------------|
-| Schedule processing | `setInterval` (60s) | `GET /api/cron/schedules` |
-| Key rotation | `setInterval` (1h) | `GET /api/cron/auto-rotation` |
-| Defender sync | `setInterval` (5min/6h) | `GET /api/cron/defender-sync` |
+| Schedule processing | `setInterval` | `GET /api/cron/schedules` (every minute) |
+| Key rotation | `setInterval` | `GET /api/cron/auto-rotation` (every minute) |
+| Retry of failed Elasticsearch ingestion | Ingestion worker | `GET /api/cron/retry-ingestion` (every 5 minutes) |
+| CrowdStrike sync | `setInterval` (5 min) | `GET /api/cron/crowdstrike-sync` (every 5 minutes) |
+| Defender sync | `setInterval` (5 min / 6 h) | `GET /api/cron/defender-sync` |
 
-Cron routes are protected by the `CRON_SECRET` header that Vercel sets automatically.
+The schedules are in `backend-serverless/vercel.json`. Cron routes check `Authorization: Bearer <CRON_SECRET>`, which Vercel sends when the `CRON_SECRET` environment variable is set.
+
+:::warning[Defender sync is not scheduled in vercel.json]
+The `/api/cron/defender-sync` route exists, but `vercel.json` has no cron entry for it. Add one to your deployment's `vercel.json`, or call the route from an external scheduler, if you use Microsoft Defender on Vercel.
+:::
 
 ### Test Library (Build-time Clone)
 
@@ -158,12 +187,12 @@ The standard backend syncs the test library from Git at runtime. The serverless 
 ```json
 {
   "scripts": {
-    "vercel-build": "rm -rf data/f0_library && git clone <repo> data/f0_library && npm run build"
+    "vercel-build": "rm -rf data/f0_library && git clone --depth 1 <repo> data/f0_library && npm run build"
   }
 }
 ```
 
-The `includeFiles` setting in `vercel.json` ensures the cloned data directory is included in the deployment bundle.
+The repository comes from `TESTS_REPO_URL`; `GITHUB_TOKEN` is used for a private repository. The `includeFiles` setting in `vercel.json` ensures the cloned data directory is included in the deployment bundle.
 
 ### Stubbed Features
 
@@ -171,17 +200,20 @@ Features that require native toolchains or long-running processes return HTTP 50
 
 | Feature | Reason | Response |
 |---------|--------|----------|
-| Go cross-compilation | No Go toolchain in serverless | `503 "Not available on serverless"` |
-| Git sync (runtime) | No persistent filesystem | `503 "Tests are updated at deploy time"` |
+| Go cross-compilation of tests | No Go toolchain in serverless | `503 "Go compilation not available on serverless — use Upload Binary instead"` |
+| Agent build from source | No Go toolchain in serverless | `503` |
+| Git sync (runtime) | No persistent filesystem | `503 "Git sync not available on serverless. Redeploy to update test library."` |
 
 ## Security Model
 
-The serverless backend implements the same four-tier auth model as the standard backend:
+The serverless backend has four kinds of endpoint:
 
 1. **Public endpoints** — Agent downloads, enrollment (rate-limited)
-2. **Agent device endpoints** — `X-Agent-Key` + `X-Agent-ID` authentication
+2. **Agent device endpoints** — `Authorization: Bearer ak_…` + `X-Agent-ID` authentication
 3. **Admin endpoints** — Clerk JWT with permission checks
-4. **Cron endpoints** — `CRON_SECRET` header validation
+4. **Cron endpoints** — `Authorization: Bearer <CRON_SECRET>` validation
+
+It has no API-key and no CLI-token authentication.
 
 ### Environment Variables
 
@@ -195,6 +227,7 @@ Required environment variables for the serverless deployment:
 | `TURSO_AUTH_TOKEN` | Turso authentication |
 | `BLOB_READ_WRITE_TOKEN` | Vercel Blob access |
 | `ENCRYPTION_SECRET` | AES-256-GCM key for settings |
+| `CRON_SECRET` | Protects the cron routes |
 | `SIGNING_PRIVATE_KEY_B64` | Ed25519 private key (base64) |
 | `SIGNING_PUBLIC_KEY_B64` | Ed25519 public key (base64) |
 
@@ -218,7 +251,7 @@ Required environment variables for the serverless deployment:
 ## Testing
 
 ```bash
-cd backend-serverless && npm test   # 626 tests across 25 files (~11s)
+cd backend-serverless && npm test
 ```
 
 Tests use the same patterns as the standard backend but mock `@libsql/client` instead of `better-sqlite3` and `@vercel/blob` instead of `fs`.

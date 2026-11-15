@@ -49,4 +49,7 @@ Report via [GitHub Security Advisories](https://github.com/projectachilles/Proje
 
 | Version | Supported |
 |---------|-----------|
-| 1.x.x (latest) | Yes |
+| Latest 2.x release | Yes |
+| Older releases | No. Upgrade to the latest release |
+
+Security fixes are shipped in the next platform release (`v<version>`) or agent release (`agent-v<version>`). Published advisories are listed under [Security Advisories](https://github.com/projectachilles/ProjectAchilles/security/advisories).

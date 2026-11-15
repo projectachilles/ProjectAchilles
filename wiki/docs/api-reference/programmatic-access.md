@@ -17,7 +17,8 @@ For an endpoint catalog see the per-module references ([Analytics](./analytics.m
 
 ## Prerequisites
 
-- A user account with the `admin` role (only admins can create API keys).
+- A user account with the `admin` role (only admins can create API keys), signed in to the console in a browser.
+- A backend that supports API keys. The Vercel (serverless) backend has no API keys.
 - The ability to reach your deployment's backend (see [Two-host architecture](#2-two-host-architecture-important)).
 - `curl` and `jq` for the examples below. The patterns transfer to any HTTP client.
 
@@ -33,9 +34,22 @@ For an endpoint catalog see the per-module references ([Analytics](./analytics.m
 
 API keys cannot create or revoke other API keys — that requires a human admin via the UI.
 
+A key created while you are signed in to a Clerk organization belongs to that organization. It reads and changes only that organization's agents, tasks, schedules, campaigns and results, and an `org` or `org_id` naming another organization returns `403`. A key created outside any organization has no such limit, unless the install sets `REQUIRE_ORG_ISOLATION=true`; then it is refused (`403`) on the organization-scoped routes.
+
+### What a key can never do
+
+These routes need a signed-in browser session. Every API key, including an `admin` one, gets `403` (`This action requires a signed-in user session`) (and so does a CLI token):
+
+- everything under `/api/api-keys`;
+- every write under `/api/users` (invite, change or remove a role, delete a user, revoke an invitation);
+- approving a CLI sign-in (`POST /api/cli/auth/verify`);
+- changing the console identity (`PUT` and `DELETE /api/settings/identity`).
+
+An `admin` key also lacks `settings:users:manage`, so it cannot list users either.
+
 ## 2. Two-host architecture (important)
 
-ProjectAchilles deployments use **two subdomains** per tenant:
+Hosted ProjectAchilles deployments (Render, Fly.io, Vercel) use **two subdomains** per tenant. A single-server install behind Caddy has one origin instead: the API is at `https://<your-host>/api` and this section does not apply.
 
 | Subdomain | Purpose | Use for API calls? |
 |---|---|---|
@@ -101,12 +115,13 @@ TO=$(date -u +%Y-%m-%dT%H:%M:%SZ)
 
 | `basis` | What it counts | Matches |
 |---|---|---|
-| `executions` (default when omitted) | Every conclusive execution in the window | The PDF execution report, score-drop alerts, and the scripts you already have |
-| `latest` | Each test × endpoint pair **once**, by its most recent conclusive result in the window | The Dashboard and Analytics headline, line and breakdowns |
+| `executions` (default when omitted) | Every conclusive execution in the window | The PDF execution report and the scripts you already have |
+| `latest` | Each test × endpoint pair **once**, by its most recent conclusive result in the window | The Dashboard and Analytics headline, line and breakdowns, and the Defense Score alert |
 
 To reproduce the number an analyst sees in the UI, add `&basis=latest`.
 - **Field meanings under `latest`:** the fields below keep their meaning, but they count pairs. `totalExecutions` equals the new `pairCount`, `riskAcceptedCount` is a pair count, and `score` is `null` when no pair has a result in the window.
 - **Accepted dates under `latest`:** `now`, `now-<n><d|h|w|m>` and ISO dates. ES date math such as `now/d` returns 400.
+- **Multi-stage tests:** `scoringMode` defaults to `any-stage`, the dashboard's rule: a multi-stage test on a host counts once and is protected if any stage is blocked or detected. Pass `scoringMode=all-stages` to score every stage on its own.
 - See [the analytics API reference](./analytics.md) for the full contract.
 
 ### The three score variants
@@ -115,19 +130,19 @@ The defense-score response carries three score variants. Each answers a differen
 
 | Field | Numerator | Risk-acceptance | Use it for |
 |---|---|---|---|
-| `score` | EDR-protected **OR** Defender-detected | Excluded | The headline number (the UI's headline uses `basis=latest`) |
-| `realScore` | EDR-protected **only** | Excluded | Alerting on real EDR coverage regressions |
-| `rawScore` | EDR-protected **OR** Defender-detected | **Not** excluded | Auditing for risk-acceptance creep |
+| `score` | Blocked **OR** detected by a connected EDR | Excluded | The headline number (the UI's headline uses `basis=latest`) |
+| `realScore` | Blocked **only** | Excluded | Alerting on real blocking regressions |
+| `rawScore` | Blocked **OR** detected | **Not** excluded | Auditing for risk-acceptance creep |
 
 Companion counts:
 
 ```jsonc
 {
   "score": 54.59,            // headline
-  "realScore": 53.21,        // EDR-only, risk-adjusted
+  "realScore": 53.21,        // blocked only, risk-adjusted
   "rawScore": 53.83,         // combined, no risk adjustment
-  "protectedCount": 1391,    // caught by EDR (strict)
-  "detectedCount": 36,       // ONLY Defender caught it (EDR missed)
+  "protectedCount": 1391,    // blocked (strict)
+  "detectedCount": 36,       // not blocked, but an EDR alert matched the test
   "unprotectedCount": 1187,  // neither
   "totalExecutions": 2614,   // = protected + detected + unprotected
   "riskAcceptedCount": 37    // explicitly accepted; excluded from totalExecutions
@@ -136,10 +151,10 @@ Companion counts:
 
 Two useful derived metrics:
 
-- **`score − realScore`** = your "Defender lifeline" gap. If this is large, a meaningful chunk of your coverage relies on Defender catching what EDR missed. If Defender ingestion ever breaks, your operational reality is closer to `realScore`.
+- **`score − realScore`** = your "detection only" gap. If this is large, a meaningful chunk of your coverage relies on an EDR alert (Microsoft Defender, CrowdStrike, SentinelOne or Sophos) for tests that were not blocked. If that EDR's sync ever breaks, your operational reality is closer to `realScore`.
 - **`score − rawScore`** = your "risk-acceptance creep" gap. A growing gap over time means more results are being dismissed via Accept Risk. Worth a periodic audit.
 
-**Recommended alerting:** page on **`realScore`** drops (no masking from either Defender or risk-acceptance — purest signal). Show **`score`** on dashboards. Watch **`rawScore`** drift as a hygiene metric.
+**Recommended alerting:** page on **`realScore`** drops (no masking from either EDR detections or risk-acceptance — purest signal). Show **`score`** on dashboards. Watch **`rawScore`** drift as a hygiene metric.
 
 ## 7. Reading test executions
 
@@ -147,7 +162,7 @@ The platform offers **two different shapes** for test results, and choosing the 
 
 | Shape | Endpoint | Has | Lacks |
 |---|---|---|---|
-| **Enriched (analytics)** | `/api/analytics/executions*` | `is_protected`, MITRE techniques, severity, score, Defender flags | `stdout`, `stderr`, timing, binary hash, OS, arch |
+| **Enriched (analytics)** | `/api/analytics/executions*` | `is_protected`, MITRE techniques, score, EDR flags | `stdout`, `stderr`, timing, binary hash, OS, arch |
 | **Raw (admin)** | `/api/agent/admin/tasks*` | `stdout`, `stderr`, `execution_duration_ms`, `binary_sha256`, `os`, `arch` | All catalog/MITRE enrichment, scoring |
 
 ### Recent enriched executions
@@ -188,15 +203,17 @@ curl -s -H "Authorization: Bearer $PA_KEY" \
   "$BACKEND/analytics/executions/paginated?techniques=T1486&result=unprotected&from=now-30d" \
   | jq '.data[]'
 
-# Critical-severity tests on a specific host (flat)
+# Tests on a specific host that ran and raised no alert (flat, attack tests only)
 curl -s -H "Authorization: Bearer $PA_KEY" \
-  "$BACKEND/analytics/executions/paginated?hostnames=workstation-01&severities=critical&from=now-30d" \
+  "$BACKEND/analytics/executions/paginated?hostnames=workstation-01&verdict=silent&from=now-30d" \
   | jq '.data[]'
 ```
 
+`verdict` is `protected`, `prevented`, `detected` or `silent`, the four outcomes of the Outcome breakdown card. `pageSize` is capped at 100.
+
 ### Raw task results (stdout, stderr, timing)
 
-Different endpoint, different shape. The agent admin path returns the agent's verbatim `TaskResult` from SQLite:
+Different endpoint, different shape. The agent admin path returns the agent's verbatim `TaskResult` from SQLite. Task responses never include the environment variables a task was given:
 
 ```bash
 curl -s -H "Authorization: Bearer $PA_KEY" "$BACKEND/agent/admin/tasks?limit=5" \
@@ -217,12 +234,12 @@ Use this path when you need execution-level forensic data — what the binary pr
 ```bash
 # All enrolled agents with current status
 curl -s -H "Authorization: Bearer $PA_KEY" "$BACKEND/agent/admin/agents" \
-  | jq '.data[] | {id, hostname, status, last_heartbeat_at, os, version}'
+  | jq '.data.agents[] | {id, hostname, status, is_online, last_heartbeat, os, agent_version}'
 
 # Just the agents that haven't heartbeated in 24h
 curl -s -H "Authorization: Bearer $PA_KEY" "$BACKEND/agent/admin/agents" \
   | jq --arg cutoff "$(date -u -d '24 hours ago' +%Y-%m-%dT%H:%M:%SZ)" \
-       '.data[] | select(.last_heartbeat_at < $cutoff) | {hostname, last_heartbeat_at}'
+       '.data.agents[] | select(.last_heartbeat < $cutoff) | {hostname, last_heartbeat}'
 ```
 
 ## Cookbook
@@ -312,7 +329,7 @@ echo "current creep: ${CREEP}pp"
 
 "Show me every security test that's run on this host and what happened" is the most common operational question. The workflow uses **two endpoints** because the two stores hold different shapes:
 
-- `/api/analytics/*` — Elasticsearch-backed, **filter by hostname** (`hostnames=`), gives enrichment (MITRE techniques, severity, score, Defender detection).
+- `/api/analytics/*` — Elasticsearch-backed, **filter by hostname** (`hostnames=`), gives enrichment (MITRE techniques, score, EDR detection).
 - `/api/agent/admin/tasks` — SQLite-backed, **filter by agent UUID** (`agent_id=`), gives raw `TaskResult` (stdout/stderr/timing/binary hash).
 
 You'll usually want both. Here's a top-to-bottom workflow.
@@ -321,7 +338,7 @@ You'll usually want both. Here's a top-to-bottom workflow.
 
 ```bash
 curl -s -H "Authorization: Bearer $PA_KEY" "$BACKEND/agent/admin/agents" \
-  | jq '.data[] | {id, hostname, status, os, version, last_heartbeat_at}'
+  | jq '.data.agents[] | {id, hostname, status, os, agent_version, last_heartbeat}'
 ```
 
 Pick the row you want and save both identifiers:
@@ -333,18 +350,18 @@ export AGENT_ID='paste-the-uuid-here'  # for /agent/admin/tasks
 
 #### 2. Per-test pass/fail summary
 
-One row per test, restricted to this host, with protected vs. unprotected counts. The cleanest high-level view of what the host's protection looks like:
+One row per test, restricted to this host, with its score, the number of results and how many were protected (`limit` defaults to 10). The cleanest high-level view of what the host's protection looks like:
 
 ```bash
 curl -s -H "Authorization: Bearer $PA_KEY" \
-  "$BACKEND/analytics/defense-score/by-test?hostnames=$HOST&from=now-30d" \
-  | jq -r '.[] | [.test_name, .severity, .protectedCount, .unprotectedCount] | @tsv' \
+  "$BACKEND/analytics/defense-score/by-test?hostnames=$HOST&from=now-30d&limit=100" \
+  | jq -r '.[] | [.name, .score, .protected, .count] | @tsv' \
   | column -t -s $'\t'
 ```
 
 #### 3. Every individual run with full enrichment
 
-`/executions/paginated` is the detail view — every run with its MITRE techniques, tactics, severity, error code, and Defender flag. The default flat shape returns one row per ES document; append `&grouped=true` for the bundle-aware view (see [§7.b](#paginated-enriched-executions-with-filters) for the shape comparison).
+`/executions/paginated` is the detail view — every run with its MITRE techniques, tactics, error code, and EDR flags. The default flat shape returns one row per ES document; append `&grouped=true` for the bundle-aware view (see [§7.b](#paginated-enriched-executions-with-filters) for the shape comparison).
 
 ```bash
 curl -s -H "Authorization: Bearer $PA_KEY" \
@@ -353,7 +370,6 @@ curl -s -H "Authorization: Bearer $PA_KEY" \
       test_name,
       hostname,
       is_protected,
-      severity,
       techniques,
       tactics,
       timestamp,
@@ -371,7 +387,6 @@ curl -s -H "Authorization: Bearer $PA_KEY" \
 curl -s -H "Authorization: Bearer $PA_KEY" \
   "$BACKEND/analytics/executions/paginated?hostnames=$HOST&result=unprotected&from=now-30d&pageSize=100" \
   | jq -r '.data[] | [
-      .severity,
       .test_name,
       (.techniques // [] | join(",")),
       .timestamp
@@ -379,14 +394,14 @@ curl -s -H "Authorization: Bearer $PA_KEY" \
   | column -t -s $'\t'
 ```
 
-#### 5. Critical-only triage
+#### 5. Silent-only triage
 
-When a host has hundreds of test runs, start with what actually matters:
+When a host has hundreds of test runs, start with the attack tests that ran and raised no alert at all:
 
 ```bash
 curl -s -H "Authorization: Bearer $PA_KEY" \
-  "$BACKEND/analytics/executions/paginated?hostnames=$HOST&severities=critical,high&result=unprotected&from=now-30d&pageSize=100" \
-  | jq '.data[] | {test_name, severity, techniques, timestamp, control_id}'
+  "$BACKEND/analytics/executions/paginated?hostnames=$HOST&verdict=silent&from=now-30d&pageSize=100" \
+  | jq '.data[] | {test_name, techniques, timestamp, control_id}'
 ```
 
 #### 6. Filter by MITRE technique
@@ -424,9 +439,9 @@ curl -s -H "Authorization: Bearer $PA_KEY" "$BACKEND/agent/admin/tasks/$TASK_ID"
 ```
 
 :::tip[Exit code conventions]
-- `100` — **protected**: a defender (EDR or otherwise) blocked the malicious action.
+- `105`, `126`, `127` — **protected**: the endpoint blocked the test (file quarantined, execution prevented).
 - `101` — **unprotected**: the test successfully performed the malicious action.
-- Anything else — **inconclusive**: configuration error, missing dependency, validator itself was blocked. The analytics endpoints' `result=unprotected` filter treats only exit code `101` as a real failure; the admin tasks path returns every exit code as-is.
+- Anything else (for example `0`, `1`, `259`, `260`, `999`) — **inconclusive**: configuration error, missing dependency, timeout, or the test never started. The analytics endpoints' `result=unprotected` filter treats only exit code `101` as a real failure; the admin tasks path returns every exit code as-is.
 :::
 
 :::tip[Bundle tests]
@@ -444,7 +459,7 @@ For after-action reviews or handing off to a SIEM ingestion pipeline:
     "$BACKEND/analytics/defense-score/by-test?hostnames=$HOST&from=now-30d"
   echo ',"executions":'
   curl -s -H "Authorization: Bearer $PA_KEY" \
-    "$BACKEND/analytics/executions/paginated?hostnames=$HOST&from=now-30d&pageSize=500"
+    "$BACKEND/analytics/executions/paginated?hostnames=$HOST&from=now-30d&pageSize=100"
   echo ',"raw_tasks":'
   curl -s -H "Authorization: Bearer $PA_KEY" \
     "$BACKEND/agent/admin/tasks?agent_id=$AGENT_ID&limit=500"
@@ -452,14 +467,14 @@ For after-action reviews or handing off to a SIEM ingestion pipeline:
 } | jq > "host-$HOST-report-$(date +%Y%m%d).json"
 ```
 
-One file containing per-test summary, every individual run with enrichment, and the raw `TaskResult` (with stdout/stderr) for each task. Drop it into an evidence locker, attach it to a ticket, or feed it to a SIEM.
+One file containing per-test summary, the 100 most recent runs with enrichment (page through `executions/paginated` as in the SIEM recipe for more), and the raw `TaskResult` (with stdout/stderr) for each task. Drop it into an evidence locker, attach it to a ticket, or feed it to a SIEM.
 
 ## Rate limits
 
 | Surface | Limit | Notes |
 |---|---|---|
 | `Bearer pa_…` authentication | 60 attempts / minute per IP | Counts every request bearing such a header, even unauthenticated probes |
-| Global `/api/*` | 1000 / 15 minutes per authenticated user (falls back to IP) | Applies after auth attaches |
+| Global `/api/*` | 1000 / 15 minutes per API key (per user for browser sessions; falls back to IP) | Applies after auth attaches |
 | Agent device endpoints (`/api/agent/*`) | Separate (per-agent) limiter | Not relevant for API keys |
 
 A naive polling script at 1 req/s sits right at the API-key auth ceiling. **Drop to one request every 2–3 seconds** for safety, or batch with `pageSize=` to fetch more per call.
@@ -469,10 +484,12 @@ A naive polling script at 1 req/s sits right at the API-key auth ceiling. **Drop
 | Code | Meaning | Common cause |
 |---|---|---|
 | `200` | Success | — |
-| `201` | Created | POST to `/api/api-keys` (admin-only) |
+| `201` | Created | A task, schedule, campaign or enrollment token was created |
 | `400` | Bad request | Invalid query parameter or body schema |
 | `401` | Unauthenticated | Missing / malformed / revoked / expired key |
-| `403` | Forbidden | Key valid but lacks the required permission for this endpoint (e.g. `read` key trying to POST) |
+| `403` | Forbidden | Key valid but lacks the required permission (e.g. `read` key trying to POST), names another organization, or calls a route that needs a browser session |
+| `404` | Not found | The id does not exist, or belongs to another organization |
+| `409` | Conflict | For example deleting a task that has not finished |
 | `429` | Rate-limited | Either auth or global limiter; back off |
 | `502` | Bad gateway | Backend reachable through wrong host (see §2) or transient infra |
 | `503` | Service unavailable | Backend healthy but a downstream (e.g. Elasticsearch) isn't configured or reachable |

@@ -24,7 +24,7 @@ import { useDispatch, useSelector } from 'react-redux';
 
 ### Slices
 
-Each module has its own Redux slice:
+The store has one slice today, `agent` (`store/agentSlice.ts`). Most other state lives in hooks and contexts (see [Where State Lives](#where-state-lives)). A new slice follows the usual Redux Toolkit shape:
 
 ```typescript
 import { createSlice, createAsyncThunk } from '@reduxjs/toolkit';
@@ -66,7 +66,6 @@ graph TB
     Role --> Clerk[Clerk Auth]
     Store --> Agent[Agent Slice]
 
-    Theme --> Storage[localStorage]
     Prefs --> Storage
     Filters --> URL[URL Params]
 ```
@@ -78,11 +77,12 @@ graph TB
 | Agent list, tasks, metrics | Redux (`agentSlice`) | None (refetched) |
 | Analytics filters | `useAnalyticsFilters` hook + URL params | URL (shareable) |
 | Test favorites & recents | `useTestPreferences` hook | localStorage (per-user key) |
-| Theme preference | `useTheme` hook | localStorage |
-| Sidebar collapse | `SidebarLayout` | localStorage |
+| Theme | `useTheme` hook | None (always dark) |
+| Flash notifications, report options | `lib/flashNotifications.ts`, report `persist.ts` | localStorage |
 | Auth tokens | Clerk SDK | Clerk session |
 | Analytics config | `AnalyticsAuthProvider` context | Backend settings |
-| Feature flags | `useCapabilities` hook | None (fetched on mount) |
+| Feature flags | `useCapabilities` hook | None (fetched once per page load, cached in memory) |
+| Console identity | `ConsoleIdentityProvider` context (`useConsoleIdentity`) | Backend settings |
 
 ## Agent Slice (Deep Dive)
 
@@ -109,6 +109,7 @@ interface AgentState {
 |-------|---------|
 | `fetchAgents` | Load agent list with filtering and pagination |
 | `fetchAgent` | Load detailed agent information |
+| `fetchMetrics` | Load fleet metrics |
 | `fetchTasks` | Load task history |
 | `createTasks` | Dispatch new tasks to agents |
 | `updateAgentStatus` | Change agent operational status |
@@ -231,18 +232,20 @@ branching on `theme` in new code.
 
 ### useCapabilities
 
-Detects available features based on deployment environment (Docker vs Railway vs Vercel, etc.):
+Reads `GET /api/capabilities` to learn which features the running backend supports. The serverless backend (Vercel) lacks many of them:
 
 ```typescript
-const { build, buildUpload, certGenerate, gitSync, platform } = useCapabilities();
+const { build, gitSync, campaigns, sentinelone, stageCoverage, platform, loaded } = useCapabilities();
 
 if (build) {
   // Show build button
 }
 ```
 
+Flags: `build`, `buildUpload`, `certGenerate`, `certUpload`, `gitSync`, `agentBuild`, `preExecutionNotices`, `campaigns`, `consoleIdentity`, `sentinelone`, `sophos`, `alerting`, `randomizedOnce`, `outcomeBreakdown`, `testFleet`, `stageCoverage`, `testRunRecency`, plus `platform`. `loaded` is `false` until the request has finished.
+
 :::info
-Defaults to all features available (Docker-style deployment). Gracefully handles backends that don't expose a `/api/capabilities` endpoint.
+Before the response arrives, and when a backend does not report a flag, defaults apply: the build, certificate, `gitSync` and `alerting` flags default to `true` (they predate the endpoint), every newer flag defaults to `false`. A new backend-only feature should add a flag that defaults to `false`.
 :::
 
 ### useDefenderConfig
@@ -252,6 +255,8 @@ Checks if Microsoft Defender integration is configured, for conditional UI rende
 ```typescript
 const { configured, loading } = useDefenderConfig();
 ```
+
+`useCrowdStrikeConfig`, `useSentinelOneConfig` and `useSophosConfig` do the same for the other EDR integrations.
 
 ## URL State Synchronization Pattern
 
@@ -280,14 +285,27 @@ Several hooks require provider components in the app root. The order matters:
 function App() {
   return (
     <ClerkProvider>
-      <ThemeProvider>
-        <AnalyticsAuthProvider>
-          <Provider store={store}>
-            <AppContent />
-          </Provider>
-        </AnalyticsAuthProvider>
-      </ThemeProvider>
+      <Provider store={store}>
+        <AppContent />
+      </Provider>
     </ClerkProvider>
+  );
+}
+
+function AppContent() {
+  useAuthenticatedApi();
+  return (
+    <ThemeProvider defaultTheme="dark">
+      <AnalyticsAuthProvider>
+        <ErrorBoundary>
+          <BrowserRouter>
+            <ConsoleIdentityProvider>
+              <AppRouter />
+            </ConsoleIdentityProvider>
+          </BrowserRouter>
+        </ErrorBoundary>
+      </AnalyticsAuthProvider>
+    </ThemeProvider>
   );
 }
 ```

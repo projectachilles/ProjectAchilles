@@ -72,7 +72,7 @@ Services communicate over Railway's [private network](https://docs.railway.com/g
    > ```
    > Or use `./scripts/generate-secrets.sh` locally and the script will guide you.
 
-   > **`ENCRYPTION_SECRET` is required on Railway.** Without it, the backend falls back to a machine-derived key (hostname + username) that changes across deploys, corrupting encrypted settings.
+   > **`ENCRYPTION_SECRET` is required.** Without it the backend cannot save or read encrypted settings (Elasticsearch, integrations, certificates). Keep the value stable: settings saved with one secret can't be read with another.
    >
    > **`AGENT_REPO_URL` enables agent build-from-source.** Without it, the "Build Agent Binary" feature in Settings → Agent is unavailable. Set it to the same repo as `TESTS_REPO_URL` if the agent source is in the same repository.
 
@@ -135,7 +135,7 @@ A commit touching only `frontend/src/` will **not** trigger a backend redeploy.
 
 ## What's Not Available on Railway
 
-**Agent cross-compilation** — The backend's build-from-source feature (Go agent compilation) requires the `agent/` source directory mounted at `/agent-src`. On Railway, the backend's build context is `backend/` only, so this directory isn't available. The backend gracefully disables this feature when the source is missing. Build agents locally and upload them through the UI instead.
+**Agent cross-compilation without `AGENT_REPO_URL`** — On Railway the backend's build context is `backend/` only, so the image has no `agent/` source. With `AGENT_REPO_URL` set (Step 2), the backend clones the agent source at startup and refreshes it before every build. Without it, the backend disables build from source: build agents locally and upload them through the UI instead.
 
 ## Cost Estimate
 
@@ -184,10 +184,10 @@ The entrypoint configures nginx with dynamic DNS resolution (`resolver` + variab
 Railway requires both a CNAME record and a `_railway-verify.app` TXT record for custom domain SSL provisioning. Without the TXT record, DNS will resolve but Railway returns "Application not found" and won't issue a Let's Encrypt certificate. Check Settings → Networking on each service for the exact TXT values.
 
 ### Encrypted settings lost after redeploy
-`ENCRYPTION_SECRET` is not set. Without it, the backend derives a key from the container's hostname, which changes on every deploy. Set a stable `ENCRYPTION_SECRET` in Railway variables.
+`ENCRYPTION_SECRET` is not set, or it changed between deploys. Settings are encrypted with it, and a different value can't read them. Set a stable `ENCRYPTION_SECRET` in Railway variables and save the settings again.
 
 ### Agent enrollment commands show wrong URL
 Set `AGENT_SERVER_URL` to the backend's public Railway domain (with `https://`).
 
 ### Analytics shows "not configured"
-The Elastic Cloud connection is stored in the encrypted `analytics.json` file. If `ENCRYPTION_SECRET` changed, the file becomes unreadable. Reconfigure via Analytics → Setup, or set `ELASTICSEARCH_CLOUD_ID` and `ELASTICSEARCH_API_KEY` as env vars (env vars take priority over the file).
+The Elastic Cloud connection is stored in the encrypted `analytics.json` file. If `ENCRYPTION_SECRET` changed, the file becomes unreadable. Reconfigure via Analytics → Setup, or set `ELASTICSEARCH_CLOUD_ID` and `ELASTICSEARCH_API_KEY` as env vars (they are used when no connection is saved in the UI, or the saved one can't be read).

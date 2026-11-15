@@ -6,13 +6,13 @@ description: Deploy ProjectAchilles to Fly.io — the cheapest always-on option 
 
 # Fly.io Deployment
 
-Deploy ProjectAchilles to [Fly.io](https://fly.io) using Docker Machines with persistent volumes. At ~$8/month, this is the cheapest always-on deployment option.
+Deploy ProjectAchilles to [Fly.io](https://fly.io) using Docker Machines with persistent volumes. With shared-CPU Machines it costs about $8/month, the cheapest always-on option; the checked-in `backend/fly.toml` uses a dedicated-CPU Machine, which costs more (see [Cost Estimate](#cost-estimate)).
 
 ## Architecture
 
 | Service | Machine Size | Volume | Public Domain |
 |---------|-------------|--------|---------------|
-| **achilles-backend** | shared-2x, 512 MB | 1 GB `achilles_data` | Yes |
+| **achilles-backend** | performance, 1 CPU, 2 GB (`backend/fly.toml`) | 1 GB `achilles_data` | Yes |
 | **achilles-frontend** | shared-1x, 256 MB | None | Yes |
 
 The frontend calls the backend directly via CORS. Both Machines run always-on (`auto_stop_machines = 'off'`) since agents send heartbeats every 60s.
@@ -100,16 +100,7 @@ Add the A/AAAA records shown by `flyctl certs show` to your DNS provider. TLS ce
 
 ## Deploying Updates
 
-Fly.io does **not** auto-deploy from GitHub. Either deploy manually or set up CI/CD:
-
-```yaml
-# .github/workflows/deploy-fly.yml
-- uses: superfly/flyctl-actions/setup-flyctl@master
-- run: flyctl deploy --app achilles-backend
-  working-directory: backend
-  env:
-    FLY_API_TOKEN: ${{ secrets.FLY_API_TOKEN }}
-```
+Fly.io does **not** auto-deploy from GitHub. Deploy manually with `flyctl deploy`, or use the workflow in the repository: `.github/workflows/deploy-flyio.yml` runs on every push to `main`, runs the backend and frontend build and tests, and then deploys both apps with `flyctl deploy --remote-only`. It needs a `FLY_API_TOKEN` repository secret (`flyctl tokens create deploy`), and it passes the commit to the backend image so `/api/health` reports what is running.
 
 ## Useful Commands
 
@@ -123,7 +114,7 @@ flyctl apps restart achilles-backend        # Restart
 
 ## Agent Build from Source
 
-Full Go build support (Docker image includes Go 1.24.3). Set `AGENT_REPO_URL` and `AGENT_REPO_BRANCH`.
+Full Go build support (the Docker image includes Go 1.25). Set `AGENT_REPO_URL` and `AGENT_REPO_BRANCH`.
 
 Before **every build**, the backend fetches the latest commit of `AGENT_REPO_BRANCH` (`git fetch --depth 1` + hard reset), so a build always compiles the current branch, even when an agent-only merge didn't trigger a redeploy. The commit is recorded in the version's release notes (`Built from source (windows/amd64) at 1bbe749`). If the fetch fails, the build fails rather than compiling stale code.
 
@@ -131,10 +122,12 @@ Before **every build**, the backend fetches the latest commit of `AGENT_REPO_BRA
 
 | Service | Est. Monthly Cost |
 |---------|------------------|
-| Backend (shared-2x, 512 MB) | ~$5 |
+| Backend (shared-cpu-2x, 512 MB) | ~$5 |
 | Frontend (shared-1x, 256 MB) | ~$3 |
 | Volume (1 GB) | ~$0.15 |
 | **Total** | **~$8** |
+
+This is the price with a shared-CPU backend (`flyctl scale vm shared-cpu-2x --memory 512 --app achilles-backend`). The checked-in `backend/fly.toml` asks for a dedicated CPU (`performance`, 1 CPU, 2 GB), because SQLite under a real fleet was slow on a shared CPU; that Machine costs roughly $30/month. See [Fly.io pricing](https://fly.io/docs/about/pricing/) for current prices.
 
 ## Helper Scripts
 

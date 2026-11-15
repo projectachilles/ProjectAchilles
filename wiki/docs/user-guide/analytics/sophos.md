@@ -16,6 +16,8 @@ It also shows the Sophos posture that explains the answer: the Health Check
 score, endpoint health, threat-protection policy deviations, and the exclusion
 and allow-list entries that would exempt Achilles tests.
 
+![Sophos tab — Sophos Health Check, Sophos Alerts, Detected / Prevented, Sophos response and Auto-Resolve cards above the Health Check details and endpoint health strips](/img/screenshots/analytics-sophos.png)
+
 If the integration is not configured the tab is hidden entirely
 (`useSophosConfig()` gates it). The integration exists only on Docker-style
 backends; on Vercel the tab never appears. To set it up, see

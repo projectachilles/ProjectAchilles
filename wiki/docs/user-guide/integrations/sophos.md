@@ -264,15 +264,17 @@ test (see [Endpoint Prerequisites](../../deployment/endpoint-prerequisites#sopho
 
 If Sophos ends the agent in the middle of a test, the task fails with `Agent
 went offline during execution` or `Task exceeded execution timeout`, and **it
-stays a failed task**, on every tenant, with or without XDR. Sophos currently
-supplies no evidence for the EDR-killed-agent conversion
+almost always stays a failed task**, with or without XDR. Sophos rarely
+supplies the evidence for the EDR-killed-agent conversion
 ([Exit Codes & Outcomes](../analytics/exit-codes-and-outcomes#6-agent-terminated-by-the-edr)):
 that check needs one alert with both a prevention action and an ATT&CK technique
 overlap. Sophos alerts and SIEM events carry the prevention but no techniques.
 Most XDR detections carry techniques but no prevention action, and the XDR
 block and cleanup detections seen so far carry a prevention action but no
-techniques, so no Sophos row has qualified yet. The check still runs after every Sophos poll; it just finds no
-Sophos evidence.
+techniques. The one row that can qualify is an XDR detection with techniques
+that absorbed the SIEM remedy of the same block
+([One row per Sophos detection](#one-row-per-sophos-detection)): it then has
+both. The check runs after every Sophos poll.
 
 :::note[Follow-up]
 Accepting the technique overlap from a same-host XDR detection in the same run

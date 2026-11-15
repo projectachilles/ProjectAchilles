@@ -8,7 +8,16 @@ description: "REST API endpoints for agent administration — list agents, creat
 
 ## Endpoints
 
-All endpoints require **Clerk JWT** authentication.
+All endpoints are under `/api/agent/admin` and take a **Clerk JWT**, a CLI token or an
+[API key](./programmatic-access.md). Each route also checks one permission, shown with it.
+
+### Organization scope \{#organization-scope}
+
+- A caller with an organization (a Clerk organization session, or an API key created in one) only sees and changes its own organization's agents, tasks, schedules and enrollment tokens. Lists ignore any other `org_id`.
+- An `org_id` in the query or body that is not the caller's returns `403`.
+- An agent, task or schedule of another organization returns the same `404` as an id that does not exist.
+- A caller without an organization (a single-organization install) sees everything and can filter lists with `?org_id=`. With `REQUIRE_ORG_ISOLATION=true` such a caller gets `403` (`Organization isolation required. Configure Clerk Organizations.`)
+- Settings shared by the whole install (auto-rotation, agent versions) can only be changed by a caller that is **not** in an organization; an organization caller gets `403`.
 
 ### List Agents
 
@@ -16,22 +25,72 @@ All endpoints require **Clerk JWT** authentication.
 GET /api/agent/admin/agents
 ```
 
-Returns all enrolled agents with status, system info, and tags.
+`endpoints:agents:read`. Returns `{ "agents": [...], "total": n }` with status, system info and tags.
 
-### Create Enrollment Token
+| Query | Notes |
+|-------|-------|
+| `status` | `active`, `disabled`, `decommissioned` or `uninstalled` |
+| `os` | `windows`, `linux` or `darwin` |
+| `hostname` | Hostname filter |
+| `tag` | Agents carrying this tag |
+| `online_only`, `stale_only` | `true` to filter |
+| `limit`, `offset` | Paging |
+| `org_id` | Only for callers without an organization |
+
+### Other Agent Routes
+
+| Method | Path | Permission | Notes |
+|--------|------|------------|-------|
+| `GET` | `/agents/:id` | `endpoints:agents:read` | One agent |
+| `PATCH` | `/agents/:id` | `endpoints:agents:write` | Body: `status` (`active` or `disabled`) and/or `tags` |
+| `DELETE` | `/agents/:id` | `endpoints:agents:delete` | Decommissions the agent |
+| `POST` | `/agents/:id/rotate-key` | `endpoints:agents:write` | Returns the new `agent_key` once; the agent picks it up on its next heartbeat. 3 per 15 minutes per IP |
+| `GET` | `/agents/:id/heartbeats?days=7` | `endpoints:agents:read` | Heartbeat history, `days` 1 to 30 |
+| `GET` | `/agents/:id/events` | `endpoints:agents:read` | Agent events; `limit` (50), `offset`, `event_type` |
+| `GET` | `/tags` | `endpoints:agents:read` | Tags in use, with agent counts |
+| `POST` | `/tags/bulk` | `endpoints:agents:write` | Body: `agent_ids` (1 to 500), `add` and/or `remove` (up to 20 each). Returns `{ "updated": n }` |
+| `POST` | `/agents/:id/tags` | `endpoints:agents:write` | Body: `{ "tag": "..." }` |
+| `DELETE` | `/agents/:id/tags/:tag` | `endpoints:agents:delete` | Removes one tag |
+| `GET` | `/metrics` | `endpoints:agents:read` | Fleet and task counts, including `task_outcomes_7d` |
+| `GET` | `/metrics/fleet-health` | `endpoints:agents:read` | Fleet health metrics |
+| `GET` | `/settings/auto-rotation` | `endpoints:agents:write` | Key auto-rotation settings |
+| `PUT` | `/settings/auto-rotation` | `endpoints:agents:write` | Body: `enabled`, `intervalDays` (30 to 365). Install-wide |
+
+A tag is 1 to 32 characters: lowercase letters, digits and `. _ : -`, starting with a letter or digit.
+
+### Enrollment Tokens
 
 ```
 POST /api/agent/admin/tokens
 ```
 
+`endpoints:tokens:create`.
+
 **Body:**
 ```json
 {
+  "org_id": "default",
   "ttl_hours": 24,
   "max_uses": 10,
-  "description": "Lab deployment batch"
+  "metadata": { "description": "Lab deployment batch" }
 }
 ```
+
+| Field | Default | Notes |
+|-------|---------|-------|
+| `org_id` | required | The organization the enrolled agents will belong to. Must be the caller's organization (`403` otherwise) |
+| `ttl_hours` | `24` | 1 to 720 |
+| `max_uses` | `1` | 1 to 1000 |
+| `metadata` | `{}` | String key/value pairs |
+
+Returns `201` with `token` (shown once), `id`, `expires_at` and `max_uses`.
+
+```
+GET    /api/agent/admin/tokens?org_id=<org>
+DELETE /api/agent/admin/tokens/:id
+```
+
+The list needs `endpoints:tokens:create` and a required `org_id`; it returns the active tokens of that organization, never the token value. Revoking needs `endpoints:tokens:delete`; another organization's token returns `404`.
 
 ### Create Task
 
@@ -39,16 +98,60 @@ POST /api/agent/admin/tokens
 POST /api/agent/admin/tasks
 ```
 
+`endpoints:tasks:create`.
+
 **Body:**
 ```json
 {
+  "org_id": "default",
   "agent_ids": ["agent-uuid-1", "agent-uuid-2"],
   "test_uuid": "test-uuid",
-  "platform": "windows",
-  "arch": "amd64",
-  "es_index": "achilles-results-engagement1"
+  "test_name": "Test name",
+  "binary_name": "test-uuid.exe",
+  "target_index": "achilles-results-engagement1"
 }
 ```
+
+| Field | Notes |
+|-------|-------|
+| `org_id`, `agent_ids`, `test_uuid`, `test_name`, `binary_name` | Required. Every agent must belong to the caller's organization (`404` (`Agent not found`) otherwise) |
+| `execution_timeout` | Seconds, optional |
+| `arguments` | Array of strings, optional |
+| `priority` | 0 to 10, optional |
+| `max_retries` | 0 to 5, optional |
+| `metadata` | Optional test metadata (`category`, `subcategory`, `techniques`, `tactics`, `threat_actor`, `target`, `complexity`, `tags`, `score`, `integrations`). `severity` is optional and no longer sent by the console |
+| `target_index` | Optional results index. Must match `achilles-results-...` (lowercase letters, digits, `.`, `_`, `-`; up to 200 characters), else `400` |
+
+Returns `201` with `{ "task_ids": [...] }`, one task per agent. When
+[pre-execution notices](./alerting#pre-execution-notices) are on, the tasks are held until the notice is sent.
+
+### Other Task Routes
+
+| Method | Path | Permission | Notes |
+|--------|------|------------|-------|
+| `POST` | `/tasks/command` | `endpoints:tasks:command` | Runs a shell command on the agents. Body: `org_id`, `agent_ids`, `command`, optional `execution_timeout`, `priority` |
+| `POST` | `/tasks/update` | `endpoints:tasks:create` | Asks agents to update themselves. Body: `org_id`, `agent_ids` |
+| `POST` | `/tasks/uninstall` | `endpoints:agents:delete` | Asks agents to uninstall. Body: `org_id`, `agent_ids`, optional `cleanup` |
+| `GET` | `/tasks` | `endpoints:tasks:read` | Flat list. Query: `agent_id`, `status`, `type`, `search`, `limit`, `offset` |
+| `GET` | `/tasks/:id` | `endpoints:tasks:read` | One task |
+| `POST` | `/tasks/:id/cancel` | `endpoints:tasks:cancel` | `400` (`Cannot cancel task in status: <status>`) for a task that can no longer be cancelled |
+| `DELETE` | `/tasks/:id` | `endpoints:tasks:delete` | See [Delete a Task](#delete-a-task) |
+| `PATCH` | `/tasks/:id/notes` | `endpoints:tasks:notes` | Body: `{ "content": "..." }` |
+| `POST` | `/ingestion/retry` | `endpoints:tasks:create` | Retries results that did not reach Elasticsearch |
+| `POST` | `/catalog/reload` | `tests:sync:execute` | Re-reads the test library into the task catalog |
+
+Task responses never include the task's environment variables (`payload.env_vars`).
+
+### Delete a Task \{#delete-a-task}
+
+```
+DELETE /api/agent/admin/tasks/:id
+```
+
+Only a `completed`, `failed` or `expired` task can be deleted. Any other status returns
+`409` (`Only a completed, failed or expired task can be deleted (this one is <status>); cancel it instead`).
+The deleted task is not discarded: its full row is kept in an archive with the time and the user who deleted it.
+Task lists never show archived tasks.
 
 ### Create Tasks for Several Tests
 
@@ -70,13 +173,12 @@ GET /api/agent/admin/agents/heartbeats?hours=24&org_id=<org>
 ```
 
 Returns hourly heartbeat counts for **every** agent in one request — the data
-behind the 24-hour sparkline column on the Agents page. Added in 2.1 to replace
-one request per agent, which did not scale past a few dozen endpoints.
+behind the 24-hour sparkline column on the Agents page.
 
 | Query | Default | Notes |
 |-------|---------|-------|
 | `hours` | `24` | Must be between 1 and 168; anything else returns `400` |
-| `org_id` | — | Scopes the result to one organization |
+| `org_id` | — | Scopes the result to one organization (only for callers without an organization; see [Organization scope](#organization-scope)) |
 
 **Response** — a map of agent id to an array of `hours` counts, oldest bucket
 first. Agents with no heartbeats in the window are omitted:
@@ -110,8 +212,11 @@ limited to the caller's organization like the task lists. `test_uuids` is option
 
 ```json
 {
-  "runs":   [ { "agent_id": "…", "test_uuid": "…", "last_run_at": "2026-10-20T09:30:00Z", "queued": false } ],
-  "agents": [ { "agent_id": "…", "last_run_at": "2026-11-02T14:05:00Z", "queued": false } ]
+  "success": true,
+  "data": {
+    "runs":   [ { "agent_id": "…", "test_uuid": "…", "last_run_at": "2026-10-20T09:30:00Z", "queued": false } ],
+    "agents": [ { "agent_id": "…", "last_run_at": "2026-11-02T14:05:00Z", "queued": false } ]
+  }
 }
 ```
 
@@ -185,11 +290,29 @@ The clone records `original_task_id` (the first task in the chain) and
 `max_retries` — that budget governs automatic retries only.
 :::
 
-### List Schedules
+### Schedules
 
-```
-GET /api/agent/admin/schedules
-```
+| Method | Path | Permission | Notes |
+|--------|------|------------|-------|
+| `GET` | `/schedules` | `endpoints:schedules:read` | Optional `status` filter |
+| `GET` | `/schedules/:id` | `endpoints:schedules:read` | One schedule |
+| `POST` | `/schedules` | `endpoints:schedules:create` | See below |
+| `PATCH` | `/schedules/:id` | `endpoints:schedules:write` | Any of `name`, `agent_ids`, `schedule_config`, `timezone`, `status` (`active` or `paused`), `priority`, `execution_timeout` |
+| `DELETE` | `/schedules/:id` | `endpoints:schedules:delete` | Deletes the schedule |
+
+### Agent Versions
+
+| Method | Path | Permission | Notes |
+|--------|------|------------|-------|
+| `GET` | `/versions` | `endpoints:versions:read` | Registered agent versions |
+| `POST` | `/versions` | `endpoints:versions:create` | Registers a binary already on the server. Body: `version`, `os`, `arch`, `binary_path`, optional `release_notes`, `mandatory` |
+| `POST` | `/versions/upload` | `endpoints:versions:create` | Multipart upload: file field `binary`, plus `version`, `os`, `arch`, optional `release_notes`, `mandatory`, `cert_id`, `allow_unsigned` |
+| `POST` | `/versions/build` | `endpoints:versions:create` | Builds from source. Body: `version`, `os`, `arch`. `501` when the agent source is not available |
+| `DELETE` | `/versions/:version/:os/:arch` | `endpoints:versions:delete` | Removes a version |
+
+The four write routes are install-wide (see [Organization scope](#organization-scope)).
+Registering or uploading returns `422` when the version does not equal the version built into the binary,
+or when signing fails.
 
 ### Create Schedule
 
@@ -206,7 +329,7 @@ POST /api/agent/admin/schedules
   "test_name": "Test name",
   "binary_name": "test-uuid.exe",
   "metadata": {
-    "category": "", "subcategory": "", "severity": "", "techniques": [], "tactics": [],
+    "category": "", "subcategory": "", "techniques": [], "tactics": [],
     "threat_actor": "", "target": [], "complexity": "", "tags": [], "score": null, "integrations": []
   },
   "schedule_type": "once",
@@ -228,4 +351,4 @@ Every type also takes an optional `randomize_mode`:
 
 The random times fall within weekdays 09:00–17:00 or weekends at any time, in `timezone`. A randomized `once` uses only what's left of the window when `date` is today. It returns `400` if today's window has already closed.
 
-Leave the `metadata` fields empty to take them from the test library. `randomize_mode` on `once` is not supported by the Vercel (serverless) backend.
+`target_index`, `name`, `priority` and `execution_timeout` are optional, with the same rules as [Create Task](#create-task). Leave the `metadata` fields empty to take them from the test library. `randomize_mode` on `once` is not supported by the Vercel (serverless) backend.

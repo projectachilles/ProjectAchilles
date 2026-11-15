@@ -47,7 +47,7 @@ Trigger a build (cross-compilation and code signing) for a test binary.
 achilles builds create <uuid>
 ```
 
-The backend compiles the Go test source, cross-compiles for the target platform, and signs the binary with the active certificate.
+The backend compiles the Go test source, cross-compiles for the target platform, and signs the binary with the active certificate. The build runs in the background on the server; the CLI starts it, checks every 2 seconds, and returns when it has succeeded or failed. If the server restarts during the build, the command stops with `Build was interrupted because the server restarted. Try again.`
 
 **Example:**
 
@@ -56,8 +56,8 @@ achilles builds create 7659eeba-f315-440e-9882-4aa015d68b27
 ```
 
 ```
-  Building 7659eeba-f315-440e-9882-4aa015d68b27...
-  ✓ Built T1486-Ransomware — 2.4MB, signed: true
+  Building 7659eeba-f315-440e-9882-4aa015d68b27… (a first build can take several minutes)
+  ✓ Built 7659eeba-f315-440e-9882-4aa015d68b27.exe — 2.4MB, signed: true
 ```
 
 :::info
@@ -76,7 +76,7 @@ achilles builds download <uuid> [flags]
 
 | Flag | Short | Type | Description |
 |------|-------|------|-------------|
-| `--output` | `-o` | string | Output file path (defaults to original filename) |
+| `--output` | `-o` | string | Output file path. Default: the file name the server sends, saved in the current directory |
 
 **Example:**
 

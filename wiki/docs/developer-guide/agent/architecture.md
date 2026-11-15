@@ -47,12 +47,16 @@ The **Poller** is the central event loop. It drives three independent cycles (he
 ## CLI Entry Points
 
 ```bash
-achilles-agent --enroll --server <url> --token <token>  # Register with backend
-achilles-agent --install                                 # Install as system service
-achilles-agent --run                                     # Start polling loop
-achilles-agent --status                                  # Show diagnostics
-achilles-agent --uninstall                               # Remove service
+achilles-agent --enroll <token> --server <url>   # Register with backend
+achilles-agent --install                         # Copy to the install folder and register the system service
+achilles-agent --run                             # Run the polling loop in the foreground
+achilles-agent --status                          # Show diagnostics
+achilles-agent --reload                          # Tell the running service to re-read its config (no restart)
+achilles-agent --uninstall                       # Remove service
+achilles-agent --version                         # Print version and exit
 ```
+
+Other flags: `--config <path>` (default `C:\F0\achilles-agent.yaml` on Windows, `/opt/f0/achilles-agent.yaml` elsewhere) and `--allow-insecure` (allows `skip_tls_verify` for remote servers; not recommended).
 
 :::tip
 Pass `--install` together with `--enroll` to register and install as a service in a single step:
@@ -73,9 +77,12 @@ achilles-agent --enroll TOKEN --server https://server.com --install
 | `queue` | File-backed result queue for resilient reporting |
 | `reporter` | Result reporting to backend |
 | `service` | OS service management |
-| `store` | Encrypted credential storage (AES-256-GCM) |
+| `status` | `--status` diagnostics |
+| `store` | Persistent agent state (`state.json`) |
 | `sysinfo` | Platform-specific system information |
-| `updater` | Self-update mechanism |
+| `uninstaller` | Uninstall and per-platform cleanup |
+| `updater` | Self-update mechanism and post-install launch check |
+| `winacl` | `icacls` arguments that restrict agent files to SYSTEM and Administrators |
 
 ## Runtime Services
 
@@ -105,7 +112,7 @@ graph LR
     D --> E[Execute with Timeout]
     E --> F[Capture Output]
     F --> G[Parse Bundle Results]
-    G --> H[Cleanup Temp Files]
+    G --> H[Cleanup Temp Files<br/>and test binaries]
 ```
 
 Key safety measures:
@@ -115,6 +122,11 @@ Key safety measures:
 - Job Objects on Windows for reliable process tree termination
 - Output capture capped at 1 MB to prevent memory exhaustion
 - Custom environment variable injection for cloud credentials
+- `bundle_results.json` is read only from a trusted folder (one that other users cannot write to or replace with a link)
+
+**Test leftovers** (`cleanup.go`): orchestrators extract their stage binaries into the shared artifact folder (`C:\F0` on Windows, `/tmp/F0` on Linux and macOS) and rarely remove them. After each run the agent removes that test's binaries (`<uuid>.exe`, `<uuid>-<control>.exe`, or the same names without extension). At startup it sweeps `task-*` and `cmd-*` folders in the work directory and UUID-named test binaries older than one hour. Only UUID-named files match: the agent binary, its config and log, the result queue and the state store are never touched.
+
+**Blocked launches**: when the operating system refuses to start the test binary (access denied, for example a Defender ASR rule or an EDR block), the agent reports exit code 260, "blocked before execution".
 
 ### HTTP Client (`internal/httpclient`)
 
@@ -127,11 +139,11 @@ X-Agent-Version: <version>
 X-Request-Timestamp: <RFC3339>
 ```
 
-Features exponential backoff retry on 429/5xx responses (1s, 2s, 4s intervals), custom CA certificate support, and HTTPS downgrade protection. Default request timeout is 30 seconds.
+Features exponential backoff retry on 429/5xx responses (1s, 2s, 4s intervals), custom CA certificate support, and HTTPS downgrade protection. Short JSON requests have a 30-second timeout. Streaming downloads (test binaries, agent updates) use a separate budget, `max_download_timeout` (5 minutes by default).
 
 ### Reporter (`internal/reporter`)
 
-Delivers task execution results to the server with reliability guarantees. Retries up to 3 times with exponential backoff (2s, 4s, 8s). If all retries are exhausted, the task is marked as failed. Reports all results regardless of exit code -- the exit code **is** the result.
+Delivers task execution results to the server with reliability guarantees. Retries up to 3 times with exponential backoff (2s, 4s, 8s). If all retries are exhausted, the result is written to the local result queue and sent after the next successful heartbeat. A result the server rejects as invalid (a permanent error) is not retried. Reports all results regardless of exit code -- the exit code **is** the result.
 
 ### Store (`internal/store`)
 
@@ -139,13 +151,16 @@ Persistent agent state stored as JSON in `state.json` within the work directory:
 
 ```go
 type State struct {
-    AgentID                 string     `json:"agent_id"`
-    LastTaskID              string     `json:"last_task_id,omitempty"`
-    LastHeartbeat           *time.Time `json:"last_heartbeat,omitempty"`
-    LastSuccessfulHeartbeat *time.Time `json:"last_successful_heartbeat,omitempty"`
-    Version                 string     `json:"version"`
+    AgentID                 string         `json:"agent_id"`
+    LastTaskID              string         `json:"last_task_id,omitempty"`
+    LastHeartbeat           *time.Time     `json:"last_heartbeat,omitempty"`
+    Version                 string         `json:"version"`
+    LastSuccessfulHeartbeat *time.Time     `json:"last_successful_heartbeat,omitempty"`
+    LastAppliedUpdate       *AppliedUpdate `json:"last_applied_update,omitempty"`
 }
 ```
+
+`LastAppliedUpdate` records the version, SHA256 and from-version of the last self-update. The agent uses it to refuse to install the same artifact again (see [Self-Update](#self-update)).
 
 Thread-safe read/write with mutex protection. Atomic updates via callback functions. Directories created with secure permissions (`0700`).
 
@@ -183,6 +198,7 @@ type Config struct {
     LogFile           string        // Log output path
     MaxExecutionTime  time.Duration // Task timeout limit
     MaxBinarySize     int64         // Binary download size limit
+    MaxDownloadTimeout time.Duration // Timeout for binary and update downloads
     UpdateInterval    time.Duration // Self-update check frequency
     CACert            string        // Custom CA certificate
     SkipTLSVerify     bool          // Disable TLS verification (restricted)
@@ -258,6 +274,17 @@ Machine ID binding means an encrypted config file is not portable between hosts.
 - Downloaded test binaries are verified against SHA256 hash + expected file size before execution
 - Agent updates are verified with Ed25519 cryptographic signatures over the SHA256 hash
 
+### Self-Update \{#self-update}
+
+An update that goes wrong can take a whole fleet offline, so the updater has several safeguards. Do not remove any of them.
+
+- **Launch check** (`updater/verify_install.go`): after the new binary is swapped in, the agent runs `<final path> --version`. If that fails or reports a different version than the server advertised, the previous binary (`<path>.old`) is restored and the update fails. The check runs at the final path so that path-scoped allowlists apply.
+- **Repeat-install guard**: `last_applied_update` in `state.json` stops the agent from installing the same artifact again after a restart.
+- **Server side**: the backend only registers a binary whose embedded version equals the version it is registered as.
+- **Windows restart**: besides Service Control Manager recovery, a fallback scheduled task (`AchillesAgentRestart`) restarts the service if it fails to start.
+
+User-facing description: [Self-Updates](../../user-guide/agent-management/self-updates).
+
 ## Resilience Features
 
 ### Adaptive Backoff
@@ -285,8 +312,8 @@ Possible reasons: `service_restart`, `machine_reboot`, `update_restart`, `networ
 
 ## Execution Model
 
-1. Agent starts and loads encrypted config
-2. Enters polling loop (60s interval +/- 5s jitter)
-3. Each poll: send heartbeat, check for tasks, check for updates
+1. Agent starts, loads its encrypted config and sweeps stale test leftovers
+2. Enters the polling loop: heartbeat every 60 s, task poll every 30 s, update check every hour (defaults; intervals get +/- 5 s of jitter)
+3. Each cycle: send heartbeat, check for tasks, check for updates
 4. If task assigned: download binary -> verify -> execute -> report
-5. If update available: download -> verify signature -> atomic replace -> restart
+5. If update available: download -> verify signature -> atomic replace -> launch check -> restart

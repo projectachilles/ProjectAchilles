@@ -15,7 +15,7 @@ Backend TypeScript files **must** use `.js` extensions in import paths:
 import browserRoutes from './api/browser.routes.js';
 import { getDatabase } from '../database.js';
 
-// Incorrect — fails at runtime with MODULE_NOT_FOUND
+// Incorrect — fails at runtime with ERR_MODULE_NOT_FOUND
 import browserRoutes from './api/browser.routes';
 import { getDatabase } from '../database';
 ```
@@ -26,8 +26,9 @@ The backend uses ES modules (`"type": "module"` in `package.json`). TypeScript c
 
 ## How to Remember
 
-- Always add `.js` to relative imports in `backend/src/`
+- Always add `.js` to relative imports in `backend/src/` and `backend-serverless/src/` (both are ES module packages)
 - This does NOT apply to:
   - `node_modules` packages (`import express from 'express'`)
   - The frontend (Vite handles module resolution)
-  - Type-only imports (`import type { Foo } from './types'` — erased at compile time)
+
+Type-only imports (`import type { Foo } from './types.js'`) are erased at compile time, so they would not fail without the extension. The codebase still writes them with `.js`, to keep one rule for every relative import.

@@ -62,11 +62,13 @@ Note the following values from the App Registration overview page:
 1. Navigate to **Settings** → **Integrations** → **Azure / Entra ID**
 2. Enter:
    - **Tenant ID** — Azure AD Directory (tenant) ID
-   - **Client ID** — Application (client) ID
-   - **Client Secret** — The secret value you created
-   - **Tenant Label** (optional) — A friendly name (e.g., "Contoso Production") displayed in analytics results
-3. Click **Validate Credentials** to verify the service principal can authenticate
+   - **Client ID (Application ID)** — Application (client) ID
+   - **Authentication Method** — **Client Secret** (the secret value you created) or **Certificate** (upload the PFX, or enter the thumbprint and private key)
+   - **Tenant Label (optional)** — A friendly name (e.g., "Contoso Production") displayed in analytics results
+3. Click **Test Connection** to verify the service principal can authenticate
 4. Click **Save Settings**
+
+On an install with Clerk organizations, a user in an organization saves these credentials for that organization. Tasks receive the install-wide credentials, which are the ones saved by a user who is not in an organization (or set through the environment variables).
 
 ### Via Environment Variables
 
@@ -82,7 +84,7 @@ AZURE_CERT_THUMBPRINT=<certificate-thumbprint>
 AZURE_PRIVATE_KEY_PEM=<pem-encoded-private-key>
 ```
 
-When env vars are set, the UI shows "Configured via environment variables" and the **Disconnect** button is disabled — remove the env vars to disconnect.
+When env vars are set, the card shows **Environment variable configuration detected**. Settings saved in the UI take priority over them. The **Disconnect** section is hidden and the API refuses to disconnect: remove the env vars instead.
 
 ## How Credentials Are Used
 
@@ -151,8 +153,8 @@ Credentials share the same encrypted settings file as Defender and Alerting conf
 ## Troubleshooting
 
 :::warning[Common Issues]
-- **"Validate Credentials" fails**: Verify the Client Secret value has not expired. Azure AD client secrets have expiration dates — check **Certificates & Secrets** in the App Registration. (Certificate auth avoids this class of failure; certificates also expire, but on a much longer horizon.)
+- **"Test Connection" fails**: Verify the Client Secret value has not expired. Azure AD client secrets have expiration dates — check **Certificates & Secrets** in the App Registration. (Certificate auth avoids this class of failure; certificates also expire, but on a much longer horizon.)
 - **Identity tests fail with "Azure credentials not configured"**: Ensure credentials are saved in Settings → Integrations. The Task Creator shows a warning if Azure is not configured.
 - **Tests run but return errors about permissions**: Verify all five permissions have **admin consent** granted. Individual user consent is not sufficient for Application-type permissions.
-- **Cannot disconnect**: If credentials were set via environment variables (`AZURE_TENANT_ID`, etc.), the Disconnect button is disabled. Remove the env vars to disconnect.
+- **Cannot disconnect**: If credentials were set via environment variables (`AZURE_TENANT_ID`, etc.), the Disconnect section is not shown. Remove the env vars to disconnect.
 :::

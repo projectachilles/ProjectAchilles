@@ -6,7 +6,7 @@ description: "REST API endpoints for saved test campaigns, runs, and evidence ex
 
 # Campaigns Endpoints
 
-Base path: `/api/campaigns`. All routes require Clerk authentication. Reads need
+Base path: `/api/campaigns`. All routes require Clerk authentication (or an [API key](./programmatic-access.md)). Reads need
 `endpoints:tasks:read`; create, update, delete and run need `endpoints:tasks:create`.
 
 Campaigns are served by the Express backend only. `GET /api/capabilities`
@@ -136,7 +136,7 @@ started before the field existed also report the user id.
   - `edr`: `Defender: prevented (process killed)`, `Defender: alert raised`, `unavailable`, or `null`.
   - `stages`: one `{ label, exit_code, outcome }` per stage of a multi-stage test (empty otherwise). `outcome` uses the Analytics stage vocabulary: `protected`, `prevented`, `detected`, `unprotected`, `inconclusive`, `skipped`.
   - `stages_text`: the compact form used in the CSV.
-- `edr`: `{ status, sources }`. `status` is `ok`, `unavailable` (Elasticsearch could not be reached, so outcomes use exit codes only) or `not_configured`. `sources` names the configured integrations (`Microsoft Defender`, `CrowdStrike Falcon`).
+- `edr`: `{ status, sources }`. `status` is `ok`, `unavailable` (Elasticsearch could not be reached, so outcomes use exit codes only) or `not_configured`. `sources` names the configured integrations (`Microsoft Defender`, `CrowdStrike Falcon`, `SentinelOne`, `Sophos Intercept X`).
 - `totals`: a count per state plus `percent_protected`
 - `as_of`: ISO time the evidence was read
 

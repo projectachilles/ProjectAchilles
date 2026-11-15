@@ -12,10 +12,12 @@ The F0RT1KA test library provides a set of Go packages for building security tes
 
 | Package | Import Path | Purpose |
 |---------|-------------|---------|
-| **Endpoint** | `f0_library/Endpoint` | Core test execution, file I/O, process management |
-| **Network** | `f0_library/Network` | HTTP client, TCP/UDP, port scanning |
-| **Cloud** | `f0_library/Cloud` | AWS service clients and region detection |
-| **Dropper** | `f0_library/Dropper` | Cross-platform embedded binary deployment |
+| **Endpoint** | `github.com/preludeorg/libraries/go/tests/endpoint` | Core test execution, file I/O, process management |
+| **Network** | `github.com/preludeorg/libraries/go/tests/network` | HTTP client, TCP/UDP, port scanning |
+| **Cloud** | `github.com/preludeorg/libraries/go/tests/cloud` | AWS service clients and region detection |
+| **Dropper** | `github.com/preludeorg/libraries/go/tests/dropper` | Cross-platform embedded binary deployment |
+
+The packages live in the test library repository under `preludeorg-libraries/go/tests/`. Tests import them under the aliases `Endpoint`, `Network`, `Cloud` and `Dropper`.
 
 ## Endpoint Package
 
@@ -39,13 +41,14 @@ func Stop(code int)
 | **Protected** | 100 | `TestCompletedNormally` | Test ran, defense detected the activity |
 | | 105 | `FileQuarantinedOnExtraction` | AV quarantined the payload on write |
 | | 126 | `ExecutionPrevented` | OS or EDR blocked execution |
+| | 127 | `FileQuarantinedOnExecution` | Payload quarantined when it was executed |
 | **Unprotected** | 101 | `Unprotected` | Test ran to completion without detection |
 | | 110 | `TestIncorrectlyBlocked` | A non-malicious action was blocked (false positive) |
 | **Error** | 1 | `UnexpectedTestError` | Runtime error |
 | | 102 | `TimeoutExceeded` | Test exceeded 30-second timeout |
 
 :::info[Exit Code Interpretation]
-The Achilles backend maps these exit codes to protection status when ingesting results into Elasticsearch. Codes 100, 105, and 126 count as "Protected" in the Defense Score. Code 101 counts as "Unprotected". All others are treated as inconclusive.
+The Achilles backend maps exit codes to protection status when it scores results. Codes 105, 126 and 127 count as "Protected" in the Defense Score and code 101 counts as "Unprotected". Every other code, including 100, is not scored: it is shown as inconclusive or as an error. Tests written for ProjectAchilles should therefore end with 101, 105, 126 or 127 when they reach a verdict. The agent itself reports 260 when the test binary was blocked before it could start. See the [exit code table](./backend/analytics-service#error-code-classification).
 :::
 
 ### File Operations
@@ -215,9 +218,11 @@ Most security tests follow this template:
 package main
 
 import (
-    "f0_library/Endpoint"
-    "f0_library/Network"
-    "f0_library/Dropper"
+    "os"
+
+    Dropper "github.com/preludeorg/libraries/go/tests/dropper"
+    Endpoint "github.com/preludeorg/libraries/go/tests/endpoint"
+    Network "github.com/preludeorg/libraries/go/tests/network"
 )
 
 func test() {

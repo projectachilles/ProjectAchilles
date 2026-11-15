@@ -12,7 +12,7 @@ The Defense Score is the primary metric for measuring your security posture.
 
 The Defense Score is an aggregate percentage representing how many of your security tests were detected (or blocked) by your defenses. The Dashboard and Analytics headline, trend line, and the four breakdowns (category, host, technique, test coverage) use the **latest-result** score: a score of 85% means 85% of test × endpoint pairs were Protected on their most recent conclusive result. See [Latest-result score](#latest-result-score). Multi-stage bundles count as Protected when any stage of their latest run was stopped or detected. The ATT&CK technique breakdown is the exception: it scores each stage by its own result, so a technique whose stage got through shows as unprotected.
 
-An **executions-based** score also exists: the share of individual executions that were Protected. It is what the API returns by default (`basis=executions`) and what the PDF execution report and score-drop alerts use.
+An **executions-based** score also exists: the share of individual executions that were Protected. It is what the API returns by default (`basis=executions`) and what the PDF execution report uses. Whichever basis you ask for, the API scores a multi-stage test by the any-stage rule unless you pass `scoringMode=all-stages`.
 
 ## Score Calculation (executions basis)
 
@@ -55,7 +55,7 @@ A *pair* is one test on one endpoint (within one organization). Only the most re
 
 **Trend.** The trend line is the same calculation as of each day. Day labels are UTC, ranges over 90 days use weekly points, and the last point always equals the headline score. A window with no pairs is drawn as a gap, not 0%.
 
-The execution-count formula above still applies where noted: the PDF execution report, score-drop alerts, and the test-vs-alert timeline cards stay on executions. Breakdowns by test, technique, severity, category, and organization also count executions. API users select the basis with `basis=latest|executions`; see the [Analytics API](../../api-reference/analytics#score-basis).
+The execution-count formula above still applies where noted: the PDF execution report and the test-vs-alert timeline cards stay on executions. The Defense Score [alert](../integrations/alerting) uses the latest-result score over a fixed 30 days, so it compares your threshold with the number the dashboard shows for 30d. Breakdowns by test, technique, severity, category, and organization also count executions. API users select the basis with `basis=latest|executions`; see the [Analytics API](../../api-reference/analytics#score-basis).
 
 ## Breakdowns
 
@@ -69,7 +69,7 @@ The Defense Score can be broken down by:
 
 The trend line shows the score as of each UTC day, using the same freshness window as the headline tile. Its last point equals the tile, ranges over 90 days use weekly points, and a gap means no pairs fell in the window (not 0%).
 
-A downward trend indicates deteriorating security posture and may trigger [threshold alerts](../integrations/alerting), which are evaluated on executions.
+A downward trend indicates deteriorating security posture and may trigger a [threshold alert](../integrations/alerting). The alert reads the latest-result score of the last 30 days, whatever range the dashboard shows; when no pair has a conclusive result there is no score and the check is skipped.
 
 Via the API, the rolling `windowDays` option (1-90 days) applies only to the executions basis; under `basis=latest` it is ignored.
 
@@ -78,7 +78,7 @@ Via the API, the rolling `windowDays` option (1-90 days) applies only to the exe
 The dashboard ledger reconciles the headline with an *Actual* score, an *EDR-only* score, and the effect of risk acceptances, so you can see both the current state and what is excluded:
 
 - **Actual** is the raw score before risk acceptance: the same calculation with no exclusions applied. It shows a value only while acceptances exclude something (otherwise it would equal the headline, so the row shows —).
-- **EDR-only** is the strict, blocked-only score: it counts only results the endpoint control blocked (`is_protected`), not Defender or CrowdStrike detections.
+- **EDR-only** is the strict, blocked-only score: it counts only results the endpoint control blocked (`is_protected`), not detections from a connected EDR (Defender, CrowdStrike, SentinelOne or Sophos).
 - **Risk-accepted** is how many test × endpoint pairs the active acceptances exclude.
 
 ## Time window
@@ -98,7 +98,7 @@ runs.
 
 ![Analytics posture row — Defense Score ledger, Secure Score and ZTA Score beside the trend overview, with test activity and top remediation controls](/img/screenshots/analytics-posture.png)
 
-The Analytics Dashboard uses a multi-tab interface with four main areas:
+The Analytics page has three tabs that are always there (**Dashboard**, **All Executions**, **Risk Acceptances**) and one tab per connected EDR (**Defender**, **CrowdStrike**, **SentinelOne**, **Sophos**). The **All Executions** tab shows its result count and **Risk Acceptances** its number of active acceptances.
 
 ```mermaid
 graph TB
@@ -107,9 +107,9 @@ graph TB
 
         subgraph "Tabs"
             DT[Dashboard]
-            ET[Executions]
+            ET[All Executions]
             RT[Risk Acceptances]
-            DefT[Defender]
+            DefT[Defender · CrowdStrike · SentinelOne · Sophos<br/>when configured]
         end
     end
 
@@ -118,10 +118,10 @@ graph TB
     ADP --> RT
     ADP --> DefT
 
-    DT --> TRIO[Error Types · ATT&CK Distribution · Chain Depth]
+    DT --> TRIO[Outcome Breakdown · ATT&CK Distribution · Chain Depth]
     DT --> STG[Stage Coverage]
     DT --> LED[Defense Score Ledger]
-    DT --> SEC[Secure Score]
+    DT --> SEC[Secure Score · ZTA Score]
     DT --> TREND[Trend Overview]
     DT --> ACT[Test Activity]
     DT --> TOP[Top Remediation Controls]
@@ -143,12 +143,16 @@ wide right column carrying the shapes you read.
   of each test x host pair into Protected (blocked by a control), Prevented (the
   EDR stopped it), Detected only (it ran and the EDR alerted) and Silent (it ran
   with no alert). Cyber-hygiene bundles are left out, and the outcome filters do
-  not narrow it. Click an outcome in the legend to open the Executions tab filtered to that
+  not narrow it. Pairs with no conclusive result yet, and risk-accepted pairs,
+  are counted in a line under the legend and left out of the donut. Click an
+  outcome in the legend to open the All Executions tab filtered to that
   outcome; an "Outcome: …" chip above the table removes the filter. On installs
-  whose backend does not offer it, the card shows Results by error type instead.
-- **ATT&CK technique distribution** — one row per technique with a stacked
-  protected/unprotected bar and a percentage; a warning chip counts techniques
-  that also raised Defender or CrowdStrike alerts
+  whose backend does not offer it (Vercel), the card shows Results by error type instead.
+- **ATT&CK technique distribution** — one row per technique (the ten with the
+  most results) with a stacked protected/unprotected bar and a percentage; a
+  chip per connected EDR counts the listed techniques that also appear on its
+  alerts (for example "3 with Defender alerts"). Click a row to open All
+  Executions filtered to that technique
 - **How deep attack chains get** — for each multi-stage (non-cyber-hygiene)
   chain, the latest run on each host: the stage where it was blocked (1, 2, 3,
   or 4+), or that nothing blocked it. Chains nothing blocked are split into
@@ -218,6 +222,8 @@ The card is not shown on installs whose backend does not offer it (Vercel).
   once), and the pair count behind the score. The ledger replaced the old hero card, which showed one
   big number and left the reconciliation implicit.
 - **Secure Score** — Microsoft Defender's score and raw points, when configured
+- **ZTA Score** — CrowdStrike's Zero Trust Assessment score, when configured
+  and licensed
 
 **Posture row — right column**
 
@@ -239,17 +245,17 @@ integration is not configured they are omitted and the remaining cards reflow to
 fill the row — the layout stays balanced rather than leaving a gap.
 :::
 
-### Executions Tab
+### All Executions Tab \{#executions-tab}
 
-The **Executions** tab provides a full data table of individual test executions. Features include:
+The **All Executions** tab provides a full data table of individual test executions. Features include:
 
 - **Master-detail layout** — grouped runs on the left, the selected run's
   per-control results on the right; `↑` / `↓` move the selection
 - Bundle grouping -- related bundle controls are grouped under collapsible parent rows showing a "X/Y Protected" summary badge
 - Multi-select with bulk operations (archive, accept risk)
-- CSV and JSON export with consistent timestamp formatting
-- Deep-linkable — the selected run rides in `?expanded=<id>`, so a dashboard
-  "recent executions" row or a shared link opens straight to that result
+- An **Export** menu: CSV, JSON, the [PDF report](./execution-report) and the SB Export (see [Data Export](#data-export))
+- Deep-linkable — the selected run rides in `?expanded=<id>`, so a shared
+  link opens straight to that result
 
 ![Executions — master-detail view with grouped bundle runs on the left and the selected run's attack chain and per-stage results on the right](/img/screenshots/executions-table.png)
 
@@ -257,14 +263,14 @@ The **Executions** tab provides a full data table of individual test executions.
 
 The **Risk Acceptances** tab tracks security exceptions:
 
-1. Select failed executions from the Executions table
-2. Provide a justification (minimum 10 characters)
-3. Choose scope: test-specific, host-specific, or global
-4. Active acceptances appear with badges throughout the dashboard and are factored into the Defense Score
+1. Select unprotected executions in the All Executions table and choose **Accept risk**
+2. Choose the scope: **All Hosts** or **This Host Only**
+3. Provide a justification (minimum 10 characters)
+4. Active acceptances are marked on the affected results and are excluded from the Defense Score
 
-Risk acceptances can be revoked with a single click, which re-includes those results in score calculations.
+An acceptance is revoked from the same tab with a reason (minimum 10 characters), which re-includes those results in score calculations. See [Risk Acceptance](./risk-acceptance).
 
-### Defender Tab
+### EDR Tabs \{#defender-tab}
 
 When Microsoft Defender is configured, a dedicated **Defender** tab appears
 with an evidence-based detection rate, Secure Score, alert correlation, MITRE
@@ -276,15 +282,19 @@ with the same shape — evidence-based detection rate, ZTA posture score, alert
 correlation, technique overlap, and an alert drawer with Falcon console links.
 See [CrowdStrike Falcon](./crowdstrike).
 
+**SentinelOne** and **Sophos** tabs appear the same way when those
+integrations are configured. See [SentinelOne](./sentinelone) and
+[Sophos](./sophos). Neither integration is available on Vercel.
+
 :::info[Detection Rate vs. Defense Score]
 These are distinct metrics. The **Defense Score** measures whether a test's
 *exit code* reported it as protected; the EDR tabs' **Detection Rate**
-measures whether *Microsoft Defender or CrowdStrike detected the run*,
+measures whether *that EDR detected the run*,
 read from the per-run enrichment flags (a bundle stage by its own
 `stage_detected` flag, a standalone test by its `detected` flag, and a
 vendor-confirmed prevention always counts as detected). See the Detection Rate sections of
 [Microsoft Defender](./microsoft-defender#detection-rate) and
-[CrowdStrike Falcon](./crowdstrike#detection-rate). The Defense Score counts cyber-hygiene controls; the Detection Rate
+[CrowdStrike Falcon](./crowdstrike#detection-rate); the SentinelOne and Sophos tabs use the same rule. The Defense Score counts cyber-hygiene controls; the Detection Rate
 excludes them. Auto-resolve never affects either score.
 :::
 
@@ -321,34 +331,47 @@ Untested hosts come from the agent list, which needs the
 `endpoints:agents:read` permission. Without it the card shows the tested hosts
 only and says "enrolled hosts unavailable".
 
-![Test Coverage and Defense Score by Host bar lists above the Test Breadth by Host card (shown here before it became equal tiles)](/img/screenshots/analytics-coverage.png)
+![Test Coverage and Defense Score by Host bar lists above the Test Breadth by Host card, with one equal tile per host and the Not tested group below](/img/screenshots/analytics-coverage.png)
+
+The other coverage cards are described in [Coverage Views](./heatmaps-treemaps).
 
 ## Filtering
 
-The filter bar runs across the top of every tab and supports multiple simultaneous dimensions:
+The page header carries the date range and a **Filters** button. The button opens the filter bar, which applies to the Dashboard and All Executions tabs, and shows how many filters are active:
 
 | Filter | Description |
 |--------|-------------|
-| **Date Range** | Preset ranges (24h, 7d, 30d, 90d, all time) or a custom start/end date |
-| **Hosts** | Multi-select dropdown of endpoint hostnames |
-| **Tests** | Multi-select dropdown of test names |
-| **Techniques** | Multi-select dropdown of MITRE ATT&CK technique IDs |
-| **Categories** | Multi-select dropdown of test categories |
+| **Date range** (page header) | Last 24 hours, 7, 30 or 90 days, all time, or a custom start and end date |
+| **Result** | All results, or only Protected, Unprotected or Inconclusive |
+| **Hostname** | Endpoint hostnames |
+| **Category** | Test categories |
+| **Threat Actor** | Threat actors the tests emulate |
+| **Tags** | Test tags |
+| **Error Name** / **Error Code** | Result names and exit codes |
+| **Bundle** | Bundle and multi-stage test names |
+| **Test** | Test names |
+| **Technique** | MITRE ATT&CK technique IDs |
 
-Filters are additive -- selecting multiple values in the same dropdown narrows results. Each dropdown shows a count badge when filters are active. The filter bar is collapsible to save screen space.
+All but **Result** are multi-select. Several values in one filter match any of them; different filters combine, so each one narrows the results. Active filters are listed as removable chips under the bar, and **Clear All** removes them. Filters are carried in the URL, so a filtered view can be shared. There is no severity filter: test severity was removed from the console.
 
-:::tip[Date Range Shortcuts]
-Use the preset date range buttons (24h, 7d, 30d, 90d) for quick time-window changes. The trend chart automatically adjusts its time axis granularity to match the selected range.
+The EDR tabs follow the date range only.
+
+:::tip[Trend granularity]
+The trend chart uses daily points, and weekly points for ranges over 90 days.
 :::
 
 ## Data Export
 
-From the **Executions** tab, you can export data in two formats:
+The **Export** menu on the **All Executions** tab offers:
 
-- **CSV** -- Spreadsheet-compatible format with consistent timestamp formatting
-- **JSON** -- Machine-readable format suitable for integration with other tools
+- **Export CSV** -- Spreadsheet-compatible format with consistent timestamp formatting
+- **Export JSON** -- Machine-readable format suitable for integration with other tools
+- **Report (PDF)** -- the print-ready [execution report](./execution-report) for the same filters
+- **SB Export** -- the SB-PC-2026-001 JSON report for the selected window
 
-The export respects all currently applied filters, so you can narrow the dataset before exporting.
+CSV and JSON hold **every result that matches** the current filters, sort order and outcome chip, not only the page on screen. A bundle or multi-stage run exports one row per control or stage. The export stops at 10,000 results; past that it keeps the newest and says so next to the table ("Exported the newest 10,000 of …").
+
+The SB Export follows the organization, tags, hostname, test and bundle filters. It ignores the result and outcome filters on purpose, because they would misstate a compliance report. **All time** exports the last 90 days.
 
 ## Real-Time Updates
 
@@ -357,7 +380,8 @@ The dashboard automatically reloads data when you:
 - Change any filter or date range
 - Switch tabs
 - Modify Elasticsearch settings (index pattern changes)
-- Toggle Defender or CrowdStrike integrations on or off
+- Connect or disconnect an EDR integration
+- Select **Refresh** in the page header
 
 :::info[Conditional Loading]
 Only the active tab's data is fetched, so switching tabs triggers a fresh load for that tab while keeping others cached.

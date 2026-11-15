@@ -74,4 +74,4 @@ A missing value is never printed as "none". If an optional lookup fails or times
 - **Run start times** that could not be loaded mean the timelines show completion only.
 - When part of the data in scope could not be read, the cover and summary show a banner with the number of shards affected, and the totals may be incomplete.
 
-Each of these issues is also listed under *Some sections are incomplete* on the executive summary. When no EDR vendor is configured, the report leaves out the alert columns, alert tables, the latency plot and the vendor sources, so a tenant without Microsoft Defender or CrowdStrike Falcon sees no alert content. The outcome definitions on the Method page still describe Prevented and Detected.
+Each of these issues is also listed under *Some sections are incomplete* on the executive summary. When no EDR vendor is configured, the report leaves out the alert columns, alert tables, the latency plot and the vendor sources, so an install with no EDR connected (Microsoft Defender, CrowdStrike Falcon, SentinelOne or Sophos) sees no alert content. The outcome definitions on the Method page still describe Prevented and Detected.

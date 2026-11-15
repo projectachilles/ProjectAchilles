@@ -10,7 +10,7 @@ description: "How to contribute to ProjectAchilles — PR process, coding standa
 
 1. Fork the repository and create a feature branch
 2. Make your changes following the [coding standards](#coding-standards)
-3. Ensure TypeScript compiles: `npm run build` in both frontend and backend
+3. Ensure TypeScript compiles: `npm run build` in `frontend/`, `backend/` and, if you changed it, `backend-serverless/`
 4. Run tests: `npm test` in the relevant directory
 5. Create a PR with a clear description
 6. Address review feedback
@@ -21,7 +21,9 @@ description: "How to contribute to ProjectAchilles — PR process, coding standa
 - [ ] TypeScript compiles without errors
 - [ ] Self-review completed
 - [ ] No sensitive data or credentials included
-- [ ] Go agent compiles (if changed): `cd agent && go build ./...`
+- [ ] Go agent compiles and its tests pass (if changed): `cd agent && go build ./... && go test ./...`
+- [ ] Shared logic (types, API contracts, Elasticsearch mappings) is updated in both `backend/` and `backend-serverless/`. They are independent codebases
+- [ ] Commit messages follow the [commit convention](./ci-cd#commit-convention)
 
 ## Coding Standards
 
@@ -36,7 +38,7 @@ description: "How to contribute to ProjectAchilles — PR process, coding standa
 |------|------------|---------|
 | Component files | PascalCase | `TestDetailPage.tsx` |
 | Utility files | camelCase | `metadataExtractor.ts` |
-| Route files | kebab-case | `browser.routes.ts` |
+| Route files | `<name>.routes.ts` | `browser.routes.ts` |
 | Components | PascalCase | `SecurityTestCard` |
 | Functions | camelCase | `fetchTestResults` |
 | Constants | UPPER_SNAKE_CASE | `MAX_RETRY_ATTEMPTS` |

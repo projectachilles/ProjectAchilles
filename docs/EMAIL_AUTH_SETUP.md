@@ -30,8 +30,9 @@ This guide enables email/password authentication alongside existing social OAuth
 
 2. **Navigate to Email Settings**
    ```
-   Left Sidebar → Configure → Email, Phone, Username
+   Left Sidebar → Configure → User & authentication
    ```
+   (Older Clerk dashboards call this page "Email, Phone, Username".)
 
 3. **Enable Email Address**
    - Toggle **"Email address"** to **ON**
@@ -114,7 +115,10 @@ By default, Clerk uses their built-in email service. For production, you may wan
    ```
 
 3. **Navigate to Sign-Up**
-   - Click **"Sign up"** link
+   - Click **"Sign up"** link (or open `/sign-up`)
+   - If Clerk's access mode is **Invite-only** (recommended, see
+     `wiki/docs/deployment/clerk-setup.md`), sign-ups are closed: invite the
+     test address from **Settings → Users** and open the link in the email
    - You should see:
      ```
      ✓ Email address field
@@ -136,14 +140,16 @@ By default, Clerk uses their built-in email service. For production, you may wan
    - Should complete sign-up
 
 6. **Verify Dashboard Access**
-   - Should redirect to main app
+   - Should redirect to the Dashboard (`/dashboard`)
    - Should be authenticated
-   - User button should show in header
+   - The sidebar and its **log out** button should show
+   - An account with no role is read-only (`explorer`) until an admin sets a
+     role under **Settings → Users**
 
 ### Test Sign-In Flow
 
 1. **Sign Out**
-   - Click user button → Sign out
+   - Select **log out** at the bottom of the sidebar
 
 2. **Navigate to Sign-In**
    - Should redirect to sign-in page
@@ -157,8 +163,8 @@ By default, Clerk uses their built-in email service. For production, you may wan
 
 4. **Verify Success**
    - Should authenticate successfully
-   - Should redirect to app
-   - Should access all modules
+   - Should redirect to the Dashboard
+   - Should see the modules the account's role allows
 
 ### Test Password Reset (Important!)
 
@@ -439,7 +445,7 @@ Your existing implementation already supports email authentication:
   routing="path"
   path="/sign-in"
   signUpUrl="/sign-up"
-  afterSignInUrl="/"
+  afterSignInUrl="/dashboard"
 />
 ```
 
@@ -463,7 +469,7 @@ Enable passwordless authentication:
 
 1. **Clerk Dashboard**
    ```
-   Configure → Email, Phone, Username
+   Configure → User & authentication
    ```
 
 2. **Enable Magic Link**
@@ -523,11 +529,7 @@ Before considering complete:
 
 Update these files for production deployment:
 
-1. **deployment/PRODUCTION_DEPLOYMENT.md**
-   - Add email authentication to testing section
-   - Update OAuth configuration notes
-
-2. **README.md**
+1. **README.md**
    - List email as authentication method
    - Update features section
 

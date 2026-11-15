@@ -28,14 +28,14 @@ The alert, trend and correlation endpoints run the
 [CrowdStrike analytics queries](./crowdstrike#analytics-endpoints) against the
 `achilles-sentinelone` index. Both indexes share the same normalized alert
 document shape, and the SentinelOne enrichment pass writes
-`f0rtika.sentinelone_detected` / `_stage_detected` / `_prevented` on result
+`f0rtika.sentinelone_detected` / `_stage_detected` / `_stage_prevented` / `_prevented` on result
 documents with the same rules, so the request parameters and response shapes
 match the CrowdStrike endpoints. Only the differences are listed here.
 
 | Difference from CrowdStrike | Detail |
 |-----------------------------|--------|
-| No ZTA score | There are no `/zta-score` routes. SentinelOne has no Zero Trust Assessment equivalent, so no posture score is invented. |
-| `ztaScore` is always `null` | `/correlation/scores` returns the Defense Score series with `ztaScore: null` on every point. |
+| No ZTA score | There are no `/zta-score` routes. SentinelOne has no Zero Trust Assessment equivalent. |
+| Posture score | `/correlation/scores` carries the Achilles [Endpoint Protection score](#endpoint-protection-score) in `ztaScore` (the field name is kept for compatibility). |
 | Record-type filter | `GET /alerts` also accepts `sourceType` (see below). |
 | Evidence flags | Technique coverage reads `f0rtika.sentinelone_*` flags instead of `f0rtika.crowdstrike_*`. |
 | Posture endpoints | `/posture/policies`, `/posture/agent-health`, `/posture/protection-score` and `/posture/exclusion-gaps` are SentinelOne-only (see [Posture](#posture)). |
@@ -113,9 +113,12 @@ GET /api/analytics/sentinelone/correlation/technique-coverage?from=<iso>&to=<iso
 
 Same execution set, evidence rule and response shape as the
 [CrowdStrike Technique Coverage](./crowdstrike#technique-coverage), with the
-`f0rtika.sentinelone_detected`, `f0rtika.sentinelone_stage_detected` and
-`f0rtika.sentinelone_prevented` flags. Without `from`/`to` it defaults to the
-last 30 days. `alerts` per row counts SentinelOne alerts.
+`f0rtika.sentinelone_detected`, `f0rtika.sentinelone_stage_detected`,
+`f0rtika.sentinelone_stage_prevented` and `f0rtika.sentinelone_prevented`
+flags. Without `from`/`to` it defaults to the last 30 days. `alerts` per row
+counts SentinelOne alerts. The host scope is the stored SentinelOne agent
+inventory (`scope.source: "inventory"`), falling back to hosts that raised a
+SentinelOne alert in the last 90 days.
 
 Prevented means SentinelOne itself stopped the execution. A kill or quarantine
 done by Achilles [automatic mitigation](../user-guide/integrations/sentinelone-auto-resolve#automatic-mitigation)
@@ -289,6 +292,13 @@ exclusion's OS, `file` / `folder` / `subfolders` type and `*` / `?` wildcards.
 
 Base path: `/api/integrations/sentinelone`
 
+The SentinelOne configuration is deployment-wide: these routes ignore the
+caller's Clerk organization. With `REQUIRE_ORG_ISOLATION=true`, `POST` and
+`DELETE /sentinelone`, `PUT /auto-resolve/mode`, `PUT /auto-mitigation` and a
+`POST /sync` with `reset: true` return `403`; set the `SENTINELONE_BASE_URL`
+and `SENTINELONE_API_TOKEN` environment variables instead. Reads, `/test` and
+a plain `/sync` stay available.
+
 ### Configuration
 
 ```
@@ -318,7 +328,8 @@ POST   /api/integrations/sentinelone/test
 - **`POST /sentinelone/test`** (`integrations:write`) — authenticated read
   (`GET /threats?limit=1&countOnly=true`) in read-only mode. Uses the body's
   `base_url` / `api_token` / `scope` (`account_ids`, `site_ids`), falling back
-  to the stored values. Always HTTP 200:
+  to the stored values. The stored token is only used with the stored console
+  URL: testing another console needs its own token. Always HTTP 200:
   `{ "success": true, "message": "Connected to SentinelOne (Read-only mode) — 42 threat(s) visible in scope" }`
   or `{ "success": false, "error": "..." }`.
 
@@ -373,8 +384,9 @@ GET  /api/integrations/sentinelone/sync/status
 
   If a sync is already running, nothing new starts and `reset` is not applied:
   the response is `202` with `{ "started": false, "inProgress": true }`.
-  Returns `400` when the integration is not configured. Poll
-  `GET /sync/status` until `inProgress` is `false`.
+  Returns `400` when the integration is not configured, and `403` for
+  `reset: true` with `REQUIRE_ORG_ISOLATION=true` (a re-backfill affects every
+  organization). Poll `GET /sync/status` until `inProgress` is `false`.
 - **`GET /sentinelone/sync/status`** (`integrations:read`) —
 
   | Field | Description |

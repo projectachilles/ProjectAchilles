@@ -51,6 +51,17 @@ Environment variables `SENTINELONE_BASE_URL`, `SENTINELONE_API_TOKEN`,
 `SENTINELONE_PERMISSION_MODE` (`read_only`|`response`) and `SENTINELONE_LABEL`
 can be used instead of the UI; UI settings take priority.
 
+:::info[One SentinelOne connection per deployment]
+The SentinelOne settings are deployment-wide: the sync, the correlation,
+auto-resolve and automatic mitigation run once for the whole install, whichever
+Clerk organization the admin who saved them belongs to. With
+`REQUIRE_ORG_ISOLATION=true` the settings are read-only in the UI: saving,
+disconnecting, changing the auto-resolve mode or automatic mitigation, and
+**Re-backfill** return 403, so one organization's admin can't change what runs
+for every organization. Configure SentinelOne with the `SENTINELONE_*`
+environment variables there. **Sync now** still works.
+:::
+
 :::info[Elasticsearch API key]
 With a scoped Elasticsearch API key, this integration needs grants on its own
 index and `write` on the results index. Saving checks them and shows a red

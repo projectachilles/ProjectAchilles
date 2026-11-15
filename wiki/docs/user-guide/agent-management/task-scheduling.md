@@ -9,14 +9,17 @@ description: "Automate recurring test execution with flexible scheduling options
 ## Creating a Schedule
 
 1. Navigate to **Tasks** and click **Create Task**
-2. Choose the **Schedule** tab, configure the schedule (below), and click **Create Schedule**
-3. Configure:
-   - **Test** to execute
-   - **Target agents** (specific agents or all)
+2. Select the **target agents** and the **test** to execute
+3. Choose the **Schedule** tab and configure:
+   - **Schedule name** (optional)
    - **Frequency** — Once, daily, weekly, monthly
-   - **Time** — Specific time, or randomized within office hours (fleet-wide or per machine)
-   - **Platform/Architecture** for the binary
-   - **Target ES index** (optional)
+   - **Timing** — Fixed time, or randomized within office hours (fleet together or per machine)
+   - **Timezone**
+   - **Timeout** and **Priority**
+   - **Target index** (optional, under **Advanced**; an `achilles-results-…` index)
+4. Click **Create Schedule**
+
+Only security tests can be scheduled, not commands. Each agent receives the build for its own operating system, so there is no platform to choose. The same **Schedule** tab is in the execution drawer that **Run on agents** opens from a test.
 
 ## Schedule Types
 
@@ -74,5 +77,6 @@ Higher-priority tasks are assigned before lower-priority ones when multiple task
 Existing schedules are listed in the **Schedules** section of the Tasks page (`/tasks/schedules`). New schedules are created from **Create Task**, not from that view.
 
 - **Pause/Resume** — Temporarily disable a schedule without deleting it
-- **Edit** — Modify any schedule parameter
-- **Delete** — Permanently remove a schedule
+- **Delete** — Permanently remove a schedule. There is no confirmation step
+
+The console has no edit form for a schedule. To change one, delete it and create it again, or update it through the API (`PATCH /api/agent/admin/schedules/:id`; see the [Agent Admin API](../../api-reference/agent-admin)).

@@ -16,7 +16,7 @@ internet, **false inside an enterprise**, where a whole agent fleet and every SO
 analyst egress through a single corporate NAT IP.
 
 When that assumption breaks, an IP-keyed limiter silently becomes a
-**per-customer** bucket: legitimate fleets and dashboards collide with each other
+**per-organization** bucket: legitimate fleets and dashboards collide with each other
 and trip the limit, with no abuse occurring. The fix is to key on the real
 principal — the **agent id** for device traffic, the **Clerk user id** for
 dashboard traffic — and keep IP (normalized) only as the abuse-resistant fallback
@@ -122,7 +122,7 @@ still stops a runaway enrollment loop while absorbing a few-hundred-endpoint
 simultaneous deployment.
 
 > **Sizing note:** 300 is sized for the current largest single-site fleet
-> (~250 endpoints behind one NAT). If a customer site exceeds that, raise the
+> (~250 endpoints behind one NAT). If a site exceeds that, raise the
 > enrollment/download budgets — they are the one number still tied to fleet size
 > rather than to a per-principal key.
 
@@ -142,10 +142,22 @@ legitimate clients never approach. The CLI bearer limiter additionally skips
 already-authenticated dashboard traffic (`cliBearerLimiterSkip`). Loosening these
 would weaken brute-force defense with no user benefit, so they are unchanged.
 
+## Not a rate limiter: the download budget
+
+Test binary handouts are paced separately, by a token bucket in
+`services/agent/downloadBudget.ts` (`AGENT_DOWNLOAD_BUDGET_MB_PER_MIN`, default
+1500, `0` or less disables it). When a schedule or Run Now targets many agents,
+an agent whose task would exceed the minute's budget gets an empty poll (204)
+and picks the task up on a later poll. No request is refused with 429. Backend
+only.
+
 ## Maintaining parity
 
 `backend/` and `backend-serverless/` are independent codebases. Any change to a
-limiter's window, budget, or key **must be applied to both**. The serverless
+limiter's window, budget, or key **must be applied to both**. The exceptions are
+the agent failed-auth guard, the API key and CLI limiters (the serverless backend
+has no API keys and no CLI sign-in) and the download budget, which exist in
+`backend/` only. The serverless
 `rateLimitKeys.ts` is self-contained (it has no `safeClerkAuth` helper to import)
 but produces identical keys.
 
@@ -154,3 +166,7 @@ but produces identical keys.
 - **Jun 2026 (PR #330)** — re-keyed limiters from IP to principal; recalibrated the
   agent-device, enrollment, download, and global-UI budgets; re-synced the
   serverless agent-device key with the Docker IPv6 hardening (originally PR #285).
+- **Nov 2026 (v2.9.0)** — agent device routes skip the CLI bearer limiter; the
+  per-IP failed-auth guard for unknown agent IDs; case-insensitive device-route
+  check shared by the UI and CLI limiter skips; download budget for test binary
+  handouts.

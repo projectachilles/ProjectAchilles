@@ -31,9 +31,9 @@ cd backend && npm run build      # tsc → dist/, then type-checks scripts/ (tsc
 
 ```bash
 # All tests
-cd backend && npm test           # 2740 tests across 133 files
-cd frontend && npm test          # 1223 tests across 121 files
-cd backend-serverless && npm test  # 1719 tests across 69 files
+cd backend && npm test
+cd frontend && npm test
+cd backend-serverless && npm test
 
 # Single file
 cd backend && npx vitest src/services/agent/__tests__/enrollment.service.test.ts
@@ -70,7 +70,7 @@ cd agent && go build ./...       # Validate compilation
 ## Architecture
 
 ### Frontend (`frontend/src/`)
-- **React 19** + **TypeScript** + **Vite 7** + **Tailwind CSS v4**
+- **React 19** + **TypeScript** + **Vite 8** + **Tailwind CSS v4**
 - **Clerk** for authentication, **Redux Toolkit** for state, **React Router v7** for routing
 - Path alias: `@/` → `src/`
 
@@ -95,7 +95,7 @@ Key directories:
 - `middleware/` - Auth, error handling, rate limiting
 
 ### Agent (`agent/`)
-- **Go 1.25** — lightweight binary with enrollment, heartbeat, task execution, self-update
+- **Go 1.26** — lightweight binary with enrollment, heartbeat, task execution, self-update
 - **Platforms**: Windows (amd64), Linux (amd64), macOS (amd64 + arm64)
 - Internal packages: `config`, `enrollment`, `executor`, `httpclient`, `poller`, `reporter`, `service`, `store`, `sysinfo`, `updater`
 - Platform-specific files use build tags (`//go:build darwin`, etc.) for service management, sysinfo, and binary updates
@@ -388,7 +388,7 @@ Uses `backend-serverless/` — a fork of the backend adapted for serverless. Rep
 # Key env vars: CLERK_*, TURSO_*, BLOB_READ_WRITE_TOKEN, ENCRYPTION_SECRET
 # Cron routes: /api/cron/schedules, /api/cron/auto-rotation
 # Capabilities endpoint: GET /api/capabilities (feature flags for frontend)
-cd backend-serverless && npm test    # 1719 tests across 69 files
+cd backend-serverless && npm test
 ```
 
 ### Backend Serverless (`backend-serverless/`)
@@ -566,7 +566,7 @@ Threshold-based alerting dispatched when test results cross configured score thr
 - **Channels**: Slack (Block Kit via webhook URL), Email (Nodemailer with SMTP)
 - **Thresholds**: Score drop % (relative) and absolute score floor, configurable per metric
 - **Settings**: Stored in `~/.projectachilles/integrations.json` (AES-256-GCM encrypted)
-- **Backend service**: `services/alerting/` — `alerting.service.ts` (threshold evaluation), `slack.service.ts`, `email.service.ts`
+- **Backend service**: `services/alerts/` — `alerts.service.ts` (threshold evaluation), `slack.service.ts`, `email.service.ts`
 - **Frontend**: `AlertsConfig` settings component, `NotificationBell` in TopBar
 - **Dispatch trigger**: Called from `results.service.ts` after successful ES ingestion
 - **Backend-only**: `backend-serverless/` has no alerting routes. `GET /api/capabilities` reports `alerting: false` there, which hides the Settings card and the bell's alert calls (the bell still shows flash notifications). The frontend default is `true`, because alerting predates the flag.

@@ -10,6 +10,16 @@ All Defender endpoints require Clerk authentication. Analytics endpoints require
 the `analytics:dashboards:read` permission; integration endpoints require
 `integrations:read` or `integrations:write`.
 
+All analytics endpoints return
+`400 {"success": false, "error": "Defender integration is not configured"}`
+until the integration is configured.
+
+On Vercel (`backend-serverless/`) the Defender routes exist, with these
+differences: no `POST /correlation/alerts-for-tests`, no `elasticsearch` field
+in the save response, no
+[Elasticsearch readiness](./overview.md#edr-elasticsearch-readiness) route, and
+no `REQUIRE_ORG_ISOLATION` check on the settings writes.
+
 ## Analytics Endpoints
 
 Base path: `/api/analytics/defender`
@@ -22,7 +32,7 @@ GET /api/analytics/defender/secure-score/trend
 ```
 
 Current Microsoft Secure Score with category breakdown, and its history over
-time.
+time (`/trend?days=<n>`, default 90).
 
 ### Alerts
 
@@ -33,8 +43,12 @@ GET /api/analytics/defender/alerts/trend
 ```
 
 - **`/alerts/summary`** — alert counts broken down by severity and status.
-- **`/alerts`** — the alert list, filterable by severity and time range.
-- **`/alerts/trend`** — alert volume bucketed over time.
+- **`/alerts`**: the alert list, paged (`page`, `pageSize`) and sortable
+  (`sortField`, `sortOrder` `asc` or `desc`, default `desc`), filterable by
+  `status`, free-text `search`, `techniques` (comma-separated), severity, source
+  and time range.
+- **`/alerts/trend`**: alert volume bucketed over time (`?days=<n>`, default
+  30).
 
 ### Controls
 
@@ -45,14 +59,18 @@ GET /api/analytics/defender/controls/correlation
 GET /api/analytics/defender/controls/correlations
 ```
 
-- **`/controls`** — Defender control profiles with compliance status.
+- **`/controls`**: Defender control profiles with compliance status. Optional
+  `category` and `deprecated` (`true` or `false`) filters.
 - **`/controls/by-category`** — controls grouped by category.
-- **`/controls/correlation`** — one control (`controlTitle`) linked to the
-  alerts and techniques it covers (control ↔ alert linking).
+- **`/controls/correlation`**: one control (`controlTitle`, required, `400`
+  without it) linked to the alerts and techniques it covers (control ↔ alert
+  linking). Optional `days`, default 30.
 - **`/controls/correlations`** — the same for up to 20 controls in one query:
   repeat `title[]=` (or a single `title=`), plus optional `days` (1–365,
   default 30). Returns `[{ title, coveredTechniques, alertCount }]` in the
-  order given. The Analytics top-controls card uses this one.
+  order given. The Analytics top-controls card uses this one. No title, more
+  than 20 titles, an empty title or one longer than 300 characters, or a `days`
+  outside 1–365 returns `400`.
 
 ### Window parameters
 
@@ -145,7 +163,15 @@ Rate tile and the Technique Coverage card, so they cannot disagree.
 excluding the attack-simulation exclusions (cyber-hygiene controls and skipped
 bundle stages) and any result whose exit code is not in
 `0, 1, 101, 105, 126, 127, 259, 999`. These are the same eligibility clauses
-the enrichment pass uses.
+the enrichment pass uses. A run Defender stopped by killing the agent is one
+whole-test result: it counts in `overall` but never in a `byTechnique` row,
+because no stage exercised a technique.
+
+**Host scope.** Only the hosts Defender covers are counted: the hosts that
+raised a Defender alert in the last 90 days. A host where Defender is installed
+but has never alerted is left out. With no such host, every tested host counts.
+`scope` says which applied (see
+[CrowdStrike Technique Coverage](./crowdstrike#technique-coverage)).
 
 **Evidence rule.** The enrichment pass only ever writes these flags as `true`;
 a missing flag means no match. Per execution, detected is any of:
@@ -156,11 +182,21 @@ a missing flag means no match. Per execution, detected is any of:
   (`f0rtika.is_bundle_control` is not `true`). On a bundle stage this flag only
   means the bundle was matched, so a stage counts only by its own stage flag and
   is never credited because a sibling stage was caught;
-- `f0rtika.defender_prevented: true` — a vendor-confirmed prevention counts as
-  detected.
+- the result's own prevention (below): a prevention counts as detected.
 
-Prevented is `f0rtika.defender_prevented: true`; detected-only is detected and
-not prevented; missed is the rest.
+Prevented is judged by the result's own evidence, any of:
+
+- `f0rtika.defender_stage_prevented: true`: an alert naming this stage carried the
+  action. On results enriched before that flag existed:
+  `f0rtika.defender_stage_detected: true` plus a `f0rtika.defender_prevention_action` of
+  `quarantined`, `process_killed` or `blocked`;
+- `f0rtika.defender_prevented: true` on a result that is **not** a bundle control.
+  On a bundle stage this flag is run-wide (a sibling stage's prevention sets it
+  on every stage), so it is not used there;
+- `f0rtika.edr_terminated_vendors` contains `defender`: Defender killed the agent
+  mid-run.
+
+Detected-only is detected and not prevented; missed is the rest.
 
 ```jsonc
 {
@@ -177,7 +213,8 @@ not prevented; missed is the rest.
   "byTechnique": [
     { "technique": "T1574.002", "name": "DLL Side-Loading", "executions": 5,
       "prevented": 3, "detectedOnly": 1, "missed": 1, "alerts": 6 }
-  ]
+  ],
+  "scope": { "source": "alerts", "hosts": 4 } // alerts | fleet; hosts with a counted result
 }
 ```
 
@@ -206,7 +243,8 @@ GET /api/analytics/defender/correlation/alerts-for-test
 POST /api/analytics/defender/correlation/alerts-for-tests
 ```
 
-- **`/correlation/scores`** — Defense Score vs. Secure Score over time.
+- **`/correlation/scores`**: Defense Score vs. Secure Score over time
+  (`?days=<n>`, default 90).
 - **`/correlation/techniques`** — MITRE technique overlap between test results
   and Defender alerts.
 - **`/correlation/detection-rate`** — the legacy technique plus time-window
@@ -215,7 +253,10 @@ POST /api/analytics/defender/correlation/alerts-for-tests
   the Analytics tab (see [Technique Coverage](#technique-coverage)).
 - **`/correlation/alerts-for-test`** — per-test evidence correlation; returns
   the Defender alerts matched to a specific test execution (powers the alert
-  drawer drill-down).
+  drawer drill-down). `techniques` (comma-separated) and `timestamp` are
+  required (`400 techniques and timestamp are required` otherwise);
+  `windowMinutes` (default 30), `hostname`, `binaryName` and `bundleName` are
+  optional.
 - **`POST /correlation/alerts-for-tests`** — the same lookup for many
   executions at once; the Executions view uses it for all stages of a row.
   Body `{ "items": [{ "techniques": ["T1059"], "timestamp": "…", "windowMinutes": 30,
@@ -265,26 +306,56 @@ for the full metric definition.
 
 Base path: `/api/integrations/defender`
 
+The Defender configuration is deployment-wide: these routes ignore the caller's
+Clerk organization. With `REQUIRE_ORG_ISOLATION=true`, `POST /defender`,
+`DELETE /defender` and `PUT /defender/auto-resolve/mode` return `403`; set the
+`DEFENDER_*` environment variables instead. Reads, `/test`, `/parse-pfx` and
+`/sync` stay available.
+
 ### Configuration
 
 ```
-GET  /api/integrations/defender
-POST /api/integrations/defender
-POST /api/integrations/defender/test
+GET    /api/integrations/defender
+POST   /api/integrations/defender
+DELETE /api/integrations/defender
+POST   /api/integrations/defender/test
+POST   /api/integrations/defender/parse-pfx
 ```
 
-- **`GET /defender`** — returns whether Defender is configured (no secrets).
-- **`POST /defender`** — save credentials. Stored AES-256-GCM encrypted. The response includes `elasticsearch`: the [Elasticsearch readiness](./overview.md#edr-elasticsearch-readiness) of the key, checked (and the index created) before responding.
-- **`POST /defender/test`** — validate credentials against Microsoft Graph.
+- **`GET /defender`** (`integrations:read`): masked settings (no secrets):
+  `configured`, `tenant_id` and `client_id` masked as `****` plus the last four
+  characters, `auth_method`, `client_secret_set`, `cert_thumbprint_set`, `label`
+  and `env_configured`. `{ "configured": false }` when nothing is saved.
+- **`POST /defender`** (`integrations:write`): save credentials (partial
+  update). Stored AES-256-GCM encrypted. On the first save `tenant_id` and
+  `client_id` are required, plus `client_secret`, or `cert_thumbprint` and
+  `private_key_pem` for certificate auth (`400` otherwise). A background sync
+  starts after saving. The response includes `elasticsearch`: the [Elasticsearch readiness](./overview.md#edr-elasticsearch-readiness) of the key, checked (and the index created) before responding.
+- **`DELETE /defender`** (`integrations:write`): remove the stored
+  credentials. Refused with `400` when they come from the `DEFENDER_*`
+  environment variables.
+- **`POST /defender/test`** (`integrations:write`): acquire a token from
+  Microsoft with the body's values, falling back to the stored ones. Always
+  HTTP 200: `{ "success": true, "message": "..." }` or
+  `{ "success": false, "error": "..." }`.
+- **`POST /defender/parse-pfx`** (`integrations:write`): `multipart/form-data`
+  with a `pfx` file (up to 4 MB) and an optional `passphrase`. Returns
+  `{ success, data: { thumbprint, private_key_pem, subject_cn, not_after } }`
+  to pass to `/test` and `POST /defender`. Nothing is saved.
 
 **`POST /defender` body:**
 ```json
 {
-  "tenantId": "...",
-  "clientId": "...",
-  "clientSecret": "..."
+  "tenant_id": "...",
+  "client_id": "...",
+  "client_secret": "...",
+  "label": "Production tenant"
 }
 ```
+
+For certificate auth, send `"auth_method": "certificate"` with
+`cert_thumbprint` and `private_key_pem` instead of `client_secret`.
+`auth_method` defaults to `client_secret`.
 
 ### Sync
 
@@ -293,8 +364,12 @@ POST /api/integrations/defender/sync
 GET  /api/integrations/defender/sync/status
 ```
 
-- **`POST /defender/sync`** — trigger an immediate sync from Microsoft Graph.
-- **`GET /defender/sync/status`** — last sync timestamps for scores and alerts.
+- **`POST /defender/sync`** (`integrations:write`): run a full sync from
+  Microsoft Graph and return its result when it finishes
+  (`{ success, data }`). `400` when Defender is not configured.
+- **`GET /defender/sync/status`** (`integrations:read`): `lastScoreSync`,
+  `lastControlSync`, `lastAlertSync`, `lastSyncResult`, `lastAttemptAt` and
+  `lastError`.
 
 ### Auto-Resolve
 
@@ -304,9 +379,17 @@ PUT /api/integrations/defender/auto-resolve/mode
 GET /api/integrations/defender/auto-resolve/receipts?limit=<n>&offset=<n>
 ```
 
-- **`/auto-resolve/status`** — current mode plus recent receipt counts.
-- **`/auto-resolve/mode`** — set the mode; body `{ "mode": "disabled" | "dry_run" | "enabled" }`.
-- **`/auto-resolve/receipts`** — paginated receipt history.
+- **`/auto-resolve/status`** (`integrations:read`):
+  `{ success, data: { mode, counts: { last24h, last7d, last30d }, lastAutoResolve } }`.
+  `lastAutoResolve` is the last pass result or `null`.
+- **`/auto-resolve/mode`** (`integrations:write`): set the mode; body
+  `{ "mode": "disabled" | "dry_run" | "enabled" }`. `400` when Defender is not
+  configured.
+- **`/auto-resolve/receipts`** (`integrations:read`):
+  `{ success, data: { items, total, limit, offset } }`, newest first. `limit`
+  defaults to 20 (1–100), `offset` to 0. Each item has `alert_id`,
+  `alert_title`, `severity`, `achilles_test_uuid`, `auto_resolved_at`,
+  `auto_resolve_mode` and `auto_resolve_error`.
 
 See [Defender Auto-Resolve](../user-guide/integrations/defender-auto-resolve)
 for the feature walkthrough.

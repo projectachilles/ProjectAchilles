@@ -53,7 +53,8 @@ Please include the following information in your report:
 
 | Version | Supported |
 |---------|-----------|
-| 1.x.x (latest) | Yes |
+| 2.x (latest release) | Yes |
+| Older releases | No. Upgrade to the latest release |
 
 ## Security Architecture
 
@@ -73,15 +74,24 @@ ProjectAchilles uses a multi-layer authentication model:
 3. **Enrollment Tokens** — One-time or limited-use tokens for agent registration
    - Configurable TTL (time-to-live) and maximum usage count
    - Revocable through the admin interface
-4. **Integration Credentials** — Third-party service credentials stored encrypted
-   - Microsoft Defender: `DEFENDER_TENANT_ID`, `DEFENDER_CLIENT_ID`, `DEFENDER_CLIENT_SECRET`
+4. **API Keys and CLI Tokens** — Bearer credentials for scripts and the `achilles` CLI
+   - API keys (`pa_` prefix) carry a `read`, `read-write` or `admin` scope; hashed at rest, shown once. Not available on the Vercel (serverless) deployment
+   - A CLI token is bound to the server that issued it (`AGENT_SERVER_URL`)
+   - Neither can manage users, create or revoke API keys, or approve a CLI sign-in: those routes accept a signed-in browser session only, so revoking a leaked key contains the incident
+5. **Integration Credentials** — Third-party service credentials stored encrypted
+   - Microsoft Defender, CrowdStrike Falcon, SentinelOne and Sophos Central API credentials
    - Slack webhook URL for alerting
    - SMTP credentials for email alerting
    - All encrypted at rest with AES-256-GCM in `~/.projectachilles/integrations.json`
+   - EDR integrations are read-only unless auto-resolve (or SentinelOne automatic mitigation) is turned on
+
+### Organization Separation
+
+One install per organization is the supported separation model. Inside an install, Clerk organizations scope agents, tasks, schedules, analytics, campaigns and notices, but the Elasticsearch connection, the EDR integrations, agent versions and the test library are shared. Sharing one install between organizations that must not see each other's data is not supported; see the README section "Your evidence stays yours".
 
 ### Agent Security
 
-The agent-server communication channel has been hardened through a dedicated internal security audit. See [Agent Security Findings](docs/agent-security-findings.md) for the full audit report covering 9 findings.
+The agent-server communication channel has been hardened through a dedicated internal security audit. See [Agent Security Findings](../docs/agent-security-findings.md) for the full audit report covering 9 findings.
 
 **Transport Security:**
 - **TLS Enforcement** — `skip_tls_verify` blocked for non-localhost servers at config validation; explicit `--allow-insecure` CLI flag required for self-signed certificate scenarios
@@ -95,13 +105,17 @@ The agent-server communication channel has been hardened through a dedicated int
 **Binary Integrity:**
 - **SHA256 Verification** — Agents verify test binary integrity via checksum before execution
 - **Ed25519 Update Signatures** — Server signs agent binary SHA256 hashes with an Ed25519 keypair; agents verify signatures before applying self-updates; public key distributed during enrollment
-- **Isolated Execution** — Test binaries run in temporary directories (0700) that are cleaned up after execution
+- **Isolated Execution** — Test binaries run in per-task directories (0700); the agent removes a test's binaries after each run and sweeps leftovers at startup
+- **Download only for a held task** — an agent can download a test binary only for a task assigned to it
+- **Locked install folder** — the agent installs into `C:\F0` (Windows) or `/opt/f0`, restricted to SYSTEM and Administrators / root
 
 **Rate Limiting:**
-- Enrollment: 5 requests / 15 minutes per IP
-- Agent device endpoints: 100 requests / 15 minutes per agent
-- Binary download: 10 requests / 15 minutes per IP
+- Agent device endpoints: 30 requests / minute per agent (keyed by IP + agent ID)
+- Authentication failures from unknown agent IDs: 60 / minute per IP
+- Enrollment: 300 requests / 15 minutes per IP
+- Binary download: 300 requests / 15 minutes per IP
 - Key rotation: 3 requests / 15 minutes per IP
+- Budgets and reasoning: [Rate Limiting](../docs/rate-limiting.md)
 
 **Platform Hardening:**
 - **File Permissions** — Agent binary `0700` (owner-only), config `0600`, work directories `0700`, log files `0640`
@@ -175,7 +189,7 @@ AGENT_SERVER_URL=https://your-agent-endpoint.com
 | Feature | Implementation |
 |---------|----------------|
 | Helmet.js | Security headers |
-| Rate Limiting | Tiered per-endpoint limits: enrollment (5/15min), device (100/15min), download (10/15min), rotation (3/15min), auth (20/15min) |
+| Rate Limiting | Principal-keyed limits: agent device (30/min per agent), unknown-agent auth failures (60/min per IP), enrollment and download (300/15min), key rotation (3/15min), UI (1000/15min per user) |
 | Session Security | HttpOnly cookies, secure in production |
 | Input Validation | Zod schema validation |
 | CORS | Configurable origin restrictions |
@@ -188,8 +202,9 @@ AGENT_SERVER_URL=https://your-agent-endpoint.com
 | Enrollment Tokens | TTL + max-use limits, revocable, timing-oracle-resistant |
 | File Permission Hardening | Binary `0700`, config `0600`, Windows ACLs via icacls |
 | Dependabot | Automated dependency vulnerability monitoring |
-| Semgrep SAST | 11 community rulesets + 5 custom rules in CI; Claude security review on PRs |
-| Integration Credential Encryption | Defender, Slack, SMTP credentials AES-256-GCM encrypted at rest |
+| Static analysis | Semgrep (11 registry rulesets + 11 custom rules) and CodeQL in CI; Claude security review on PRs |
+| Build isolation | Test builds run with an allowlisted environment, never the backend's own secrets |
+| Integration Credential Encryption | Defender, CrowdStrike, SentinelOne, Sophos, Slack and SMTP credentials AES-256-GCM encrypted at rest |
 
 ## Vulnerability Disclosure Policy
 

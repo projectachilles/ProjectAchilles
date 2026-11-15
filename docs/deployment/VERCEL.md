@@ -18,9 +18,10 @@ Unlike the Docker-based deployments (Railway, Render, Docker Compose), the Verce
 | Database | SQLite (better-sqlite3) | **Turso** (@libsql/client) |
 | File storage | `~/.projectachilles/` directory | **Vercel Blob** |
 | Signing keys | File system | **Environment variables** (Ed25519) |
-| Encryption secret | Optional (machine-derived fallback) | **Required** |
-| Test library | Runtime git sync (cron) | **Build-time clone** |
-| Cron jobs | Optional | **Vercel Crons** (schedule processing, key rotation) |
+| Encryption secret | Required | **Required** |
+| Test library | Runtime git sync | **Build-time clone** |
+| Background jobs | In-process timers | **Vercel Crons** (schedule processing, key rotation, ingestion retry, CrowdStrike sync) |
+| Features | All | A subset: see [What's Not Available on Vercel](#whats-not-available-on-vercel) |
 
 ## Prerequisites
 
@@ -142,9 +143,7 @@ Configure these in the Vercel Dashboard (**Settings → Environment Variables**)
 | `NODE_ENV` | `production` | |
 | `CLERK_PUBLISHABLE_KEY` | `pk_live_...` | From Clerk dashboard |
 | `CLERK_SECRET_KEY` | `sk_live_...` | From Clerk dashboard |
-| `SESSION_SECRET` | `openssl rand -base64 32` | Generate a random value |
-| `ENCRYPTION_SECRET` | `openssl rand -base64 32` | **Required** — no fallback on Vercel |
-| `CLI_AUTH_SECRET` | `openssl rand -base64 32` | **Required** for CLI login (`achilles login`) |
+| `ENCRYPTION_SECRET` | `openssl rand -base64 32` | **Required**, no fallback |
 | `TURSO_DATABASE_URL` | `libsql://projectachilles-...turso.io` | From Step 1 |
 | `TURSO_AUTH_TOKEN` | `eyJhbGci...` | From Step 1 |
 | `SIGNING_PRIVATE_KEY_B64` | Base64 string | From Step 2 |
@@ -200,7 +199,7 @@ curl https://<backend>.vercel.app/api/health
 
 # Capabilities (confirms serverless mode)
 curl https://<backend>.vercel.app/api/capabilities
-# → {"build":false,"certGenerate":false,"certUpload":true,"gitSync":false,"agentBuild":false,"platform":"vercel"}
+# → {"build":false,"buildUpload":true,"certGenerate":true,"certUpload":true,"gitSync":false,"agentBuild":false,"campaigns":false,...,"platform":"vercel"}
 ```
 
 1. Visit your frontend URL — you should see the Clerk login page
@@ -209,12 +208,14 @@ curl https://<backend>.vercel.app/api/capabilities
 
 ## Cron Jobs
 
-The backend defines two Vercel Cron jobs in `vercel.json`:
+The backend defines four Vercel Cron jobs in `vercel.json`:
 
 | Schedule | Endpoint | Purpose |
 |----------|----------|---------|
 | Every minute | `/api/cron/schedules` | Process pending test execution schedules |
 | Every minute | `/api/cron/auto-rotation` | Rotate agent API keys (configurable interval, default 90 days) |
+| Every 5 minutes | `/api/cron/retry-ingestion` | Retry results that did not reach Elasticsearch |
+| Every 5 minutes | `/api/cron/crowdstrike-sync` | Sync CrowdStrike alerts |
 
 Cron jobs are protected by `CRON_SECRET`, which Vercel auto-injects — no manual configuration needed. Cron jobs require the **Pro plan** or above.
 
@@ -237,13 +238,21 @@ This means:
 
 | Feature | Status | Reason |
 |---------|--------|--------|
-| Go agent builds | 503 | Vercel has no Go toolchain |
-| Certificate generation | 503 | No `openssl` binary |
+| Go agent builds, test builds | 503 | Vercel has no Go toolchain |
+| Certificate generation | Available | Done in JavaScript (`node-forge`), stored in Vercel Blob |
 | Certificate upload | Available | Stored in Vercel Blob |
 | Runtime git sync | Disabled | No persistent filesystem — tests cloned at build time |
 | Agent binary upload | Available | Stored in Vercel Blob |
+| Campaigns | Not available | Not in the serverless backend |
+| Pre-execution notices and the advance digest | Not available | No email stack |
+| Alerting (Slack and email threshold alerts) | Not available | Not in the serverless backend |
+| SentinelOne and Sophos integrations | Not available | Not in the serverless backend |
+| Console identity (Settings → General) | Not available | Not in the serverless backend |
+| Stage coverage and Outcome breakdown cards | Not available | Not in the serverless backend |
+| API keys and CLI sign-in (`achilles login`) | Not available | No `/api/api-keys` or `/api/cli/auth` routes |
+| Task output and agent event retention, download pacing | Not available | The retention and pacing variables are not read |
 
-Build agents locally and upload them through the UI. The frontend automatically hides unavailable features based on the `/api/capabilities` response.
+Build agents locally and upload them through the UI. The frontend automatically hides unavailable features based on the `/api/capabilities` response. For the full feature set, use one of the Docker-based targets.
 
 ## Custom Domains
 
@@ -264,7 +273,7 @@ Build agents locally and upload them through the UI. The frontend automatically 
 | Vercel Blob (1 GB included on Pro) | $0 |
 | **Total** | **~$20** |
 
-For comparison: Railway ~$10-13/mo (usage-based), Render ~$14/mo (flat rate). The Vercel Pro plan includes both projects, cron jobs, and Blob storage. See [Vercel pricing](https://vercel.com/pricing) for current rates.
+For comparison: Railway ~$10-13/mo (usage-based), Render ~$33/mo (flat rate, Standard backend). The Vercel Pro plan includes both projects, cron jobs, and Blob storage. See [Vercel pricing](https://vercel.com/pricing) for current rates.
 
 ## Gotchas
 
@@ -350,7 +359,7 @@ Initialize Elasticsearch indices on Elastic Cloud:
 - If using a custom domain, update `CORS_ORIGIN` to the custom domain
 
 ### `ENCRYPTION_SECRET` errors
-Unlike the Docker backend, the Vercel backend has **no fallback** for `ENCRYPTION_SECRET`. It must be set. If you see encryption-related errors, verify the variable is set in Vercel's environment settings and redeploy.
+`ENCRYPTION_SECRET` has **no fallback**. It must be set. If you see encryption-related errors, verify the variable is set in Vercel's environment settings and redeploy.
 
 ### Test library is empty or outdated
 The test library is cloned at build time. To update:
@@ -362,7 +371,7 @@ The test library is cloned at build time. To update:
 Set `AGENT_SERVER_URL` to the backend's public Vercel domain (with `https://`).
 
 ### Analytics shows "not configured"
-The Elastic Cloud connection is stored encrypted in Vercel Blob. If `ENCRYPTION_SECRET` changed, the stored settings become unreadable. Reconfigure via Analytics → Setup, or set `ELASTICSEARCH_CLOUD_ID` and `ELASTICSEARCH_API_KEY` as env vars (env vars take priority over stored settings).
+The Elastic Cloud connection is stored encrypted in Vercel Blob. If `ENCRYPTION_SECRET` changed, the stored settings become unreadable. Reconfigure via Analytics → Setup, or set `ELASTICSEARCH_CLOUD_ID` and `ELASTICSEARCH_API_KEY` as env vars (they are used when no connection is saved in the UI, or the saved one can't be read).
 
 ### Cron jobs not running
 - Verify you're on the Vercel **Pro plan** (crons aren't available on Hobby)

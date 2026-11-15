@@ -10,6 +10,8 @@ The **about** button at the bottom of the sidebar opens a dialog with three bloc
 the platform release this install runs, the agent version, and the release notes.
 Every signed-in user can open it.
 
+![About dialog — platform version, the official and registered agent versions with the fleet breakdown, and the release notes of the running release](/img/screenshots/about-dialog.png)
+
 ## Platform
 
 The first line is the platform version. Under it, one of three things:

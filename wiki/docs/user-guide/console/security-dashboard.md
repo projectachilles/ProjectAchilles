@@ -1,7 +1,7 @@
 ---
 sidebar_position: 2
 title: "Security Dashboard"
-description: "The unified ProjectAchilles dashboard — attention banner, KPI strip, trend overview, testing cadence, threat actor readiness, ATT&CK outcome matrix, fleet health, and the shared time range selector."
+description: "The unified ProjectAchilles dashboard — attention chips, KPI strip, trend overview, testing cadence, threat actor readiness, ATT&CK coverage matrix, fleet health, and the shared time range selector."
 ---
 
 # Security Dashboard
@@ -11,13 +11,14 @@ summarised across all three data sources — the test library, the endpoint
 fleet, and Elasticsearch analytics. It replaced the three separate module
 dashboards in 2.1.
 
-![Security Dashboard — attention banner, KPI strip, trend overview, testing cadence, threat actor readiness and ATT&CK outcome matrix](/img/screenshots/security-dashboard.png)
+![Security Dashboard — attention chips, KPI strip, trend overview, testing cadence, threat actor readiness and ATT&CK coverage matrix](/img/screenshots/security-dashboard.png)
 
 ## Time range
 
-The header carries a **24h / 7d / 30d / 90d / All** selector plus a git sync
-chip and a manual refresh. The range drives the Defense Score and the trend
-overview, and defaults to **30d**. It is shared with the Analytics section:
+The header carries a **24h / 7d / 30d / 90d / All** selector. The range drives
+the Defense Score, the trend overview, threat actor readiness and the ATT&CK
+matrix, and defaults to **30d**. The test library's sync chip and **Sync**
+button are on the **Tests** page header, not here. It is shared with the Analytics section:
 changing it on one page changes it on the other, and the choice is remembered
 for the browser tab. A custom range picked in Analytics shows here as a
 **Custom** chip. For the
@@ -31,40 +32,44 @@ Match the range to your schedule. A 7-day window on a monthly schedule shows an
 empty chart even though the programme is healthy; pick 90d for monthly bundles.
 :::
 
-## Attention banner
+## Attention chips \{#attention-banner}
 
-When something needs a human, a warning strip appears above the KPI row with
-one link per issue. It is derived, not stored — each item links to the page
-that resolves it:
+Under the header, an **attention** row shows one small chip per issue: a
+coloured dot, a count and a short label. Hover a chip for the full sentence;
+click it to open the page that resolves it. The row is derived, not stored:
 
-| Item | Trigger | Links to |
+| Chip | Trigger | Links to |
 |------|---------|----------|
-| Agents offline | One or more enrolled agents missed their heartbeat window | `/agents` |
-| Stale agents | Agents with no task in 7 days | `/agents` |
-| Failed tasks | Task failures in the last 24 hours | `/tasks` |
-| Outdated agents | Agents running an older binary than the newest registered version | `/agents` |
-| Sync failures | The test library git sync last failed | `/tests` |
+| `<n> offline` | One or more enrolled agents missed their heartbeat window | `/agents` |
+| `<n> stale · 7d` | Agents with no completed task in 7 days | `/agents?stale=true` (the stale filter) |
+| `<n> tasks failed · 7d` | Test runs that did not finish, plus failed commands and agent updates, in the last 7 days. A run an EDR stopped is not counted | `/tasks` |
+| `<n> outdated` | Agents running an older binary than the newest registered version | `/agents` |
+| `library sync failed` | The test library git sync last failed | `/tests` |
 
-No banner means nothing crossed a threshold.
+Chips are amber, except the sync failure, which is red. When nothing needs
+attention the row reads **all clear**.
 
 ## KPI strip
 
-Up to six cards, each reading from a different source so a single outage
-degrades one card rather than the page:
+Up to seven cards, each reading from a different source so a single outage
+degrades one card rather than the page. Each card links to the page behind it:
 
 | KPI | Meaning |
 |-----|---------|
-| **Defense Score** | Share of test × endpoint pairs whose most recent result in the range was blocked or detected. Renders in danger colour below 60%. The caption reads `<n> pairs · ±d.d pts over <range>`. With fewer than 10 pairs, the score is muted and the caption reads `n=<n> · not enough data`. |
-| **Secure Score** | Microsoft Defender Secure Score, when the integration is configured |
-| **ZTA Score** | CrowdStrike Zero Trust Assessment score, when the integration is configured and licensed |
+| **Defense score (`<range>`)** | Share of test × endpoint pairs whose most recent result in the range was blocked or detected. Renders in danger colour below 60%. The caption reads `<n> pairs · ±d.d pts over <range>`. With fewer than 10 pairs, the score is muted and the caption reads `n=<n> · not enough data`. |
+| **Secure score** | Microsoft Defender Secure Score. Reads "not configured" without the integration |
+| **ZTA score** | CrowdStrike Zero Trust Assessment score, with the device count. The card appears only when CrowdStrike is configured, and shows a dash when ZTA is not licensed |
+| **Sophos Health Check** | The Achilles average of the Sophos Account Health Check scores. The card appears only when Sophos is configured (not on Vercel) |
 | **Total tests** | Tests in the library, with an intel-driven count (`<n> intel-driven`) |
 | **Avg score** | Mean test score across scored tests |
-| **Agents online** | Online / enrolled, with an offline count |
+| **Agents online** | Online / enrolled, with an offline count. Renders in danger colour when any agent is offline |
 
 ## Cards
 
-**Trend overview** — Defense Score, Secure Score, and error rate on one
-30-day-rolling axis over the selected window.
+**Trend overview** — Defense Score and error rate, one point per UTC day over
+the selected window, on one axis. Secure Score, ZTA score and Sophos Health
+Check join as extra lines when their integration is configured. The line under
+the title gives the current value of each series.
 
 **Testing cadence** — how recently and how often you are testing. It uses a
 fixed recent window and ignores the range selector.
@@ -77,18 +82,21 @@ fixed recent window and ignores the range selector.
 - A "last run Nd ago" chip, in UTC calendar days and measured over all time. It turns warning at 2 to 7
   days and danger above 7 days
 - Endpoints tested in the last 7 days, out of enrolled agents
-- Tasks in the last 24 hours: done, failed, and running
+- **Runs · 7d**: test runs with a verdict (protected or unprotected), runs
+  with no verdict (not run, failed, test error or inconclusive), and tasks
+  running now
 - The next scheduled run. It is hidden for roles that cannot read schedules,
   and schedules whose next run time has already passed are ignored
 
 **Threat actor readiness** — follows the shared range. For each adversary it
 shows the share of protected test × endpoint pairs (latest result, any-stage,
-like the Defense Score). The worst actors come first, up to seven. An actor
-below 80% is marked **exposed**. "Not tested in `<range>`" ("Never tested" when
+like the Defense Score). The worst actors come first, as many as fit the card
+(three to ten), each with its test count and the days since it was last
+tested. An actor below 80% is marked **exposed**. "Not tested in `<range>`" ("Never tested" when
 the range is All) lists intel-driven library actors with no results (the first
 six, then "+N more").
 
-**ATT&CK outcome matrix** — twelve tactic columns, Initial Access to Impact.
+**MITRE ATT&CK coverage** — twelve tactic columns, Initial Access to Impact.
 Each technique is a cell under its real ATT&CK tactic (or tactics). Colour is
 the share of that technique's test × endpoint results that were stopped
 (blocked or detected):
@@ -104,9 +112,16 @@ Scoring is per stage, so a technique whose stage got through shows as such even
 if a sibling stage was blocked. Click a cell to open Analytics filtered to that
 technique. The footer names the weakest tactic.
 
-**Fleet health** and **recent executions** round out the page; a recent
-execution links straight to `/analytics?expanded=<id>`, opening that run in the
-executions master-detail view.
+**Top remediation controls** — the Microsoft Defender Secure Score controls
+with the highest score impact, each linking to its action in Defender. Reads
+"Defender is not configured." without the integration.
+
+**Fleet health** — agents online, 7-day task success rate and mean time
+between failures, the fleet split by operating system and agent version, and
+counts of stale and outdated agents.
+
+**Recent executions** — the latest finished tasks (completed or failed). A row
+opens the Tasks page searched for that test.
 
 ## Degradation, not redirects
 
@@ -120,4 +135,4 @@ main complaint about the old per-module dashboards.
 
 - **[Console & Navigation](./navigation)** — the shell, shortcuts, and theme
 - **[Defense Score](../analytics/defense-score)** — how the score is computed
-- **[Task Execution](../agent-management/task-execution)** — the task stream behind the failed-task banner
+- **[Task Execution](../agent-management/task-execution)** — the task stream behind the failed-task chip

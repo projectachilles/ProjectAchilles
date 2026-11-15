@@ -56,8 +56,8 @@ Clerk development instances use shared OAuth credentials. **Production instances
 - [ ] Service deployed and running
 - [ ] Persistent storage configured (volume/disk/Blob)
 - [ ] All environment variables set (see [Environment Variables](./environment-variables))
-- [ ] `ENCRYPTION_SECRET` set to a stable random value
-- [ ] `SESSION_SECRET` set to a strong random value
+- [ ] `ENCRYPTION_SECRET` set to a stable random value of 32+ characters (the backend can't save settings without it)
+- [ ] `CLI_AUTH_SECRET` set, if anyone will use the CLI (not on Vercel)
 - [ ] `CORS_ORIGIN` set to frontend URL (with `https://`)
 - [ ] `AGENT_SERVER_URL` set to backend URL (with `https://`)
 
@@ -134,8 +134,8 @@ curl https://<backend-domain>/api/health
 - [ ] Session cookies marked as Secure and HttpOnly
 - [ ] CORS restricted to production domain only
 - [ ] No secrets committed to the repository
-- [ ] Strong SESSION_SECRET (32+ characters)
 - [ ] Strong ENCRYPTION_SECRET (32+ characters)
+- [ ] `REQUIRE_ORG_ISOLATION=true` considered, if your users belong to Clerk organizations (see [Environment Variables](./environment-variables#organization))
 - [ ] Rate limiting active on auth and enrollment endpoints
 - [ ] Elasticsearch credentials stored encrypted
 
@@ -160,7 +160,7 @@ curl -s https://<tenant>.agent.projectachilles.io/api/health
 {
   "status": "ok",
   "service": "ProjectAchilles",
-  "version": "2.1.0",
+  "version": "2.11.0",
   "commit": "6085fd7abcdef...",
   "commit_short": "6085fd7",
   "branch": "main",
@@ -171,8 +171,10 @@ curl -s https://<tenant>.agent.projectachilles.io/api/health
 Compare `commit_short` against `git log --oneline -5 origin/main`.
 
 `commit` is populated automatically on Render, Vercel and Railway, which each
-inject their own variable. For Docker Compose, VPS and on-prem installs, stamp
-it at build time:
+inject their own variable. Server installs (`scripts/deploy-server.sh`,
+`achilles-installer`) and the repository's Fly.io workflow pass the commit as a
+build argument. For a plain `docker compose build` or your own image build,
+stamp it yourself:
 
 ```bash
 docker build --build-arg GIT_COMMIT=$(git rev-parse HEAD) -t achilles-backend backend/

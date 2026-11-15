@@ -73,7 +73,7 @@ Services communicate over Railway's [private network](https://docs.railway.com/g
    :::
 
 :::danger[ENCRYPTION_SECRET is Required]
-Without `ENCRYPTION_SECRET`, the backend falls back to a machine-derived key (hostname + username) that changes across deploys, corrupting encrypted settings.
+Without `ENCRYPTION_SECRET` the backend cannot save or read encrypted settings (Elasticsearch, integrations, certificates). Keep the value stable: settings saved with one secret can't be read with another.
 :::
 
 5. Assign a **public domain** (Settings → Networking → Generate Domain)
@@ -130,7 +130,7 @@ Railway uses `watchPatterns` from `railway.toml` for selective rebuilds:
 
 ## Limitations
 
-**Agent cross-compilation** is not available on Railway. The build-from-source feature requires the `agent/` source directory mounted at `/agent-src`, which isn't available since Railway's build context is `backend/` only. Build agents locally and upload them through the UI.
+**Agent cross-compilation** needs `AGENT_REPO_URL`. Railway's build context is `backend/` only, so the image has no `agent/` source. With `AGENT_REPO_URL` set, the backend clones the agent source at startup and refreshes it before every build. Without it, build from source is unavailable: build agents locally and upload them through the UI.
 
 ## Cost Estimate
 
@@ -166,8 +166,8 @@ Railway requires both a CNAME record and a `_railway-verify.app` TXT record for 
 
 ### Encrypted settings lost after redeploy
 
-`ENCRYPTION_SECRET` is not set. Set a stable value in Railway variables.
+`ENCRYPTION_SECRET` is not set, or it changed between deploys. Set a stable value in Railway variables and save the settings again.
 
 ### Analytics shows "not configured"
 
-Reconfigure via Analytics → Setup, or set `ELASTICSEARCH_CLOUD_ID` and `ELASTICSEARCH_API_KEY` as env vars (env vars take priority over stored settings).
+Reconfigure via Analytics → Setup, or set `ELASTICSEARCH_CLOUD_ID` and `ELASTICSEARCH_API_KEY` as env vars (they are used when no connection is saved in the UI, or the saved one can't be read).

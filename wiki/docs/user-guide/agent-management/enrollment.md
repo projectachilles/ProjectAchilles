@@ -10,16 +10,17 @@ description: "Enroll agents with ProjectAchilles using time-limited, usage-limit
 
 Agent enrollment is a token-based registration process. An admin creates an enrollment token via the web UI, then provides it to the agent binary at install time.
 
+![Enroll agent dialog — token TTL and max-uses form above the active tokens table](/img/screenshots/enroll-agent.png)
+
 ## Creating Enrollment Tokens
 
-1. Navigate to **Agents** → **Enrollment Tokens**
-2. Click **Create Token**
-3. Configure:
-   - **TTL** — How long the token is valid (hours/days)
-   - **Max Uses** — Maximum number of agents that can enroll with this token
-4. Click **Create**
+1. Navigate to **Agents** and click **Enroll agent**
+2. Configure:
+   - **TTL (hours)** — How long the token is valid (default 24)
+   - **Max Uses** — Maximum number of agents that can enroll with this token (default 1)
+3. Click **Generate Token**
 
-The token string is displayed once — copy it and provide it to the person installing the agent.
+The token string is displayed once, with a ready-made install command per platform. Copy it and provide it to the person installing the agent.
 
 ## Enrolling an Agent
 
@@ -51,11 +52,11 @@ During enrollment:
 
 ## Revoking Tokens
 
-In the Enrollment Tokens list, click **Revoke** to immediately invalidate a token. Agents already enrolled are unaffected.
+In the **Active Tokens** table of the Enroll agent dialog, click the trash icon on a token to invalidate it at once. Agents already enrolled are unaffected.
 
 ## Enrollment UI Walkthrough
 
-The enrollment interface is accessed from the **Agents** section and provides two main areas: token generation and token management.
+The **Enroll agent** button on the Agents page opens a dialog with two areas: token generation and token management.
 
 ```mermaid
 graph TD
@@ -70,9 +71,9 @@ graph TD
     G --> H[Token String Displayed]
     H --> D
 
-    D --> I[Linux Command]
-    D --> J[macOS Command]
-    D --> K[Windows Command]
+    D --> K[Windows]
+    D --> I[Linux amd64 / arm64]
+    D --> J[macOS Apple Silicon / Intel]
 
     C --> L[View Status]
     C --> M[Monitor Usage Count]
@@ -92,13 +93,13 @@ The full token string is displayed only once at creation time. Copy it before na
 
 ### Installation Commands
 
-When a token is generated, the UI automatically produces ready-to-copy installation commands for every supported platform:
+When a token is generated, the **Install command** box shows one platform at a time. Pick the platform with the tabs:
 
-- **Linux (amd64/arm64)** -- `curl`-based download into `/opt/f0` with the token and server URL embedded
-- **macOS (Intel / Apple Silicon)** -- Platform-specific binary download into `/opt/f0`
-- **Windows** -- PowerShell command that downloads into `C:\F0` (run it in an elevated PowerShell)
+- **Windows** -- PowerShell block for an elevated PowerShell. It refuses a `C:\F0` that a non-administrator created, locks the folder to SYSTEM and Administrators, downloads the agent into it, then enrolls and installs
+- **Linux amd64** / **Linux arm64** -- `curl`-based download into `/opt/f0` with the token and server URL embedded
+- **macOS Apple Silicon** / **macOS Intel** -- The same commands with the macOS binary
 
-Each command includes a **Copy** button for one-click clipboard copying.
+**Copy command** copies exactly what is shown. A platform only works when an agent binary for it has been registered in **Settings → Agent** ([Deploying Agents](./deploying-agents)).
 
 ### Token Status Indicators
 
@@ -110,22 +111,17 @@ The token list table shows a status badge for each token:
 | **Expired** | Token has passed its TTL expiration time |
 | **Exhausted** | Token has reached its maximum use count |
 
+The table lists each token's short ID, creation and expiry dates and uses (`1 / 5`).
+
 :::tip[Bulk Enrollment]
 For large deployments, create a token with a high **Max Uses** value and distribute the same installation command across your fleet using your configuration management tool (Ansible, SCCM, etc.).
 :::
 
-## Agent Management Dashboard
+## After Enrollment
 
-After agents are enrolled, the **Agent Dashboard** provides fleet-wide monitoring:
+Enrolled agents appear on the **Agents** page. There is no separate agent dashboard: the fleet numbers are on the left rail of the Agents page (online, offline and stale counts, versions, tag groups) and in the **Fleet health** card of the main Dashboard (agents online, 7-day task success rate, mean time between failures, OS and version breakdown). See [Heartbeat & Monitoring](./heartbeat-monitoring#agent-management-ui).
 
-![Enroll agent dialog — token TTL and max-uses form above the active tokens table](/img/screenshots/enroll-agent.png)
-
-- **Fleet Metrics** -- Total agents, online/offline counts, pending tasks
-- **Health KPIs** -- Fleet uptime, task success rates, mean time between failures
-- **Distribution Charts** -- Agent version distribution, OS breakdown, status summary
-- **Recent Tasks** -- Latest task executions across the fleet
-
-The dashboard auto-refreshes every 30 seconds. Stale agents (those that have not sent a heartbeat recently) are flagged with a warning indicator.
+A **stale** agent is an active agent that has completed no task in the last 7 days.
 
 ### Agent List
 
@@ -133,10 +129,11 @@ The main agent list supports:
 
 ![Agents — grouped fleet table with status dots, hostnames, health bars, 24 h heartbeat sparklines, versions and last-seen times](/img/screenshots/agents.png)
 
-- **Filtering** by hostname, OS, status, and online state
-- **Bulk operations** such as tagging, triggering updates, and uninstalling
+- **Filtering** by hostname, OS, status (active, disabled, decommissioned, uninstalled), online state, tag group and stale agents. Decommissioned and uninstalled agents are hidden unless you pick that status
+- **Bulk operations** on the selected rows: **Tags**, **Update Selected**, **Disable Selected**, **Uninstall Selected** and **Delete Selected**
+- **Row menu** (**⋯**): Quick View, Disable or Enable, Update, Rotate API Key, Uninstall, Delete
 - **Real-time polling** every 15 seconds for silent status updates
-- **Version tracking** with outdated-agent detection and one-click update prompts
+- **Version tracking** with an `outdated` chip per agent and an **Update all** row when agents are behind the newest registered version
 
 ### Agent Detail View
 
@@ -155,7 +152,7 @@ The detail view refreshes automatically every 30 seconds.
 
 ### Key Rotation
 
-Rotate an agent's API key from the agent detail page, or let **automatic
+Rotate an agent's API key with **Rotate API Key** in the agent's row menu, or let **automatic
 rotation** do it on an interval (Agents → Key Rotation in the utility rail).
 
 Rotation is two-phase. The new key is stored as *pending* and handed to the
@@ -194,11 +191,20 @@ pending key nobody can collect.
 
 ### Uninstall
 
-Agents can be uninstalled individually or in bulk. The uninstall dialog includes cleanup options and handles batch processing with progress feedback.
+Agents can be uninstalled individually or in bulk. The dialog asks whether to also delete the agent's files and queues one uninstall task per agent. See [Remote Uninstall](./remote-uninstall).
 
 ### Tag Management
 
-Apply tags to one or more agents at a time for organizational grouping. Tags can be used as filters when creating tasks or viewing the agent list.
+Tags group agents. Each agent row shows its tags:
+
+- **× on a tag** removes it from that agent.
+- **+ tag** opens a menu of the tags already in use. Tick one to add it, or type a new name and choose **Create**.
+- **Tags** in the selection bar edits every selected agent at once. A tag that only some of them carry shows a dash and a count (`2 of 5`); click it to add it to all, click again to remove it from all.
+- After a change, the confirmation message offers **Undo**.
+
+A tag is 1 to 32 characters: lowercase letters, digits and `. _ : -`, starting with a letter or digit. Names are lowercased as you type them.
+
+The list is grouped by each agent's **first** tag, with untagged agents last. The **groups** list in the left rail filters the list to one tag, and the same tags filter the agent picker when you create a task, a schedule or a campaign.
 
 ## Permissions
 
@@ -207,7 +213,10 @@ Agent management actions are gated by role-based permissions:
 | Action | Required Permission |
 |--------|-------------------|
 | Create enrollment tokens | `endpoints:tokens:create` |
-| Modify agents (enable/disable, tag) | `endpoints:agents:write` |
-| Delete agents | `endpoints:agents:delete` |
+| Revoke enrollment tokens | `endpoints:tokens:delete` |
+| Modify agents (enable/disable, tag, automatic key rotation, rotate a key) | `endpoints:agents:write` |
+| Delete or uninstall agents | `endpoints:agents:delete` |
+
+The console lists **Rotate API Key** in the row menu only for users who can also delete agents.
 
 UI elements are hidden when the current user lacks the required permission.

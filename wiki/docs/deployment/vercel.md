@@ -26,6 +26,7 @@ The Vercel deployment uses `backend-serverless/` — a purpose-built fork that r
 | Signing keys | Filesystem | Environment variables (Ed25519) |
 | Test library | Runtime git sync | Build-time clone |
 | Cron jobs | setInterval | Vercel Crons |
+| Features | All | A subset: see [What's Not Available](#whats-not-available) |
 
 ## Prerequisites
 
@@ -75,7 +76,7 @@ Create **two separate Vercel projects** linked to the same GitHub repo:
 ```bash
 ./scripts/generate-secrets.sh --target vercel
 ```
-Outputs `SESSION_SECRET`, `ENCRYPTION_SECRET`, `CLI_AUTH_SECRET`, and Ed25519 signing keys — ready to paste.
+Outputs `SESSION_SECRET`, `ENCRYPTION_SECRET`, `CLI_AUTH_SECRET`, and Ed25519 signing keys — ready to paste. The Vercel backend reads only `ENCRYPTION_SECRET` and the signing keys from that list.
 :::
 
 ### Backend
@@ -84,9 +85,7 @@ Outputs `SESSION_SECRET`, `ENCRYPTION_SECRET`, `CLI_AUTH_SECRET`, and Ed25519 si
 |----------|-------|
 | `CLERK_PUBLISHABLE_KEY` | `pk_live_...` |
 | `CLERK_SECRET_KEY` | `sk_live_...` |
-| `SESSION_SECRET` | Random 32+ chars |
 | `ENCRYPTION_SECRET` | Random 32+ chars (**required, no fallback**) |
-| `CLI_AUTH_SECRET` | Random 32+ chars |
 | `TURSO_DATABASE_URL` | `libsql://...turso.io` |
 | `TURSO_AUTH_TOKEN` | Turso auth token |
 | `SIGNING_PRIVATE_KEY_B64` | From Step 2 |
@@ -121,18 +120,32 @@ Every user without a role is read-only. In the Clerk Dashboard, add the
 |----------|----------|---------|
 | Every minute | `/api/cron/schedules` | Process pending schedules |
 | Every minute | `/api/cron/auto-rotation` | Rotate agent API keys |
+| Every 5 minutes | `/api/cron/retry-ingestion` | Retry results that did not reach Elasticsearch |
+| Every 5 minutes | `/api/cron/crowdstrike-sync` | Sync CrowdStrike alerts |
 
-Cron jobs require the **Pro plan** and only run in Production.
+Cron jobs require the **Pro plan** and only run in Production. Vercel protects the cron routes with `CRON_SECRET`, which it sets itself.
 
 ## What's Not Available
 
+The serverless backend is a separate, smaller codebase. The console reads `GET /api/capabilities` and hides what the backend does not offer.
+
 | Feature | Status | Reason |
 |---------|--------|--------|
-| Go agent builds | 503 | No Go toolchain |
-| Certificate generation | 503 | No `openssl` binary |
-| Runtime git sync | Disabled | No persistent filesystem |
+| Go agent builds, test builds | 503 | No Go toolchain. Upload pre-built binaries instead |
+| Runtime git sync | Disabled | No persistent filesystem. The library is cloned at build time |
+| Certificate generation | **Available** | Done in JavaScript (`node-forge`), stored in Vercel Blob |
 | Certificate upload | **Available** | Stored in Vercel Blob |
 | Agent binary upload | **Available** | Stored in Vercel Blob |
+| Campaigns | Not available | Not in the serverless backend |
+| Pre-execution notices and the advance digest | Not available | No email stack |
+| Alerting (Slack and email threshold alerts) | Not available | Not in the serverless backend |
+| SentinelOne and Sophos integrations | Not available | Not in the serverless backend |
+| Console identity (Settings → General) | Not available | Not in the serverless backend |
+| Stage coverage and Outcome breakdown cards | Not available | Not in the serverless backend |
+| API keys and CLI sign-in (`achilles login`) | Not available | No `/api/api-keys` or `/api/cli/auth` routes |
+| Task output and agent event retention, download pacing | Not available | The retention and pacing variables are not read |
+
+For the full feature set, use one of the Docker-based targets.
 
 ## Gotchas
 

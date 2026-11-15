@@ -38,7 +38,7 @@ graph TB
 Manages Git repository cloning and synchronization with support for sparse checkout and private repository authentication.
 
 **Key features:**
-- **Sparse checkout** -- downloads only required directories (`tests_source`, `preludeorg-libraries`) to minimize clone time and disk usage
+- **Sparse checkout** -- downloads only required directories (`tests_source`, `preludeorg-libraries`, `utils` by default) to minimize clone time and disk usage
 - **GitHub token authentication** -- injects `ghp_` token into the clone URL for private repositories
 - **Force-push resilience** -- uses hard reset to handle upstream force-pushes cleanly
 - **Configurable source subdirectories** -- supports multiple test source paths within a single repository
@@ -48,7 +48,7 @@ Manages Git repository cloning and synchronization with support for sparse check
 | Method | Behavior |
 |--------|----------|
 | `ensureRepo()` | Clone if missing, do not pull. Used at startup for fast initialization |
-| `sync()` | Clone if missing, pull if exists. Used when user triggers manual sync |
+| `sync()` | Clone if missing, pull if exists. Used when a user clicks **Sync** in the Tests page header, and before every agent Build from source |
 | `getStatus()` | Returns last sync time, test count, and sync state |
 | `getTestsSourcePath()` | Resolves the absolute path to the test source directory |
 
@@ -78,11 +78,14 @@ const indexer = new TestIndexer([
 
 | Category | Matched Patterns |
 |----------|-----------------|
-| `documentation` | `README.md`, info cards |
+| `defense` | Names containing `_DEFENSE_GUIDANCE`, `_dr_rules` or `_hardening` (checked first) |
+| `references` | Names containing `_references` |
+| `documentation` | Other `.md` files (`README.md`, info cards) |
+| `diagram` | `.html` files (attack flow, kill chain) |
 | `source` | `.go`, `.ps1` files |
-| `detection` | Sigma rules (`.yml`), KQL queries (`.kql`), YARA rules (`.yar`) |
-| `defense` | Defense guidance, hardening rules |
+| `detection` | Names containing `_sigma_rules` or `_elastic_rules`; `.kql`, `.yara`, `.yar`, `.ndjson` files |
 | `config` | Shell scripts (`.sh`), `go.mod`, `go.sum` |
+| `other` | Everything else |
 
 ### MetadataExtractor
 
@@ -121,6 +124,10 @@ UNIT: test-unit-001
 :::tip[Agent integration]
 The agent service reuses `MetadataExtractor` directly via the `test-catalog.service.ts` at startup to build a UUID-keyed metadata cache. This ensures metadata parsing is consistent between the browser UI and the task creation pipeline.
 :::
+
+### Overview Extractor
+
+`overviewExtractor.ts` parses the sections that the test page's **Overview** tab shows out of the test's markdown documentation. Every parser is a pure function that returns `undefined` when a section is missing or unusable, so one badly formatted document never breaks another field.
 
 ### FileService
 
@@ -164,10 +171,16 @@ The browser services are exposed through `browser.routes.ts`:
 | Endpoint | Method | Purpose |
 |----------|--------|---------|
 | `/api/browser/tests` | GET | List all tests with metadata and filtering |
+| `/api/browser/tests/categories` | GET | List test categories |
 | `/api/browser/tests/:uuid` | GET | Get detailed metadata for a single test |
-| `/api/browser/file` | GET | Serve file content with type detection |
-| `/api/browser/sync` | POST | Trigger manual Git repository sync |
-| `/api/browser/status` | GET | Get Git sync status and test count |
+| `/api/browser/tests/:uuid/description` | GET | Description of a test, or of one validator of a bundle (`?validator=`) |
+| `/api/browser/tests/:uuid/files` | GET | List the test's files |
+| `/api/browser/tests/:uuid/file/:filename` | GET | Serve file content with type detection |
+| `/api/browser/tests/:uuid/attack-flow` | GET | Attack flow diagram |
+| `/api/browser/tests/:uuid/kill-chain` | GET | Kill chain diagram |
+| `/api/browser/tests/sync` | POST | Trigger manual Git repository sync |
+| `/api/browser/tests/sync/status` | GET | Get Git sync status and test count |
+| `/api/browser/tests/refresh` | POST | Re-scan the test directories without pulling |
 
 ## Startup Sequence
 

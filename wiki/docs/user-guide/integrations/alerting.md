@@ -10,6 +10,8 @@ description: "Configure threshold-based alerting for defense score changes via S
 
 The alerting service dispatches notifications when test results cross configured thresholds. Alerts are evaluated after each result ingestion.
 
+Alerting is not available on Vercel (`backend-serverless/`): the **Alerts & Notifications** card is hidden there.
+
 ## Channels
 
 ### Slack
@@ -17,7 +19,7 @@ Alerts are sent as Block Kit formatted messages via a Slack webhook URL.
 
 1. Create an [Incoming Webhook](https://api.slack.com/messaging/webhooks) in your Slack workspace
 2. Navigate to **Settings** → **Integrations** → **Alerts & Notifications** → **Slack**
-3. Paste the webhook URL
+3. Paste the webhook URL. It must be an `https://hooks.slack.com/services/...` or `https://hooks.slack.com/workflows/...` address; any other host is rejected, and redirects are not followed
 4. Send a test message to verify
 
 ### Email
@@ -34,12 +36,17 @@ If the test fails with **Connection timeout** after about 30 seconds, the server
 
 ## Thresholds
 
-Configure two types of thresholds:
+Turn on the **Thresholds** section and fill in the checks you want. An empty field turns that check off.
 
-| Threshold | Description |
-|-----------|-------------|
-| **Relative drop** | Alert when Defense Score drops by X% from the previous period |
-| **Absolute floor** | Alert when Defense Score falls below X% |
+| Field | Alert when |
+|-------|------------|
+| **Defense Score minimum (%)** | The Defense Score is below this value |
+| **Error Rate maximum (%)** | The error rate is above this value |
+| **Secure Score minimum (%)** | Microsoft Secure Score is below this value (shown when Microsoft Defender is configured) |
+| **SentinelOne agent health**: infected, detect-only and outdated agents max | The count from the latest SentinelOne posture snapshot is above the maximum (shown when SentinelOne is configured) |
+| **Cooldown (minutes)** | Minimum time between two alerts (default 15) |
+
+All metrics are sent in one message: the ones that crossed their threshold and the ones that pass.
 
 ### Which Defense Score the alert uses
 
@@ -57,7 +64,7 @@ EDR detections are attached to results a few minutes later, when the EDR integra
 
 ## Notification Bell
 
-Recent alerts also appear in the in-app notification bell in the top navigation bar.
+Recent alerts also appear in the in-app notification bell, next to the search box in the sidebar, and under **Recent Alerts** on the settings card. The list holds the last 50 alerts and is empty again after a backend restart.
 
 ## Architecture
 
@@ -72,8 +79,8 @@ graph TB
 
     subgraph "Alerting Service"
         AS[AlertsService<br/>alerting.service.ts]
-        CD[Cooldown Check<br/>In-memory timer]
-        ME[Metric Evaluation<br/>Defense Score, Error Rate, Secure Score]
+        CD[Cooldown Check<br/>last_alert_at in settings]
+        ME[Metric Evaluation<br/>Defense Score, Error Rate, Secure Score, SentinelOne agent health]
         AAE[Agent Alert Evaluation<br/>Offline Duration, Flapping, Fleet %]
     end
 
@@ -147,28 +154,29 @@ sequenceDiagram
             EM->>EM: Render HTML template
             EM-->>AS: SMTP delivery result
         end
-        AS->>AS: Update cooldown timestamp
+        AS->>AS: Save cooldown timestamp (last_alert_at)
         AS->>AS: Push to alert history ring buffer
     end
 ```
 
 ### Threshold Evaluation Logic
 
-Three metrics are evaluated independently. Each can trigger an alert if its configured threshold is breached:
+These metrics are evaluated independently. Each can trigger an alert if its configured threshold is breached:
 
 | Metric | Direction | Example | Evaluation |
 |--------|-----------|---------|------------|
 | **Defense Score** | Minimum (floor) | `defense_score_min: 80` | Alert if current score < 80% |
 | **Error Rate** | Maximum (ceiling) | `error_rate_max: 5` | Alert if error rate > 5% |
 | **Secure Score** | Minimum (floor) | `secure_score_min: 75` | Alert if Microsoft Secure Score < 75% |
+| **SentinelOne agent health** | Maximum (ceiling) | `s1_infected_agents_max: 0`, `s1_detect_only_agents_max: 0`, `s1_outdated_agents_max: 10` | Alert if the count of infected, detect-only or outdated agents is above the maximum |
 
 :::info
-The Secure Score threshold is only evaluated when the Microsoft Defender integration is configured. If Defender is not connected, this threshold is silently skipped.
+The Secure Score threshold is only evaluated when the Microsoft Defender integration is configured, and the SentinelOne thresholds only when SentinelOne is configured. Otherwise they are silently skipped.
 :::
 
-**Cooldown mechanism:** After an alert is dispatched, a configurable cooldown period (default: 15 minutes) prevents duplicate alerts from firing on subsequent result ingestions. The cooldown timer is stored in memory and resets after the period elapses.
+**Cooldown mechanism:** After an alert is dispatched, a configurable cooldown period (default: 15 minutes) prevents duplicate alerts from firing on subsequent result ingestions. The time of the last alert is saved with the alert settings (`last_alert_at`), so the cooldown survives a backend restart.
 
-**Alert history:** A fixed-size in-memory ring buffer stores recent alerts for display in the Notification Bell component. This history is not persisted — it resets on server restart.
+**Alert history:** A fixed-size in-memory ring buffer stores the last 50 alerts for display in the Notification Bell component. This history is not persisted — it resets on server restart.
 
 ## Agent Alerts
 
@@ -213,17 +221,17 @@ HTML email alerts follow the same information structure:
 
 | Section | Content |
 |---------|---------|
-| **Red banner** | "ProjectAchilles Security Alert" with alert summary |
-| **Metric table** | All three metrics with visual pass/fail indicators and current values vs. thresholds |
-| **Context block** | Triggering test name, agent ID, and timestamp |
+| **Red banner** | "ProjectAchilles Alert" with alert summary |
+| **Metric table** | Every evaluated metric with its current value, threshold and status |
+| **Context block** | Triggering test name and agent |
 | **Dashboard button** | Direct link to the Analytics dashboard |
-| **Footer** | Configuration instructions and unsubscribe note |
+| **Footer** | Where to configure the thresholds |
 
 Emails are sent via Nodemailer with configurable SMTP settings (host, port, TLS, authentication).
 
 ### Settings Storage
 
-Alert configuration is stored in `~/.projectachilles/integrations.json` (Docker) or Vercel Blob (serverless), encrypted with AES-256-GCM:
+Alert configuration is stored in `~/.projectachilles/integrations.json`, with the sensitive fields encrypted with AES-256-GCM:
 
 ```json
 {
@@ -246,8 +254,8 @@ Alert configuration is stored in `~/.projectachilles/integrations.json` (Docker)
       "smtp_secure": false,
       "smtp_user": "enc:<iv>:<tag>:<ciphertext>",
       "smtp_pass": "enc:<iv>:<tag>:<ciphertext>",
-      "from_address": "alerts@company.com",
-      "recipients": ["admin@company.com"],
+      "from_address": "alerts@example.com",
+      "recipients": ["admin@example.com"],
       "configured": true,
       "enabled": true
     },
@@ -266,11 +274,13 @@ Alert configuration is stored in `~/.projectachilles/integrations.json` (Docker)
 Sensitive fields (webhook URLs, SMTP credentials) are prefixed with `enc:` and encrypted using AES-256-GCM. The encryption key is derived from the `ENCRYPTION_SECRET` environment variable.
 :::
 
+On an install with Clerk organizations, a user in an organization saves the alert settings for that organization (`orgs.<org id>.alerts` in the same file). The threshold and agent checks read the install-wide section, which is the one saved by a user who is not in an organization.
+
 ### Connection Testing
 
 Before saving channel configuration, use the built-in test functions:
 
-- **Slack**: Sends a test message to the webhook URL and verifies a 200 response
+- **Slack**: Sends a test message to the webhook URL and verifies a 200 response. Only `hooks.slack.com` webhooks are accepted
 - **Email**: Opens a transient SMTP connection and verifies authentication succeeds. Blank or masked credentials fall back to the saved ones only when the host matches the saved host
 
 Both test endpoints are available in the Settings UI and return clear success/failure messages.

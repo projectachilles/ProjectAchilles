@@ -8,39 +8,36 @@ description: "Authentication hooks in ProjectAchilles — useAuthenticatedApi fo
 
 ## useAuthenticatedApi
 
-The primary hook for making authenticated API calls. It automatically injects the Clerk JWT token into request headers.
+The hook that makes API calls authenticated. It is called once, in `AppContent`, and returns nothing: it registers Clerk's `getToken` with the shared Axios instance `apiClient`, whose request interceptor adds the JWT to every request.
 
 ```typescript
-const api = useAuthenticatedApi();
+// App.tsx
+function AppContent() {
+  useAuthenticatedApi(); // set up the JWT interceptor
+  // ...
+}
 
-// All requests include Authorization: Bearer <jwt>
-const response = await api.get('/api/browser/tests');
+// Anywhere else: use apiClient, or better, a service module
+import { apiClient } from '@/hooks/useAuthenticatedApi';
+
+// baseURL already ends in /api; the request carries Authorization: Bearer <jwt>
+const response = await apiClient.get('/browser/tests');
 ```
 
 ## Three-Tier Auth Model
 
 1. **Clerk (global)** — All web routes require Clerk authentication
-2. **Analytics** — `AnalyticsAuthProvider` context redirects to setup if ES is unconfigured
+2. **Analytics** — `AnalyticsAuthProvider` context knows whether Elasticsearch is configured; the Analytics route guard sends the user to Settings when it is not
 3. **Agent admin** — Clerk JWT required; agent device endpoints use agent API key
 
 ## AnalyticsAuthProvider
 
-Wraps Analytics pages and redirects to `/analytics/setup` if Elasticsearch is not configured:
-
-```typescript
-<AnalyticsAuthProvider>
-  <AnalyticsDashboard />
-</AnalyticsAuthProvider>
-```
+Wraps the whole app (inside `AppContent`) and holds the Elasticsearch configuration state. It does not redirect by itself. The `AnalyticsProtectedRoute` guard in `AppRouter.tsx` reads it: when Elasticsearch is not configured, a user with settings access is redirected to `/settings`, and other users see a message. The old `/analytics/setup` path now redirects to `/settings`.
 
 The companion hook `useAnalyticsAuth` exposes the configuration state:
 
 ```typescript
 const { configured, loading, settings, checkConfiguration } = useAnalyticsAuth();
-
-if (!configured) {
-  return <AnalyticsSetupWizard />;
-}
 ```
 
 ---
@@ -92,7 +89,7 @@ sequenceDiagram
 4. CLI receives authentication confirmation via a separate polling mechanism
 
 :::info
-Device codes are automatically uppercased on input. Verification links never contain or submit a code, and CLI or API-key credentials cannot approve one. CLI sessions expire after 7 days.
+Device codes are automatically uppercased on input. Verification links never contain or submit a code, and CLI or API-key credentials cannot approve one. A device code is valid for 10 minutes. A CLI access token lasts 1 hour and the CLI renews it with its refresh token. The serverless backend has no CLI sign-in.
 :::
 
 ## Role-Based Access Control
@@ -158,6 +155,7 @@ graph TB
     Services --> Alerts[alertsApi]
     Services --> Integrations[integrationsApi]
     Services --> Defender[defenderApi]
+    Services --> More[campaignsApi, noticesApi,<br/>sentinelOneApi, sophosApi, ...]
 
     Agent --> AgentEndpoints["/agent/*"]
     Analytics --> AnalyticsEndpoints["/analytics/*"]
@@ -220,6 +218,23 @@ All services live in `frontend/src/services/api/` and re-export their TypeScript
 | `integrationsApi` | `saveAzureSettings()`, `testAzureConnection()` |
 | `defenderApi` | `getSecureScore()`, `getAlerts()`, `getDetectionRate()` |
 | `alertsApi` | `getAlertSettings()`, `testAlertChannels()` |
+| `crowdstrikeApi` | CrowdStrike analytics |
+| `sentinelOneApi`, `sentineloneAnalyticsApi` | SentinelOne settings and analytics (backend only) |
+| `sophosApi`, `sophosAnalyticsApi` | Sophos settings and analytics (backend only) |
+| `edrReadinessApi` | EDR Elasticsearch readiness check |
+
+### Other Services
+
+| Service | Purpose |
+|---------|---------|
+| `campaignsApi` | Saved campaigns, runs, evidence matrix (backend only) |
+| `noticesApi` | Pre-execution notices (backend only) |
+| `reportsApi` | Report payloads |
+| `consoleIdentityApi` | Console identity (backend only) |
+| `apiKeysApi` | API key management (backend only) |
+| `usersApi` | User management |
+
+"Backend only" services call routes that the serverless backend does not have. Gate their UI on the matching `useCapabilities` flag.
 
 ### Backend Route Mapping
 
@@ -230,7 +245,13 @@ All services live in `frontend/src/services/api/` and re-export their TypeScript
 | `/browser/*` | `browserApi` |
 | `/tests/*` | `testsApi` |
 | `/users/*` | `usersApi` |
-| `/integrations/*` | `alertsApi`, `integrationsApi` |
+| `/integrations/*` | `alertsApi`, `integrationsApi`, `sentinelOneApi`, `sophosApi`, `edrReadinessApi` |
+| `/analytics/defender/*`, `/analytics/crowdstrike/*`, `/analytics/sentinelone/*`, `/analytics/sophos/*` | `defenderApi`, `crowdstrikeApi`, `sentineloneAnalyticsApi`, `sophosAnalyticsApi` |
+| `/campaigns/*` | `campaignsApi` |
+| `/notices/*` | `noticesApi` |
+| `/reports/*` | `reportsApi` |
+| `/settings/identity` | `consoleIdentityApi` |
+| `/api-keys/*` | `apiKeysApi` |
 
 ## Error Handling Patterns
 

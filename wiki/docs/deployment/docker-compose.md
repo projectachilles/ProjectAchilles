@@ -34,7 +34,11 @@ Every user without a role is read-only. In the Clerk Dashboard, add the
 | `backend` | 3000 (internal) | Express API server with SQLite |
 | `frontend` | 80 | nginx serving React SPA + API proxy |
 | `elasticsearch` | 9200 | ES 8.17 single-node (optional profile) |
-| `es-seed` | — | Seeds 1,000 synthetic results (optional) |
+| `es-seed` | — | Seeds 1,000 synthetic results (optional profile; its image is built from `deploy/es-seed`, so it needs no download at run time) |
+| `wiki` | 3001 | This documentation, served locally |
+| `lab-endpoint` | — | Demo Linux endpoint (only with `docker-compose.lab.yml`) |
+
+The backend image installs the Go toolchain that matches the image's architecture, so builds run natively on Apple Silicon (arm64) as well as amd64.
 
 ## Configuration
 
@@ -46,9 +50,8 @@ Create `backend/.env`:
 CLERK_PUBLISHABLE_KEY=pk_test_your_key
 CLERK_SECRET_KEY=sk_test_your_key
 NODE_ENV=production
-ENCRYPTION_SECRET=$(openssl rand -hex 32)
-SESSION_SECRET=$(openssl rand -hex 32)
-CLI_AUTH_SECRET=$(openssl rand -hex 32)
+ENCRYPTION_SECRET=<openssl rand -hex 32>   # required: settings can't be saved without it
+CLI_AUTH_SECRET=<openssl rand -hex 32>     # only for the CLI (achilles login)
 
 # Agent server URL — only needed if agents connect from outside your network
 # AGENT_SERVER_URL=https://your-backend.ngrok-free.app
@@ -98,13 +101,14 @@ Configure the Analytics module at `/analytics/setup` with:
 
 ### With ngrok (Remote Agents)
 
-To allow agents outside your local network to communicate with the backend:
+To allow agents outside your local network to communicate with the backend, point a tunnel (for example `ngrok http 3000`) at the backend port and set its URL:
 
 ```bash
 # In backend/.env
-NGROK_BACKEND_DOMAIN=your-backend.ngrok-free.app
 AGENT_SERVER_URL=https://your-backend.ngrok-free.app
 ```
+
+The `NGROK_*_DOMAIN` variables are read only by `./scripts/start.sh --tunnel` (local development), not by Docker Compose. For a permanent public address use the [Server Installer](./server-installer) instead.
 
 ### With a Lab Endpoint (Demos)
 
@@ -139,11 +143,12 @@ Docker Compose uses a named volume for persistent data:
 ├── certs/              # Code signing certificates
 │   ├── cert-1709000000/
 │   └── active-cert.txt
-├── binaries/           # Built test binaries (cache)
+├── binaries/           # Built agent binaries
+├── builds/             # Built test binaries
 └── go-cache/           # Go module cache for agent builds
 ```
 
-Go's compiler cache lives in the separate `go-cache` volume (`/root/go`, via `GOCACHE=/root/go/build-cache`), so test and agent builds stay fast after a container is recreated.
+The full list is in [Data Storage](./data-storage). Go's compiler cache lives in the separate `go-cache` volume (`/root/go`, via `GOCACHE=/root/go/build-cache`), so test and agent builds stay fast after a container is recreated.
 
 ## Windows Docker Installation
 
@@ -198,6 +203,8 @@ git pull
 docker compose build
 docker compose up -d
 ```
+
+The backend container mounts this checkout's `agent/` folder and `.git` read-only. Unless `AGENT_REPO_URL` is set in `backend/.env` (then the backend builds from its own clone, refreshed before every build), agent *Build from source* compiles that folder. So run `git pull` **before** you build a new agent version, or the old code is built under the new version number. The build's release notes record the commit (`Built from source (windows/amd64) at <commit>`).
 
 ## Helper Scripts
 
