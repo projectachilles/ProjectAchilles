@@ -477,7 +477,7 @@ adminTasksRouter.post(
     requireTaskInScope(req);
     const task = cancelTask(req.params.id);
 
-    res.json({ success: true, data: task });
+    res.json({ success: true, data: sanitizeTaskForAdmin(task) });
   })
 );
 
@@ -549,7 +549,7 @@ adminTasksRouter.patch(
 
     const task = updateTaskNotes(req.params.id, content, userId);
 
-    res.json({ success: true, data: task });
+    res.json({ success: true, data: sanitizeTaskForAdmin(task) });
   })
 );
 
