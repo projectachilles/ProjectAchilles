@@ -209,6 +209,9 @@ jobs:
 
     steps:
       # Trusted base only, including helper scripts. PR content is inert diff data.
+      # The rule matches any pull_request field, including this trusted base SHA.
+      # Keep base.sha pinned; tests reject head/merge refs. No PR source is executed.
+      # nosemgrep: yaml.github-actions.security.pull-request-target-code-checkout.pull-request-target-code-checkout
       - name: Checkout repository
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -238,7 +241,12 @@ jobs:
         id: prepare
         env:
           GH_TOKEN: ${{ github.token }}
-        run: bash .github/scripts/claude-review-outcome.sh prepare
+        run: |
+          if [[ ! -f .github/scripts/claude-review-evidence.py ]]; then
+            echo "::error::Review verifier is absent from the trusted base. Land the helper-only bootstrap first; see docs/CLAUDE_REVIEWS.md. No review coverage."
+            exit 1
+          fi
+          python3 .github/scripts/claude-review-evidence.py prepare
 
       - name: Run Claude security review
         id: review
@@ -296,7 +304,7 @@ jobs:
           SINCE: ${{ steps.prepare.outputs.since }}
           REVIEW_ATTEMPT: 1
         run: |
-          outcome=$(bash .github/scripts/claude-review-outcome.sh outcome)
+          outcome=$(python3 .github/scripts/claude-review-evidence.py outcome)
           echo "outcome=$outcome" >> "$GITHUB_OUTPUT"
 
       - name: Run Claude security review (one retry)
@@ -356,7 +364,7 @@ jobs:
           SINCE: ${{ steps.prepare.outputs.since }}
           REVIEW_ATTEMPT: 2
         run: |
-          outcome=$(bash .github/scripts/claude-review-outcome.sh outcome)
+          outcome=$(python3 .github/scripts/claude-review-evidence.py outcome)
           echo "outcome=$outcome" >> "$GITHUB_OUTPUT"
 
       - name: Require current-head review evidence

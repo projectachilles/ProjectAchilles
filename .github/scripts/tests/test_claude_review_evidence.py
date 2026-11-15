@@ -205,6 +205,14 @@ class EvidenceTests(unittest.TestCase):
             result = subprocess.run(command, env=env, capture_output=True, text=True, check=True)
             self.assertEqual(result.stdout.strip(), expected)
 
+    def test_retry_needs_its_own_receipt(self):
+        self.env['REVIEW_ATTEMPT'] = '2'
+        self.assertEqual(self.run_outcome(), 'empty')
+        self.comment['body'] = self.comment['body'].replace('review_attempt=1', 'review_attempt=2')
+        self.assertEqual(self.run_outcome(), 'ok')
+
+
+class WorkflowTests(unittest.TestCase):
     def test_workflow_guards_and_attempt_wiring(self):
         for filename in ('claude-code-review.yml', 'security-review.yml'):
             workflow = (Path(__file__).parents[2] / 'workflows' / filename).read_text()
@@ -212,6 +220,10 @@ class EvidenceTests(unittest.TestCase):
                 self.assertIn("github.event.label.name == 'claude-review'", workflow)
                 self.assertIn('ref: ${{ github.event.pull_request.base.sha }}', workflow)
                 self.assertIn('persist-credentials: false', workflow)
+                self.assertNotIn('ref: ${{ github.event.pull_request.head', workflow)
+                self.assertNotIn('ref: ${{ github.head_ref', workflow)
+                self.assertEqual(workflow.count('uses: actions/checkout@'), 2 if filename == 'security-review.yml' else 1)
+                self.assertEqual(workflow.count('ref: ${{'), 1)
                 self.assertNotIn('/code-review:code-review', workflow)
                 self.assertNotIn('plugins:', workflow)
                 self.assertEqual(workflow.count('review_attempt=1 -->'), 1)
@@ -220,13 +232,52 @@ class EvidenceTests(unittest.TestCase):
                 self.assertEqual(workflow.count('ACTION_CONCLUSION:'), 2)
                 self.assertIn("if: always() && steps.prepare.outcome == 'success'", workflow)
                 self.assertIn('claude-review-evidence.py head', workflow)
+                self.assertEqual(workflow.count('$(python3 .github/scripts/claude-review-evidence.py outcome)'), 2)
+                self.assertNotIn('claude-review-outcome.sh outcome', workflow)
+                self.assertNotIn('claude-review-outcome.sh prepare', workflow)
                 self.assertIn('--remove-label claude-review', workflow)
 
-    def test_retry_needs_its_own_receipt(self):
-        self.env['REVIEW_ATTEMPT'] = '2'
-        self.assertEqual(self.run_outcome(), 'empty')
-        self.comment['body'] = self.comment['body'].replace('review_attempt=1', 'review_attempt=2')
-        self.assertEqual(self.run_outcome(), 'ok')
+    def test_bootstrap_missing_helper_fails_with_explicit_error(self):
+        result = self.run_prepare(helper_present=False)
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn('helper-only bootstrap first', result.stdout)
+        self.assertIn('No review coverage', result.stdout)
+        self.assertNotIn('OLD_HELPER_EXECUTED', result.stdout + result.stderr)
+
+    def test_bootstrap_new_helper_with_old_shell_is_compatible(self):
+        result = self.run_prepare(helper_present=True)
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertNotIn('OLD_HELPER_EXECUTED', result.stdout + result.stderr)
+
+    def run_prepare(self, helper_present):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            scripts = root / '.github/scripts'
+            scripts.mkdir(parents=True)
+            # The existing shell helper must never decide the new outcome or
+            # receive prepare, even during helper-only staged rollout.
+            (scripts / 'claude-review-outcome.sh').write_text('echo OLD_HELPER_EXECUTED; exit 99')
+            if helper_present:
+                source = Path(__file__).parents[1] / 'claude-review-evidence.py'
+                (scripts / source.name).write_text(source.read_text())
+            gh = root / 'gh'
+            gh.write_text("#!/usr/bin/env python3\nimport json, os, sys\n"
+                          "print('diff --git a/a b/a\\n+inert' if '/compare/' in sys.argv[2] "
+                          "else json.dumps({'head': {'sha': os.environ['HEAD_SHA']}}))\n")
+            gh.chmod(0o755)
+            env = dict(os.environ, HEAD_SHA='a'*40, BASE_SHA='b'*40, PR='818',
+                       GITHUB_REPOSITORY='owner/repo', GITHUB_RUN_ID='10', GITHUB_RUN_ATTEMPT='1',
+                       REVIEW_KIND='code', RUNNER_TEMP=tmp, GITHUB_OUTPUT=tmp+'/output')
+            env['PATH'] = tmp + os.pathsep + os.environ['PATH']
+            for filename in ('claude-code-review.yml', 'security-review.yml'):
+                env['REVIEW_KIND'] = 'security' if filename == 'security-review.yml' else 'code'
+                workflow = (Path(__file__).parents[2] / 'workflows' / filename).read_text()
+                step = workflow.split('      - name: Prepare pinned review diff\n')[1].split('      - name:')[0]
+                command = '\n'.join(line[10:] for line in step.split('        run: |\n')[1].splitlines())
+                result = subprocess.run(['bash', '-e', '-c', command], cwd=root, env=env,
+                                        capture_output=True, text=True)
+                self.assertEqual(result.returncode == 0, helper_present, result.stdout + result.stderr)
+            return result
 
 
 if __name__ == '__main__':

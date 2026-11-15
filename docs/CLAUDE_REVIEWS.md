@@ -53,10 +53,69 @@ git diff --check
 ## Required post-merge smoke test
 
 A workflow-edit PR is **not** a live Claude validation: the action may skip when
-its workflow differs from the default branch. Additionally these jobs load
-helpers from the trusted base, so the new `prepare` command is unavailable until
-this change lands. Such runs must not be reported as reviewed; the gate fails
-closed. Do not relax checkout or workflow validation to make this PR green.
+its workflow differs from the default branch. These jobs also load the verifier
+from the trusted base. A missing verifier now fails preparation with an explicit
+bootstrap error, before invoking Claude. Never check out the PR or fetch a helper
+from its head to bypass this boundary; never turn this case into a green review.
+
+### Safe staged rollout (maintainer action, not performed by this PR)
+
+1. Prepare an additive **helper-only** PR from the current base containing exactly
+   `.github/scripts/claude-review-evidence.py` from the reviewed activation branch.
+   Keep the old shell helper and both workflows unchanged: replacing the old
+   shell outcome before the workflows would break its existing environment
+   contract. Validate that the helper is byte-identical to the version covered
+   by this branch's regression suite. This adds an unused verifier without
+   changing any live review behavior. Review and merge through the normal process.
+2. Update this activation branch with that trusted base commit and push a new
+   event (an old workflow re-run retains its old event base SHA). The workflows
+   invoke Python directly for preparation, outcome and head checks, so an older
+   shell helper cannot silently apply its weaker outcome rules. The shell helper
+   is used only for reporting. Run the complete local suite again. Workflow
+   validation may still skip Claude on the activation PR; record that lack of
+   coverage explicitly. An authorized maintainer must review the workflow diff
+   under the repository's normal change process; do not loosen required checks
+   or add a success bypass here.
+3. After authorized activation, perform the smoke tests below on fresh ordinary
+   PR events. Retain the draft/rollout blocker until that validation is recorded.
+   Nothing in this document authorizes this agent to merge or deploy.
+
+If policy requires live Claude coverage on the activation PR itself, rollout
+remains blocked on a maintainer-approved process; this change cannot honestly
+satisfy that requirement by making a skipped execution green.
+
+### Investigation of the initial draft checks
+
+At head `32e045aba53e27a61d59d78178a026f61bc1c443`, both
+[code review](https://github.com/projectachilles/ProjectAchilles/actions/runs/43763593089/job/132963602772)
+and [security review](https://github.com/projectachilles/ProjectAchilles/actions/runs/43763593088/job/132963602646)
+checked out `ca0b830356d6d2ad4a93560d49976531e3d2b67c` successfully, then failed
+at the base shell helper's line 17 with `EXECUTION_FILE: parameter null or not set`.
+That old helper has no `prepare` command. Both Claude action steps were skipped;
+this was a bootstrap failure, not a denied Claude tool call or a completed review.
+
+The [Semgrep summary](https://github.com/projectachilles/ProjectAchilles/pull/818#issuecomment-6901618555)
+listed seven findings. The two workflow findings were introduced by making the
+trusted checkout explicit, not by checking out the head. The upstream
+`pull-request-target-code-checkout` rule matches *any*
+`github.event.pull_request ...` ref expression, including `base.sha`. Both
+checkouts retain the exact base SHA and now carry a rule-specific `nosemgrep`
+annotation with this rationale. No rule pack, severity, job or permission is
+changed. Regression guards enforce the base-only checkout; do not reuse this
+annotation on a head or merge ref.
+
+The other five findings are in installer files byte-identical to the base:
+
+| Location | Assessment |
+| --- | --- |
+| `installer/internal/ca/ca.go:217` | SHA-1 derives the public subject key identifier (the code documents RFC 5280 method 1); not certificate signing. Existing compatibility use. |
+| `installer/internal/ca/export.go:23` | SHA-1 produces the Windows thumbprint alongside SHA-256; existing identifier/export behavior. |
+| `installer/internal/cli/engine_real_test.go:82` | Appends a test fixture environment to the test runner, not a remote task payload. Existing test code. |
+| `installer/internal/cli/install_cmd.go:56` | Appends a fixed `ACHILLES_CA_DIR_OVERRIDE=` key with a local CLI value; it cannot select arbitrary environment keys. Existing narrow override. |
+| `installer/internal/day2/backup.go:630` | `io.Copy` extracts a locally selected, operator-confirmed archive without aggregate expanded-size limits. Existing resource-exhaustion concern for untrusted backups; deserves a separate installer hardening task, not suppression or an unrelated fix here. |
+
+These warnings are not resolved by #624 and remain visible. No installer code
+or scanner configuration is changed.
 
 After an authorized maintainer merges, validate on a disposable PR that changes
 a security-review path (for example a harmless comment in `backend/src/`), without
@@ -85,13 +144,15 @@ pagination and races without consuming Claude credentials.
 
 ## Rollback
 
-This change is intended as one isolated commit on
+This change is isolated to the review infrastructure on
 `fix/624-current-head-review-evidence`, based on
-`ca0b830356d6d2ad4a93560d49976531e3d2b67c`. The PR records the exact change commit.
+`ca0b830356d6d2ad4a93560d49976531e3d2b67c`. The PR records the exact implementation and follow-up commits.
 Before merge, closing the draft leaves production untouched. After merge, create
-a separate rollback branch and `git revert <change-commit>` (or the squash commit
+a separate rollback branch and revert the follow-up commit first, then
+`32e045aba53e27a61d59d78178a026f61bc1c443` (or revert the actual squash commit
 if squashed), open a rollback PR and use the normal maintainer process. If merged
 as a merge commit and reverting that merge, use `git revert -m 1 <merge-commit>`.
 Do not reset shared history, merge, or deploy as part of this implementation.
+For a staged rollout, revert activation before removing the unused additive helper.
 Reverting restores the prior weaker completion checks; treat their green result
 as insufficient evidence of current-head review until a replacement is verified.
