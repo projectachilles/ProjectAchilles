@@ -23,6 +23,7 @@ import { VerifyCodeSchema, PollDeviceCodeSchema, RefreshTokenSchema } from '../s
 import { getDatabase } from '../services/agent/database.js';
 import type { AppRole } from '../types/roles.js';
 import { revokeCliSessions } from '../services/cliSessions.js';
+import { CLI_TOKEN_ISSUER, cliTokenAudience } from '../middleware/cliAuth.middleware.js';
 
 const router = Router();
 
@@ -319,8 +320,8 @@ router.post('/poll', pollLimiter, validate(PollDeviceCodeSchema), asyncHandler(a
     secret,
     {
       expiresIn: CLI_TOKEN_TTL_SECONDS,
-      issuer: 'projectachilles',
-      audience: process.env.AGENT_SERVER_URL || 'http://localhost:3000',
+      issuer: CLI_TOKEN_ISSUER,
+      audience: cliTokenAudience(),
     },
   );
 
@@ -381,8 +382,8 @@ router.post('/refresh', refreshLimiter, validate(RefreshTokenSchema), asyncHandl
     secret,
     {
       expiresIn: CLI_TOKEN_TTL_SECONDS,
-      issuer: 'projectachilles',
-      audience: process.env.AGENT_SERVER_URL || 'http://localhost:3000',
+      issuer: CLI_TOKEN_ISSUER,
+      audience: cliTokenAudience(),
     },
   );
 

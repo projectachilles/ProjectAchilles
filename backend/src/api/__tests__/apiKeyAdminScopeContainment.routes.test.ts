@@ -89,7 +89,7 @@ function adminCliToken(): string {
   return jwt.sign(
     { sub: 'user_admin', org_id: 'org_x', role: 'admin', type: 'cli' },
     CLI_SECRET,
-    { algorithm: 'HS256', issuer: 'projectachilles' },
+    { algorithm: 'HS256', issuer: 'projectachilles', audience: process.env.AGENT_SERVER_URL || 'http://localhost:3000' },
   );
 }
 
