@@ -2,7 +2,12 @@
 
 import * as fs from 'fs';
 import * as path from 'path';
-import { FileContent } from '../../types/test.js';
+import type { FileContent } from '../../types/test.js';
+
+interface SecurePath {
+  canonicalPath: string;
+  canonicalRoot: string;
+}
 
 export class FileService {
   /**
@@ -33,19 +38,83 @@ export class FileService {
   }
 
   /**
+   * Resolve an existing path beneath an allowed root without accepting a
+   * symbolic link at the root or in any descendant component.
+   */
+  private static secureResolveWithinRoots(candidate: string, roots: string[]): SecurePath | null {
+    const resolved = path.resolve(candidate);
+
+    for (const root of roots) {
+      const resolvedRoot = path.resolve(root);
+      const relative = path.relative(resolvedRoot, resolved);
+      if (relative === '' || relative.startsWith('..') || path.isAbsolute(relative)) continue;
+
+      try {
+        let current = resolvedRoot;
+        if (fs.lstatSync(current).isSymbolicLink()) continue;
+
+        let hasSymlink = false;
+        for (const component of relative.split(path.sep)) {
+          current = path.join(current, component);
+          if (fs.lstatSync(current).isSymbolicLink()) {
+            hasSymlink = true;
+            break;
+          }
+        }
+        if (hasSymlink) continue;
+
+        const canonicalRoot = fs.realpathSync(resolvedRoot);
+        const canonicalPath = fs.realpathSync(resolved);
+        const canonicalRelative = path.relative(canonicalRoot, canonicalPath);
+        if (canonicalRelative !== '' &&
+            !canonicalRelative.startsWith('..') &&
+            !path.isAbsolute(canonicalRelative)) {
+          return { canonicalPath, canonicalRoot };
+        }
+      } catch {
+        // Missing, unreadable, or concurrently replaced paths are unsafe.
+      }
+    }
+
+    return null;
+  }
+
+  /**
    * Read file content safely
    */
-  static readFileContent(filePath: string): FileContent {
+  static readFileContent(filePath: string, roots: string[]): FileContent {
+    let descriptor: number | null = null;
+
     try {
-      // Check file size before reading (limit to 5MB)
-      const stats = fs.statSync(filePath);
+      const secured = this.secureResolveWithinRoots(filePath, roots);
+      if (!secured) throw new Error('File path is outside the allowed roots or contains a symbolic link');
+
+      const noFollow = fs.constants.O_NOFOLLOW ?? 0;
+      descriptor = fs.openSync(secured.canonicalPath, fs.constants.O_RDONLY | noFollow);
+
+      // Check the same filesystem object that will be read (limit to 5MB).
+      const stats = fs.fstatSync(descriptor);
       const maxSize = 5 * 1024 * 1024; // 5MB
 
-      if (stats.size > maxSize) {
+      if (!stats.isFile() || stats.size > maxSize) {
         throw new Error('File too large to display');
       }
 
-      const content = fs.readFileSync(filePath, 'utf-8');
+      // Re-resolve after open and bind the pathname to the opened descriptor.
+      // This catches a directory or file swapped between validation and open.
+      const verified = this.secureResolveWithinRoots(filePath, roots);
+      if (!verified ||
+          verified.canonicalPath !== secured.canonicalPath ||
+          verified.canonicalRoot !== secured.canonicalRoot) {
+        throw new Error('File path changed while opening');
+      }
+
+      const pathStats = fs.statSync(verified.canonicalPath);
+      if (pathStats.dev !== stats.dev || pathStats.ino !== stats.ino) {
+        throw new Error('Opened file does not match validated path');
+      }
+
+      const content = fs.readFileSync(descriptor, 'utf-8');
       const fileName = path.basename(filePath);
       const ext = path.extname(filePath).toLowerCase();
 
@@ -74,6 +143,8 @@ export class FileService {
       // Don't expose file path in error message - log it server-side only
       console.error(`Failed to read file: ${filePath}`, error);
       throw new Error('Failed to read file');
+    } finally {
+      if (descriptor !== null) fs.closeSync(descriptor);
     }
   }
 

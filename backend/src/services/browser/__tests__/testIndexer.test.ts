@@ -11,6 +11,7 @@ vi.mock('fs', async () => {
   const overrides = {
     existsSync: mockExistsSync,
     statSync: mockStatSync,
+    lstatSync: mockStatSync,
     readdirSync: mockReaddirSync,
   };
   return { ...actual, ...overrides, default: { ...actual, ...overrides } };
@@ -43,7 +44,11 @@ function makeMetadata(uuid: string, overrides: Record<string, unknown> = {}) {
 }
 
 function fileStat(isDir: boolean, size = 100) {
-  return { isFile: () => !isDir, isDirectory: () => isDir, size };
+  return { isFile: () => !isDir, isDirectory: () => isDir, isSymbolicLink: () => false, size };
+}
+
+function symlinkStat() {
+  return { isFile: () => false, isDirectory: () => false, isSymbolicLink: () => true, size: 0 };
 }
 
 // ── Tests ────────────────────────────────────────────────────────────
@@ -262,6 +267,19 @@ describe('TestIndexer', () => {
       expect(names).toEqual(['main.go']);
     });
 
+    it('excludes symbolic links whose targets are regular files', () => {
+      setupMultiFileDir(['main.go', 'linked-secret.md']);
+      mockStatSync.mockImplementation((p: string) => {
+        if (p.endsWith('linked-secret.md')) return symlinkStat();
+        if (p.endsWith(UUID1) || p.endsWith('cyber-hygiene')) return fileStat(true);
+        return fileStat(false, 100);
+      });
+
+      const tests = indexer.scanAllTests();
+
+      expect(tests[0].files.map(f => f.name)).toEqual(['main.go']);
+    });
+
     it('sorts by category order: documentation → diagram → defense → source → detection → config → other', () => {
       const files = [
         'main.go',            // source (4)
@@ -298,6 +316,22 @@ describe('TestIndexer', () => {
       expect(tests).toEqual([]);
     });
 
+    it('does not traverse a symbolic-link UUID directory', () => {
+      mockExistsSync.mockImplementation((p: string) =>
+        p === TESTS_PATH || p === `${TESTS_PATH}/cyber-hygiene`,
+      );
+      mockStatSync.mockImplementation((p: string) => {
+        if (p === `${TESTS_PATH}/cyber-hygiene/${UUID1}`) return symlinkStat();
+        return fileStat(true);
+      });
+      mockReaddirSync.mockImplementation((p: string) =>
+        p === `${TESTS_PATH}/cyber-hygiene` ? [UUID1] : [],
+      );
+
+      expect(indexer.scanAllTests()).toEqual([]);
+      expect(mockExtractTestMetadata).not.toHaveBeenCalled();
+    });
+
     it('scans categorical structure: iterates category folders for UUID dirs', () => {
       mockExistsSync.mockImplementation((p: string) => {
         if (p === TESTS_PATH) return true;
@@ -323,6 +357,7 @@ describe('TestIndexer', () => {
         `${TESTS_PATH}/cyber-hygiene/${UUID1}`,
         UUID1,
         'cyber-hygiene',
+        [TESTS_PATH],
       );
     });
 
@@ -351,6 +386,7 @@ describe('TestIndexer', () => {
         `${TESTS_PATH}/${UUID1}`,
         UUID1,
         undefined,
+        [TESTS_PATH],
       );
     });
 

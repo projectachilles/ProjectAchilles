@@ -37,6 +37,16 @@ export class TestIndexer {
     return this.sources.map(s => s.path);
   }
 
+  /** A repository path is indexable only when its final entry is not a symlink. */
+  private isRealDirectory(candidate: string): boolean {
+    try {
+      const stats = fs.lstatSync(candidate);
+      return !stats.isSymbolicLink() && stats.isDirectory();
+    } catch {
+      return false;
+    }
+  }
+
   /**
    * Detect if a source directory uses categorical structure (new) or flat structure (legacy)
    */
@@ -44,7 +54,7 @@ export class TestIndexer {
     // Check if any known category folders exist
     for (const category of KNOWN_CATEGORIES) {
       const categoryPath = path.join(basePath, category);
-      if (fs.existsSync(categoryPath) && fs.statSync(categoryPath).isDirectory()) {
+      if (fs.existsSync(categoryPath) && this.isRealDirectory(categoryPath)) {
         return 'categorical';
       }
     }
@@ -139,9 +149,9 @@ export class TestIndexer {
 
     for (const entry of filteredEntries) {
       const filePath = path.join(testDir, entry);
-      const stat = fs.statSync(filePath);
+      const stat = fs.lstatSync(filePath);
 
-      if (stat.isFile()) {
+      if (!stat.isSymbolicLink() && stat.isFile()) {
         files.push({
           name: entry,
           path: filePath,
@@ -188,7 +198,13 @@ export class TestIndexer {
    * @param category - The category folder name (optional, for categorical structure)
    * @param provenance - Source provenance to stamp on the result
    */
-  private scanTestDirectory(uuid: string, testDir?: string, category?: string, provenance?: TestSourceProvenance): TestDetails | null {
+  private scanTestDirectory(
+    uuid: string,
+    testDir?: string,
+    category?: string,
+    provenance?: TestSourceProvenance,
+    sourceRoot?: string,
+  ): TestDetails | null {
     // Resolve test directory path if not provided
     if (!testDir) {
       // Check if we have a cached category mapping
@@ -196,16 +212,18 @@ export class TestIndexer {
       if (cached) {
         testDir = path.join(cached.sourcePath, cached.category, uuid);
         provenance = this.getProvenanceForPath(cached.sourcePath);
+        sourceRoot = cached.sourcePath;
       } else {
         // Search all sources for this UUID
         for (const source of this.sources) {
           // Try categorical structure first
           for (const cat of KNOWN_CATEGORIES) {
             const catPath = path.join(source.path, cat, uuid);
-            if (fs.existsSync(catPath)) {
+            if (this.isRealDirectory(catPath)) {
               testDir = catPath;
               category = cat;
               provenance = source.provenance;
+              sourceRoot = source.path;
               break;
             }
           }
@@ -213,9 +231,10 @@ export class TestIndexer {
 
           // Try flat structure
           const flatPath = path.join(source.path, uuid);
-          if (fs.existsSync(flatPath)) {
+          if (this.isRealDirectory(flatPath)) {
             testDir = flatPath;
             provenance = source.provenance;
+            sourceRoot = source.path;
             break;
           }
         }
@@ -223,18 +242,24 @@ export class TestIndexer {
         if (!testDir) {
           testDir = path.join(this.sources[0].path, uuid);
           provenance = this.sources[0].provenance;
+          sourceRoot = this.sources[0].path;
         }
       }
     }
 
-    if (!fs.existsSync(testDir)) {
+    if (!this.isRealDirectory(testDir)) {
       console.error(`Test directory not found: ${testDir}`);
       return null;
     }
 
     try {
       // Extract metadata, passing category for the new structure
-      const metadata = MetadataExtractor.extractTestMetadata(testDir, uuid, category);
+      const metadata = MetadataExtractor.extractTestMetadata(
+        testDir,
+        uuid,
+        category,
+        sourceRoot ? [sourceRoot] : this.getSourceRoots(),
+      );
 
       // Get all files
       const files = this.getTestFiles(testDir);
@@ -293,7 +318,7 @@ export class TestIndexer {
     if (structure === 'categorical') {
       for (const category of KNOWN_CATEGORIES) {
         const categoryPath = path.join(source.path, category);
-        if (!fs.existsSync(categoryPath)) continue;
+        if (!this.isRealDirectory(categoryPath)) continue;
 
         const entries = fs.readdirSync(categoryPath);
         for (const entry of entries) {
@@ -301,12 +326,10 @@ export class TestIndexer {
           if (this.testCache.has(entry)) continue;
 
           const fullPath = path.join(categoryPath, entry);
-          const stat = fs.statSync(fullPath);
-
-          if (stat.isDirectory() && this.isValidTestDirectory(entry)) {
+          if (this.isRealDirectory(fullPath) && this.isValidTestDirectory(entry)) {
             this.uuidToCategory.set(entry, { category, sourcePath: source.path });
 
-            const testDetails = this.scanTestDirectory(entry, fullPath, category, source.provenance);
+            const testDetails = this.scanTestDirectory(entry, fullPath, category, source.provenance, source.path);
             if (testDetails) {
               tests.push(testDetails);
               this.testCache.set(entry, testDetails);
@@ -322,10 +345,8 @@ export class TestIndexer {
         if (this.testCache.has(entry)) continue;
 
         const fullPath = path.join(source.path, entry);
-        const stat = fs.statSync(fullPath);
-
-        if (stat.isDirectory() && this.isValidTestDirectory(entry)) {
-          const testDetails = this.scanTestDirectory(entry, fullPath, undefined, source.provenance);
+        if (this.isRealDirectory(fullPath) && this.isValidTestDirectory(entry)) {
+          const testDetails = this.scanTestDirectory(entry, fullPath, undefined, source.provenance, source.path);
           if (testDetails) {
             tests.push(testDetails);
             this.testCache.set(entry, testDetails);
