@@ -1,8 +1,9 @@
-import { useMemo, useState, type ReactNode } from 'react';
+import { useEffect, useMemo, useState, type ReactNode } from 'react';
 import { Link, useLocation } from 'react-router-dom';
 import { useClerk } from '@clerk/clerk-react';
 import {
   BarChart3,
+  Info,
   Keyboard,
   LayoutDashboard,
   ListChecks,
@@ -23,6 +24,10 @@ import { GlobalSearch } from '@/components/layout/GlobalSearch';
 import { NoticeDeliveryBanner } from '@/components/layout/NoticeDeliveryBanner';
 import { NotificationBell } from '@/components/layout/NotificationBell';
 import { ShortcutsDialog } from '@/components/layout/ShortcutsDialog';
+import { AboutDialog, newerAgentVersion } from '@/components/layout/AboutDialog';
+import { useAbout } from '@/hooks/useAbout';
+import { useCapabilities } from '@/hooks/useCapabilities';
+import { hasUnseenUpdate, markUpdateSeen } from '@/lib/aboutSeen';
 import { Button } from '@/components/ui/button';
 import { Sheet, SheetContent, SheetTitle, SheetTrigger } from '@/components/ui/sheet';
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
@@ -102,11 +107,17 @@ function SidebarBody({
   items,
   onOpenSearch,
   onOpenShortcuts,
+  onOpenAbout,
+  updateDot,
   onNavigate,
 }: {
   items: NavItem[];
   onOpenSearch: () => void;
   onOpenShortcuts: () => void;
+  /** Absent when the backend has no /api/about (capabilities.about). */
+  onOpenAbout?: () => void;
+  /** A newer release exists that this user has not looked at yet. */
+  updateDot?: boolean;
   onNavigate?: () => void;
 }) {
   const { signOut } = useClerk();
@@ -135,6 +146,15 @@ function SidebarBody({
           <Keyboard />
           shortcuts
         </Button>
+        {onOpenAbout && (
+          <Button variant="ghost" size="sm" className="w-full justify-start" onClick={onOpenAbout}>
+            <Info />
+            about
+            {updateDot && (
+              <span role="status" aria-label="Update available" className="ml-auto h-1.5 w-1.5 rounded-full bg-accent" />
+            )}
+          </Button>
+        )}
         <Button
           variant="ghost"
           size="sm"
@@ -159,7 +179,26 @@ export function AppShell({ children }: { children: ReactNode }) {
   const canAccessEndpoints = useCanAccessModule('endpoints');
   const canAccessSettings = useCanAccessModule('settings');
   const canSeeAgents = useHasPermission('endpoints:agents:read');
-  const { outdatedCount } = useOutdatedAgentCount();
+  const { outdatedCount, registeredVersions = [], fleetByVersion = [] } = useOutdatedAgentCount();
+
+  // About: everyone can open it; only users who can see Settings load it up
+  // front, for the "something newer exists" dot.
+  const capabilities = useCapabilities();
+  const aboutAvailable = capabilities.about === true;
+  const [aboutOpen, setAboutOpen] = useState(false);
+  // Bumped after About is opened, so the dot is re-read from the seen marker.
+  const [, setAboutSeenTick] = useState(0);
+  const { about, loading: aboutLoading, failed: aboutFailed } = useAbout(
+    aboutAvailable && (aboutOpen || canAccessSettings),
+  );
+  const newerPlatform = about?.latest.platform?.newer ? about.latest.platform.version : null;
+  const newerAgent = canSeeAgents ? newerAgentVersion(about, registeredVersions) : null;
+  const updateDot = canAccessSettings && hasUnseenUpdate(newerPlatform, newerAgent);
+  useEffect(() => {
+    if (!aboutOpen || !about) return;
+    markUpdateSeen(newerPlatform, newerAgent);
+    setAboutSeenTick((n) => n + 1);
+  }, [aboutOpen, about, newerPlatform, newerAgent]);
 
   const items = useMemo<NavItem[]>(() => {
     const nav: NavItem[] = [
@@ -192,6 +231,8 @@ export function AppShell({ children }: { children: ReactNode }) {
     items,
     onOpenSearch: () => setSearchOpen(true),
     onOpenShortcuts: () => setShortcutsOpen(true),
+    onOpenAbout: aboutAvailable ? () => setAboutOpen(true) : undefined,
+    updateDot,
   };
 
   return (
@@ -234,6 +275,19 @@ export function AppShell({ children }: { children: ReactNode }) {
         onOpenChange={setShortcutsOpen}
         routeBindings={items.map((item, i) => [String(i + 1), item.label])}
       />
+      {aboutAvailable && (
+        <AboutDialog
+          open={aboutOpen}
+          onOpenChange={setAboutOpen}
+          about={about}
+          loading={aboutLoading}
+          failed={aboutFailed}
+          canSeeFleet={canSeeAgents}
+          canManage={canAccessSettings}
+          registeredVersions={registeredVersions}
+          fleetByVersion={fleetByVersion}
+        />
+      )}
     </div>
   );
 }
