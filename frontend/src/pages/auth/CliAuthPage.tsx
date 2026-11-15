@@ -6,30 +6,17 @@
  * backend to link the CLI session to their identity.
  */
 
-import { useState, useEffect, useRef } from 'react';
-import { useSearchParams } from 'react-router-dom';
+import { useState } from 'react';
 import { useAuth } from '@clerk/clerk-react';
 import { useConsoleIdentity } from '@/hooks/useConsoleIdentity';
 import { IdentityChipFromContext } from '@/components/layout/ConsoleIdentity';
 
 export default function CliAuthPage() {
-  const [searchParams] = useSearchParams();
-  const codeFromUrl = searchParams.get('code') ?? '';
-  const [code, setCode] = useState(codeFromUrl);
+  const [code, setCode] = useState('');
   const [status, setStatus] = useState<'idle' | 'verifying' | 'success' | 'error'>('idle');
   const [errorMessage, setErrorMessage] = useState('');
-  const { getToken, isLoaded } = useAuth();
-  const autoVerifyAttempted = useRef(false);
+  const { getToken } = useAuth();
   const { identity } = useConsoleIdentity();
-
-  // Auto-verify once Clerk is loaded and code is present from URL
-  // useRef guard prevents React Strict Mode double-fire
-  useEffect(() => {
-    if (codeFromUrl && isLoaded && !autoVerifyAttempted.current) {
-      autoVerifyAttempted.current = true;
-      verify(codeFromUrl);
-    }
-  }, [codeFromUrl, isLoaded]);
 
   async function verify(userCode: string) {
     if (!userCode.trim()) return;
@@ -81,7 +68,7 @@ export default function CliAuthPage() {
           {status === 'success' ? (
             <div className="text-center space-y-4">
               <div className="text-4xl">✓</div>
-              <h2 className="text-xl font-semibold text-green-500">CLI Authorized</h2>
+              <h2 className="text-xl font-semibold text-success">CLI Authorized</h2>
               <p className="text-muted-foreground">
                 Your CLI session has been authenticated. You can close this tab
                 and return to the terminal.
@@ -107,8 +94,9 @@ export default function CliAuthPage() {
               </div>
 
               <div>
-                <label className="block text-sm font-medium mb-2">Device Code</label>
+                <label htmlFor="cli-device-code" className="block text-sm font-medium mb-2">Device Code</label>
                 <input
+                  id="cli-device-code"
                   type="text"
                   value={code}
                   onChange={(e) => setCode(e.target.value.toUpperCase())}
@@ -121,7 +109,7 @@ export default function CliAuthPage() {
                   onKeyDown={(e) => {
                     if (e.key === 'Enter') verify(code);
                   }}
-                  autoFocus={!codeFromUrl}
+                  autoFocus
                 />
               </div>
 
