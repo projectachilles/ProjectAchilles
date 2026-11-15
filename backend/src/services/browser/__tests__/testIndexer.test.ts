@@ -473,13 +473,39 @@ describe('TestIndexer', () => {
       // The test directory must be a real directory (lstat), not just exist.
       mockStatSync.mockImplementation((p: string) =>
         fileStat(p === `${TESTS_PATH}/cyber-hygiene/${UUID1}`, 100));
-      mockReaddirSync.mockReturnValue([]);
+      // The folder is found in its category's listing, not by joining the id.
+      mockReaddirSync.mockImplementation((p: string) =>
+        (p === `${TESTS_PATH}/cyber-hygiene` ? [UUID1] : []));
       mockExtractTestMetadata.mockReturnValue(makeMetadata(UUID1));
 
       const result = indexer.getTest(UUID1);
 
       expect(result).toBeTruthy();
-      expect(mockExtractTestMetadata).toHaveBeenCalled();
+      expect(mockExtractTestMetadata).toHaveBeenCalledWith(
+        `${TESTS_PATH}/cyber-hygiene/${UUID1}`, UUID1, 'cyber-hygiene', [TESTS_PATH],
+      );
+    });
+
+    it('refuses an id that is not a UUID without touching the disk', () => {
+      mockStatSync.mockImplementation(() => fileStat(true));
+      mockReaddirSync.mockReturnValue(['..', 'cyber-hygiene']);
+
+      for (const id of ['..', '../..', 'cyber-hygiene', `${UUID1}/..`, `../${UUID1}`, '']) {
+        expect(indexer.getTest(id)).toBeNull();
+      }
+
+      expect(mockReaddirSync).not.toHaveBeenCalled();
+      expect(mockStatSync).not.toHaveBeenCalled();
+      expect(mockExtractTestMetadata).not.toHaveBeenCalled();
+    });
+
+    it('does not open a folder that no listing returns', () => {
+      // lstat would call it a directory, but no category or source lists it.
+      mockStatSync.mockImplementation(() => fileStat(true));
+      mockReaddirSync.mockReturnValue([UUID2]);
+
+      expect(indexer.getTest(UUID1)).toBeNull();
+      expect(mockExtractTestMetadata).not.toHaveBeenCalled();
     });
 
     it('returns null for nonexistent UUID', () => {
