@@ -25,6 +25,18 @@ const TaskTestMetadataSchema = z.object({
   integrations: z.array(z.string()),
 }).optional();
 
+/**
+ * The index a task's results are written to, when it is not the default one.
+ * Results are written with the backend's own Elasticsearch credentials, so
+ * the name is limited to Achilles results indices (what the Run dialog
+ * lists). Anything else would let a task creator write into, or auto-create,
+ * any index those credentials can reach.
+ */
+const TargetIndexSchema = z.string()
+  .max(200)
+  .regex(/^achilles-results-[a-z0-9][a-z0-9._-]*$/, 'target_index must be an Achilles results index (achilles-results-…)')
+  .optional();
+
 // ── Create tasks (execute_test) ──────────────────────────────────────────────
 
 export const CreateTaskSchema = z.object({
@@ -37,7 +49,7 @@ export const CreateTaskSchema = z.object({
   arguments: z.array(z.string()).optional(),
   priority: z.number().int().min(0).max(10).optional(),
   metadata: TaskTestMetadataSchema,
-  target_index: z.string().optional(),
+  target_index: TargetIndexSchema,
   max_retries: z.number().int().min(0).max(5).optional(),
 });
 
@@ -139,7 +151,7 @@ export const CreateScheduleSchema = z.object({
   schedule_type: ScheduleTypeSchema,
   schedule_config: ScheduleConfigSchema,
   timezone: z.string().optional(),
-  target_index: z.string().optional(),
+  target_index: TargetIndexSchema,
 });
 
 export const UpdateScheduleSchema = z.object({

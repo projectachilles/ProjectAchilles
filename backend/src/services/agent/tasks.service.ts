@@ -1476,3 +1476,21 @@ export function updateTaskNotes(
   const updated = db.prepare('SELECT * FROM tasks WHERE id = ?').get(taskId) as TaskRow;
   return parseTaskRow(updated);
 }
+
+/**
+ * True when the agent has a test task it is entitled to fetch a binary for:
+ * handed out to it (assigned), being downloaded, or running. The binary
+ * download route uses this so an enrolled agent can fetch only the tests it
+ * was asked to run, not every build on the server.
+ */
+export function agentHasActiveTaskForTest(agentId: string, testUuid: string): boolean {
+  const row = getDatabase().prepare(`
+    SELECT 1 FROM tasks
+    WHERE agent_id = ?
+      AND type = 'execute_test'
+      AND status IN ('assigned', 'downloading', 'executing')
+      AND json_extract(payload, '$.test_uuid') = ?
+    LIMIT 1
+  `).get(agentId, testUuid);
+  return row !== undefined;
+}

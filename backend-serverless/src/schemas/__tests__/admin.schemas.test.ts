@@ -45,3 +45,37 @@ describe('task metadata severity (deprecated)', () => {
     expect(r.success, JSON.stringify(r.error?.issues)).toBe(true);
   });
 });
+
+describe('target_index (where a task writes its results)', () => {
+  const base = {
+    org_id: 'org-1',
+    agent_ids: ['agent-1'],
+    test_uuid: '7659eeba-f315-440e-9882-4aa015d68b27',
+    test_name: 'Test',
+    binary_name: 'test.exe',
+  };
+
+  it.each(['achilles-results-lab', 'achilles-results-2026.11', 'achilles-results-org-a.q4'])(
+    'accepts the Achilles results index %s', (target_index) => {
+      expect(CreateTaskSchema.safeParse({ ...base, target_index }).success).toBe(true);
+    });
+
+  it('accepts a task with no target index', () => {
+    expect(CreateTaskSchema.safeParse(base).success).toBe(true);
+  });
+
+  it.each([
+    '.kibana',
+    '.security-7',
+    'achilles-defender',
+    'achilles-sentinelone',
+    'archived-achilles-results',
+    'logs-app',
+    'achilles-results-*',
+    'achilles-results-a,logs-app',
+    'Achilles-Results-Lab',
+    '<achilles-results-{now/d}>',
+  ])('rejects %s', (target_index) => {
+    expect(CreateTaskSchema.safeParse({ ...base, target_index }).success).toBe(false);
+  });
+});
