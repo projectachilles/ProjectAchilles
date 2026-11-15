@@ -2,6 +2,7 @@ import { Router } from 'express';
 import { clerkClient } from '@clerk/express';
 import { asyncHandler, AppError } from '../middleware/error.middleware.js';
 import { requireClerkAuth, requirePermission, getUserId } from '../middleware/clerk.middleware.js';
+import { requireUserSession } from '../middleware/userSession.middleware.js';
 import type { AppRole } from '../types/roles.js';
 import { validate } from '../middleware/validation.js';
 import { InviteUserSchema, SetRoleSchema } from '../schemas/users.schemas.js';
@@ -10,6 +11,7 @@ import { revokeCliSessions } from '../services/cliSessions.js';
 const router = Router();
 
 router.use(requireClerkAuth());
+router.use(requireUserSession());
 router.use(requirePermission('settings:users:manage'));
 
 /**

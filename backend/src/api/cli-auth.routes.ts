@@ -15,6 +15,7 @@ import jwt from 'jsonwebtoken';
 import rateLimit from 'express-rate-limit';
 import { requireClerkAuth } from '../middleware/clerk.middleware.js';
 import { getUserId, getUserRole } from '../middleware/clerk.middleware.js';
+import { requireUserSession } from '../middleware/userSession.middleware.js';
 import { clerkClient } from '@clerk/express';
 import { asyncHandler, AppError } from '../middleware/error.middleware.js';
 import { validate } from '../middleware/validation.js';
@@ -153,9 +154,9 @@ router.post('/device-code', deviceCodeLimiter, asyncHandler(async (_req, res) =>
 /**
  * POST /api/cli/auth/verify
  * Called from the browser after user logs in via Clerk and enters the code.
- * Requires Clerk authentication.
+ * Requires a real Clerk browser session.
  */
-router.post('/verify', requireClerkAuth(), validate(VerifyCodeSchema), asyncHandler(async (req, res) => {
+router.post('/verify', requireClerkAuth(), requireUserSession(), validate(VerifyCodeSchema), asyncHandler(async (req, res) => {
   const { user_code } = req.body;
 
   const auth = (req as any).auth;

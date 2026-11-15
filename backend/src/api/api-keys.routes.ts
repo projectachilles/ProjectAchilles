@@ -6,6 +6,7 @@ import {
   getUserId,
   getUserOrgId,
 } from '../middleware/clerk.middleware.js';
+import { requireUserSession } from '../middleware/userSession.middleware.js';
 import { validate } from '../middleware/validation.js';
 import { CreateApiKeySchema } from '../schemas/apiKeys.schemas.js';
 import {
@@ -19,6 +20,7 @@ const router = Router();
 // Only humans with settings:users:manage may create/list/revoke API keys.
 // (Operator-scope API keys lack this permission, so a key cannot manage keys.)
 router.use(requireClerkAuth());
+router.use(requireUserSession());
 router.use(requirePermission('settings:users:manage'));
 
 /** POST /api/api-keys — create a key, return the full plaintext once. */
