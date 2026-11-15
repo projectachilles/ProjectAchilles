@@ -48,6 +48,24 @@ export class TestIndexer {
   }
 
   /**
+   * The test folder called `name` inside `parent`, or null. The path is built
+   * from the entry the directory listing returns, never from the caller's
+   * string, so a lookup can only reach a folder that is really there.
+   */
+  private findTestDir(parent: string, name: string): string | null {
+    let entries: string[];
+    try {
+      entries = fs.readdirSync(parent);
+    } catch {
+      return null;
+    }
+    const entry = entries.find(candidate => candidate === name);
+    if (!entry) return null;
+    const dir = path.join(parent, entry);
+    return this.isRealDirectory(dir) ? dir : null;
+  }
+
+  /**
    * Detect if a source directory uses categorical structure (new) or flat structure (legacy)
    */
   private detectStructure(basePath: string): 'categorical' | 'flat' {
@@ -207,10 +225,13 @@ export class TestIndexer {
   ): TestDetails | null {
     // Resolve test directory path if not provided
     if (!testDir) {
+      // A lookup by id: only a UUID can name a test, whoever the caller is.
+      if (!this.isValidTestDirectory(uuid)) return null;
+
       // Check if we have a cached category mapping
       const cached = this.uuidToCategory.get(uuid);
       if (cached) {
-        testDir = path.join(cached.sourcePath, cached.category, uuid);
+        testDir = this.findTestDir(path.join(cached.sourcePath, cached.category), uuid) ?? undefined;
         provenance = this.getProvenanceForPath(cached.sourcePath);
         sourceRoot = cached.sourcePath;
       } else {
@@ -218,8 +239,8 @@ export class TestIndexer {
         for (const source of this.sources) {
           // Try categorical structure first
           for (const cat of KNOWN_CATEGORIES) {
-            const catPath = path.join(source.path, cat, uuid);
-            if (this.isRealDirectory(catPath)) {
+            const catPath = this.findTestDir(path.join(source.path, cat), uuid);
+            if (catPath) {
               testDir = catPath;
               category = cat;
               provenance = source.provenance;
@@ -230,21 +251,22 @@ export class TestIndexer {
           if (testDir) break;
 
           // Try flat structure
-          const flatPath = path.join(source.path, uuid);
-          if (this.isRealDirectory(flatPath)) {
+          const flatPath = this.findTestDir(source.path, uuid);
+          if (flatPath) {
             testDir = flatPath;
             provenance = source.provenance;
             sourceRoot = source.path;
             break;
           }
         }
-        // Last resort: first source path + uuid
-        if (!testDir) {
-          testDir = path.join(this.sources[0].path, uuid);
-          provenance = this.sources[0].provenance;
-          sourceRoot = this.sources[0].path;
-        }
       }
+
+      if (!testDir) {
+        console.error(`Test directory not found: ${uuid}`);
+        return null;
+      }
+      // From here on the id is the folder's own name, as the listing gave it.
+      uuid = path.basename(testDir);
     }
 
     if (!this.isRealDirectory(testDir)) {
