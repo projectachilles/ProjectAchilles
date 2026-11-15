@@ -39,7 +39,9 @@ export class FileService {
 
   /**
    * Resolve an existing path beneath an allowed root without accepting a
-   * symbolic link at the root or in any descendant component.
+   * symbolic link in any component below the root. The root itself is set by
+   * the operator, not by repository content, so it may be a symlink (a
+   * mounted or relocated test library); it is canonicalised first.
    */
   private static secureResolveWithinRoots(candidate: string, roots: string[]): SecurePath | null {
     const resolved = path.resolve(candidate);
@@ -50,8 +52,8 @@ export class FileService {
       if (relative === '' || relative.startsWith('..') || path.isAbsolute(relative)) continue;
 
       try {
-        let current = resolvedRoot;
-        if (fs.lstatSync(current).isSymbolicLink()) continue;
+        const canonicalRoot = fs.realpathSync(resolvedRoot);
+        let current = canonicalRoot;
 
         let hasSymlink = false;
         for (const component of relative.split(path.sep)) {
@@ -63,8 +65,7 @@ export class FileService {
         }
         if (hasSymlink) continue;
 
-        const canonicalRoot = fs.realpathSync(resolvedRoot);
-        const canonicalPath = fs.realpathSync(resolved);
+        const canonicalPath = fs.realpathSync(current);
         const canonicalRelative = path.relative(canonicalRoot, canonicalPath);
         if (canonicalRelative !== '' &&
             !canonicalRelative.startsWith('..') &&

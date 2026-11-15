@@ -31,6 +31,7 @@ vi.mock('../../services/browser/testIndexer.js', () => ({
     getAllTests() { return [fakeTest]; }
     getTest(uuid: string) { return uuid === UUID ? fakeTest : undefined; }
     getCategories() { return []; }
+    getSourceRoots() { return ['/nonexistent']; }
   },
 }));
 

@@ -470,7 +470,9 @@ describe('TestIndexer', () => {
         if (p === `${TESTS_PATH}/cyber-hygiene/${UUID1}`) return true;
         return false;
       });
-      mockStatSync.mockReturnValue(fileStat(false, 100));
+      // The test directory must be a real directory (lstat), not just exist.
+      mockStatSync.mockImplementation((p: string) =>
+        fileStat(p === `${TESTS_PATH}/cyber-hygiene/${UUID1}`, 100));
       mockReaddirSync.mockReturnValue([]);
       mockExtractTestMetadata.mockReturnValue(makeMetadata(UUID1));
 
