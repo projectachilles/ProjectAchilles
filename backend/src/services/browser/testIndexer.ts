@@ -265,14 +265,17 @@ export class TestIndexer {
         console.error(`Test directory not found: ${uuid}`);
         return null;
       }
-      // From here on the id is the folder's own name, as the listing gave it.
-      uuid = path.basename(testDir);
     }
 
     if (!this.isRealDirectory(testDir)) {
       console.error(`Test directory not found: ${testDir}`);
       return null;
     }
+
+    // From here on the id is the folder's own name, as the listing gave it,
+    // on every path into this method: no file name is built from the caller's
+    // string.
+    uuid = path.basename(testDir);
 
     try {
       // Extract metadata, passing category for the new structure
