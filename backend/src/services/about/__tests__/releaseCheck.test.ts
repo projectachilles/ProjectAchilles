@@ -107,6 +107,32 @@ describe('release check', () => {
   });
 
   it.each([
+    ['a 500', () => json({ message: 'boom' }, 500)],
+    ['a rate limit', () => json({ message: 'slow down' }, 403)],
+    ['garbage', () => new Response('<html>', { status: 200 })],
+    ['a network error', () => { throw new TypeError('fetch failed'); }],
+  ])('keeps the earlier tag distance when the compare call hits %s', async (_name, compare) => {
+    await runReleaseCheck(fakeFetch({ compare: () => json({ ahead_by: 0, behind_by: 0 }) }).impl);
+    await runReleaseCheck(fakeFetch({ compare }).impl);
+    const state = getReleaseCheckState();
+    expect(state.compare).toEqual({ aheadBy: 0, behindBy: 0 });
+    expect(state.error).toBeNull();
+    expect(state.platform?.version).toBe('2.11.1');
+  });
+
+  it('drops the earlier tag distance when GitHub says the commit is unknown (404)', async () => {
+    await runReleaseCheck(fakeFetch({ compare: () => json({ ahead_by: 0, behind_by: 0 }) }).impl);
+    await runReleaseCheck(fakeFetch({ compare: () => json({ message: 'Not Found' }, 404) }).impl);
+    expect(getReleaseCheckState().compare).toBeNull();
+  });
+
+  it('keeps only github.com release links', async () => {
+    const list = [{ ...rel({ tag_name: 'v2.11.1' }), html_url: 'https://evil.example/releases/v2.11.1' }];
+    await runReleaseCheck(fakeFetch({ releases: () => json(list) }).impl);
+    expect(getReleaseCheckState().platform?.url).toBe('');
+  });
+
+  it.each([
     [403, 'rate_limited'],
     [429, 'rate_limited'],
     [500, 'http'],

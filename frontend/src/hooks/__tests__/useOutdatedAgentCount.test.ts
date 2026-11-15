@@ -77,5 +77,12 @@ describe('useOutdatedAgentCount', () => {
     await waitFor(() => expect(api.listAgents).toHaveBeenCalled());
     expect(result.current.registeredVersions).toEqual([]);
     expect(result.current.fleetByVersion).toEqual([]);
+    expect(result.current.loaded).toBe(false);
+  });
+
+  it('is loaded only once the agent data has arrived', async () => {
+    const { result } = renderHook(() => useOutdatedAgentCount());
+    expect(result.current.loaded).toBe(false);
+    await waitFor(() => expect(result.current.loaded).toBe(true));
   });
 });

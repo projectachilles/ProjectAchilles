@@ -39,6 +39,8 @@ interface AboutDialogProps {
   failed: boolean;
   /** endpoints:agents:read — registered versions and fleet counts. */
   canSeeFleet: boolean;
+  /** The agent lists have arrived; until then empty lists mean "not known yet". */
+  fleetLoaded: boolean;
   /** Settings access — gets the link to Agents. */
   canManage: boolean;
   registeredVersions: RegisteredVersion[];
@@ -78,6 +80,7 @@ export function AboutDialog({
   loading,
   failed,
   canSeeFleet,
+  fleetLoaded,
   canManage,
   registeredVersions,
   fleetByVersion,
@@ -94,7 +97,8 @@ export function AboutDialog({
     const { platform, agent, latest } = about;
     const status = platformStatus(platform);
     const newerPlatform = latest.platform?.newer ? latest.platform : null;
-    const agentUpdate = canSeeFleet ? newerAgentVersion(about, registeredVersions) : null;
+    const showFleet = canSeeFleet && fleetLoaded;
+    const agentUpdate = showFleet ? newerAgentVersion(about, registeredVersions) : null;
     const agentRemote = agentUpdate && latest.agent?.version === agentUpdate ? latest.agent : null;
 
     const notes =
@@ -131,7 +135,7 @@ export function AboutDialog({
 
         <Row label="Agent">
           {agent.official && <p className="text-foreground">Official: {agent.official.version}</p>}
-          {canSeeFleet && (
+          {showFleet && (
             <p className="text-muted">
               Registered here:{' '}
               {registeredVersions.length > 0
@@ -139,7 +143,7 @@ export function AboutDialog({
                 : 'none'}
             </p>
           )}
-          {canSeeFleet && fleetByVersion.length > 0 && (
+          {showFleet && fleetByVersion.length > 0 && (
             <p className="text-muted">Fleet: {fleetByVersion.map((f) => `${f.count} on ${f.version}`).join(' · ')}</p>
           )}
           {agentUpdate && (

@@ -68,6 +68,9 @@ export function useOutdatedAgentCount(pollIntervalMs = 60_000) {
   const [latestVersion, setLatestVersion] = useState<string | null>(null);
   const [registeredVersions, setRegisteredVersions] = useState<RegisteredVersion[]>([]);
   const [fleetByVersion, setFleetByVersion] = useState<FleetVersionCount[]>([]);
+  // false until the agent and version lists have arrived once: until then the
+  // empty lists mean "not known yet", not "nothing registered".
+  const [loaded, setLoaded] = useState(false);
 
   const refresh = useCallback(async () => {
     try {
@@ -84,6 +87,7 @@ export function useOutdatedAgentCount(pollIntervalMs = 60_000) {
       setTotalCount(agents.length);
       setRegisteredVersions(summarizeRegistered(versions));
       setFleetByVersion(summarizeFleet(agents));
+      setLoaded(true);
 
       // Track the most common "latest" version for display
       const versionCounts = new Map<string, number>();
@@ -109,6 +113,7 @@ export function useOutdatedAgentCount(pollIntervalMs = 60_000) {
     latestVersion,
     registeredVersions,
     fleetByVersion,
+    loaded,
     refresh,
   } as const;
 }

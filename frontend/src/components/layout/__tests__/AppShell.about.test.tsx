@@ -2,7 +2,7 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { MemoryRouter } from 'react-router-dom';
 
-const state = vi.hoisted(() => ({ about: true, settings: true }));
+const state = vi.hoisted(() => ({ about: true, settings: true, agentsLoaded: true }));
 const api = vi.hoisted(() => ({ get: vi.fn() }));
 
 vi.mock('@/hooks/useCapabilities', () => ({ useCapabilities: () => ({ about: state.about }) }));
@@ -14,8 +14,9 @@ vi.mock('@/hooks/useAppRole', () => ({
 vi.mock('@/hooks/useOutdatedAgentCount', () => ({
   useOutdatedAgentCount: () => ({
     outdatedCount: 0,
-    registeredVersions: [{ version: '0.7.4', platforms: ['windows'] }],
-    fleetByVersion: [{ version: '0.7.4', count: 2 }],
+    loaded: state.agentsLoaded,
+    registeredVersions: state.agentsLoaded ? [{ version: '0.7.4', platforms: ['windows'] }] : [],
+    fleetByVersion: state.agentsLoaded ? [{ version: '0.7.4', count: 2 }] : [],
   }),
 }));
 vi.mock('@/hooks/useAppHotkeys', () => ({ useAppHotkeys: () => undefined }));
@@ -46,6 +47,7 @@ describe('AppShell about entry', () => {
     localStorage.clear();
     state.about = true;
     state.settings = true;
+    state.agentsLoaded = true;
     api.get.mockReset();
     api.get.mockResolvedValue(response(false));
   });
@@ -77,6 +79,35 @@ describe('AppShell about entry', () => {
     shell();
     await waitFor(() => expect(api.get).toHaveBeenCalled());
     expect(screen.queryByLabelText('Update available')).toBeNull();
+  });
+
+  it('shows no dot and no "not registered" notice while the agent data is still loading', async () => {
+    state.agentsLoaded = false;
+    shell();
+    await waitFor(() => expect(api.get).toHaveBeenCalled());
+    expect(screen.queryByLabelText('Update available')).toBeNull();
+    fireEvent.click(aboutButton());
+    await screen.findByText('Official: 0.7.4');
+    expect(screen.queryByText(/is not registered on this install/)).toBeNull();
+    expect(screen.queryByText(/Registered here/)).toBeNull();
+    expect(screen.queryByLabelText('Update available')).toBeNull();
+  });
+
+  it('asks again when About is opened, so a failed first load recovers', async () => {
+    api.get.mockRejectedValueOnce(new Error('503'));
+    shell();
+    await waitFor(() => expect(api.get).toHaveBeenCalledTimes(1));
+    fireEvent.click(aboutButton());
+    expect(await screen.findByText('Official release · Nov 15 2026')).toBeInTheDocument();
+    expect(api.get).toHaveBeenCalledTimes(2);
+  });
+
+  it('asks again on every later open, so a long-lived tab learns of a new release', async () => {
+    shell();
+    await waitFor(() => expect(api.get).toHaveBeenCalledTimes(1));
+    api.get.mockResolvedValue(response(true));
+    fireEvent.click(aboutButton());
+    expect(await screen.findByText('2.11.1 is available')).toBeInTheDocument();
   });
 
   it('does not ask or show a dot for a user without settings access, until they open About', async () => {

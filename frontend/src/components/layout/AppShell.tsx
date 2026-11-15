@@ -179,7 +179,12 @@ export function AppShell({ children }: { children: ReactNode }) {
   const canAccessEndpoints = useCanAccessModule('endpoints');
   const canAccessSettings = useCanAccessModule('settings');
   const canSeeAgents = useHasPermission('endpoints:agents:read');
-  const { outdatedCount, registeredVersions = [], fleetByVersion = [] } = useOutdatedAgentCount();
+  const {
+    outdatedCount,
+    registeredVersions = [],
+    fleetByVersion = [],
+    loaded: agentsLoaded = false,
+  } = useOutdatedAgentCount();
 
   // About: everyone can open it; only users who can see Settings load it up
   // front, for the "something newer exists" dot.
@@ -188,11 +193,19 @@ export function AppShell({ children }: { children: ReactNode }) {
   const [aboutOpen, setAboutOpen] = useState(false);
   // Bumped after About is opened, so the dot is re-read from the seen marker.
   const [, setAboutSeenTick] = useState(0);
-  const { about, loading: aboutLoading, failed: aboutFailed } = useAbout(
+  const { about, loading: aboutLoading, failed: aboutFailed, reload: reloadAbout } = useAbout(
     aboutAvailable && (aboutOpen || canAccessSettings),
   );
   const newerPlatform = about?.latest.platform?.newer ? about.latest.platform.version : null;
-  const newerAgent = canSeeAgents ? newerAgentVersion(about, registeredVersions) : null;
+  // Only once the agent lists have arrived: an empty list while loading would
+  // read as "nothing registered" and raise a false notice.
+  const newerAgent = canSeeAgents && agentsLoaded ? newerAgentVersion(about, registeredVersions) : null;
+  // Ask again on every open after the first answer (or failure), so a failed
+  // load recovers and a long-lived tab learns of a new release.
+  const openAbout = () => {
+    if (about || aboutFailed) reloadAbout();
+    setAboutOpen(true);
+  };
   const updateDot = canAccessSettings && hasUnseenUpdate(newerPlatform, newerAgent);
   useEffect(() => {
     if (!aboutOpen || !about) return;
@@ -231,7 +244,7 @@ export function AppShell({ children }: { children: ReactNode }) {
     items,
     onOpenSearch: () => setSearchOpen(true),
     onOpenShortcuts: () => setShortcutsOpen(true),
-    onOpenAbout: aboutAvailable ? () => setAboutOpen(true) : undefined,
+    onOpenAbout: aboutAvailable ? openAbout : undefined,
     updateDot,
   };
 
@@ -283,6 +296,7 @@ export function AppShell({ children }: { children: ReactNode }) {
           loading={aboutLoading}
           failed={aboutFailed}
           canSeeFleet={canSeeAgents}
+          fleetLoaded={agentsLoaded}
           canManage={canAccessSettings}
           registeredVersions={registeredVersions}
           fleetByVersion={fleetByVersion}

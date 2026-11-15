@@ -135,20 +135,29 @@ async function fetchReleases(fetchImpl: typeof fetch, repo: string): Promise<unk
   return body;
 }
 
-/** Null when GitHub can't relate the commit to the tag (unknown commit, fork, no such tag). */
-async function fetchCompare(fetchImpl: typeof fetch, repo: string): Promise<TagCompare | null> {
+/**
+ * How far this build's commit is from its release tag.
+ *
+ * `previous` is returned for anything that isn't a definite answer (a network
+ * error, a rate limit, a 5xx, a body we can't read): otherwise one bad call
+ * would make an install lose its "official release" line until the next day.
+ * Null only when there is nothing to ask, or GitHub says it doesn't know the
+ * commit or the tag (404: a fork, a local build).
+ */
+async function fetchCompare(fetchImpl: typeof fetch, repo: string, previous: TagCompare | null): Promise<TagCompare | null> {
   const build = getBuildInfo();
   if (!build.commit || build.version === 'unknown') return null;
   if (!/^[0-9a-f]{7,40}$/i.test(build.commit)) return null;
   try {
     const response = await get(fetchImpl, `https://api.github.com/repos/${repo}/compare/v${build.version}...${build.commit}`);
-    if (!response.ok) return null;
+    if (response.status === 404) return null;
+    if (!response.ok) return previous;
     const body = (await response.json()) as Record<string, unknown>;
     const aheadBy = body.ahead_by;
     const behindBy = body.behind_by;
-    return typeof aheadBy === 'number' && typeof behindBy === 'number' ? { aheadBy, behindBy } : null;
+    return typeof aheadBy === 'number' && typeof behindBy === 'number' ? { aheadBy, behindBy } : previous;
   } catch {
-    return null;
+    return previous;
   }
 }
 
@@ -161,7 +170,7 @@ export async function runReleaseCheck(fetchImpl: typeof fetch = fetch): Promise<
   const repo = releaseRepo();
   try {
     const releases = await fetchReleases(fetchImpl, repo);
-    const compare = await fetchCompare(fetchImpl, repo);
+    const compare = await fetchCompare(fetchImpl, repo, state.compare);
     state = {
       enabled: true,
       checkedAt: new Date().toISOString(),

@@ -35,6 +35,7 @@ function show(props: Partial<Props> = {}) {
     loading: false,
     failed: false,
     canSeeFleet: true,
+    fleetLoaded: true,
     canManage: true,
     registeredVersions: [{ version: '0.7.4', platforms: ['windows', 'linux'] }],
     fleetByVersion: [
@@ -137,6 +138,13 @@ describe('AboutDialog', () => {
     expect(screen.getByText('Official: 0.7.4')).toBeInTheDocument();
     expect(screen.queryByText(/Registered here/)).toBeNull();
     expect(screen.queryByText(/^Fleet:/)).toBeNull();
+    expect(screen.queryByText(/is not registered on this install/)).toBeNull();
+  });
+
+  it('says nothing about registration until the agent data has loaded', () => {
+    show({ fleetLoaded: false, registeredVersions: [], fleetByVersion: [] });
+    expect(screen.getByText('Official: 0.7.4')).toBeInTheDocument();
+    expect(screen.queryByText(/Registered here/)).toBeNull();
     expect(screen.queryByText(/is not registered on this install/)).toBeNull();
   });
 
