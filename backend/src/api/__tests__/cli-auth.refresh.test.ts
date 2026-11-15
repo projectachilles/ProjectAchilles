@@ -13,16 +13,28 @@ vi.mock('../../services/agent/database.js', async (importOriginal) => {
 });
 
 const getUser = vi.fn();
+const getOrganizationMembershipList = vi.fn();
 vi.mock('@clerk/express', () => ({
   clerkMiddleware: () => (_req: unknown, _res: unknown, next: () => void) => next(),
   requireAuth: () => (_req: unknown, _res: unknown, next: () => void) => next(),
-  clerkClient: { users: { getUser: (...args: unknown[]) => getUser(...args) } },
+  clerkClient: {
+    users: {
+      getUser: (...args: unknown[]) => getUser(...args),
+      getOrganizationMembershipList: (...args: unknown[]) => getOrganizationMembershipList(...args),
+    },
+  },
 }));
 
 const SECRET = 'test-cli-secret';
 const sha256 = (v: string) => crypto.createHash('sha256').update(v).digest('hex');
 
-function storeRefreshToken(opts: { token?: string; userId?: string; role?: string | null; expiresAt?: string } = {}): string {
+function storeRefreshToken(opts: {
+  token?: string;
+  userId?: string;
+  orgId?: string;
+  role?: string | null;
+  expiresAt?: string;
+} = {}): string {
   const token = opts.token ?? crypto.randomBytes(32).toString('hex');
   testDb.prepare(`
     INSERT INTO cli_refresh_tokens (token_hash, user_id, org_id, role, expires_at)
@@ -30,7 +42,7 @@ function storeRefreshToken(opts: { token?: string; userId?: string; role?: strin
   `).run(
     sha256(token),
     opts.userId ?? 'user_1',
-    'default',
+    opts.orgId ?? 'default',
     opts.role === undefined ? 'admin' : opts.role,
     opts.expiresAt ?? new Date(Date.now() + 30 * 60 * 1000).toISOString(),
   );
@@ -56,6 +68,11 @@ beforeEach(() => {
   process.env.CLI_AUTH_SECRET = SECRET;
   getUser.mockReset();
   getUser.mockResolvedValue({ id: 'user_1', banned: false, locked: false, publicMetadata: { role: 'admin' } });
+  getOrganizationMembershipList.mockReset();
+  getOrganizationMembershipList.mockResolvedValue({
+    data: [{ organization: { id: 'org_1' } }],
+    totalCount: 1,
+  });
 });
 
 describe('POST /api/cli/auth/refresh', () => {
@@ -66,6 +83,44 @@ describe('POST /api/cli/auth/refresh', () => {
     expect(payload.sub).toBe('user_1');
     expect(payload.role).toBe('admin');
     expect(getUser).toHaveBeenCalledWith('user_1');
+    expect(getOrganizationMembershipList).not.toHaveBeenCalled();
+  });
+
+  it('issues a new token pair when the stored organization membership is still active', async () => {
+    const res = await refresh(storeRefreshToken({ orgId: 'org_1' }));
+    expect(res.status).toBe(200);
+    const payload = jwt.verify(res.body.data.access_token, SECRET) as { org_id: string };
+    expect(payload.org_id).toBe('org_1');
+    expect(getOrganizationMembershipList).toHaveBeenCalledWith({ userId: 'user_1', limit: 100, offset: 0 });
+  });
+
+  it('finds the stored organization membership on a later page', async () => {
+    getOrganizationMembershipList
+      .mockResolvedValueOnce({ data: [{ organization: { id: 'org_other' } }], totalCount: 2 })
+      .mockResolvedValueOnce({ data: [{ organization: { id: 'org_1' } }], totalCount: 2 });
+    const res = await refresh(storeRefreshToken({ orgId: 'org_1' }));
+    expect(res.status).toBe(200);
+    expect(getOrganizationMembershipList).toHaveBeenNthCalledWith(2, { userId: 'user_1', limit: 100, offset: 1 });
+  });
+
+  it('refuses a user removed from the stored organization and ends their CLI sessions', async () => {
+    getOrganizationMembershipList.mockResolvedValue({
+      data: [{ organization: { id: 'org_other' } }],
+      totalCount: 1,
+    });
+    const res = await refresh(storeRefreshToken({ orgId: 'org_1' }));
+    expect(res.status).toBe(401);
+    expect(res.body.data).toBeUndefined();
+    expect(tokenCount()).toBe(0);
+  });
+
+  it('fails closed when organization membership cannot be checked and keeps the session', async () => {
+    getOrganizationMembershipList.mockRejectedValue(new Error('upstream'));
+    const token = storeRefreshToken({ orgId: 'org_1' });
+    const res = await refresh(token);
+    expect(res.status).toBe(503);
+    expect(res.body.data).toBeUndefined();
+    expect(tokenCount()).toBe(1);
   });
 
   it('refuses a user who no longer exists, and drops their refresh tokens', async () => {
@@ -126,17 +181,23 @@ describe('POST /api/cli/auth/refresh', () => {
   });
 });
 
-function storeVerifiedCode(opts: { deviceCode?: string; userId?: string; role?: string | null } = {}): string {
+function storeVerifiedCode(opts: {
+  deviceCode?: string;
+  userId?: string;
+  orgId?: string;
+  role?: string | null;
+} = {}): string {
   const deviceCode = opts.deviceCode ?? crypto.randomBytes(32).toString('hex');
   testDb.prepare(`
     INSERT INTO cli_auth_codes (device_code_hash, user_code, expires_at, verified_at, user_id, org_id, role)
-    VALUES (?, ?, ?, ?, ?, 'default', ?)
+    VALUES (?, ?, ?, ?, ?, ?, ?)
   `).run(
     sha256(deviceCode),
     `CODE-${crypto.randomBytes(3).toString('hex')}`,
     new Date(Date.now() + 5 * 60 * 1000).toISOString(),
     new Date().toISOString(),
     opts.userId ?? 'user_1',
+    opts.orgId ?? 'default',
     opts.role === undefined ? 'admin' : opts.role,
   );
   return deviceCode;
@@ -155,6 +216,33 @@ describe('POST /api/cli/auth/poll (a verified device code)', () => {
     expect((jwt.verify(res.body.data.access_token, SECRET) as { role: string }).role).toBe('admin');
     expect(res.body.data.role).toBe('admin');
     expect(tokenCount()).toBe(1);
+    expect(getOrganizationMembershipList).not.toHaveBeenCalled();
+  });
+
+  it('issues tokens when the approved organization membership is still active', async () => {
+    const res = await poll(storeVerifiedCode({ orgId: 'org_1' }));
+    expect(res.status).toBe(200);
+    expect((jwt.verify(res.body.data.access_token, SECRET) as { org_id: string }).org_id).toBe('org_1');
+    expect(getOrganizationMembershipList).toHaveBeenCalledWith({ userId: 'user_1', limit: 100, offset: 0 });
+  });
+
+  it('refuses a code after its user is removed from the approved organization', async () => {
+    getOrganizationMembershipList.mockResolvedValue({ data: [], totalCount: 0 });
+    const res = await poll(storeVerifiedCode({ orgId: 'org_1' }));
+    expect(res.status).toBe(401);
+    expect(res.body.data).toBeUndefined();
+    expect(tokenCount()).toBe(0);
+    expect(codeCount()).toBe(0);
+  });
+
+  it('fails closed when poll cannot check organization membership and keeps the code', async () => {
+    getOrganizationMembershipList.mockRejectedValue(new Error('upstream'));
+    const code = storeVerifiedCode({ orgId: 'org_1' });
+    const res = await poll(code);
+    expect(res.status).toBe(503);
+    expect(res.body.data).toBeUndefined();
+    expect(tokenCount()).toBe(0);
+    expect(codeCount()).toBe(1);
   });
 
   it('issues the role the user has now, not the one stored when the code was approved', async () => {
