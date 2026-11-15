@@ -170,6 +170,27 @@ export class GitSyncService {
   }
 
   /**
+   * Run a remote operation without the token first, and with it only when
+   * that fails.
+   *
+   * Git itself sends credentials only after the server asks for them. The
+   * auth header from createGit() is sent on every request, and GitHub answers
+   * 401 to a bad token even for a public repository. Sent first, an expired
+   * or revoked token would break the sync of a repository that needs no token.
+   */
+  private async withTokenFallback<T>(run: (token?: string) => Promise<T>): Promise<T> {
+    try {
+      return await run(undefined);
+    } catch (error) {
+      if (!this.config.githubToken) {
+        throw error;
+      }
+      console.log('  Anonymous access failed, retrying with the configured token...');
+      return run(this.config.githubToken);
+    }
+  }
+
+  /**
    * Clone the repository using sparse checkout (tests_source + shared libraries)
    */
   public async clone(): Promise<void> {
@@ -185,18 +206,21 @@ export class GitSyncService {
       }
 
       // Clone with sparse checkout - only download what we need
-      const git = createGit(undefined, this.config.githubToken);
-      await git.clone(this.config.repoUrl, this.config.localPath, [
-        '--branch', this.config.branch,
-        '--single-branch',
-        '--depth', '1',
-        '--filter=blob:none',  // Partial clone - don't download blobs until needed
-        '--sparse',            // Enable sparse checkout
-      ]);
+      await this.withTokenFallback(async (token) => {
+        const git = createGit(undefined, token);
+        await git.clone(this.config.repoUrl, this.config.localPath, [
+          '--branch', this.config.branch,
+          '--single-branch',
+          '--depth', '1',
+          '--filter=blob:none',  // Partial clone - don't download blobs until needed
+          '--sparse',            // Enable sparse checkout
+        ]);
 
-      // Configure sparse checkout to include only the requested paths
-      const repoGit = createGit(this.config.localPath, this.config.githubToken);
-      await repoGit.raw(['sparse-checkout', 'set', ...sparsePaths]);
+        // Configure sparse checkout to include only the requested paths.
+        // This downloads the files, so it needs the same access as the clone.
+        const repoGit = createGit(this.config.localPath, token);
+        await repoGit.raw(['sparse-checkout', 'set', ...sparsePaths]);
+      });
 
       // Update status
       await this.updateStatus();
@@ -233,10 +257,13 @@ export class GitSyncService {
       // suitable for status output and future diagnostics.
       await repoGit.remote(['set-url', 'origin', this.config.repoUrl]);
 
-      // Fetch and reset to handle force pushes
-      const fetchGit = createGit(this.config.localPath, this.config.githubToken);
-      await fetchGit.fetch(['--depth', '1']);
-      await repoGit.reset(['--hard', `origin/${this.config.branch}`]);
+      // Fetch and reset to handle force pushes. The reset downloads the
+      // changed files (partial clone), so it needs the same access as the fetch.
+      await this.withTokenFallback(async (token) => {
+        const remoteGit = createGit(this.config.localPath, token);
+        await remoteGit.fetch(['--depth', '1']);
+        await remoteGit.reset(['--hard', `origin/${this.config.branch}`]);
+      });
 
       // Clean untracked files
       await repoGit.clean(CleanOptions.FORCE + CleanOptions.RECURSIVE);
@@ -274,9 +301,11 @@ export class GitSyncService {
         const sourceDir = path.join(this.config.localPath, this.config.sourceSubdir || sparsePaths[0]);
         if (!fs.existsSync(sourceDir)) {
           console.log(`  Sparse checkout missing ${this.config.sourceSubdir || sparsePaths[0]}, re-applying...`);
-          const repoGit = createGit(this.config.localPath, this.config.githubToken);
-          await repoGit.raw(['sparse-checkout', 'set', ...sparsePaths]);
-          await repoGit.checkout(this.config.branch);
+          await this.withTokenFallback(async (token) => {
+            const repoGit = createGit(this.config.localPath, token);
+            await repoGit.raw(['sparse-checkout', 'set', ...sparsePaths]);
+            await repoGit.checkout(this.config.branch);
+          });
         }
       }
 
