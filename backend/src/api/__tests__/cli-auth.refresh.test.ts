@@ -34,6 +34,8 @@ vi.mock('express-rate-limit', () => ({
 
 const SECRET = 'test-cli-secret';
 const sha256 = (v: string) => crypto.createHash('sha256').update(v).digest('hex');
+const callableAuth = <T extends Record<string, unknown>>(value: T): T & (() => T) =>
+  Object.assign(() => value, value);
 
 function storeRefreshToken(opts: {
   token?: string;
@@ -59,10 +61,16 @@ function storeRefreshToken(opts: {
 const tokenCount = (userId = 'user_1') =>
   (testDb.prepare('SELECT COUNT(*) AS n FROM cli_refresh_tokens WHERE user_id = ?').get(userId) as { n: number }).n;
 
-async function makeApp() {
+async function makeApp(auth?: unknown) {
   const router = (await import('../cli-auth.routes.js')).default;
   const app = express();
   app.use(express.json());
+  if (auth !== undefined) {
+    app.use((req, _res, next) => {
+      (req as unknown as { auth: unknown }).auth = auth;
+      next();
+    });
+  }
   app.use('/api/cli/auth', router);
   return app;
 }
@@ -73,12 +81,65 @@ const refresh = async (refresh_token: string) =>
 beforeEach(() => {
   testDb = createTestDatabase();
   process.env.CLI_AUTH_SECRET = SECRET;
+  process.env.CORS_ORIGIN = 'https://console.example.test';
   getUser.mockReset();
   getUser.mockResolvedValue({ id: 'user_1', banned: false, locked: false, publicMetadata: { role: 'admin' } });
   getOrganizationMembershipList.mockReset();
   getOrganizationMembershipList.mockResolvedValue({
     data: [{ organization: { id: 'org_1' } }],
     totalCount: 1,
+  });
+});
+
+describe('CLI device authorization approval', () => {
+  it('returns a verification URL without embedding the user code', async () => {
+    const res = await request(await makeApp()).post('/api/cli/auth/device-code').send();
+
+    expect(res.status).toBe(200);
+    expect(res.body.data.verification_url).toBe('https://console.example.test/cli-auth');
+    expect(res.body.data.user_code).toMatch(/^[A-HJ-NP-Z2-9]{4}-[A-HJ-NP-Z2-9]{4}$/);
+    expect(res.body.data.verification_url).not.toContain(res.body.data.user_code);
+  });
+
+  it.each([
+    ['CLI token', callableAuth({ userId: 'user_1' })],
+    ['API key', callableAuth({ userId: 'apikey:key_1', apiKeyPermissions: new Set<string>() })],
+    ['Clerk machine token', callableAuth({ tokenType: 'api_key', userId: 'user_1' })],
+  ])('refuses verification by a %s principal', async (_name, auth) => {
+    testDb.prepare(`
+      INSERT INTO cli_auth_codes (device_code_hash, user_code, expires_at)
+      VALUES (?, 'ABCD-2345', ?)
+    `).run(sha256('device-code'), new Date(Date.now() + 5 * 60 * 1000).toISOString());
+
+    const res = await request(await makeApp(auth))
+      .post('/api/cli/auth/verify')
+      .send({ user_code: 'ABCD-2345' });
+
+    expect(res.status).toBe(403);
+    const row = testDb.prepare('SELECT verified_at, user_id FROM cli_auth_codes WHERE user_code = ?')
+      .get('ABCD-2345') as { verified_at: string | null; user_id: string | null };
+    expect(row).toEqual({ verified_at: null, user_id: null });
+  });
+
+  it('allows a browser session to approve a manually entered code', async () => {
+    testDb.prepare(`
+      INSERT INTO cli_auth_codes (device_code_hash, user_code, expires_at)
+      VALUES (?, 'ABCD-2345', ?)
+    `).run(sha256('device-code'), new Date(Date.now() + 5 * 60 * 1000).toISOString());
+
+    const auth = callableAuth({
+      tokenType: 'session_token',
+      userId: 'user_1',
+      orgId: 'org_1',
+      sessionClaims: { metadata: { role: 'operator' } },
+    });
+    const res = await request(await makeApp(auth))
+      .post('/api/cli/auth/verify')
+      .send({ user_code: 'ABCD-2345' });
+
+    expect(res.status).toBe(200);
+    expect(testDb.prepare('SELECT user_id, org_id, role FROM cli_auth_codes WHERE user_code = ?').get('ABCD-2345'))
+      .toEqual({ user_id: 'user_1', org_id: 'org_1', role: 'operator' });
   });
 });
 

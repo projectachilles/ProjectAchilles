@@ -75,8 +75,10 @@ sequenceDiagram
     participant Frontend as Frontend App
     participant Backend as Backend API
 
-    CLI->>User: Display code & auth URL
-    User->>Frontend: Visit auth page with code
+    CLI->>User: Display separate code & auth URL
+    User->>Frontend: Visit auth page
+    Frontend->>User: Prompt for terminal code
+    User->>Frontend: Enter code and approve
     Frontend->>Backend: POST /api/cli/auth/verify
     Backend->>Frontend: Success/failure response
     Frontend->>User: Show confirmation
@@ -84,13 +86,13 @@ sequenceDiagram
 ```
 
 **Flow steps:**
-1. CLI generates a device code and displays the auth URL
-2. User visits the URL (code auto-populated from query param) or enters code manually
-3. Frontend verifies code with the backend using the user's Clerk JWT
+1. CLI requests a device code and displays the auth URL and code separately
+2. User visits the URL and manually enters the code shown in their terminal
+3. Frontend verifies the code only after explicit approval using the user's Clerk browser session
 4. CLI receives authentication confirmation via a separate polling mechanism
 
 :::info
-Device codes are automatically uppercased on input. A `useRef` guard prevents double-execution in React Strict Mode. CLI sessions expire after 7 days.
+Device codes are automatically uppercased on input. Verification links never contain or submit a code, and CLI or API-key credentials cannot approve one. CLI sessions expire after 7 days.
 :::
 
 ## Role-Based Access Control

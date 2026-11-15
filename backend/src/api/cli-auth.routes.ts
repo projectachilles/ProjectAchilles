@@ -175,7 +175,7 @@ router.post('/device-code', deviceCodeLimiter, asyncHandler(async (_req, res) =>
 
   // Build verification URL from the frontend origin or fallback
   const frontendUrl = process.env.CORS_ORIGIN || 'http://localhost:5173';
-  const verificationUrl = `${frontendUrl}/cli-auth?code=${encodeURIComponent(userCode)}`;
+  const verificationUrl = `${frontendUrl}/cli-auth`;
 
   res.json({
     success: true,
@@ -192,7 +192,7 @@ router.post('/device-code', deviceCodeLimiter, asyncHandler(async (_req, res) =>
 /**
  * POST /api/cli/auth/verify
  * Called from the browser after user logs in via Clerk and enters the code.
- * Requires a real Clerk browser session.
+ * Requires a real Clerk browser session; CLI and API-key credentials cannot approve.
  */
 router.post('/verify', requireClerkAuth(), requireUserSession(), validate(VerifyCodeSchema), asyncHandler(async (req, res) => {
   const { user_code } = req.body;
