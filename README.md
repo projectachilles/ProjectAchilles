@@ -297,7 +297,7 @@ A Bun-powered command-line interface for managing the entire platform from the t
 | Mode | Command | Description |
 |------|---------|-------------|
 | **Commands** | `achilles <command> [args]` | Direct platform management with rich terminal output |
-| **AI Chat** | `achilles chat` | Conversational agent powered by AI SDK v6 with full tool access |
+| **AI Chat** | `achilles chat` | Conversational agent with read tools and terminal-approved action proposals |
 
 **What it covers:**
 
@@ -319,7 +319,8 @@ A Bun-powered command-line interface for managing the entire platform from the t
 - Multi-profile server configuration (`achilles config profile`)
 - Clerk device-flow authentication (`achilles login`)
 - AI chat mode with Ink TUI (interactive) or readline fallback (piped)
-- AI agent has tool access to all platform APIs with approval tiers (read/write/destructive)
+- Interactive AI chat shows every state-changing proposal and its exact parameters, then requires a unique typed confirmation before calling the API
+- Piped and other non-interactive chat sessions are read-only because they have no trusted terminal approval channel
 
 ### Test Browser
 

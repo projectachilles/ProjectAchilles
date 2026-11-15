@@ -8,7 +8,7 @@
  * - Persistent text input at the bottom
  */
 
-import React, { useState, useCallback } from 'react';
+import React, { useState, useCallback, useRef } from 'react';
 import { Box, Text, useInput, useApp, useStdout } from 'ink';
 import TextInput from 'ink-text-input';
 import Spinner from 'ink-spinner';
@@ -19,6 +19,11 @@ import { streamChatResponse } from './agent.js';
 import { getActiveProfile } from '../config/store.js';
 import { getUserInfo } from '../auth/token-store.js';
 import { getModelDisplayName } from './provider.js';
+import {
+  matchesConfirmation,
+  type PendingAction,
+  type RequestApproval,
+} from './approval.js';
 
 // ─── Markdown renderer ──────────────────────────────────────────────────────
 
@@ -121,13 +126,32 @@ function WelcomeMessage() {
 
 // ─── Keyboard hints ─────────────────────────────────────────────────────────
 
-function KeyboardHints({ streaming }: { streaming: boolean }) {
+function KeyboardHints({ streaming, approvalPending }: { streaming: boolean; approvalPending: boolean }) {
   return (
     <Box justifyContent="center" marginTop={0}>
       <Text dimColor>
-        {streaming ? '' : '/clear reset  '}
-        <Text bold dimColor>ctrl+c</Text>
-        {' quit'}
+        {approvalPending ? 'exact confirmation approves; any other input cancels' : streaming ? '' : '/clear reset  '}
+        {!approvalPending && (
+          <>
+            <Text bold dimColor>ctrl+c</Text>
+            {' quit'}
+          </>
+        )}
+      </Text>
+    </Box>
+  );
+}
+
+function ApprovalPrompt({ action }: { action: PendingAction }) {
+  return (
+    <Box flexDirection="column" borderStyle="single" borderColor="yellow" paddingX={1} marginX={1} marginBottom={1}>
+      <Text color="yellow" bold>
+        ⚠ {action.tier === 'destructive' ? 'Sensitive action approval required' : 'Action approval required'}
+      </Text>
+      <Text>{action.description}</Text>
+      <Text dimColor>{JSON.stringify(action.parameters, null, 2)}</Text>
+      <Text>
+        Type <Text color="yellow" bold>{action.confirmationText}</Text> to run this action.
       </Text>
     </Box>
   );
@@ -141,6 +165,8 @@ export function ChatApp() {
   const [streaming, setStreaming] = useState(false);
   const [streamBuffer, setStreamBuffer] = useState('');
   const [error, setError] = useState<string | null>(null);
+  const [pendingAction, setPendingAction] = useState<PendingAction | null>(null);
+  const approvalResolver = useRef<((approved: boolean) => void) | null>(null);
   const { exit } = useApp();
   const { stdout } = useStdout();
 
@@ -148,8 +174,24 @@ export function ChatApp() {
   // Reserve lines for input area (3) and some padding
   const maxVisibleMessages = Math.max(3, Math.floor((termHeight - 6) / 4));
 
+  const requestApproval = useCallback<RequestApproval>((action) => new Promise((resolve) => {
+    approvalResolver.current = resolve;
+    setPendingAction(action);
+    setInput('');
+  }), []);
+
   const handleSubmit = useCallback(async (text: string) => {
     const trimmed = text.trim();
+
+    if (pendingAction && approvalResolver.current) {
+      const resolve = approvalResolver.current;
+      approvalResolver.current = null;
+      setPendingAction(null);
+      setInput('');
+      resolve(matchesConfirmation(pendingAction, text));
+      return;
+    }
+
     if (!trimmed || streaming) return;
 
     setInput('');
@@ -180,7 +222,7 @@ export function ChatApp() {
 
     try {
       let fullResponse = '';
-      for await (const chunk of streamChatResponse(newMessages)) {
+      for await (const chunk of streamChatResponse(newMessages, { requestApproval })) {
         fullResponse += chunk;
         setStreamBuffer(fullResponse);
       }
@@ -193,7 +235,7 @@ export function ChatApp() {
       setStreaming(false);
       setStreamBuffer('');
     }
-  }, [messages, streaming, exit]);
+  }, [messages, streaming, exit, pendingAction, requestApproval]);
 
   // Build display messages: history + current stream
   const displayMessages = streaming && streamBuffer
@@ -224,7 +266,7 @@ export function ChatApp() {
       )}
 
       {/* Spinner when waiting for first token */}
-      {streaming && !streamBuffer && (
+      {streaming && !streamBuffer && !pendingAction && (
         <Box marginLeft={3} marginBottom={1}>
           <Text color="green">
             <Spinner type="dots" />
@@ -232,6 +274,8 @@ export function ChatApp() {
           <Text color="green"> Thinking...</Text>
         </Box>
       )}
+
+      {pendingAction && <ApprovalPrompt action={pendingAction} />}
 
       {/* Error display */}
       {error && !streaming && (
@@ -241,14 +285,23 @@ export function ChatApp() {
       )}
 
       {/* Input area */}
-      <Box borderStyle="single" borderColor={streaming ? 'gray' : 'green'} paddingX={1} flexDirection="column">
+      <Box
+        borderStyle="single"
+        borderColor={pendingAction ? 'yellow' : streaming ? 'gray' : 'green'}
+        paddingX={1}
+        flexDirection="column"
+      >
         <Box>
           <Text color="green" bold>▸ </Text>
           <TextInput
             value={input}
             onChange={setInput}
             onSubmit={handleSubmit}
-            placeholder={streaming ? 'Waiting for response...' : 'Ask anything... "What\'s our defense score?"'}
+            placeholder={pendingAction
+              ? `Type "${pendingAction.confirmationText}" to approve`
+              : streaming
+                ? 'Waiting for response...'
+                : 'Ask anything... "What\'s our defense score?"'}
           />
         </Box>
         <Text> </Text>
@@ -262,7 +315,7 @@ export function ChatApp() {
       </Box>
 
       {/* Keyboard hints below input */}
-      <KeyboardHints streaming={streaming} />
+      <KeyboardHints streaming={streaming} approvalPending={Boolean(pendingAction)} />
     </Box>
   );
 }
