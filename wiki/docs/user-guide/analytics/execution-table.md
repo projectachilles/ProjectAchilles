@@ -24,7 +24,8 @@ The Execution Table shares its filter bar with other Analytics dashboard tabs, p
 
 Tests that produce per-control results (cyber-hygiene bundles, multi-stage tests) are grouped under collapsible parent rows:
 
-- **Parent row** shows the bundle name, a "X/Y Protected" summary badge, and an item count badge
+- **Parent row** shows the bundle name, a "X/Y Protected" summary badge, and an item count badge. For cyber-hygiene runs, Y is the number of assessed controls; not-assessed controls are excluded and counted separately below the summary
+- **Cyber-hygiene summary colors** are green when all assessed controls are protected, amber when detection or an inconclusive result leaves the assessment incomplete without confirmed exposure, and red when any control is exposed. Runs with no assessed controls use a neutral "Not assessed" label
 - **Expanding** reveals individual sub-rows with per-control results
 - **Not assessed controls** (`skipped: true` with exit code 0) show "Not assessed" for cyber-hygiene and "Skipped" for other categories; legacy non-cyber-hygiene exit-0 stages also show "Skipped"
 - **Unmarked cyber-hygiene exit-0 controls** remain inconclusive rather than being treated as not assessed
