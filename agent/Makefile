@@ -1,4 +1,4 @@
-VERSION := 0.7.3
+VERSION := 0.7.4
 LDFLAGS := -s -w -X main.version=$(VERSION)
 DIST := dist
 
