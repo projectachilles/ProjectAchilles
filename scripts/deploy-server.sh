@@ -702,13 +702,20 @@ checkout_commit() {
   git -C "$REPO_ROOT" rev-parse --verify -q HEAD 2>/dev/null || true
 }
 
+# checkout_release_tag: the v<x>.<y>.<z> tag HEAD is exactly on, or nothing.
+# The backend gets it at run time as GIT_TAG and only then calls itself an
+# official release (About dialog); a commit after the tag has no such tag.
+checkout_release_tag() {
+  git -C "$REPO_ROOT" describe --tags --exact-match --match 'v[0-9]*' HEAD 2>/dev/null || true
+}
+
 # compose_up ARGS...: `docker compose up -d ARGS` in the repo. sudo's env_reset
-# drops exported variables, so through sudo the commit is passed explicitly.
+# drops exported variables, so through sudo the commit and tag are passed explicitly.
 compose_up() {
   local -a via=()
   if [ "$DOCKER" != docker ]; then
     [ -z "$SUDO" ] || via=("$SUDO")
-    via+=(env "ACHILLES_GIT_COMMIT=${ACHILLES_GIT_COMMIT}")
+    via+=(env "ACHILLES_GIT_COMMIT=${ACHILLES_GIT_COMMIT}" "ACHILLES_GIT_TAG=${ACHILLES_GIT_TAG}")
   fi
   ( cd "$REPO_ROOT" && "${via[@]}" docker compose -f "$COMPOSE_FILE" up -d "$@" )
 }
@@ -722,8 +729,16 @@ if [ "$RENDER_ONLY" = 0 ]; then
   ACHILLES_GIT_COMMIT=""
   CHECKOUT_HEAD="$(checkout_commit)"
   SOURCES_CLEAN=0
-  if sources_clean; then SOURCES_CLEAN=1; ACHILLES_GIT_COMMIT="$CHECKOUT_HEAD"; fi
-  export ACHILLES_GIT_COMMIT
+  # The release tag is a run-time value (compose `environment:`), not a build
+  # arg: the images may be reused from an earlier build of the same commit.
+  # Empty, like the commit, when the sources are modified.
+  ACHILLES_GIT_TAG=""
+  if sources_clean; then
+    SOURCES_CLEAN=1
+    ACHILLES_GIT_COMMIT="$CHECKOUT_HEAD"
+    [ -z "$CHECKOUT_HEAD" ] || ACHILLES_GIT_TAG="$(checkout_release_tag)"
+  fi
+  export ACHILLES_GIT_COMMIT ACHILLES_GIT_TAG
   if [ "$TLS_MODE" = "acme-dns" ]; then
     c_info "Building custom Caddy image with DNS plugin (${CADDY_DNS_MODULE})"
     $DOCKER build -t "$CADDY_IMAGE" \

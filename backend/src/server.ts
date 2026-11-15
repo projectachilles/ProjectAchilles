@@ -311,6 +311,7 @@ async function startServer() {
       commit: build.commit,
       commit_short: build.commitShort,
       branch: build.branch,
+      tag: build.tag,
       timestamp: new Date().toISOString(),
     });
   });
