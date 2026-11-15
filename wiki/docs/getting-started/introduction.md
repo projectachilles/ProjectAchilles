@@ -65,7 +65,7 @@ Threat intelligence reports pile up unread. Compliance checklists are checked on
 - **Security Test Campaigns** — Save a set of tests × hosts, run it with one click from the Tasks page, and export an evidence matrix (CSV or print) for audits. See [Campaigns](../user-guide/agent-management/campaigns)
 - **Pre-execution Notices** — Email the security engineers before every test run and hold the tests until the notice is accepted, so the SOC knows it's a test. See [Pre-execution Notices](../user-guide/integrations/pre-execution-notices)
 - **Trend Alerting** — Threshold-based Slack and email notifications with in-app notification bell
-- **Many Ways to Deploy** — Docker Compose, a public or on-prem server (script or the `achilles-installer` wizard), a ready-made Windows Hyper-V appliance, Railway, Render, Fly.io, and Vercel (serverless, with a reduced feature set)
+- **Many Ways to Deploy** — Docker Compose, a public or on-prem server (script or the `achilles-installer` wizard), a ready-made Windows Hyper-V appliance, Render, Fly.io, and Vercel (serverless, with a reduced feature set)
 - **Console Identity** — Give each console a code, name and colour, shown on every page, so you always know which environment you are in
 - **Risk Acceptance** — Accept risk for individual controls with audit tracking
 - **Unified Security Dashboard** — One landing page for posture across tests, endpoints, and analytics, with a time range selector shared with Analytics and attention chips that link straight to whatever needs a human

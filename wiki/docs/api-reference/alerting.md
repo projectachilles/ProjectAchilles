@@ -14,7 +14,7 @@ organization without its own alert settings falls back to the deployment-wide
 
 :::info[Not on Vercel]
 The alerting routes exist only in `backend/` (Docker Compose, the public /
-on-prem server, Railway, Render, Fly.io). `GET /api/capabilities` reports
+on-prem server, Render, Fly.io). `GET /api/capabilities` reports
 `alerting: false` on Vercel, where `backend-serverless/` mounts no
 `/api/integrations/alerts` routes.
 :::

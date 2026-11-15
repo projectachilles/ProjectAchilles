@@ -1,12 +1,12 @@
 ---
 sidebar_position: 1
 title: Overview & Comparison
-description: Compare all ProjectAchilles deployment targets — Docker Compose, public/on-prem server, on-prem LAN installer, Windows Hyper-V appliance, Railway, Render, Fly.io, and Vercel.
+description: Compare all ProjectAchilles deployment targets — Docker Compose, public/on-prem server, on-prem LAN installer, Windows Hyper-V appliance, Render, Fly.io, and Vercel.
 ---
 
 # Deployment Overview
 
-ProjectAchilles supports nine deployment targets. Choose based on your requirements for database, storage, agent build capability, and budget.
+ProjectAchilles supports eight deployment targets. Choose based on your requirements for database, storage, agent build capability, and budget.
 
 Every target signs users in through Clerk. Set up the Clerk app first, including the session token claim and the first admin's role: see [Clerk Setup](./clerk-setup).
 
@@ -19,7 +19,6 @@ Every target signs users in through Clerk. Set up the Clerk app first, including
 | **Public server** | `backend/` | SQLite (volume) | Filesystem (volume) | Yes | VPS cost | Scripted install on a VPS (or a droplet it creates) with auto-TLS, no wizard |
 | **On-prem server** | `backend/` | SQLite (volume) | Filesystem (volume) | Yes | Your hardware | Scripted install over SSH on a private network, own PKI, no wizard |
 | **Windows Hyper-V appliance** | `backend/` | SQLite (volume) | Filesystem (volume) | Yes | Your hardware | A ready-made VM image for a Windows Server host: import it, answer the first-boot questions, run the wizard |
-| **Railway** | `backend/` | SQLite (volume) | Filesystem (volume) | Partial (needs `AGENT_REPO_URL`) | ~$10-13/mo | Simplicity, auto-deploy from GitHub |
 | **Render** | `backend/` | SQLite (persistent disk) | Filesystem (disk) | Partial (needs `AGENT_REPO_URL`) | ~$33/mo | Flat-rate pricing, Blueprint deploy |
 | **Fly.io** | `backend/` | SQLite (volume) | Filesystem (volume) | Yes (needs `AGENT_REPO_URL`) | From ~$8/mo | Cheapest always-on, custom domains |
 | **Vercel** | `backend-serverless/` | Turso (libSQL) | Vercel Blob | No | ~$20/mo | Serverless; a subset of the features |
@@ -55,12 +54,6 @@ Every target signs users in through Clerk. Set up the Clerk app first, including
 - `Import-Achilles.ps1` checks the download, creates the VM and starts it
 - First boot asks for keyboard, password, network and hostname, then hands over to the same wizard as the server installer
 
-### Railway
-- GitHub-based auto-deploy with watch patterns for selective rebuilds
-- Private networking between services (no public backend exposure needed)
-- Agent builds need `AGENT_REPO_URL` (the image has no agent source)
-- Volume storage for SQLite and settings
-
 ### Render
 - Blueprint deploy (`render.yaml`) for one-click setup
 - Persistent disk storage (5 GB in the Blueprint) for SQLite, certificates and built binaries
@@ -89,7 +82,6 @@ Every target signs users in through Clerk. Set up the Clerk app first, including
 - **Prefer to script it yourself, or need DigitalOcean provisioning?** Use [Public Server](./public-server) (any VPS, or `deploy-do.sh` creates the droplet) or [On-Prem Server](./on-prem-server) (over SSH; internal CA, DNS-01 or your own cert)
 - **Running Windows Server with Hyper-V and no Linux server?** Use the [Windows Hyper-V Appliance](./appliance)
 - **Need the cheapest managed always-on?** Use [Fly.io](./fly-io) (~$8/mo)
-- **Want the simplest managed deploy?** Use [Railway](./railway) (GitHub auto-deploy)
 - **Need serverless scale?** Use [Vercel](./vercel) (requires Turso + Blob)
 :::
 

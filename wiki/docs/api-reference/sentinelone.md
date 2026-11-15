@@ -15,7 +15,7 @@ until the integration is configured.
 
 :::info[Docker-style backends only]
 The SentinelOne integration exists only in `backend/` (Docker Compose, the
-public / on-prem server, Railway, Render, Fly.io). `GET /api/capabilities`
+public / on-prem server, Render, Fly.io). `GET /api/capabilities`
 reports `sentinelone: true` there and `sentinelone: false` on Vercel, where
 `backend-serverless/` mounts no SentinelOne routes at all.
 :::

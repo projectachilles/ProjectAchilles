@@ -430,7 +430,7 @@ analytics.
 
 ## Deployment Variants
 
-| Aspect | Docker / Fly.io / Railway | Vercel (Serverless) |
+| Aspect | Docker / Fly.io | Vercel (Serverless) |
 |--------|--------------------------|---------------------|
 | Backend path | `backend/src/services/crowdstrike/` | `backend-serverless/src/services/crowdstrike/` |
 | Settings access | Synchronous file read | Async Vercel Blob read |

@@ -58,7 +58,7 @@ Validation only works if the platform can live next to the endpoints it tests, k
 - **On-prem LAN.** One command on a Linux server opens an install wizard. It creates a ProjectAchilles CA name-constrained to your DNS zone, so endpoints can trust it without trusting it for anything else. No public IP or inbound internet is needed.
 - **Windows Hyper-V.** A prebuilt [appliance VM](wiki/docs/deployment/appliance.md), imported by a script that verifies its checksum, then the same wizard. You don't manage Linux yourself.
 - **Cloud server.** The same wizard on a VPS switches to Let's Encrypt.
-- **Managed platforms.** Render, Fly.io and Railway run the same backend. Vercel runs a serverless edition on Turso and Vercel Blob.
+- **Managed platforms.** Render and Fly.io run the same backend. Vercel runs a serverless edition on Turso and Vercel Blob.
 - **Laptop.** Docker Compose, with optional synthetic data for evaluation, a throwaway [lab endpoint](deploy/lab-endpoint/README.md) to enroll, and an [offline kit](deploy/offline-kit/README.md) for workshops on a slow network.
 
 Every target except Vercel runs the same `backend/`, so a fix ships to all of them at once. See [Deployment Targets](#deployment-targets).
@@ -209,7 +209,6 @@ The PowerShell script checks prerequisites, fixes line endings, configures `back
 | **Public server (VPS/droplet)** | `scripts/deploy-server.sh` or `scripts/deploy-do.sh` | SQLite (volume) | Yes | [Public Server Guide](docs/deployment/SELF_HOSTED_SERVER.md) |
 | **On-prem server over SSH** | `scripts/deploy-remote.sh user@host` | SQLite (volume) | Yes | [On-Prem Guide](docs/deployment/ON_PREM_SERVER.md) |
 | **Docker Compose** | `scripts/setup.sh` + `docker compose up -d` | SQLite (volume) | Yes | [docker-compose.yml](docker-compose.yml) |
-| **Railway** | Railway dashboard | SQLite (volume) | Partial | [Railway Guide](docs/deployment/RAILWAY.md) |
 | **Render** | Blueprint (`render.yaml`) | SQLite (persistent disk) | Partial | [Render Guide](docs/deployment/RENDER.md) |
 | **Fly.io** | `flyctl` | SQLite (volume) | Yes | [Fly.io Guide](docs/deployment/FLY.md) |
 | **Vercel** | Two Vercel projects (`backend-serverless/` + `frontend/`) | Turso (libSQL) | No | [Vercel Guide](docs/deployment/VERCEL.md) |
@@ -598,7 +597,7 @@ ProjectAchilles/
 │   ├── setup.sh               # Interactive setup wizard (Linux/macOS)
 │   └── Install-ProjectAchilles.ps1 # Bootstrap script (Windows)
 ├── docs/                      # Documentation
-│   ├── deployment/            # Deployment guides (on-prem LAN, server, Fly, Railway, Render, Vercel)
+│   ├── deployment/            # Deployment guides (on-prem LAN, server, Fly, Render, Vercel)
 │   └── security/              # Security audit and remediation docs
 ├── docker-compose.yml         # Multi-service deployment (local / evaluation)
 ├── docker-compose.server.yml  # Single-origin server deployment behind Caddy
@@ -963,7 +962,6 @@ Backend (Docker-style deployments) only; `GET /api/capabilities` reports `campai
 ### Deployment
 - [Public Server Deployment](docs/deployment/SELF_HOSTED_SERVER.md) — Publicly-reachable single-server install (DigitalOcean or any VPS) with Caddy auto-TLS
 - [On-Prem Deployment](docs/deployment/ON_PREM_SERVER.md) — On-premises install over SSH with internal CA, DNS-01, or bring-your-own certificate
-- [Railway Deployment](docs/deployment/RAILWAY.md) — Railway with private networking
 - [Render Deployment](docs/deployment/RENDER.md) — Render with persistent disk and Blueprint
 - [Fly.io Deployment](docs/deployment/FLY.md) — Fly.io with custom domains and volumes
 - [Vercel Deployment](docs/deployment/VERCEL.md) — Serverless with Turso and Vercel Blob

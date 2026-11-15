@@ -31,7 +31,7 @@ Defender ASR exclusion that signing can't replace.
 4. Click **Generate**
 
 :::info[Platform Differences]
-- **Docker/Railway/Render/Fly.io**: Uses OpenSSL CLI for generation and `osslsigncode` for signing
+- **Docker/Render/Fly.io**: Uses OpenSSL CLI for generation and `osslsigncode` for signing
 - **Vercel**: Uses `node-forge` (pure JS) for generation; signing is not available (no osslsigncode)
 :::
 

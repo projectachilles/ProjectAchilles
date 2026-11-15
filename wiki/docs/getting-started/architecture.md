@@ -178,7 +178,6 @@ ProjectAchilles supports several deployment targets, each with different trade-o
 | **Docker Compose** | `backend/` | SQLite (volume) | Filesystem (volume) | Yes | Free |
 | **Public or on-prem server** (Caddy, one origin) | `backend/` | SQLite (volume) | Filesystem (volume) | Yes | Your server |
 | **Windows Hyper-V appliance** | `backend/` | SQLite (volume) | Filesystem (volume) | Yes | Your host |
-| **Railway** | `backend/` | SQLite (volume) | Filesystem (volume) | Partial | ~$10-13/mo |
 | **Render** | `backend/` | SQLite (persistent disk) | Filesystem (disk) | Partial | ~$14/mo |
 | **Fly.io** | `backend/` | SQLite (volume) | Filesystem (volume) | Yes | ~$8/mo |
 | **Vercel** | `backend-serverless/` | Turso (libSQL) | Vercel Blob | No | ~$20/mo |

@@ -15,7 +15,7 @@ until the integration is configured.
 
 :::info[Docker-style backends only]
 The Sophos integration exists only in `backend/` (Docker Compose, the public /
-on-prem server, Railway, Render, Fly.io). `GET /api/capabilities` reports
+on-prem server, Render, Fly.io). `GET /api/capabilities` reports
 `sophos: true` there and `sophos: false` on Vercel, where `backend-serverless/`
 mounts no Sophos routes.
 :::

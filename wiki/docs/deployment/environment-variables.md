@@ -186,36 +186,36 @@ The single-server install (`scripts/deploy-server.sh`, `achilles-installer`) rea
 | Variable | Description | Used By |
 |----------|-------------|---------|
 | `CLERK_PUBLISHABLE_KEY` | Clerk key (without `VITE_` prefix) | `docker-entrypoint.sh` injects as `window.__env__` |
-| `BACKEND_HOST` | Backend internal hostname | nginx proxy mode (Railway, Standard+ Render) |
+| `BACKEND_HOST` | Backend internal hostname | nginx proxy mode (Standard+ Render) |
 | `BACKEND_PORT` | Backend internal port | nginx proxy mode |
 
 ## Per-Target Summary
 
-| Variable | Docker | Railway | Render | Fly.io | Vercel |
-|----------|:------:|:-------:|:------:|:------:|:------:|
-| `CLERK_PUBLISHABLE_KEY` | Yes | Yes | Yes | Yes | Yes |
-| `CLERK_SECRET_KEY` | Yes | Yes | Yes | Yes | Yes |
-| `CORS_ORIGIN` | Yes | Yes | Yes | Yes | Yes |
-| `ENCRYPTION_SECRET` | **Required** | **Required** | **Required** | **Required** | **Required** |
-| `AGENT_SERVER_URL` | Prod | Yes | Yes | Yes | Yes |
-| `CLI_AUTH_SECRET` | Optional | Yes | Yes | Yes | Not used |
-| `ELASTICSEARCH_*` | Optional | Optional | Optional | Optional | Optional |
-| `TESTS_REPO_URL` | Optional | Optional | Optional | Optional | Optional |
-| `ORGANIZATION_NAME` | Optional | Optional | Optional | Optional | Optional |
-| `ORG_NAMES` | Optional | Optional | Optional | Optional | Optional |
-| `CONSOLE_ORG_CODE` | Optional | Optional | Optional | Optional | Not supported |
-| `CONSOLE_ORG_NAME` | Optional | Optional | Optional | Optional | Not supported |
-| `CONSOLE_ORG_COLOR` | Optional | Optional | Optional | Optional | Not supported |
-| `REQUIRE_ORG_ISOLATION` | Optional | Optional | Optional | Optional | Optional |
-| `TASK_OUTPUT_RETENTION_DAYS`, `AGENT_EVENT_RETENTION_DAYS` | Optional | Optional | Optional | Optional | Not used |
-| `AGENT_DOWNLOAD_BUDGET_MB_PER_MIN` | Optional | Optional | Optional | Optional | Not used |
-| `BUILD_NICE`, `BUILD_ENV_PASSTHROUGH` | Optional | Optional | Optional (`render.yaml` sets `BUILD_NICE=15`) | Optional | Not used |
-| `DEFENDER_*`, `CROWDSTRIKE_*`, `AZURE_*` | Optional | Optional | Optional | Optional | Optional |
-| `SENTINELONE_*`, `SOPHOS_*` | Optional | Optional | Optional | Optional | Not supported |
-| `TURSO_*` | — | — | — | — | **Required** |
-| `SIGNING_*_B64` | — | — | — | — | **Required** |
-| `BLOB_READ_WRITE_TOKEN` | — | — | — | — | Auto |
-| `BACKEND_HOST` | Auto | Yes | No* | No | — |
-| `VITE_API_URL` | — | — | Yes | Yes | Yes |
+| Variable | Docker | Render | Fly.io | Vercel |
+|----------|:------:|:------:|:------:|:------:|
+| `CLERK_PUBLISHABLE_KEY` | Yes | Yes | Yes | Yes |
+| `CLERK_SECRET_KEY` | Yes | Yes | Yes | Yes |
+| `CORS_ORIGIN` | Yes | Yes | Yes | Yes |
+| `ENCRYPTION_SECRET` | **Required** | **Required** | **Required** | **Required** |
+| `AGENT_SERVER_URL` | Prod | Yes | Yes | Yes |
+| `CLI_AUTH_SECRET` | Optional | Yes | Yes | Not used |
+| `ELASTICSEARCH_*` | Optional | Optional | Optional | Optional |
+| `TESTS_REPO_URL` | Optional | Optional | Optional | Optional |
+| `ORGANIZATION_NAME` | Optional | Optional | Optional | Optional |
+| `ORG_NAMES` | Optional | Optional | Optional | Optional |
+| `CONSOLE_ORG_CODE` | Optional | Optional | Optional | Not supported |
+| `CONSOLE_ORG_NAME` | Optional | Optional | Optional | Not supported |
+| `CONSOLE_ORG_COLOR` | Optional | Optional | Optional | Not supported |
+| `REQUIRE_ORG_ISOLATION` | Optional | Optional | Optional | Optional |
+| `TASK_OUTPUT_RETENTION_DAYS`, `AGENT_EVENT_RETENTION_DAYS` | Optional | Optional | Optional | Not used |
+| `AGENT_DOWNLOAD_BUDGET_MB_PER_MIN` | Optional | Optional | Optional | Not used |
+| `BUILD_NICE`, `BUILD_ENV_PASSTHROUGH` | Optional | Optional (`render.yaml` sets `BUILD_NICE=15`) | Optional | Not used |
+| `DEFENDER_*`, `CROWDSTRIKE_*`, `AZURE_*` | Optional | Optional | Optional | Optional |
+| `SENTINELONE_*`, `SOPHOS_*` | Optional | Optional | Optional | Not supported |
+| `TURSO_*` | — | — | — | **Required** |
+| `SIGNING_*_B64` | — | — | — | **Required** |
+| `BLOB_READ_WRITE_TOKEN` | — | — | — | Auto |
+| `BACKEND_HOST` | Auto | No* | No | — |
+| `VITE_API_URL` | — | Yes | Yes | Yes |
 
 \* Render Standard plan supports `BACKEND_HOST`; Starter plan uses `VITE_API_URL` instead.

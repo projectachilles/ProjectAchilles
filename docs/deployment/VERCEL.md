@@ -11,7 +11,7 @@ Vercel runs two projects from this monorepo:
 | **backend** | `backend-serverless/` | `@vercel/node` (serverless function) | Yes (agents connect here) |
 | **frontend** | `frontend/` | Vite (static SPA) | Yes (users visit this) |
 
-Unlike the Docker-based deployments (Railway, Render, Docker Compose), the Vercel backend is a purpose-built serverless fork that replaces filesystem-dependent services:
+Unlike the Docker-based deployments (Render, Docker Compose), the Vercel backend is a purpose-built serverless fork that replaces filesystem-dependent services:
 
 | Concern | Docker backend | Vercel backend |
 |---------|---------------|----------------|
@@ -273,7 +273,7 @@ Build agents locally and upload them through the UI. The frontend automatically 
 | Vercel Blob (1 GB included on Pro) | $0 |
 | **Total** | **~$20** |
 
-For comparison: Railway ~$10-13/mo (usage-based), Render ~$33/mo (flat rate, Standard backend). The Vercel Pro plan includes both projects, cron jobs, and Blob storage. See [Vercel pricing](https://vercel.com/pricing) for current rates.
+For comparison: Render ~$33/mo (flat rate, Standard backend). The Vercel Pro plan includes both projects, cron jobs, and Blob storage. See [Vercel pricing](https://vercel.com/pricing) for current rates.
 
 ## Gotchas
 
@@ -314,7 +314,7 @@ path.resolve(__dirname, '../../data/f0_library/tests_source')
 
 ### Frontend Clerk key must use `VITE_` prefix
 
-Vite only exposes env vars prefixed with `VITE_` to client-side code via `import.meta.env`. The frontend reads `VITE_CLERK_PUBLISHABLE_KEY` — setting `CLERK_PUBLISHABLE_KEY` (without prefix) on the frontend project has no effect. The Docker/Railway deployments work differently because `docker-entrypoint.sh` injects `window.__env__` at runtime.
+Vite only exposes env vars prefixed with `VITE_` to client-side code via `import.meta.env`. The frontend reads `VITE_CLERK_PUBLISHABLE_KEY` — setting `CLERK_PUBLISHABLE_KEY` (without prefix) on the frontend project has no effect. The Docker deployments work differently because `docker-entrypoint.sh` injects `window.__env__` at runtime.
 
 ### Clerk custom domains require DNS setup
 

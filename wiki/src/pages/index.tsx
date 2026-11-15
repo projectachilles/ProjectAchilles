@@ -62,9 +62,9 @@ const features: Feature[] = [
   },
   {
     label: 'deployment',
-    title: 'Eight Deployment Targets',
+    title: 'Seven Deployment Targets',
     description:
-      'Docker Compose, a public or on-prem server behind Caddy, the on-prem installer wizard (also shipped as a Windows Hyper-V appliance), Railway, Render, Fly.io, or Vercel serverless — each with its own guide.',
+      'Docker Compose, a public or on-prem server behind Caddy, the on-prem installer wizard (also shipped as a Windows Hyper-V appliance), Render, Fly.io, or Vercel serverless — each with its own guide.',
     link: '/docs/deployment/overview',
   },
 ];

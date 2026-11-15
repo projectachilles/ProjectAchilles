@@ -320,14 +320,13 @@ GitHub Actions (`.github/workflows/ci.yml`) runs on push/PR to main:
 
 ## Deployment
 
-Seven deployment targets are supported. The original `backend/` and `frontend/` are used for all targets except Vercel, which uses a purpose-built serverless fork.
+Six deployment targets are supported. The original `backend/` and `frontend/` are used for all targets except Vercel, which uses a purpose-built serverless fork.
 
 | Target | Backend | DB | File Storage | Builds (Go) | Guide |
 |--------|---------|-----|-------------|-------------|-------|
 | **Docker Compose** | `backend/` | SQLite (volume) | Filesystem (volume) | Yes | Below |
 | **Public server (VPS/droplet)** | `backend/` | SQLite (volume) | Filesystem (volume) | Yes | `docs/deployment/SELF_HOSTED_SERVER.md` |
 | **On-prem server** | `backend/` | SQLite (volume) | Filesystem (volume) | Yes | `docs/deployment/ON_PREM_SERVER.md` |
-| **Railway** | `backend/` | SQLite (volume) | Filesystem (volume) | Partial | `docs/deployment/RAILWAY.md` |
 | **Render** | `backend/` | SQLite (persistent disk) | Filesystem (disk) | Partial | `docs/deployment/RENDER.md` |
 | **Fly.io** | `backend/` | SQLite (volume) | Filesystem (volume) | Yes | `docs/deployment/FLY.md` |
 | **Vercel** | `backend-serverless/` | Turso (@libsql) | Vercel Blob | No | `docs/deployment/VERCEL.md` |

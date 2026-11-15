@@ -72,7 +72,7 @@ printf "https://your-frontend.vercel.app" | vercel env add CORS_ORIGIN productio
 
 ### Frontend Clerk key prefix
 
-The frontend reads `VITE_CLERK_PUBLISHABLE_KEY` (with `VITE_` prefix). Vite only exposes `VITE_`-prefixed env vars to client-side code. The Docker/Railway deployments use `docker-entrypoint.sh` to inject `window.__env__` at runtime, bypassing this restriction.
+The frontend reads `VITE_CLERK_PUBLISHABLE_KEY` (with `VITE_` prefix). Vite only exposes `VITE_`-prefixed env vars to client-side code. The Docker deployments use `docker-entrypoint.sh` to inject `window.__env__` at runtime, bypassing this restriction.
 
 ## Environment Variables
 

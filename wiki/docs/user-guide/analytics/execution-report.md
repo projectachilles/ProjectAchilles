@@ -41,7 +41,7 @@ Without a saved identity, the report uses the backend variable `CONSOLE_ORG_NAME
 
 - **Server install (`deploy-server.sh`):** set `ORGANIZATION_NAME` in `deploy.config.env` and re-run the installer. It rewrites `backend/.env` on every run, so a line added there by hand does not last.
 - **Docker Compose:** add `ORGANIZATION_NAME=Acme Corp` to `backend/.env`, then run `docker compose up -d`. A plain `docker compose restart` keeps the old environment.
-- **Render, Fly.io, Railway or Vercel:** add the variable to the backend service's environment and redeploy.
+- **Render, Fly.io or Vercel:** add the variable to the backend service's environment and redeploy.
 
 Without a name, the cover says *All organizations* and the page headers read *ProjectAchilles · Security Validation Report*.
 

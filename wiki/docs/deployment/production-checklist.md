@@ -170,7 +170,7 @@ curl -s https://<tenant>.agent.projectachilles.io/api/health
 
 Compare `commit_short` against `git log --oneline -5 origin/main`.
 
-`commit` is populated automatically on Render, Vercel and Railway, which each
+`commit` is populated automatically on Render and Vercel, which each
 inject their own variable. Server installs (`scripts/deploy-server.sh`,
 `achilles-installer`) and the repository's Fly.io workflow pass the commit as a
 build argument. For a plain `docker compose build` or your own image build,

@@ -32,7 +32,6 @@ const sidebars: SidebarsConfig = {
         'deployment/appliance',
         'deployment/public-server',
         'deployment/on-prem-server',
-        'deployment/railway',
         'deployment/render',
         'deployment/fly-io',
         'deployment/vercel',

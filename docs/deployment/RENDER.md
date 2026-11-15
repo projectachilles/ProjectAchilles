@@ -157,7 +157,7 @@ The backend uses a 5 GB persistent disk at `/root/.projectachilles`:
 | `go-cache/mod/` | Go module cache (persisted across redeploys) |
 | `agent-source/` | Sparse-checkout clone of the agent Go source |
 
-> **Note:** Persistent disks disable Render's zero-downtime deploys. During a deploy, there will be brief downtime while the new container starts. This differs from Railway, which supports zero-downtime deploys with volumes.
+> **Note:** Persistent disks disable Render's zero-downtime deploys. During a deploy, there will be brief downtime while the new container starts.
 
 > **Go cache persistence:** The Go module cache (`go-cache/mod/`) is stored on the persistent disk, so `go mod download` results survive container redeploys. The compiler cache is kept in `/tmp` instead: across cross-compilation targets it can grow past 600 MB. The first build after a redeploy therefore recompiles from scratch.
 
@@ -277,7 +277,7 @@ When you're ready to use custom domains instead of `*.onrender.com`:
 
 ## Agent Build from Source
 
-The backend Docker image includes Go 1.25, so agent cross-compilation works on Render — same as Railway. Set `AGENT_REPO_URL` to your ProjectAchilles repo and the backend will git-clone the `agent/` subdirectory at startup (sparse checkout), then use it for Go cross-compilation.
+The backend Docker image includes Go 1.25, so agent cross-compilation works on Render. Set `AGENT_REPO_URL` to your ProjectAchilles repo and the backend will git-clone the `agent/` subdirectory at startup (sparse checkout), then use it for Go cross-compilation.
 
 Before **every build**, the backend fetches the latest commit of `AGENT_REPO_BRANCH` (`git fetch --depth 1` + hard reset), so a build always compiles the current branch, even when an agent-only merge didn't trigger a redeploy. The commit is recorded in the version's release notes (`Built from source (windows/amd64) at 1bbe749`). If the fetch fails, the build fails rather than compiling stale code.
 
@@ -302,7 +302,7 @@ With Elastic Cloud handling analytics externally:
 | Persistent disk (5 GB) | ~$1.25 |
 | **Total** | **~$33** |
 
-For comparison, Railway runs the same stack for ~$10-13/mo (usage-based pricing). Render's plans are a flat rate. See [Render pricing](https://render.com/pricing) for current rates.
+Render's plans are a flat rate. See [Render pricing](https://render.com/pricing) for current rates.
 
 ## Helper Scripts
 

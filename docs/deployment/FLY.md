@@ -294,7 +294,7 @@ When you're ready to use custom domains instead of `*.fly.dev`:
 
 ## Agent Build from Source
 
-The backend Docker image includes Go 1.25, so agent cross-compilation works on Fly.io — same as Railway and Render. Set `AGENT_REPO_URL` and the backend clones the `agent/` subdirectory at startup (sparse checkout), then uses it for Go cross-compilation.
+The backend Docker image includes Go 1.25, so agent cross-compilation works on Fly.io — same as Render. Set `AGENT_REPO_URL` and the backend clones the `agent/` subdirectory at startup (sparse checkout), then uses it for Go cross-compilation.
 
 Before **every build**, the backend fetches the latest commit of `AGENT_REPO_BRANCH` (`git fetch --depth 1` + hard reset), so a build always compiles the current branch, even when an agent-only merge didn't trigger a redeploy. The commit is recorded in the version's release notes (`Built from source (windows/amd64) at 1bbe749`). If the fetch fails, the build fails rather than compiling stale code.
 
@@ -345,7 +345,7 @@ flyctl apps restart achilles-backend
 
 This is the price with a shared-CPU backend (the `flyctl scale` commands above). The checked-in `backend/fly.toml` asks for a dedicated CPU (`performance`, 1 CPU, 2 GB), because SQLite under a real fleet was slow on a shared CPU; that Machine costs roughly $30/month.
 
-For comparison: Railway ~$10-13/mo (usage-based), Render ~$33/mo (flat rate, Standard backend), Vercel ~$20/mo (Pro plan). See [Fly.io pricing](https://fly.io/docs/about/pricing/) for current rates.
+For comparison: Render ~$33/mo (flat rate, Standard backend), Vercel ~$20/mo (Pro plan). See [Fly.io pricing](https://fly.io/docs/about/pricing/) for current rates.
 
 ## Helper Scripts
 

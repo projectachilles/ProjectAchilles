@@ -136,7 +136,7 @@ If no label is set, results default to "Azure Tenant".
 
 | Deployment Target | Storage |
 |-------------------|---------|
-| Docker / Railway / Render / Fly.io | `~/.projectachilles/integrations.json` (AES-256-GCM encrypted) |
+| Docker / Render / Fly.io | `~/.projectachilles/integrations.json` (AES-256-GCM encrypted) |
 | Vercel | Vercel Blob (encrypted) or env vars |
 
 Credentials share the same encrypted settings file as Defender and Alerting configurations.

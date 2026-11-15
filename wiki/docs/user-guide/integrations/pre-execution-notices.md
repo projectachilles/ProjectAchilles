@@ -13,7 +13,7 @@ When the feature is on, tests **wait** until the mail server has accepted the no
 The feature is **off by default**. With it off, nothing about task creation, pickup or expiry changes.
 
 :::note
-Pre-execution notices work on Docker Compose, Render, Fly.io, Railway and server installs. They are **not available on Vercel** (the serverless backend), and the settings card is hidden there.
+Pre-execution notices work on Docker Compose, Render, Fly.io and server installs. They are **not available on Vercel** (the serverless backend), and the settings card is hidden there.
 :::
 
 ## Turn it on

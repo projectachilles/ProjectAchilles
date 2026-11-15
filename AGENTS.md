@@ -26,7 +26,7 @@
 ## Commits And Deployment
 
 - Commit convention: `<type>(<scope>): <description>` — types `feat|fix|docs|style|refactor|perf|test|chore`; scopes include `frontend`, `backend`, `backend-serverless`, `agent`, `analytics`, `browser`, `vercel`, `wiki`, `ci`, `deps`.
-- Beyond Docker Compose, deployment targets are: public/on-prem server via `docker-compose.server.yml` + Caddy (`./scripts/deploy-server.sh`, `./scripts/deploy-remote.sh u@host`, `./scripts/deploy-do.sh`; configured from `deploy.config.env`; `achilles-installer` and `scripts/install-onprem.sh` wrap the same engine, and the Hyper-V appliance ships it prebuilt), Railway, Render (`render.yaml`), Fly.io (`.github/workflows/deploy-flyio.yml`), and Vercel (serverless fork). Guides live under `docs/deployment/`.
+- Beyond Docker Compose, deployment targets are: public/on-prem server via `docker-compose.server.yml` + Caddy (`./scripts/deploy-server.sh`, `./scripts/deploy-remote.sh u@host`, `./scripts/deploy-do.sh`; configured from `deploy.config.env`; `achilles-installer` and `scripts/install-onprem.sh` wrap the same engine, and the Hyper-V appliance ships it prebuilt), Render (`render.yaml`), Fly.io (`.github/workflows/deploy-flyio.yml`), and Vercel (serverless fork). Guides live under `docs/deployment/`.
 
 ## Code Traps
 

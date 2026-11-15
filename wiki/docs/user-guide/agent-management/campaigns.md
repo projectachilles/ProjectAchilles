@@ -13,7 +13,7 @@ A **campaign** is a saved test plan: a set of tests crossed with a set of agents
 Use campaigns when you need repeatable, auditable proof of what was tested and what the controls did, for example for a compliance review or a quarterly validation. A campaign is also optionally labelled with a **framework label** (for example `ISO 27001 A.8`) that is carried onto the evidence page.
 
 :::info[Availability]
-Campaigns are available on self-hosted deployments (Docker, Render, Fly.io, Railway, public and on-prem servers). They are not available on Vercel; the **Campaigns** section of the Tasks page is hidden when the deployment does not support them.
+Campaigns are available on self-hosted deployments (Docker, Render, Fly.io, public and on-prem servers). They are not available on Vercel; the **Campaigns** section of the Tasks page is hidden when the deployment does not support them.
 :::
 
 ## Creating a Campaign

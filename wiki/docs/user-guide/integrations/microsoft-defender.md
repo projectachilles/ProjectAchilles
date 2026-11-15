@@ -365,7 +365,7 @@ When `configured` is `false`, Defender panels, tabs, and cross-correlation widge
 
 ## Deployment Variants
 
-| Aspect | Docker / Fly.io / Railway | Vercel (Serverless) |
+| Aspect | Docker / Fly.io | Vercel (Serverless) |
 |--------|--------------------------|---------------------|
 | Backend path | `backend/src/services/defender/` | `backend-serverless/src/services/defender/` |
 | Settings access | Synchronous file read | Async Vercel Blob read |
