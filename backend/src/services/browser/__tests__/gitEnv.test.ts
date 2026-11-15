@@ -70,4 +70,22 @@ describe.skipIf(process.platform === 'win32')('createGit (real simple-git)', () 
     expect(lines.some((l) => l.startsWith('GIT_SSH_COMMAND='))).toBe(false);
     expect(lines.some((l) => l.startsWith('EDITOR='))).toBe(false);
   });
+
+  it('passes the token to git as command-scoped config, without throwing', async () => {
+    // v4 treats GIT_CONFIG_COUNT as unsafe; a guard that rejects it would
+    // break every authenticated clone and fetch.
+    const output = await createGit(dir, 'test-token').customBinary(fakeGit).raw(['fetch']);
+
+    const basic = Buffer.from('x-access-token:test-token', 'utf8').toString('base64');
+    const lines = output.split('\n');
+    expect(lines).toContain('GIT_CONFIG_COUNT=1');
+    expect(lines).toContain('GIT_CONFIG_KEY_0=http.extraHeader');
+    expect(lines).toContain(`GIT_CONFIG_VALUE_0=Authorization: Basic ${basic}`);
+  });
+
+  it('sets no git config variables when there is no token', async () => {
+    const output = await createGit(dir).customBinary(fakeGit).raw(['fetch']);
+
+    expect(output.split('\n').some((l) => l.startsWith('GIT_CONFIG_'))).toBe(false);
+  });
 });

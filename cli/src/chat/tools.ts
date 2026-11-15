@@ -1,8 +1,9 @@
 /**
  * AI SDK tool definitions for the chat agent.
  *
- * Each tool maps to one or more API client methods. Tools are categorized by
- * approval tier: read (no approval), write (brief), destructive (explicit).
+ * Each tool maps to one or more API client methods. Read tools execute
+ * immediately; write and destructive proposals require exact, action-specific
+ * terminal confirmation before their API client closure can run.
  */
 
 import { tool } from 'ai';
@@ -21,6 +22,13 @@ import * as certsApi from '../api/certs.js';
 import * as integrationsApi from '../api/integrations.js';
 import * as riskApi from '../api/risk.js';
 import * as usersApi from '../api/users.js';
+import {
+  createPendingAction,
+  executeApprovedAction,
+  serializeApprovalRequests,
+  type ApprovalTier,
+  type RequestApproval,
+} from './approval.js';
 
 // ─── Read Tools (no approval) ───────────────────────────────────────────────
 
@@ -304,174 +312,328 @@ export const readTools = {
   }),
 };
 
-// ─── Write Tools (brief confirmation) ───────────────────────────────────────
+interface ApprovalDetails {
+  tier: ApprovalTier;
+  description: string;
+}
 
-export const writeTools = {
+function createApprovedTools(requestApproval: RequestApproval) {
+  const requestQueuedApproval = serializeApprovalRequests(requestApproval);
+
+  function executeWithApproval<T>(
+    toolName: string,
+    details: ApprovalDetails,
+    parameters: Record<string, unknown>,
+    execute: () => Promise<T>,
+  ) {
+    const action = createPendingAction(
+      toolName,
+      details.tier,
+      details.description,
+      parameters,
+    );
+    return executeApprovedAction(action, requestQueuedApproval, execute);
+  }
+
+  return {
+  // ─── Write Tools ──────────────────────────────────────────────────────────
+
   create_token: tool({
-    description: 'Create an enrollment token for new agent registration.',
+    description: 'Propose creating an enrollment token for new agent registration. Requires terminal approval.',
     inputSchema: z.object({
       org_id: z.string().optional().default('default'),
       ttl_hours: z.number().optional().default(24),
       max_uses: z.number().optional().default(1),
     }),
-    execute: async (params) => tokensApi.createToken(params),
+    execute: async (params) => executeWithApproval(
+      'create_token',
+      { tier: 'write', description: 'Create an enrollment token' },
+      params,
+      () => tokensApi.createToken(params),
+    ),
   }),
   create_tasks: tool({
-    description: 'Create security test execution tasks for one or more agents. Provide the test UUID and agent IDs.',
+    description: 'Propose security test execution tasks for one or more agents. Requires terminal approval.',
     inputSchema: z.object({
       agent_ids: z.array(z.string()).describe('Agent IDs to target'),
       test_uuid: z.string().describe('UUID of the test to execute'),
       priority: z.number().optional(),
     }),
-    execute: async (params) => tasksApi.createTasks({
-      org_id: 'default',
-      agent_ids: params.agent_ids,
-      payload: { test_uuid: params.test_uuid, test_name: '', binary_name: '' },
-      priority: params.priority,
-    }),
+    execute: async (params) => executeWithApproval(
+      'create_tasks',
+      { tier: 'write', description: 'Create security test execution tasks' },
+      params,
+      () => tasksApi.createTasks({
+        org_id: 'default',
+        agent_ids: params.agent_ids,
+        payload: { test_uuid: params.test_uuid, test_name: '', binary_name: '' },
+        priority: params.priority,
+      }),
+    ),
   }),
   create_command_task: tool({
-    description: 'Execute an arbitrary shell command on agents.',
+    description: 'Propose an arbitrary shell command for agents. Requires exact terminal approval.',
     inputSchema: z.object({
       agent_ids: z.array(z.string()),
       command: z.string().describe('Shell command to execute'),
       execution_timeout: z.number().optional(),
     }),
-    execute: async (params) => tasksApi.createCommandTask({ org_id: 'default', ...params }),
+    execute: async (params) => executeWithApproval(
+      'create_command_task',
+      { tier: 'destructive', description: 'Execute a shell command on agents' },
+      params,
+      () => tasksApi.createCommandTask({ org_id: 'default', ...params }),
+    ),
   }),
   create_update_tasks: tool({
-    description: 'Create agent update tasks to push the latest version.',
+    description: 'Propose agent update tasks to push the latest version. Requires terminal approval.',
     inputSchema: z.object({ agent_ids: z.array(z.string()) }),
-    execute: async ({ agent_ids }) => tasksApi.createUpdateTasks({ org_id: 'default', agent_ids }),
+    execute: async (params) => executeWithApproval(
+      'create_update_tasks',
+      { tier: 'write', description: 'Create agent update tasks' },
+      params,
+      () => tasksApi.createUpdateTasks({ org_id: 'default', agent_ids: params.agent_ids }),
+    ),
   }),
   update_agent: tool({
-    description: 'Update an agent\'s status (active/disabled).',
+    description: 'Propose changing an agent status (active/disabled). Requires exact terminal approval.',
     inputSchema: z.object({
       id: z.string(),
       status: z.enum(['active', 'disabled']),
     }),
-    execute: async ({ id, status }) => agentsApi.updateAgent(id, { status }),
+    execute: async (params) => executeWithApproval(
+      'update_agent',
+      { tier: 'destructive', description: 'Change an agent status' },
+      params,
+      () => agentsApi.updateAgent(params.id, { status: params.status }),
+    ),
   }),
   add_agent_tag: tool({
-    description: 'Add a tag to an agent.',
+    description: 'Propose adding a tag to an agent. Requires terminal approval.',
     inputSchema: z.object({ id: z.string(), tag: z.string() }),
-    execute: async ({ id, tag }) => agentsApi.addTag(id, tag),
+    execute: async (params) => executeWithApproval(
+      'add_agent_tag',
+      { tier: 'write', description: 'Add an agent tag' },
+      params,
+      () => agentsApi.addTag(params.id, params.tag),
+    ),
   }),
   remove_agent_tag: tool({
-    description: 'Remove a tag from an agent.',
+    description: 'Propose removing a tag from an agent. Requires terminal approval.',
     inputSchema: z.object({ id: z.string(), tag: z.string() }),
-    execute: async ({ id, tag }) => agentsApi.removeTag(id, tag),
+    execute: async (params) => executeWithApproval(
+      'remove_agent_tag',
+      { tier: 'write', description: 'Remove an agent tag' },
+      params,
+      () => agentsApi.removeTag(params.id, params.tag),
+    ),
   }),
   update_task_notes: tool({
-    description: 'Add or update notes on a task.',
+    description: 'Propose adding or updating task notes. Requires terminal approval.',
     inputSchema: z.object({ id: z.string(), content: z.string() }),
-    execute: async ({ id, content }) => tasksApi.updateNotes(id, content),
+    execute: async (params) => executeWithApproval(
+      'update_task_notes',
+      { tier: 'write', description: 'Update task notes' },
+      params,
+      () => tasksApi.updateNotes(params.id, params.content),
+    ),
   }),
   update_schedule: tool({
-    description: 'Update a schedule (pause, resume, or modify config).',
+    description: 'Propose updating a schedule (pause, resume, or rename). Requires terminal approval.',
     inputSchema: z.object({
       id: z.string(),
       status: z.enum(['active', 'paused']).optional(),
       name: z.string().optional(),
     }),
-    execute: async ({ id, ...update }) => schedulesApi.updateSchedule(id, update),
+    execute: async (params) => executeWithApproval(
+      'update_schedule',
+      { tier: 'write', description: 'Update a schedule' },
+      params,
+      () => {
+        const { id, ...update } = params;
+        return schedulesApi.updateSchedule(id, update);
+      },
+    ),
   }),
   trigger_sync: tool({
-    description: 'Trigger a git sync of the test library.',
+    description: 'Propose a git sync of the test library. Requires terminal approval.',
     inputSchema: z.object({}),
-    execute: async () => browserApi.syncTests(),
+    execute: async (params) => executeWithApproval(
+      'trigger_sync',
+      { tier: 'write', description: 'Sync the test library' },
+      params,
+      () => browserApi.syncTests(),
+    ),
   }),
   build_test: tool({
-    description: 'Build (compile and sign) a test binary.',
+    description: 'Propose building and signing a test binary. Requires terminal approval.',
     inputSchema: z.object({ uuid: z.string() }),
-    execute: async ({ uuid }) => buildsApi.createBuild(uuid),
+    execute: async (params) => executeWithApproval(
+      'build_test',
+      { tier: 'write', description: 'Build and sign a test binary' },
+      params,
+      () => buildsApi.createBuild(params.uuid),
+    ),
   }),
   accept_risk: tool({
-    description: 'Create a risk acceptance for a test or control.',
+    description: 'Propose a risk acceptance for a test or control. Requires exact terminal approval.',
     inputSchema: z.object({
       test_name: z.string(),
       control_id: z.string().optional(),
       hostname: z.string().optional(),
       justification: z.string(),
     }),
-    execute: async (params) => riskApi.acceptRisk(params),
+    execute: async (params) => executeWithApproval(
+      'accept_risk',
+      { tier: 'destructive', description: 'Create a risk acceptance' },
+      params,
+      () => riskApi.acceptRisk(params),
+    ),
   }),
   invite_user: tool({
-    description: 'Invite a new user to the team.',
+    description: 'Propose inviting a new team user. Requires exact terminal approval.',
     inputSchema: z.object({
       email: z.string(),
       role: z.enum(['admin', 'operator', 'analyst', 'explorer']),
     }),
-    execute: async ({ email, role }) => usersApi.inviteUser(email, role),
+    execute: async (params) => executeWithApproval(
+      'invite_user',
+      { tier: 'destructive', description: 'Invite a user to the team' },
+      params,
+      () => usersApi.inviteUser(params.email, params.role),
+    ),
   }),
-};
 
-// ─── Destructive Tools (explicit confirmation) ──────────────────────────────
+  // ─── Destructive Tools ────────────────────────────────────────────────────
 
-export const destructiveTools = {
   delete_agent: tool({
-    description: 'Decommission (soft-delete) an agent. This is irreversible.',
+    description: 'Propose decommissioning (soft-deleting) an agent. Requires exact terminal approval.',
     inputSchema: z.object({ id: z.string() }),
-    execute: async ({ id }) => agentsApi.deleteAgent(id),
+    execute: async (params) => executeWithApproval(
+      'delete_agent',
+      { tier: 'destructive', description: 'Decommission an agent' },
+      params,
+      () => agentsApi.deleteAgent(params.id),
+    ),
   }),
   rotate_agent_key: tool({
-    description: 'Rotate an agent\'s API key. The agent will pick up the new key on next heartbeat.',
+    description: 'Propose rotating an agent API key. Requires exact terminal approval.',
     inputSchema: z.object({ id: z.string() }),
-    execute: async ({ id }) => agentsApi.rotateKey(id),
+    execute: async (params) => executeWithApproval(
+      'rotate_agent_key',
+      { tier: 'destructive', description: 'Rotate an agent API key' },
+      params,
+      () => agentsApi.rotateKey(params.id),
+    ),
   }),
   revoke_token: tool({
-    description: 'Revoke an enrollment token.',
+    description: 'Propose revoking an enrollment token. Requires exact terminal approval.',
     inputSchema: z.object({ id: z.string() }),
-    execute: async ({ id }) => tokensApi.revokeToken(id),
+    execute: async (params) => executeWithApproval(
+      'revoke_token',
+      { tier: 'destructive', description: 'Revoke an enrollment token' },
+      params,
+      () => tokensApi.revokeToken(params.id),
+    ),
   }),
   cancel_task: tool({
-    description: 'Cancel a pending or assigned task.',
+    description: 'Propose cancelling a pending or assigned task. Requires exact terminal approval.',
     inputSchema: z.object({ id: z.string() }),
-    execute: async ({ id }) => tasksApi.cancelTask(id),
+    execute: async (params) => executeWithApproval(
+      'cancel_task',
+      { tier: 'destructive', description: 'Cancel a task' },
+      params,
+      () => tasksApi.cancelTask(params.id),
+    ),
   }),
   delete_task: tool({
-    description: 'Delete a completed/failed/expired task.',
+    description: 'Propose deleting a completed, failed, or expired task. Requires exact terminal approval.',
     inputSchema: z.object({ id: z.string() }),
-    execute: async ({ id }) => tasksApi.deleteTask(id),
+    execute: async (params) => executeWithApproval(
+      'delete_task',
+      { tier: 'destructive', description: 'Delete a task' },
+      params,
+      () => tasksApi.deleteTask(params.id),
+    ),
   }),
   delete_schedule: tool({
-    description: 'Delete a schedule.',
+    description: 'Propose deleting a schedule. Requires exact terminal approval.',
     inputSchema: z.object({ id: z.string() }),
-    execute: async ({ id }) => schedulesApi.deleteSchedule(id),
+    execute: async (params) => executeWithApproval(
+      'delete_schedule',
+      { tier: 'destructive', description: 'Delete a schedule' },
+      params,
+      () => schedulesApi.deleteSchedule(params.id),
+    ),
   }),
   create_uninstall_tasks: tool({
-    description: 'Create uninstall tasks to remove the agent from endpoints. This is destructive.',
+    description: 'Propose uninstall tasks to remove agents from endpoints. Requires exact terminal approval.',
     inputSchema: z.object({
       agent_ids: z.array(z.string()),
       cleanup: z.boolean().optional(),
     }),
-    execute: async ({ agent_ids, cleanup }) => tasksApi.createUninstallTasks({ org_id: 'default', agent_ids, cleanup }),
+    execute: async (params) => executeWithApproval(
+      'create_uninstall_tasks',
+      { tier: 'destructive', description: 'Uninstall agents from endpoints' },
+      params,
+      () => tasksApi.createUninstallTasks({
+        org_id: 'default',
+        agent_ids: params.agent_ids,
+        cleanup: params.cleanup,
+      }),
+    ),
   }),
   delete_build: tool({
-    description: 'Delete a build artifact.',
+    description: 'Propose deleting a build artifact. Requires exact terminal approval.',
     inputSchema: z.object({ uuid: z.string() }),
-    execute: async ({ uuid }) => buildsApi.deleteBuild(uuid),
+    execute: async (params) => executeWithApproval(
+      'delete_build',
+      { tier: 'destructive', description: 'Delete a build artifact' },
+      params,
+      () => buildsApi.deleteBuild(params.uuid),
+    ),
   }),
   delete_certificate: tool({
-    description: 'Delete a signing certificate.',
+    description: 'Propose deleting a signing certificate. Requires exact terminal approval.',
     inputSchema: z.object({ id: z.string() }),
-    execute: async ({ id }) => certsApi.deleteCertificate(id),
+    execute: async (params) => executeWithApproval(
+      'delete_certificate',
+      { tier: 'destructive', description: 'Delete a signing certificate' },
+      params,
+      () => certsApi.deleteCertificate(params.id),
+    ),
   }),
   revoke_risk_acceptance: tool({
-    description: 'Revoke an active risk acceptance.',
+    description: 'Propose revoking an active risk acceptance. Requires exact terminal approval.',
     inputSchema: z.object({ id: z.string(), reason: z.string() }),
-    execute: async ({ id, reason }) => riskApi.revokeRiskAcceptance(id, reason),
+    execute: async (params) => executeWithApproval(
+      'revoke_risk_acceptance',
+      { tier: 'destructive', description: 'Revoke a risk acceptance' },
+      params,
+      () => riskApi.revokeRiskAcceptance(params.id, params.reason),
+    ),
   }),
   delete_user: tool({
-    description: 'Delete a user from the team.',
+    description: 'Propose deleting a user from the team. Requires exact terminal approval.',
     inputSchema: z.object({ userId: z.string() }),
-    execute: async ({ userId }) => usersApi.deleteUser(userId),
+    execute: async (params) => executeWithApproval(
+      'delete_user',
+      { tier: 'destructive', description: 'Delete a user from the team' },
+      params,
+      () => usersApi.deleteUser(params.userId),
+    ),
   }),
-};
+  };
+}
 
-/** All tools combined for the agent */
-export const allTools = {
-  ...readTools,
-  ...writeTools,
-  ...destructiveTools,
-};
+/**
+ * Build the tools for one chat session.
+ *
+ * Non-interactive callers receive read tools only. Interactive callers may
+ * expose state-changing proposal tools, but every API mutation is behind the
+ * supplied terminal approval boundary.
+ */
+export function createChatTools(requestApproval?: RequestApproval) {
+  if (!requestApproval) return readTools;
+  return { ...readTools, ...createApprovedTools(requestApproval) };
+}
