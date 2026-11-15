@@ -1,0 +1,37 @@
+name: Review scripts
+
+# Unit tests for the helper the Claude review jobs run
+# (.github/scripts/claude-review-evidence.py) and guards on the two review
+# workflows: no PR-head checkout, fork reviews label-gated, the security
+# receipt bound to the head commit. No secrets; safe on fork PRs.
+
+on:
+  pull_request:
+    paths:
+      - ".github/scripts/**"
+      - ".github/workflows/claude-code-review.yml"
+      - ".github/workflows/security-review.yml"
+      - ".github/workflows/review-scripts.yml"
+  push:
+    branches: [main]
+    paths:
+      - ".github/scripts/**"
+      - ".github/workflows/claude-code-review.yml"
+      - ".github/workflows/security-review.yml"
+      - ".github/workflows/review-scripts.yml"
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    name: Test review scripts
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Unit tests
+        run: python3 -m unittest discover -s .github/scripts/tests -v
+      - name: Shell syntax
+        run: bash -n .github/scripts/claude-review-outcome.sh

@@ -45,7 +45,7 @@ jobs:
       REVIEW_ARGS: |
         --model claude-opus-5-5
         --allowedTools "mcp__github_inline_comment__create_inline_comment,Bash(gh pr comment:*),Bash(gh pr diff:*),Bash(gh pr view:*),Bash(gh pr list:*),Bash(gh issue view:*),Bash(gh issue list:*),Bash(gh search:*)"
-        --append-system-prompt "Shell commands here are allowed one at a time: run each gh command on its own, with no pipes, &&, ;, redirection or cd (for example gh pr diff 123 or gh pr view 123 --json files). Anything chained is denied. Read and search source files with the Read, Grep and Glob tools, never cat, grep, head or wc. The PR's changes come from gh pr diff; files on disk may be the base branch."
+        --append-system-prompt "Shell commands here are allowed one at a time: run each gh command on its own, with no pipes, &&, ;, redirection or cd (for example gh pr diff 123 or gh pr view 123 --json files). Anything chained is denied. Read and search source files with the Read, Grep and Glob tools, never cat, grep, head or wc. The PR's changes come from gh pr diff; files on disk may be the base branch. A copy of that diff is in the file claude-review-input/pr.diff: to search or count in the diff, use Grep and Read (offset and limit) on that file, never a pipe after gh pr diff."
 
     steps:
       - name: Checkout repository
@@ -77,6 +77,19 @@ jobs:
           bwrap --ro-bind / / --dev /dev --proc /proc --unshare-pid true
           command -v socat >/dev/null
           echo "bubblewrap + socat OK"
+
+      # Searching or counting in `gh pr diff` output through a pipe is refused
+      # (see REVIEW_ARGS) and cost turns (#624). This trusted step writes the
+      # diff (base.sha...head.sha, through the API) to a file for Read and Grep.
+      # The diff is untrusted text and is never executed. Never fails the job.
+      - name: Prepare the PR diff for Read and Grep
+        continue-on-error: true
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PR: ${{ github.event.pull_request.number }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+        run: python3 .github/scripts/claude-review-evidence.py prepare
 
       - name: Note the review start time
         id: start
@@ -185,6 +198,16 @@ jobs:
               { echo "### Review retried"; echo "$msg"; } >> "$GITHUB_STEP_SUMMARY" ;;
             *) echo "::error::Unexpected review outcome '$FIRST'."; exit 1 ;;
           esac
+
+      # claude-code-action skips a PR that edits this workflow (the file must
+      # match the default branch) and still ends green. Say so, instead of a
+      # green check that looks like a review.
+      - name: Note when Claude did not run
+        if: steps.claude-review.outcome == 'success' && steps.claude-review.outputs.execution_file == ''
+        run: |
+          msg="Not reviewed: Claude did not run on this PR (the action skips PRs that change a review workflow). This green check is not a code review."
+          echo "::warning::$msg"
+          { echo "### Not reviewed"; echo "$msg"; } >> "$GITHUB_STEP_SUMMARY"
 
       # One review per label: the next push needs a fresh look and a new label.
       - name: Remove the review label
