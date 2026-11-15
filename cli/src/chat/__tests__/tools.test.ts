@@ -1,17 +1,17 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import type { RequestApproval } from '../approval.js';
 
-const { createCommandTaskMock, deleteUserMock } = vi.hoisted(() => ({
+const { createCommandTaskMock, deleteAgentMock } = vi.hoisted(() => ({
   createCommandTaskMock: vi.fn(),
-  deleteUserMock: vi.fn(),
+  deleteAgentMock: vi.fn(),
 }));
 
 vi.mock('../../api/tasks.js', () => ({
   createCommandTask: createCommandTaskMock,
 }));
 
-vi.mock('../../api/users.js', () => ({
-  deleteUser: deleteUserMock,
+vi.mock('../../api/agents.js', () => ({
+  deleteAgent: deleteAgentMock,
 }));
 
 const { createChatTools } = await import('../tools.js');
@@ -33,7 +33,6 @@ const STATE_CHANGING_TOOLS = [
   'trigger_sync',
   'build_test',
   'accept_risk',
-  'invite_user',
   'delete_agent',
   'rotate_agent_key',
   'revoke_token',
@@ -44,7 +43,6 @@ const STATE_CHANGING_TOOLS = [
   'delete_build',
   'delete_certificate',
   'revoke_risk_acceptance',
-  'delete_user',
 ] as const;
 
 async function executeTool(
@@ -88,14 +86,24 @@ describe('chat tool approval boundary', () => {
     expect(createCommandTaskMock).not.toHaveBeenCalled();
   });
 
-  it('does not execute a destructive identity action when approval is denied', async () => {
+  it('does not execute a destructive action when approval is denied', async () => {
     await executeTool(
-      'delete_user',
-      { userId: 'user-1' },
+      'delete_agent',
+      { id: 'agent-1' },
       async () => false,
     );
 
-    expect(deleteUserMock).not.toHaveBeenCalled();
+    expect(deleteAgentMock).not.toHaveBeenCalled();
+  });
+
+  it('offers no user-management writes, with or without approval', () => {
+    // The server refuses these for CLI tokens (browser session only), so the
+    // chat agent must not propose them.
+    const tools = createChatTools(async () => true);
+
+    expect(tools).toHaveProperty('list_users');
+    expect(tools).not.toHaveProperty('invite_user');
+    expect(tools).not.toHaveProperty('delete_user');
   });
 
   it('preserves command execution after terminal approval', async () => {

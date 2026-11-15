@@ -2,6 +2,7 @@ import { Router } from 'express';
 import { clerkClient } from '@clerk/express';
 import { asyncHandler, AppError } from '../middleware/error.middleware.js';
 import { requireClerkAuth, requirePermission, getUserId } from '../middleware/clerk.middleware.js';
+import { requireUserSession } from '../middleware/userSession.middleware.js';
 import type { AppRole } from '../types/roles.js';
 import { validate } from '../middleware/validation.js';
 import { InviteUserSchema, SetRoleSchema } from '../schemas/users.schemas.js';
@@ -11,6 +12,17 @@ const router = Router();
 
 router.use(requireClerkAuth());
 router.use(requirePermission('settings:users:manage'));
+
+// Every change here needs a signed-in browser session. A CLI token is a
+// bearer credential too: with it an attacker could invite or promote an
+// admin, and revoking the token would no longer end the incident. Reads stay
+// open to an admin's CLI session (`achilles users list`). The guard is on the
+// method, not on each route, so a new write can't be added without it.
+const sessionOnly = requireUserSession();
+router.use((req, res, next) => {
+  if (req.method === 'GET' || req.method === 'HEAD') return next();
+  sessionOnly(req, res, next);
+});
 
 /**
  * GET /api/users
