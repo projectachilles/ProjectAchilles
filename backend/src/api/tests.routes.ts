@@ -15,7 +15,14 @@ export function createTestsRouter(options: { testSourcePaths: string[]; testsSou
   router.use(requireClerkAuth());
 
   const testsSettings = new TestsSettingsService();
-  const buildService = new BuildService(testsSettings, options.testSourcePaths);
+  // Only the synchronized/local upstream source may snapshot its repository
+  // root for shared libraries. Custom tests must remain scoped to their own
+  // directory so ~/.projectachilles state never enters the build sandbox.
+  const buildService = new BuildService(
+    testsSettings,
+    options.testSourcePaths,
+    [options.testsSourcePath],
+  );
   const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 50 * 1024 * 1024 } });
   const certUpload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 10 * 1024 * 1024 } });
   const CERT_ID_REGEX = /^cert-\d+$/;

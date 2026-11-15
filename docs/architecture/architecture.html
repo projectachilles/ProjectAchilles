@@ -1245,8 +1245,8 @@ footer code { color: var(--text-2); }
     "windows": {
       "tool": "osslsigncode",
       "cert": "Active PFX from ~/.projectachilles/certs/cert-<ts>/",
-      "password_passing": "Temp file (not CLI arg) \u2014 F0_SIGN_CERT_PATH + F0_SIGN_CERT_PASS_FILE env vars piped to build_all.sh; PASS_FILE mode 0o600, deleted in finally",
-      "scope": "Both agent builds (agentBuild.service) and test binaries (buildService)"
+      "password_passing": "Temp file passed only to trusted post-build osslsigncode; repository build_all.sh runs sandboxed without signing paths or passwords",
+      "scope": "Both agent builds (agentBuild.service) and extracted test artifacts (buildService)"
     },
     "darwin": {
       "tool": "rcodesign",

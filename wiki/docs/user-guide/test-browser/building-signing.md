@@ -115,10 +115,13 @@ When uploading a Windows executable dependency, the UI performs client-side vali
 
 Some tests use a multi-binary architecture where each validator is a separate embedded binary. For these tests:
 
-1. The `build_all.sh` script compiles all validators from source
-2. The active signing certificate is passed to the build script for signing each validator
+1. The `build_all.sh` script compiles validators in an isolated, no-network Linux sandbox
+2. The sandbox receives build-target settings but no backend secrets or signing certificate
 3. Validators are embedded into the final orchestrator binary
-4. The entire process runs as a single build operation from the UI
+4. The final per-OS artifact is copied out and signed by the trusted backend
+5. The entire process remains a single build operation from the UI
+
+The backend Docker image includes the required bubblewrap sandbox. A native backend without `/usr/bin/bwrap` rejects scripted builds instead of running repository code with backend authority.
 
 ## Execution Drawer
 

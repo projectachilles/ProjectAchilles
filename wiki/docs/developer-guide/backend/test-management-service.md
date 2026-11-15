@@ -67,7 +67,7 @@ sequenceDiagram
     BS->>BS: 2. Detect target OS from build tags
     BS->>BS: 3. Check embed dependencies
     alt build_all.sh exists
-        BS->>GO: Execute build_all.sh
+        BS->>GO: Execute build_all.sh in rootless sandbox
     else standard build
         BS->>GO: go build with GOOS/GOARCH
     end
@@ -125,12 +125,14 @@ Source-built detection uses four heuristics in order:
 
 Some tests use a multi-binary architecture with a `build_all.sh` orchestrator script. When detected, the build service:
 
-1. Passes the active signing certificate via environment variables (`F0_SIGN_CERT_PATH`, `F0_SIGN_CERT_PASS_FILE`)
-2. Executes `build_all.sh` which compiles and signs each validator binary
-3. The password file uses mode `0o600` and is deleted in a `finally` block
+1. Snapshots repository source without `.git` data or existing build output
+2. Executes `build_all.sh` as an unprivileged user in isolated user, PID, network, IPC, UTS, and cgroup namespaces
+3. Exposes read-only source, bounded temporary workspace, expected output files, and only target/toolchain environment values
+4. Copies expected regular per-OS artifacts into the trusted build directory after the sandbox exits
+5. Signs extracted Windows/macOS artifacts in the trusted backend process, where the script cannot access certificate material
 
-:::warning[Signing certificate required for bundle builds]
-Multi-binary bundles that include Windows validators need an active signing certificate. Without one, `build_all.sh` will produce unsigned binaries, which may be quarantined by endpoint protection during testing.
+:::warning[Linux sandbox required]
+Scripted bundle builds require Linux with bubblewrap at `/usr/bin/bwrap`. The backend Docker image includes it; unavailable sandbox support fails the build closed. Bundle scripts cannot access signing certificates, backend state, or the network, so dependencies must be present in the source snapshot and scripts must produce unsigned contents suitable for final artifact signing.
 :::
 
 ### Code Signing

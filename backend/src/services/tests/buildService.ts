@@ -8,6 +8,7 @@ import { promisify } from 'util';
 import type { BuildArtifact, BuildInfo, BuildJob, BuildMetadata, EmbedDependency, PlatformSettings } from '../../types/tests.js';
 import type { TestsSettingsService } from './settings.js';
 import { BuildJobs } from './buildJobs.js';
+import { runSandboxedBuildScript } from './buildSandbox.js';
 import { describeCommandFailure } from '../shared/commandFailure.js';
 
 const execFileAsync = promisify(execFile);
@@ -86,6 +87,13 @@ const BUILDS_DIR = path.join(SETTINGS_DIR, 'builds');
 
 const KNOWN_CATEGORIES = ['cyber-hygiene', 'intel-driven', 'mitre-top10', 'phase-aligned'];
 
+interface ScriptBuildContext {
+  testDir: string;
+  sourceRoot: string;
+  testsSourceRoot: string;
+  repositoryLayout: boolean;
+}
+
 /**
  * Determine whether an embedded binary is compiled from Go source by build_all.sh.
  * Uses four heuristics in order:
@@ -147,14 +155,20 @@ const BUILD_TIMEOUT = 300_000; // 5 minutes
 export class BuildService {
   private settingsService: TestsSettingsService;
   private testSourcePaths: string[];
+  private repositoryTestSourcePaths: string[];
   private jobs = new BuildJobs<BuildInfo>();
   private buildSlot = new BuildSlot();
 
-  constructor(settingsService: TestsSettingsService, testSourcePaths: string[] | string) {
+  constructor(
+    settingsService: TestsSettingsService,
+    testSourcePaths: string[] | string,
+    repositoryTestSourcePaths: string[] = [],
+  ) {
     this.settingsService = settingsService;
     this.testSourcePaths = typeof testSourcePaths === 'string'
       ? [testSourcePaths]
       : testSourcePaths;
+    this.repositoryTestSourcePaths = repositoryTestSourcePaths;
   }
 
   /**
@@ -427,6 +441,93 @@ const ARTIFACT_DIR = \`${artifactDir}\`
     return targetOs === 'windows' ? `${uuid}.exe` : uuid;
   }
 
+  /**
+   * Resolve the source boundary used for an untrusted scripted build.
+   *
+   * Synced repositories expose a `tests_source` directory and may also contain
+   * repository-level shared libraries, so their sandbox snapshot starts at the
+   * repository root. Custom tests live under backend state; snapshot only the
+   * custom source root so certificates, settings, and databases are excluded.
+   */
+  private resolveScriptBuildContext(testDir: string): ScriptBuildContext {
+    const realTestDir = fs.realpathSync(testDir);
+    for (const sourcePath of this.testSourcePaths) {
+      let testsSourceRoot: string;
+      try {
+        testsSourceRoot = fs.realpathSync(sourcePath);
+      } catch {
+        continue;
+      }
+      const relative = path.relative(testsSourceRoot, realTestDir);
+      if (relative === '' || relative.startsWith('..') || path.isAbsolute(relative)) continue;
+
+      const repositoryParent = path.dirname(testsSourceRoot);
+      const repositoryLayout = this.repositoryTestSourcePaths.some((repositorySource) => {
+        try {
+          return fs.realpathSync(repositorySource) === testsSourceRoot;
+        } catch {
+          return false;
+        }
+      });
+      return {
+        testDir: realTestDir,
+        sourceRoot: repositoryLayout ? repositoryParent : testsSourceRoot,
+        testsSourceRoot,
+        repositoryLayout,
+      };
+    }
+    throw new BuildError('Test directory resolves outside its configured source');
+  }
+
+  /** Sign a trusted, extracted artifact after all repository code has exited. */
+  private async signArtifact(
+    targetOs: PlatformSettings['os'],
+    binaryPath: string,
+    buildDir: string,
+    suffix = '',
+  ): Promise<boolean> {
+    if (targetOs === 'windows') {
+      const activeCert = this.settingsService.getActiveCertPfxPath();
+      if (!activeCert) return false;
+
+      const signedPath = `${binaryPath}.signed`;
+      const passFile = path.join(buildDir, `.tmp-pass${suffix}`);
+      try {
+        // Password files are created only after sandboxed repository code exits.
+        fs.writeFileSync(passFile, activeCert.password, { mode: 0o600 });
+        await execFileAsync('osslsigncode', [
+          'sign',
+          '-pkcs12', activeCert.pfxPath,
+          '-readpass', passFile,
+          '-in', binaryPath,
+          '-out', signedPath,
+        ], { timeout: 60_000 });
+        fs.renameSync(signedPath, binaryPath);
+        return true;
+      } catch {
+        if (fs.existsSync(signedPath)) fs.unlinkSync(signedPath);
+        return false;
+      } finally {
+        if (fs.existsSync(passFile)) fs.unlinkSync(passFile);
+      }
+    }
+
+    if (targetOs === 'darwin') {
+      try {
+        await execFileAsync('rcodesign', [
+          'sign',
+          '--code-signature-flags', 'adhoc',
+          binaryPath,
+        ], { timeout: 60_000 });
+        return true;
+      } catch {
+        return false;
+      }
+    }
+
+    return false;
+  }
+
   // ── Public API ────────────────────────────────────────────
 
   /**
@@ -635,15 +736,40 @@ const ARTIFACT_DIR = \`${artifactDir}\`
       throw new Error('Test directory not found');
     }
 
+    // Resolve the script boundary before reading any repository source. This
+    // prevents a UUID directory or build_all.sh symlink from redirecting even
+    // platform detection outside the configured test source.
+    const buildAllPath = path.join(testDir, 'build_all.sh');
+    const hasBuildScript = fs.existsSync(buildAllPath);
+    let scriptContext: ScriptBuildContext | null = null;
+    let realBuildAllPath: string | null = null;
+    if (hasBuildScript) {
+      scriptContext = this.resolveScriptBuildContext(testDir);
+      const scriptStat = fs.lstatSync(buildAllPath);
+      realBuildAllPath = fs.realpathSync(buildAllPath);
+      const scriptRelativeToTest = path.relative(scriptContext.testDir, realBuildAllPath);
+      if (
+        !scriptStat.isFile()
+        || scriptStat.isSymbolicLink()
+        || scriptRelativeToTest === ''
+        || scriptRelativeToTest.startsWith('..')
+        || path.isAbsolute(scriptRelativeToTest)
+      ) {
+        throw new BuildError('build_all.sh must be a regular file inside the test directory');
+      }
+    }
+
+    const sourceTestDir = scriptContext?.testDir ?? testDir;
+
     // 2. Resolve platform: auto-detect OS from build tags, arch from global setting
     const globalPlatform = this.settingsService.getPlatformSettings();
     const platform: PlatformSettings = {
-      os: this.resolveTargetOS(testDir, uuid),
+      os: this.resolveTargetOS(sourceTestDir, uuid),
       arch: globalPlatform.arch,
     };
     // Full target OS set — a build_all.sh run emits one artifact per OS, and we
     // record each so dispatch can match it to the agent's OS.
-    const targetOSes = this.resolveTargetOSes(testDir, uuid);
+    const targetOSes = this.resolveTargetOSes(sourceTestDir, uuid);
 
     // 3. Determine output filename (primary artifact, for back-compat meta fields)
     // basename: UUID_REGEX already rules out separators; this keeps the
@@ -659,136 +785,73 @@ const ARTIFACT_DIR = \`${artifactDir}\`
     const buildDir = this.ensureBuildDir(uuid);
     const outputPath = path.join(buildDir, filename);
 
-    // 5. Build environment
-    const env: Record<string, string | undefined> = {
-      ...process.env,
-      GOOS: platform.os,
-      GOARCH: platform.arch,
-      CGO_ENABLED: '0',
-    };
-
-    // 6. Build
-    const buildAllPath = path.join(testDir, 'build_all.sh');
-    const hasBuildScript = fs.existsSync(buildAllPath);
-
+    // 5. Build. Repository scripts use runSandboxedBuildScript's minimal
+    // environment; ordinary Go builds retain configured backend toolchain and
+    // cache settings because they do not execute repository shell extensions.
     if (hasBuildScript) {
+      if (!scriptContext || !realBuildAllPath) {
+        throw new BuildError('Repository build script validation failed');
+      }
+      const context = scriptContext;
+
       // Determine if the test is in a categorized subdirectory (tests_source/<category>/<uuid>/).
       // Some build_all.sh scripts hardcode TEST_DIR="tests_source/<uuid>" (flat layout) and use
       // ../../ to navigate back to repo root. For categorized tests (3 levels deep instead of 2),
-      // we patch the script to fix paths before executing from the repo root.
-      const containingSource = this.testSourcePaths.find(sp => testDir.startsWith(sp + path.sep)) || this.testSourcePaths[0];
-      const repoRoot = path.dirname(containingSource);
-      const relFromTestsSource = path.relative(containingSource, testDir);
+      // patch the snapshotted script to fix paths before sandbox execution.
+      const relFromTestsSource = path.relative(context.testsSourceRoot, context.testDir);
       const pathParts = relFromTestsSource.split(path.sep);
       const isCategorized = pathParts.length === 2; // e.g., "intel-driven/<uuid>"
+      let scriptContent = fs.readFileSync(realBuildAllPath, 'utf-8');
 
-      let patchedScript: string | null = null;
-      let buildCwd: string;
-      let buildArgs: string[];
-
-      if (isCategorized) {
+      if (isCategorized && context.repositoryLayout) {
         const category = pathParts[0];
-        const scriptContent = fs.readFileSync(buildAllPath, 'utf-8');
         const needsPatching = scriptContent.includes(`TEST_DIR="tests_source/\${TEST_UUID}"`)
           || scriptContent.includes(`TEST_DIR="tests_source/$TEST_UUID"`);
 
         if (needsPatching) {
           // Patch the script: fix TEST_DIR and adjust relative paths for 3-level depth
-          let patched = scriptContent;
           // 1. Insert category into TEST_DIR
-          patched = patched.replace(
+          scriptContent = scriptContent.replace(
             /TEST_DIR="tests_source\//g,
             `TEST_DIR="tests_source/${category}/`,
           );
           // 2. Fix ../../ path references (2-level → 3-level back-navigation)
           //    Negative lookbehind: don't expand paths that are already ../../../
-          patched = patched.replace(
+          scriptContent = scriptContent.replace(
             /(?<!\.\.\/)\.\.\/\.\.\//g,
             '../../../',
           );
           // 3. Fix standalone `cd ../..` (no trailing slash) at end of line
-          patched = patched.replace(
+          scriptContent = scriptContent.replace(
             /cd \.\.\/\.\.$/gm,
             'cd ../../..',
           );
-
-          patchedScript = path.join(buildDir, '.build-patched.sh');
-          fs.writeFileSync(patchedScript, patched, { mode: 0o755 });
-          buildCwd = repoRoot;
-          buildArgs = [patchedScript];
-        } else {
-          // Script uses SCRIPT_DIR pattern (self-contained paths) — run from repo root as-is
-          buildCwd = repoRoot;
-          buildArgs = [path.relative(repoRoot, buildAllPath)];
-        }
-      } else {
-        buildCwd = testDir;
-        buildArgs = ['build_all.sh'];
-      }
-
-      // Pass active signing cert to build_all.sh so it can sign inner binaries
-      // (e.g., multi-binary bundles sign validators before embedding). Set it
-      // whenever Windows is a TARGET OS — not only the primary — so a
-      // cross-platform build (primary resolved to Linux) still signs the
-      // Windows orchestrator it emits, rather than shipping it unsigned.
-      let innerPassFile: string | null = null;
-      if (targetOSes.includes('windows')) {
-        const activeCert = this.settingsService.getActiveCertPfxPath();
-        if (activeCert) {
-          env.F0_SIGN_CERT_PATH = activeCert.pfxPath;
-          innerPassFile = path.join(buildDir, '.tmp-inner-pass');
-          fs.writeFileSync(innerPassFile, activeCert.password, { mode: 0o600 });
-          env.F0_SIGN_CERT_PASS_FILE = innerPassFile;
         }
       }
 
+      const artifacts = targetOSes.map(targetOs => {
+        const artifactFilename = path.basename(this.osBinaryFilename(uuid, targetOs));
+        return {
+          filename: artifactFilename,
+          destination: path.join(buildDir, artifactFilename),
+          required: targetOs === platform.os,
+        };
+      });
+      let copiedArtifacts: Set<string>;
       try {
-        await runBuildCommand('bash', buildArgs, {
-          cwd: buildCwd,
-          env,
+        copiedArtifacts = await runSandboxedBuildScript({
+          sourceRoot: context.sourceRoot,
+          testDir: context.testDir,
+          buildCwd: isCategorized ? context.sourceRoot : context.testDir,
+          buildScriptPath: realBuildAllPath,
+          buildScriptContent: scriptContent,
+          target: platform,
+          artifacts,
           timeout: BUILD_TIMEOUT,
+          nice: BUILD_NICE && BUILD_NICE !== 'off' ? BUILD_NICE : undefined,
         });
-      } finally {
-        // Clean up patched build script
-        if (patchedScript && fs.existsSync(patchedScript)) {
-          try { fs.unlinkSync(patchedScript); } catch { /* ignore */ }
-        }
-        // Clean up inner cert password file
-        if (innerPassFile && fs.existsSync(innerPassFile)) {
-          fs.unlinkSync(innerPassFile);
-        }
-      }
-
-      // Locate output binary — check repo-root build dir (build_all.sh output location) too
-      const candidates = [
-        path.join(repoRoot, 'build', uuid, filename),
-        path.join(testDir, 'build', uuid, filename),
-        path.join(testDir, filename),
-      ];
-      let found = false;
-      for (const candidate of candidates) {
-        if (fs.existsSync(candidate)) {
-          fs.copyFileSync(candidate, outputPath);
-          found = true;
-          break;
-        }
-      }
-      if (!found) {
-        // Try to find any file in build/<uuid>/ under repo root or testDir
-        for (const base of [repoRoot, testDir]) {
-          const buildSubdir = path.join(base, 'build', uuid);
-          if (fs.existsSync(buildSubdir)) {
-            const files = fs.readdirSync(buildSubdir);
-            if (files.length > 0) {
-              fs.copyFileSync(path.join(buildSubdir, files[0]), outputPath);
-              found = true;
-              break;
-            }
-          }
-        }
-      }
-      if (!found) {
-        throw new Error('build_all.sh completed but output binary not found');
+      } catch (error) {
+        throw new BuildError(error instanceof Error ? error.message : String(error));
       }
 
       // Collect the SIBLING-OS artifacts build_all.sh produced (every target OS
@@ -799,28 +862,23 @@ const ARTIFACT_DIR = \`${artifactDir}\`
         if (siblingOs === platform.os) continue;
         // basename() strips path separators (path-injection sanitizer CodeQL
         // recognizes); no-op for the UUID_REGEX-valid uuid / `<uuid>[.exe]`.
-        const safeUuid = path.basename(uuid);
         const siblingFilename = path.basename(this.osBinaryFilename(uuid, siblingOs));
-        const siblingCandidates = [
-          path.join(repoRoot, 'build', safeUuid, siblingFilename),
-          path.join(testDir, 'build', safeUuid, siblingFilename),
-          path.join(testDir, siblingFilename),
-        ];
-        const sourcePath = siblingCandidates.find(c => fs.existsSync(c));
-        if (!sourcePath) continue; // build_all.sh didn't emit this OS — skip
+        if (!copiedArtifacts.has(siblingFilename)) continue;
         const siblingDest = path.join(buildDir, siblingFilename);
-        fs.copyFileSync(sourcePath, siblingDest);
         extraBinaries[siblingOs] = {
           filename: siblingFilename,
           fileSize: fs.statSync(siblingDest).size,
-          // build_all.sh signs the Windows orchestrator internally (cert passed
-          // above); other OSes are unsigned. `signed` here is informational —
-          // dispatch does not depend on it.
-          signed: siblingOs === 'windows' && Boolean(env.F0_SIGN_CERT_PATH),
+          signed: false,
         };
       }
     } else {
       // Standard Go build
+      const env: Record<string, string | undefined> = {
+        ...process.env,
+        GOOS: platform.os,
+        GOARCH: platform.arch,
+        CGO_ENABLED: '0',
+      };
       const goModPath = path.join(testDir, 'go.mod');
       const goSumPath = path.join(testDir, 'go.sum');
       const hadGoMod = fs.existsSync(goModPath);
@@ -869,46 +927,16 @@ const ARTIFACT_DIR = \`${artifactDir}\`
       }
     }
 
-    // 7. Sign binary (Windows via osslsigncode, darwin via rcodesign ad-hoc)
-    let signed = false;
-    if (platform.os === 'windows') {
-      const activeCert = this.settingsService.getActiveCertPfxPath();
-      if (activeCert) {
-        const signedPath = outputPath + '.signed';
-        // L1: Pass password via temp file to avoid /proc/PID/cmdline exposure
-        const passFile = path.join(buildDir, '.tmp-pass');
-        try {
-          fs.writeFileSync(passFile, activeCert.password, { mode: 0o600 });
-          await execFileAsync('osslsigncode', [
-            'sign',
-            '-pkcs12', activeCert.pfxPath,
-            '-readpass', passFile,
-            '-in', outputPath,
-            '-out', signedPath,
-          ], { timeout: 60_000 });
-
-          fs.renameSync(signedPath, outputPath);
-          signed = true;
-        } catch {
-          // Signing failed — continue with unsigned binary
-          if (fs.existsSync(signedPath)) {
-            fs.unlinkSync(signedPath);
-          }
-        } finally {
-          if (fs.existsSync(passFile)) fs.unlinkSync(passFile);
-        }
-      }
-    } else if (platform.os === 'darwin') {
-      try {
-        await execFileAsync('rcodesign', [
-          'sign',
-          '--code-signature-flags', 'adhoc',
-          outputPath,
-        ], { timeout: 60_000 });
-        signed = true;
-      } catch {
-        // rcodesign not installed or signing failed — continue unsigned
-      }
+    // 7. Sign only trusted artifacts copied out of the sandbox. This preserves
+    // cross-platform signing without exposing certificates to build_all.sh.
+    const signed = await this.signArtifact(platform.os, outputPath, buildDir);
+    for (const siblingOs of targetOSes) {
+      if (siblingOs === platform.os) continue;
+      const artifact = extraBinaries[siblingOs];
+      if (!artifact) continue;
+      const siblingPath = path.join(buildDir, artifact.filename);
+      artifact.signed = await this.signArtifact(siblingOs, siblingPath, buildDir, `-${siblingOs}`);
+      artifact.fileSize = fs.statSync(siblingPath).size;
     }
 
     // 8. Write metadata

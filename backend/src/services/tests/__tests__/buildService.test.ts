@@ -15,6 +15,8 @@ const mockUnlinkSync = vi.fn();
 const mockCopyFileSync = vi.fn();
 const mockRenameSync = vi.fn();
 const mockSymlinkSync = vi.fn();
+const mockLstatSync = vi.fn();
+const mockRealpathSync = vi.fn();
 
 vi.mock('fs', async () => {
   const actual = await vi.importActual<typeof import('fs')>('fs');
@@ -30,9 +32,16 @@ vi.mock('fs', async () => {
     copyFileSync: mockCopyFileSync,
     renameSync: mockRenameSync,
     symlinkSync: mockSymlinkSync,
+    lstatSync: mockLstatSync,
+    realpathSync: mockRealpathSync,
   };
   return { ...actual, ...overrides, default: { ...actual, ...overrides } };
 });
+
+const mockRunSandboxedBuildScript = vi.fn();
+vi.mock('../buildSandbox.js', () => ({
+  runSandboxedBuildScript: mockRunSandboxedBuildScript,
+}));
 
 vi.mock('os', async () => {
   const actual = await vi.importActual<typeof import('os')>('os');
@@ -61,7 +70,7 @@ type TestsSettingsService = import('../settings.js').TestsSettingsService;
 // ── Helpers ──────────────────────────────────────────────────────────
 
 const BUILDS_DIR = '/mock-home/.projectachilles/builds';
-const TESTS_SOURCE = '/mock-tests';
+const TESTS_SOURCE = '/mock-repo/tests_source';
 const VALID_UUID = 'a1b2c3d4-e5f6-7890-abcd-ef1234567890';
 
 function createMockSettingsService(overrides: Record<string, unknown> = {}) {
@@ -73,7 +82,11 @@ function createMockSettingsService(overrides: Record<string, unknown> = {}) {
 }
 
 function createService(settingsOverrides: Record<string, unknown> = {}) {
-  return new BuildService(createMockSettingsService(settingsOverrides), TESTS_SOURCE);
+  return new BuildService(
+    createMockSettingsService(settingsOverrides),
+    TESTS_SOURCE,
+    [TESTS_SOURCE],
+  );
 }
 
 // ── Tests ────────────────────────────────────────────────────────────
@@ -86,6 +99,14 @@ describe('BuildService', () => {
     service = createService();
     mockExistsSync.mockReturnValue(false);
     mockExecFileAsync.mockResolvedValue({ stdout: '', stderr: '' });
+    mockLstatSync.mockReturnValue({
+      isFile: () => true,
+      isSymbolicLink: () => false,
+    });
+    mockRealpathSync.mockImplementation((p: string) => p);
+    mockRunSandboxedBuildScript.mockImplementation(async (options: {
+      artifacts: Array<{ filename: string }>;
+    }) => new Set(options.artifacts.map(artifact => artifact.filename)));
   });
 
   // ── Group 1: getBuildInfo ─────────────────────────────────
@@ -1007,15 +1028,10 @@ var data string
   describe('buildAndSign — build_all.sh mode', () => {
     const testDir = `${TESTS_SOURCE}/cyber-hygiene/${VALID_UUID}`;
 
-    it('executes bash build_all.sh when script exists (SCRIPT_DIR pattern)', async () => {
-      // For categorized tests with SCRIPT_DIR pattern, runs from repo root as-is
-      const repoRoot = '/';
-
+    function setupScriptBuild(script = 'SCRIPT_DIR="$(dirname "${BASH_SOURCE[0]}")"') {
       mockExistsSync.mockImplementation((p: string) => {
         if (p === testDir) return true;
         if (p === `${testDir}/build_all.sh`) return true;
-        // Candidate output at repo root build dir
-        if (p === `${repoRoot}build/${VALID_UUID}/${VALID_UUID}.exe`) return true;
         if (p === `${BUILDS_DIR}/${VALID_UUID}`) return false;
         return false;
       });
@@ -1023,129 +1039,107 @@ var data string
         if (p === testDir) return { isDirectory: () => true };
         return { size: 4096 };
       });
-      // Script uses SCRIPT_DIR (no flat TEST_DIR pattern) — no patching needed
-      mockReadFileSync.mockReturnValue('SCRIPT_DIR="$(dirname "${BASH_SOURCE[0]}")"');
+      mockReaddirSync.mockReturnValue([]);
+      mockReadFileSync.mockReturnValue(script);
+    }
+
+    it('delegates build_all.sh to the repository sandbox', async () => {
+      setupScriptBuild();
 
       await service.buildAndSign(VALID_UUID);
 
-      // Categorized + SCRIPT_DIR: runs from repo root with relative path
-      expect(mockExecFileAsync).toHaveBeenCalledWith(
+      expect(mockRunSandboxedBuildScript).toHaveBeenCalledWith(expect.objectContaining({
+        sourceRoot: '/mock-repo',
+        testDir,
+        buildCwd: '/mock-repo',
+        buildScriptPath: `${testDir}/build_all.sh`,
+        target: { os: 'windows', arch: 'amd64' },
+        artifacts: [{
+          filename: `${VALID_UUID}.exe`,
+          destination: `${BUILDS_DIR}/${VALID_UUID}/${VALID_UUID}.exe`,
+          required: true,
+        }],
+      }));
+      expect(mockExecFileAsync).not.toHaveBeenCalledWith(
         'bash',
-        [`mock-tests/cyber-hygiene/${VALID_UUID}/build_all.sh`],
-        expect.objectContaining({ cwd: repoRoot }),
+        expect.anything(),
+        expect.anything(),
       );
-      expect(mockCopyFileSync).toHaveBeenCalled();
     });
 
-    it('surfaces the end of stdout when build_all.sh fails with empty stderr', async () => {
-      mockExistsSync.mockImplementation((p: string) => p === testDir || p === `${testDir}/build_all.sh`);
-      mockReaddirSync.mockReturnValue([]);
-      mockStatSync.mockImplementation((p: string) => {
-        if (p === testDir) return { isDirectory: () => true };
-        return { size: 4096 };
-      });
-      mockReadFileSync.mockReturnValue('SCRIPT_DIR="$(dirname "${BASH_SOURCE[0]}")"');
-      // A script whose signing error went to stdout before `set -e` exited
-      mockExecFileAsync.mockImplementation(async (cmd: string) => {
-        if (cmd === 'bash') {
-          throw Object.assign(new Error('Command failed: bash build_all.sh\n'), {
-            code: 1,
-            stderr: '',
-            stdout: '[SUCCESS] Built: out.exe\n[ERROR] Signing failed — aborting (fail-loud)\n',
-          });
-        }
-        return { stdout: '', stderr: '' };
-      });
+    it('surfaces sandboxed build failures as BuildError', async () => {
+      setupScriptBuild();
+      mockRunSandboxedBuildScript.mockRejectedValue(
+        new Error('[ERROR] Sandboxed build failed'),
+      );
 
       const failure = service.buildAndSign(VALID_UUID);
       await expect(failure).rejects.toBeInstanceOf(BuildError);
-      await expect(failure).rejects.toThrow('[ERROR] Signing failed — aborting (fail-loud)');
+      await expect(failure).rejects.toThrow('[ERROR] Sandboxed build failed');
     });
 
     it('patches build_all.sh for categorized tests with flat TEST_DIR', async () => {
-      const repoRoot = '/';
-      const patchedPath = `${BUILDS_DIR}/${VALID_UUID}/.build-patched.sh`;
-
-      mockExistsSync.mockImplementation((p: string) => {
-        if (p === testDir) return true;
-        if (p === `${testDir}/build_all.sh`) return true;
-        if (p === patchedPath) return true; // cleanup check
-        // Candidate output at repo root build dir
-        if (p === `${repoRoot}build/${VALID_UUID}/${VALID_UUID}.exe`) return true;
-        if (p === `${BUILDS_DIR}/${VALID_UUID}`) return false;
-        return false;
-      });
-      mockStatSync.mockImplementation((p: string) => {
-        if (p === testDir) return { isDirectory: () => true };
-        return { size: 4096 };
-      });
-      // Script has flat TEST_DIR pattern — triggers patching
-      mockReadFileSync.mockReturnValue(
+      setupScriptBuild(
         'TEST_UUID="test-id"\nTEST_DIR="tests_source/${TEST_UUID}"\ncd ../..  \n-o ../../build/',
       );
 
       await service.buildAndSign(VALID_UUID);
 
-      // Should write patched script and execute it
-      expect(mockWriteFileSync).toHaveBeenCalledWith(
-        patchedPath,
-        expect.stringContaining('tests_source/cyber-hygiene/'),
-        expect.objectContaining({ mode: 0o755 }),
-      );
-      expect(mockExecFileAsync).toHaveBeenCalledWith(
-        'bash',
-        [patchedPath],
-        expect.objectContaining({ cwd: repoRoot }),
-      );
+      const options = mockRunSandboxedBuildScript.mock.calls[0][0];
+      expect(options.buildScriptContent).toContain('tests_source/cyber-hygiene/');
+      expect(options.buildScriptContent).toContain('../../../build/');
     });
 
-    it('searches candidate output paths for binary', async () => {
-      const repoRoot = '/';
+    it('rejects a symlinked build script before sandbox preparation', async () => {
+      setupScriptBuild();
+      mockLstatSync.mockReturnValue({
+        isFile: () => false,
+        isSymbolicLink: () => true,
+      });
 
-      mockExistsSync.mockImplementation((p: string) => {
-        if (p === testDir) return true;
-        if (p === `${testDir}/build_all.sh`) return true;
-        // First candidates don't exist
-        if (p === `${repoRoot}build/${VALID_UUID}/${VALID_UUID}.exe`) return false;
-        if (p === `${testDir}/build/${VALID_UUID}/${VALID_UUID}.exe`) return false;
-        // Third candidate exists
-        if (p === `${testDir}/${VALID_UUID}.exe`) return true;
-        if (p === `${BUILDS_DIR}/${VALID_UUID}`) return false;
-        return false;
-      });
-      mockStatSync.mockImplementation((p: string) => {
-        if (p === testDir) return { isDirectory: () => true };
-        return { size: 2048 };
-      });
-      // SCRIPT_DIR pattern — no patching
+      await expect(service.buildAndSign(VALID_UUID)).rejects.toThrow(
+        'build_all.sh must be a regular file inside the test directory',
+      );
+      expect(mockRunSandboxedBuildScript).not.toHaveBeenCalled();
+    });
+
+    it('rejects a test directory symlinked outside its source', async () => {
+      setupScriptBuild();
+      mockRealpathSync.mockImplementation((p: string) => (
+        p === testDir ? '/mock-home/.projectachilles/certs' : p
+      ));
+
+      await expect(service.buildAndSign(VALID_UUID)).rejects.toThrow(
+        'Test directory resolves outside its configured source',
+      );
+      expect(mockRunSandboxedBuildScript).not.toHaveBeenCalled();
+    });
+
+    it('snapshots custom tests without including backend state', async () => {
+      const customSource = '/mock-home/.projectachilles/custom-tests';
+      const customTestDir = `${customSource}/cyber-hygiene/${VALID_UUID}`;
+      const customService = new BuildService(createMockSettingsService(), customSource);
+      mockExistsSync.mockImplementation((p: string) => (
+        p === customTestDir || p === `${customTestDir}/build_all.sh`
+      ));
+      mockStatSync.mockImplementation((p: string) => (
+        p === customTestDir ? { isDirectory: () => true } : { size: 4096 }
+      ));
+      mockReaddirSync.mockReturnValue([]);
       mockReadFileSync.mockReturnValue('SCRIPT_DIR="$(dirname "${BASH_SOURCE[0]}")"');
 
-      await service.buildAndSign(VALID_UUID);
+      await customService.buildAndSign(VALID_UUID);
 
-      // Should copy from the third candidate (testDir/<uuid>.exe)
-      expect(mockCopyFileSync).toHaveBeenCalledWith(
-        `${testDir}/${VALID_UUID}.exe`,
-        expect.stringContaining(VALID_UUID),
-      );
+      expect(mockRunSandboxedBuildScript).toHaveBeenCalledWith(expect.objectContaining({
+        sourceRoot: customSource,
+        testDir: customTestDir,
+        buildCwd: customSource,
+      }));
     });
 
     it('records a per-OS binaries map for a cross-platform build_all.sh build', async () => {
-      const repoRoot = '/';
-      // Dual-platform test: untagged main + per-OS logger files drive detection.
+      setupScriptBuild();
       mockReaddirSync.mockReturnValue([`${VALID_UUID}.go`, 'logger_windows.go', 'logger_linux.go']);
-      mockExistsSync.mockImplementation((p: string) => {
-        if (p === testDir) return true;
-        if (p === `${testDir}/build_all.sh`) return true;
-        // build_all.sh emits BOTH OS artifacts in one run (repo-root build dir).
-        if (p === `${repoRoot}build/${VALID_UUID}/${VALID_UUID}.exe`) return true;
-        if (p === `${repoRoot}build/${VALID_UUID}/${VALID_UUID}`) return true;
-        return false;
-      });
-      mockStatSync.mockImplementation((p: string) => {
-        if (p === testDir) return { isDirectory: () => true };
-        if (typeof p === 'string' && p.endsWith('.exe')) return { size: 4096 };
-        return { size: 2048 };
-      });
       mockReadFileSync.mockImplementation((p: string) => {
         if (typeof p === 'string' && p.endsWith('_windows.go')) return '//go:build windows\npackage main';
         if (typeof p === 'string' && p.endsWith('_linux.go')) return '//go:build linux\npackage main';
@@ -1162,6 +1156,29 @@ var data string
       const meta = JSON.parse(metaWrite![1] as string);
       expect(meta.binaries.windows.filename).toBe(`${VALID_UUID}.exe`);
       expect(meta.binaries.linux.filename).toBe(VALID_UUID);
+    });
+
+    it('signs extracted artifacts only after the sandbox completes', async () => {
+      setupScriptBuild();
+      const getActiveCertPfxPath = vi.fn().mockReturnValue({
+        pfxPath: '/certs/cert.pfx',
+        password: 'cert-pass',
+      });
+      const svc = new BuildService(
+        createMockSettingsService({ getActiveCertPfxPath }),
+        TESTS_SOURCE,
+        [TESTS_SOURCE],
+      );
+
+      await svc.buildAndSign(VALID_UUID);
+
+      const sandboxOrder = mockRunSandboxedBuildScript.mock.invocationCallOrder[0];
+      const signingCall = mockExecFileAsync.mock.calls.findIndex(call => call[0] === 'osslsigncode');
+      expect(signingCall).toBeGreaterThanOrEqual(0);
+      expect(sandboxOrder).toBeLessThan(mockExecFileAsync.mock.invocationCallOrder[signingCall]);
+      expect(getActiveCertPfxPath.mock.invocationCallOrder[0]).toBeGreaterThan(sandboxOrder);
+      expect(JSON.stringify(mockRunSandboxedBuildScript.mock.calls[0][0])).not.toContain('cert-pass');
+      expect(JSON.stringify(mockRunSandboxedBuildScript.mock.calls[0][0])).not.toContain('/certs/cert.pfx');
     });
   });
 
