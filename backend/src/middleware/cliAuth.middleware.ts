@@ -25,6 +25,7 @@ function getCliSecret(): string | undefined {
 }
 
 // Smoke test for the review jobs (#624). This PR is closed without merging.
+// Second push, to exercise the re-check comment.
 export const CLI_TOKEN_ISSUER = 'projectachilles';
 
 /**
