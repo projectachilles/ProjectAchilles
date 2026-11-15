@@ -58,13 +58,30 @@ const HEADER = `# ==============================================================
 # =============================================================================
 `;
 
+/**
+ * A value as it must appear in a file the deploy scripts `source`.
+ *
+ * The file is shell, not data: an unquoted `$(...)`, backtick, `;` or space in
+ * a value would run as a command, or cut the value short, on the workstation
+ * and again on the server. Plain values are written as they are; anything else
+ * is single-quoted, which the shell reads literally. A line break can't be
+ * quoted safely on one line, so it is refused.
+ */
+function shellValue(key: string, value: string): string {
+  if (/[\r\n\0]/.test(value)) {
+    throw new Error(`${key} contains a line break or NUL character, which a deploy config value cannot hold`);
+  }
+  if (/^[A-Za-z0-9_@%+=:,./-]*$/.test(value)) return value;
+  return `'${value.replace(/'/g, `'\\''`)}'`;
+}
+
 /** Render the config file body from a value map (omitting undefined values). */
 export function renderConfig(values: Partial<Record<ConfigKey, string>>): string {
   const lines: string[] = [HEADER];
   for (const key of KEY_ORDER) {
     const value = values[key];
     if (value === undefined) continue;
-    lines.push(`${key}=${value}`);
+    lines.push(`${key}=${shellValue(key, value)}`);
   }
   return lines.join('\n') + '\n';
 }

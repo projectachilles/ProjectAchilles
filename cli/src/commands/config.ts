@@ -4,6 +4,7 @@ import {
   listProfiles, addProfile, removeProfile, useProfile, getActiveProfile,
 } from '../config/store.js';
 import { colors } from '../output/colors.js';
+import { HIDDEN, isSecretKey, redactSecrets } from '../config/secrets.js';
 
 registerCommand({
   name: 'config',
@@ -13,7 +14,8 @@ registerCommand({
       description: 'Show all configuration values',
       handler: async (ctx) => {
         const config = loadConfig();
-        ctx.output.detail(config as unknown as Record<string, unknown>);
+        // Secrets (ai.api_key) are never printed; see config/secrets.ts.
+        ctx.output.detail(redactSecrets(config) as Record<string, unknown>);
       },
     },
     get: {
@@ -25,7 +27,7 @@ registerCommand({
           ctx.output.error(`Key not found: ${ctx.args.key}`);
           process.exit(1);
         }
-        ctx.output.result(value);
+        ctx.output.result(redactSecrets(value, ctx.args.key));
       },
     },
     set: {
@@ -36,7 +38,8 @@ registerCommand({
       ],
       handler: async (ctx) => {
         setConfigValue(ctx.args.key, ctx.args.value);
-        ctx.output.success(`${ctx.args.key} = ${ctx.args.value}`);
+        const shown = isSecretKey(ctx.args.key) ? HIDDEN : ctx.args.value;
+        ctx.output.success(`${ctx.args.key} = ${shown}`);
       },
     },
     profiles: {

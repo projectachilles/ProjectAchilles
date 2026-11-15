@@ -106,6 +106,10 @@ achilles config set ai.model claude-sonnet-4-6
 achilles config set ai.api_key sk-ant-...
 ```
 
+:::info[The key is never printed]
+`config set` confirms `ai.api_key = (set, hidden)`, and `config list` / `config get` show the same placeholder, so the key doesn't end up in terminal scrollback, CI logs or screen recordings. It is stored in `~/.achilles/config.json` (readable only by you). Typing the key on the command line still records it in your shell history; clear that entry if it matters.
+:::
+
 ### OpenAI
 
 ```bash
