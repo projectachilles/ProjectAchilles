@@ -1,6 +1,9 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import express from 'express';
 import request from 'supertest';
+
+// The caller's organization; a test sets it to undefined for an org-less caller.
+const callerOrgState = vi.hoisted(() => ({ orgId: 'org-001' as string | undefined }));
 
 // ── Mock Clerk middleware ─────────────────────────────────────────
 vi.mock('@clerk/express', () => ({
@@ -27,7 +30,7 @@ vi.mock('../../middleware/clerk.middleware.js', () => ({
     next();
   },
   getUserId: (auth: any) => auth?.userId || 'test-user-001',
-  getUserOrgId: (auth: any) => auth?.orgId || auth?.sessionClaims?.org_id || 'org-001',
+  getUserOrgId: (auth: any) => auth?.orgId || auth?.sessionClaims?.org_id || callerOrgState.orgId,
   requirePermission: () => (_req: any, _res: any, next: any) => next(),
 }));
 
@@ -393,5 +396,43 @@ describe('risk-acceptance routes', () => {
       expect(res.status).toBe(400);
       expect(res.body.error).toContain('500');
     });
+  });
+});
+
+describe('risk-acceptance routes with REQUIRE_ORG_ISOLATION', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    callerOrgState.orgId = undefined;
+    process.env.REQUIRE_ORG_ISOLATION = 'true';
+  });
+  afterEach(() => {
+    callerOrgState.orgId = 'org-001';
+    delete process.env.REQUIRE_ORG_ISOLATION;
+  });
+
+  it('refuses to create an acceptance for a caller without an organization', async () => {
+    const res = await request(createApp())
+      .post('/api/risk-acceptances')
+      .send({ test_name: 'T1059-powershell', justification: 'Compensating control is deployed and verified.' });
+
+    expect(res.status).toBe(403);
+    // Nothing install-wide was written.
+    expect(mockAcceptRisk).not.toHaveBeenCalled();
+  });
+
+  it('refuses to list acceptances for a caller without an organization', async () => {
+    const res = await request(createApp()).get('/api/risk-acceptances');
+
+    expect(res.status).toBe(403);
+    expect(mockListAcceptances).not.toHaveBeenCalled();
+  });
+
+  it('still serves a caller who has an organization', async () => {
+    callerOrgState.orgId = 'org-001';
+    mockListAcceptances.mockResolvedValue({ data: [], total: 0 });
+
+    const res = await request(createApp()).get('/api/risk-acceptances');
+
+    expect(res.status).toBe(200);
   });
 });

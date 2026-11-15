@@ -1,6 +1,10 @@
 import { Router } from 'express';
 import { clerkClient } from '@clerk/express';
-import { requireClerkAuth, requirePermission, getUserId, getUserOrgId } from '../middleware/clerk.middleware.js';
+import { requireClerkAuth, requirePermission, getUserId } from '../middleware/clerk.middleware.js';
+// callerOrg, not the raw org claim: with REQUIRE_ORG_ISOLATION=true a caller
+// without an organization is refused (403) instead of reading and writing
+// install-wide risk acceptances that apply to every organization's score.
+import { callerOrg } from '../middleware/orgScope.js';
 import { asyncHandler, AppError } from '../middleware/error.middleware.js';
 import { validate } from '../middleware/validation.js';
 import { SettingsService } from '../services/analytics/settings.js';
@@ -53,7 +57,7 @@ router.post('/', requirePermission('analytics:risk:write'), validate(AcceptRiskS
   const resolvedScope: 'host' | 'global' = scope ?? (hostname ? 'host' : 'global');
   const resolvedHostname = resolvedScope === 'host' ? (hostname || undefined) : undefined;
 
-  const orgId = getUserOrgId(req.auth);
+  const orgId = callerOrg(req);
 
   const svc = await getRiskService();
   const acceptance = await svc.acceptRisk({
@@ -84,7 +88,7 @@ router.post('/:id/revoke', requirePermission('analytics:risk:write'), validate(R
     || user.emailAddresses[0]?.emailAddress
     || userId;
 
-  const orgId = getUserOrgId(req.auth);
+  const orgId = callerOrg(req);
 
   const svc = await getRiskService();
   const acceptance = await svc.revokeRisk(id, {
@@ -99,7 +103,7 @@ router.post('/:id/revoke', requirePermission('analytics:risk:write'), validate(R
 // GET /api/risk-acceptances — List acceptances (org-scoped)
 router.get('/', requirePermission('analytics:risk:read'), asyncHandler(async (req, res) => {
   const { status, test_name, page, pageSize } = req.query;
-  const orgId = getUserOrgId(req.auth);
+  const orgId = callerOrg(req);
 
   const svc = await getRiskService();
   const result = await svc.listAcceptances({
@@ -115,7 +119,7 @@ router.get('/', requirePermission('analytics:risk:read'), asyncHandler(async (re
 
 // GET /api/risk-acceptances/:id — Get single acceptance (org-scoped)
 router.get('/:id', requirePermission('analytics:risk:read'), asyncHandler(async (req, res) => {
-  const orgId = getUserOrgId(req.auth);
+  const orgId = callerOrg(req);
 
   const svc = await getRiskService();
   const acceptance = await svc.getAcceptanceById(req.params.id, orgId);
@@ -130,7 +134,7 @@ router.get('/:id', requirePermission('analytics:risk:read'), asyncHandler(async 
 // POST /api/risk-acceptances/lookup — Batch lookup for UI badges (org-scoped)
 router.post('/lookup', requirePermission('analytics:risk:read'), validate(LookupRiskSchema), asyncHandler(async (req, res) => {
   const { test_names } = req.body;
-  const orgId = getUserOrgId(req.auth);
+  const orgId = callerOrg(req);
 
   const svc = await getRiskService();
   const result = await svc.getAcceptancesForControls(test_names, orgId);

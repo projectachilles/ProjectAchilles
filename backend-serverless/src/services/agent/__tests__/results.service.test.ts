@@ -98,7 +98,7 @@ function makeResult(overrides: Partial<TaskResult> = {}): TaskResult {
 function makeBundle(overrides: Partial<BundleResults> = {}): BundleResults {
   return {
     schema_version: '1.0',
-    bundle_id: 'a3c923ae-1a46-4b1f-b696-be6c2731a628',
+    bundle_id: 'a1b2c3d4-e5f6-7890-abcd-ef1234567890',
     bundle_name: 'Cyber-Hygiene Bundle',
     bundle_category: 'cyber-hygiene',
     bundle_subcategory: 'baseline',
@@ -413,16 +413,31 @@ describe('results.service', () => {
       expect(ops).toHaveLength(4);
     });
 
+    it('ignores per-control results filed under another test, and records the run as one document', async () => {
+      const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+      const result = makeResult({
+        bundle_results: makeBundle({ bundle_id: 'ffffffff-0000-4000-8000-000000000000' }),
+      });
+      await ingestResult(makeTask(), result);
+
+      expect(mockEsBulk).not.toHaveBeenCalled();
+      expect(mockEsIndex).toHaveBeenCalledTimes(1);
+      const doc = mockEsIndex.mock.calls[0][0].document;
+      expect(doc.f0rtika.test_uuid).toBe('a1b2c3d4-e5f6-7890-abcd-ef1234567890');
+      expect(warn).toHaveBeenCalledWith(expect.stringContaining('does not match the dispatched test'));
+      warn.mockRestore();
+    });
+
     it('sets per-control f0rtika fields correctly', async () => {
       const result = makeResult({ bundle_results: makeBundle() });
       await ingestResult(makeTask(), result);
 
       const ops = mockEsBulk.mock.calls[0][0].operations;
       const doc1 = ops[1]; // first control document
-      expect(doc1.f0rtika.test_uuid).toBe('a3c923ae-1a46-4b1f-b696-be6c2731a628::CH-DEF-001');
+      expect(doc1.f0rtika.test_uuid).toBe('a1b2c3d4-e5f6-7890-abcd-ef1234567890::CH-DEF-001');
       expect(doc1.f0rtika.test_name).toBe('Real-time Protection');
       expect(doc1.f0rtika.is_protected).toBe(true);
-      expect(doc1.f0rtika.bundle_id).toBe('a3c923ae-1a46-4b1f-b696-be6c2731a628');
+      expect(doc1.f0rtika.bundle_id).toBe('a1b2c3d4-e5f6-7890-abcd-ef1234567890');
       expect(doc1.f0rtika.is_bundle_control).toBe(true);
       expect(doc1.f0rtika.control_id).toBe('CH-DEF-001');
       expect(doc1.f0rtika.control_validator).toBe('Microsoft Defender');
@@ -533,8 +548,8 @@ describe('results.service', () => {
       await ingestResult(makeTask(), result);
 
       const ops = mockEsBulk.mock.calls[0][0].operations;
-      expect(ops[1].f0rtika.test_uuid).toBe('a3c923ae-1a46-4b1f-b696-be6c2731a628::CH-DEF-001');
-      expect(ops[3].f0rtika.test_uuid).toBe('a3c923ae-1a46-4b1f-b696-be6c2731a628::CH-DEF-002');
+      expect(ops[1].f0rtika.test_uuid).toBe('a1b2c3d4-e5f6-7890-abcd-ef1234567890::CH-DEF-001');
+      expect(ops[3].f0rtika.test_uuid).toBe('a1b2c3d4-e5f6-7890-abcd-ef1234567890::CH-DEF-002');
     });
 
     it('throws when bulk reports per-item errors (so the route marks for retry)', async () => {

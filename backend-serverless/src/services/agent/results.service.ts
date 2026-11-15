@@ -143,8 +143,18 @@ export async function ingestResult(task: Task, result: TaskResult): Promise<void
 
   // Bundle results: fan out to one ES document per control
   if (result.bundle_results?.controls?.length) {
-    await ingestBundleControls(client, index, task, result);
-    return;
+    // The per-control documents are filed under the bundle's id. That id must
+    // be the test this task dispatched, not whatever the endpoint reports:
+    // otherwise an agent could file controls under another test's name. The
+    // agent makes the same check before sending, so a mismatch here is not a
+    // normal case; the run is still recorded, as a single document.
+    if (result.bundle_results.bundle_id === task.payload.test_uuid) {
+      await ingestBundleControls(client, index, task, result);
+      return;
+    }
+    console.warn(
+      `[results] task ${task.id}: bundle_results.bundle_id does not match the dispatched test; ignoring per-control results`,
+    );
   }
 
   // Standard single-document path (unchanged)
