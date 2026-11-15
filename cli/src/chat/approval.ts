@@ -6,7 +6,7 @@
  * added to the model conversation.
  */
 
-import { randomUUID } from 'node:crypto';
+import { randomInt, randomUUID } from 'node:crypto';
 
 export type ApprovalTier = 'write' | 'destructive';
 
@@ -34,6 +34,23 @@ function freezeRecursively<T>(value: T): T {
   return value;
 }
 
+// No 0/O or 1/I/L: the code is read off the screen and typed back.
+const CODE_ALPHABET = 'ABCDEFGHJKMNPQRSTUVWXYZ23456789';
+const CODE_LENGTH = 4;
+
+/**
+ * A short code that is new for every proposal. Its job is to make approval a
+ * deliberate act tied to the action on screen: a habitual "yes", or text typed
+ * ahead while the model was still answering, approves nothing. It is not a
+ * secret (the terminal is the trust boundary, and the model can't type into
+ * it), so it stays short enough to type for every tag or note change.
+ */
+function confirmationCode(): string {
+  let code = '';
+  for (let i = 0; i < CODE_LENGTH; i++) code += CODE_ALPHABET[randomInt(CODE_ALPHABET.length)];
+  return code;
+}
+
 export function createPendingAction(
   toolName: string,
   tier: ApprovalTier,
@@ -48,12 +65,12 @@ export function createPendingAction(
     tier,
     description,
     parameters: Object.freeze({ ...frozenParameters }),
-    confirmationText: `confirm ${toolName} ${id}`,
+    confirmationText: `confirm ${confirmationCode()}`,
   });
 }
 
 export function matchesConfirmation(action: PendingAction, input: string): boolean {
-  return input.trim() === action.confirmationText;
+  return input.trim().toLowerCase() === action.confirmationText.toLowerCase();
 }
 
 /** Serialize model-emitted tool calls so the terminal presents one action at a time. */

@@ -17,6 +17,15 @@ describe('chat action approval', () => {
     expect(Object.isFrozen(parameters.metadata)).toBe(true);
   });
 
+  it('asks for a short code that is easy to type, in either case', () => {
+    const action = createPendingAction('add_agent_tag', 'write', 'Add an agent tag', { id: 'agent-1' });
+
+    expect(action.confirmationText).toMatch(/^confirm [A-HJKMNP-Z2-9]{4}$/);
+    expect(matchesConfirmation(action, `  ${action.confirmationText.toLowerCase()} `)).toBe(true);
+    expect(matchesConfirmation(action, 'confirm')).toBe(false);
+    expect(matchesConfirmation(action, '')).toBe(false);
+  });
+
   it('does not invoke the API executor when approval is denied', async () => {
     const action = createPendingAction('delete_user', 'destructive', 'Delete a user', { userId: 'user-1' });
     const execute = vi.fn().mockResolvedValue({ deleted: true });

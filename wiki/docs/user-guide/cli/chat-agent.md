@@ -58,7 +58,7 @@ When running in a real terminal with TTY support, you get a full-screen interfac
 - **Streaming spinner** — animated dots while waiting for the first AI token
 - **Bordered input area** — text input with placeholder text, green border (gray when streaming)
 - **Dynamic status bar** — shows the active server URL and configured AI model (reads from config, not hardcoded)
-- **Action approval panel** — shows the proposed operation and exact parameters, then requires its unique `confirm <tool> <id>` text before execution
+- **Action approval panel** — shows the proposed operation and exact parameters, then requires the one-time code shown for it (for example `confirm K7RD`) before execution
 - **Keyboard hints** — `/clear reset` and `ctrl+c quit` displayed below the input
 
 **Chat commands:**
