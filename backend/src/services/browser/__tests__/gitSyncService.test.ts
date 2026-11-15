@@ -36,6 +36,7 @@ vi.mock('simple-git', () => ({
 }));
 
 const { GitSyncService } = await import('../gitSyncService.js');
+const { simpleGit } = await import('simple-git');
 
 // ── Helpers ──────────────────────────────────────────────────────────
 
@@ -139,10 +140,11 @@ describe('GitSyncService', () => {
       const token = 'github_pat_private/value+with=reserved';
       const svc = createService(token);
       mockExistsSync.mockReturnValue(false);
+      mockGitInstance.clone.mockRejectedValueOnce(new Error('could not read Username'));
 
       await svc.clone();
 
-      const clonedUrl = mockGitInstance.clone.mock.calls[0][0];
+      const clonedUrl = mockGitInstance.clone.mock.calls[1][0];
       expect(clonedUrl).toBe(REPO_URL);
       expect(clonedUrl).not.toContain(token);
 
@@ -184,9 +186,12 @@ describe('GitSyncService', () => {
       const url = new URL('https://github.com/repo');
       url.username = token;
       const basicCredential = Buffer.from(`x-access-token:${token}`, 'utf8').toString('base64');
-      mockGitInstance.clone.mockRejectedValueOnce(new Error(
-        `Authentication failed for ${url.toString()} (${encodeURIComponent(token)}; Authorization: Basic ${basicCredential})`,
-      ));
+      // The anonymous attempt fails first; the token attempt's error is the one reported.
+      mockGitInstance.clone
+        .mockRejectedValueOnce(new Error('could not read Username'))
+        .mockRejectedValueOnce(new Error(
+          `Authentication failed for ${url.toString()} (${encodeURIComponent(token)}; Authorization: Basic ${basicCredential})`,
+        ));
       const consoleError = vi.spyOn(console, 'error').mockImplementation(() => undefined);
       const svc = createService(token);
 
@@ -225,6 +230,7 @@ describe('GitSyncService', () => {
       });
       const token = 'github_pat_pullToken123';
       const svc = createService(token);
+      mockGitInstance.fetch.mockRejectedValueOnce(new Error('could not read Username'));
 
       await svc.pull();
 
@@ -255,9 +261,9 @@ describe('GitSyncService', () => {
       mockExistsSync.mockImplementation((p: string) =>
         p === `${LOCAL_PATH}/.git`,
       );
-      mockGitInstance.fetch.mockRejectedValueOnce(
-        new Error('Failed to fetch https://ghp_secretToken999@github.com/repo'),
-      );
+      mockGitInstance.fetch
+        .mockRejectedValueOnce(new Error('could not read Username'))
+        .mockRejectedValueOnce(new Error('Failed to fetch https://ghp_secretToken999@github.com/repo'));
 
       const svc = createService('ghp_secretToken999');
       const consoleError = vi.spyOn(console, 'error').mockImplementation(() => undefined);
@@ -270,6 +276,111 @@ describe('GitSyncService', () => {
         expect(status).toMatchObject({ status: 'error', error: 'Pull failed' });
         expect(logged).toContain('[TOKEN]');
         expect(logged).not.toContain('ghp_secretToken999');
+      } finally {
+        consoleError.mockRestore();
+      }
+    });
+  });
+
+  // ── Token is a fallback, never sent first ──────────────────
+  //
+  // Git itself only sends credentials after the server asks for them. An
+  // always-on auth header breaks a PUBLIC repository when the configured
+  // token is expired or revoked (GitHub answers 401), so the service tries
+  // without the token first and uses it only when that attempt fails.
+
+  describe('token fallback', () => {
+    const TOKEN = 'github_pat_fallbackToken';
+    let events: string[];
+
+    beforeEach(() => {
+      events = [];
+      vi.mocked(simpleGit).mockImplementation(((options: { unsafe?: unknown }) => {
+        events.push(options?.unsafe ? 'git:token' : 'git:anonymous');
+        return mockGitInstance;
+      }) as never);
+      for (const op of ['clone', 'fetch', 'reset', 'raw'] as const) {
+        mockGitInstance[op].mockImplementation(async () => {
+          events.push(op);
+          return '';
+        });
+      }
+    });
+
+    const repoOnDisk = () =>
+      mockExistsSync.mockImplementation((p: string) => p === `${LOCAL_PATH}/.git`);
+
+    it('clone never uses the token when the anonymous clone works', async () => {
+      await createService(TOKEN).clone();
+
+      expect(events).not.toContain('git:token');
+      expect(mockGitInstance.clone).toHaveBeenCalledTimes(1);
+    });
+
+    it('clone retries with the token when the anonymous clone fails', async () => {
+      mockGitInstance.clone.mockImplementationOnce(async () => {
+        events.push('clone');
+        throw new Error('could not read Username');
+      });
+      const svc = createService(TOKEN);
+
+      await svc.clone();
+
+      // The sparse-checkout that follows downloads files, so it must run
+      // with the same credentials as the clone that worked.
+      expect(events.slice(0, 6)).toEqual([
+        'git:anonymous', 'clone', 'git:token', 'clone', 'git:token', 'raw',
+      ]);
+      expect(svc.getStatus().status).not.toBe('error');
+    });
+
+    it('pull never uses the token when the anonymous fetch works', async () => {
+      repoOnDisk();
+
+      await createService(TOKEN).pull();
+
+      expect(events).not.toContain('git:token');
+      expect(mockGitInstance.fetch).toHaveBeenCalledTimes(1);
+    });
+
+    it('pull retries fetch and reset with the token when the anonymous attempt fails', async () => {
+      repoOnDisk();
+      mockGitInstance.fetch.mockImplementationOnce(async () => {
+        events.push('fetch');
+        throw new Error('could not read Username');
+      });
+      const svc = createService(TOKEN);
+
+      await svc.pull();
+
+      const fromFetch = events.slice(events.indexOf('fetch'));
+      expect(fromFetch.slice(0, 4)).toEqual(['fetch', 'git:token', 'fetch', 'reset']);
+      expect(svc.getStatus().status).toBe('synced');
+    });
+
+    it('pull retries with the token when the reset cannot download files anonymously', async () => {
+      repoOnDisk();
+      mockGitInstance.reset.mockImplementationOnce(async () => {
+        events.push('reset');
+        throw new Error('could not read Username');
+      });
+
+      await createService(TOKEN).pull();
+
+      const fromReset = events.slice(events.indexOf('reset'));
+      expect(fromReset.slice(0, 4)).toEqual(['reset', 'git:token', 'fetch', 'reset']);
+    });
+
+    it('does not retry when no token is configured', async () => {
+      repoOnDisk();
+      mockGitInstance.fetch.mockImplementationOnce(async () => {
+        throw new Error('network down');
+      });
+      const consoleError = vi.spyOn(console, 'error').mockImplementation(() => undefined);
+
+      try {
+        await expect(createService().pull()).rejects.toThrow('Pull failed');
+        expect(mockGitInstance.fetch).toHaveBeenCalledTimes(1);
       } finally {
         consoleError.mockRestore();
       }
