@@ -12,25 +12,25 @@
   },
   "dependencies": {
     "gray-matter": "^4.0.3",
-    "next": "^16.4.2",
+    "next": "^16.4.6",
     "next-mdx-remote": "^6.0.0",
     "next-themes": "^0.4.6",
     "react": "^19.3.1",
     "react-dom": "^19.3.1",
-    "rehype-pretty-code": "^0.14.5",
+    "rehype-pretty-code": "^0.14.6",
     "remark-gfm": "^4.0.1",
-    "shiki": "^4.5.0",
+    "shiki": "^4.6.0",
     "zod": "^4.6.7"
   },
   "devDependencies": {
-    "@tailwindcss/postcss": "^4.3.3",
+    "@tailwindcss/postcss": "^4.3.5",
     "@tailwindcss/typography": "^0.5.16",
     "@types/node": "^22.20.5",
     "@types/react": "^19.3.0",
     "@types/react-dom": "^19.3.0",
     "tailwindcss": "^4.1.0",
     "typescript": "^5.8.3",
-    "vitest": "^5.0.5"
+    "vitest": "^5.1.0"
   },
   "overrides": {
     "postcss-selector-parser@<7.1.6": "7.1.6"
