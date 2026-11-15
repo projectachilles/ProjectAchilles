@@ -21,7 +21,21 @@ export interface BuildInfo {
   commitShort: string | null;
   /** Branch the deploy was built from, when known. */
   branch: string | null;
+  /**
+   * The release tag this checkout is exactly on (`v<version>`), when the
+   * deploy told us (GIT_TAG). Null otherwise, including when GIT_TAG names
+   * another version: the tag is evidence only for the version that is running.
+   */
+  tag: string | null;
 }
+
+/** How far this build's commit is from its release tag (GitHub compare). */
+export interface TagCompare {
+  aheadBy: number;
+  behindBy: number;
+}
+
+export type ReleaseStatus = 'official' | 'ahead' | 'unknown';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
@@ -76,6 +90,35 @@ function readVersion(): string {
   }
 }
 
+/**
+ * GIT_TAG is a run-time value, not a build arg: scripts/deploy-server.sh sets
+ * it from the checkout on every run, because it reuses images built earlier
+ * (the appliance's included), and a value baked into an image would be stale.
+ */
+function readTag(version: string): string | null {
+  const tag = process.env.GIT_TAG?.trim();
+  return tag && version !== 'unknown' && tag === `v${version}` ? tag : null;
+}
+
+/**
+ * Is this build the official release its version names?
+ *
+ * package.json keeps the same version on every commit until the next release
+ * PR, so the version alone proves nothing. "official" needs evidence: the
+ * deploy's tag, or GitHub saying the commit is the tag. A commit that is not a
+ * descendant of the tag (a fork, a local branch) gets no claim.
+ */
+export function resolveReleaseStatus(
+  build: BuildInfo,
+  compare: TagCompare | null,
+): { status: ReleaseStatus; aheadBy: number | null } {
+  if (build.version === 'unknown') return { status: 'unknown', aheadBy: null };
+  if (build.tag) return { status: 'official', aheadBy: 0 };
+  if (!compare || compare.behindBy > 0) return { status: 'unknown', aheadBy: null };
+  if (compare.aheadBy === 0) return { status: 'official', aheadBy: 0 };
+  return { status: 'ahead', aheadBy: compare.aheadBy };
+}
+
 let cached: BuildInfo | null = null;
 
 /** Build identity for this process. Computed once; nothing here changes at runtime. */
@@ -83,11 +126,13 @@ export function getBuildInfo(): BuildInfo {
   if (cached) return cached;
 
   const commit = readCommit();
+  const version = readVersion();
   cached = {
-    version: readVersion(),
+    version,
     commit,
     commitShort: commit ? commit.slice(0, 7) : null,
     branch: readBranch(),
+    tag: readTag(version),
   };
   return cached;
 }

@@ -28,6 +28,8 @@ export interface Capabilities {
   stageCoverage: boolean;
   /** Per-agent last run of a test (/api/agent/admin/tasks/test-recency; backend-only) */
   testRunRecency: boolean;
+  /** About dialog (/api/about: running release, notes, official agent version; backend-only) */
+  about: boolean;
   platform: string;
   /** false until /api/capabilities has resolved (or failed); values are defaults before then */
   loaded?: boolean;
@@ -54,6 +56,7 @@ const DEFAULT_CAPABILITIES: Capabilities = {
   testFleet: false,
   stageCoverage: false,
   testRunRecency: false,
+  about: false,
   platform: 'docker',
 };
 

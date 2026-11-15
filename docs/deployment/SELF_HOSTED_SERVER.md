@@ -156,6 +156,11 @@ extra CA configuration is needed on the agent.
 
 ## Day-2 operations
 
+The console's **about** button shows which release the server runs and whether a
+newer one exists. For that, the backend asks `api.github.com` once a day for the
+newest releases; it sends nothing about the install, and `RELEASE_CHECK=off` in
+`backend/.env` turns it off.
+
 ```bash
 # From the repo dir on the server:
 docker compose -f docker-compose.server.yml ps          # status
