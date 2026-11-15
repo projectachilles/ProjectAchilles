@@ -133,6 +133,16 @@ Some tests use a multi-binary architecture with a `build_all.sh` orchestrator sc
 Multi-binary bundles that include Windows validators need an active signing certificate. Without one, `build_all.sh` will produce unsigned binaries, which may be quarantined by endpoint protection during testing.
 :::
 
+### Build Environment
+
+Build subprocesses (`go build`, `go mod`, `build_all.sh`) do not inherit the backend's environment. They get an allowlist (`services/tests/buildEnv.ts`): `PATH`, `HOME`, temp and locale variables, the Go toolchain variables (`GOCACHE`, `GOPROXY`, `GOFLAGS`, ...), proxy and CA variables for module downloads, `JAVA_HOME`, and `DOTNET_*` / `NUGET_*`. `GOOS`, `GOARCH`, `CGO_ENABLED` and the signing variables above are added per build.
+
+So a build script never sees the Clerk secret key, `ENCRYPTION_SECRET`, Elasticsearch credentials or `GITHUB_TOKEN`. If a build needs another variable, list its name in `BUILD_ENV_PASSTHROUGH` (comma-separated).
+
+:::warning[This is not a sandbox]
+A build script still runs as the backend user and can read the files that user can read, and it receives the signing certificate on purpose. Only sync test libraries you trust: their code runs on your endpoints with full privileges anyway.
+:::
+
 ### Code Signing
 
 | Platform | Tool | Method | Certificate Required |

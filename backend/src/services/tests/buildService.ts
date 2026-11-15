@@ -9,6 +9,7 @@ import type { BuildArtifact, BuildInfo, BuildJob, BuildMetadata, EmbedDependency
 import type { TestsSettingsService } from './settings.js';
 import { BuildJobs } from './buildJobs.js';
 import { describeCommandFailure } from '../shared/commandFailure.js';
+import { buildSubprocessEnv } from './buildEnv.js';
 
 const execFileAsync = promisify(execFile);
 
@@ -660,8 +661,10 @@ const ARTIFACT_DIR = \`${artifactDir}\`
     const outputPath = path.join(buildDir, filename);
 
     // 5. Build environment
+    // An allowlist, never the backend's own environment: build_all.sh and the
+    // Go toolchain must not inherit the backend's secrets (see buildEnv.ts).
     const env: Record<string, string | undefined> = {
-      ...process.env,
+      ...buildSubprocessEnv(),
       GOOS: platform.os,
       GOARCH: platform.arch,
       CGO_ENABLED: '0',

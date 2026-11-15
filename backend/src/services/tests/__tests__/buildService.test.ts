@@ -1037,6 +1037,47 @@ var data string
       expect(mockCopyFileSync).toHaveBeenCalled();
     });
 
+    it('does not hand the backend secrets in its environment to build_all.sh', async () => {
+      const secrets = {
+        CLERK_SECRET_KEY: 'sk_test_placeholder',
+        ENCRYPTION_SECRET: 'placeholder-encryption-secret',
+        ELASTICSEARCH_API_KEY: 'placeholder-es-key',
+        GITHUB_TOKEN: 'placeholder-token',
+      };
+      const saved: Record<string, string | undefined> = {};
+      for (const [name, value] of Object.entries(secrets)) {
+        saved[name] = process.env[name];
+        process.env[name] = value;
+      }
+      try {
+        mockExistsSync.mockImplementation((p: string) => {
+          if (p === testDir) return true;
+          if (p === `${testDir}/build_all.sh`) return true;
+          if (p === `/build/${VALID_UUID}/${VALID_UUID}.exe`) return true;
+          return false;
+        });
+        mockStatSync.mockImplementation((p: string) => {
+          if (p === testDir) return { isDirectory: () => true };
+          return { size: 4096 };
+        });
+        mockReadFileSync.mockReturnValue('SCRIPT_DIR="$(dirname "${BASH_SOURCE[0]}")"');
+
+        await service.buildAndSign(VALID_UUID);
+
+        const bashCall = mockExecFileAsync.mock.calls.find(c => c[0] === 'bash');
+        const { env } = bashCall![2] as { env: Record<string, string | undefined> };
+        for (const name of Object.keys(secrets)) expect(env).not.toHaveProperty(name);
+        // What a build does need is still there.
+        expect(env.PATH).toBe(process.env.PATH);
+        expect(env.GOOS).toBe('windows');
+      } finally {
+        for (const [name, value] of Object.entries(saved)) {
+          if (value === undefined) delete process.env[name];
+          else process.env[name] = value;
+        }
+      }
+    });
+
     it('surfaces the end of stdout when build_all.sh fails with empty stderr', async () => {
       mockExistsSync.mockImplementation((p: string) => p === testDir || p === `${testDir}/build_all.sh`);
       mockReaddirSync.mockReturnValue([]);
