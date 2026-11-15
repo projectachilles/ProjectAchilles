@@ -12,6 +12,7 @@ import fs from 'fs';
 import os from 'os';
 import { fileURLToPath } from 'url';
 import { getBuildInfo } from './lib/buildInfo.js';
+import { isReleaseCheckEnabled, startReleaseCheck } from './services/about/releaseCheck.js';
 
 import { clerkAuth } from './middleware/clerk.middleware.js';
 import { hydrateClaimsFromClerk } from './middleware/clerkClaimsFallback.middleware.js';
@@ -417,6 +418,14 @@ async function startServer() {
   const httpServer = http.createServer(app);
 
   httpServer.listen(PORT, () => {
+    // Daily look at GitHub for newer releases (About dialog). Background only:
+    // no request waits on it, and RELEASE_CHECK=off disables it.
+    startReleaseCheck();
+    console.log(
+      isReleaseCheckEnabled()
+        ? 'Release check: on (daily, api.github.com)'
+        : 'Release check: off (RELEASE_CHECK)',
+    );
     console.log('');
     console.log('╔═══════════════════════════════════════════════════════════╗');
     console.log('║   ProjectAchilles Backend Server                          ║');
