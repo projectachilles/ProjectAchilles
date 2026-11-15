@@ -6,7 +6,7 @@ description: "Dual-mode AI chat interface with tool calling, markdown rendering,
 
 # AI Chat Agent
 
-The chat agent (`achilles chat`) provides a natural language interface to the entire ProjectAchilles platform. Instead of remembering command syntax, you can describe what you want in plain English and the AI agent executes the appropriate operations.
+The chat agent (`achilles chat`) provides a natural language interface to the ProjectAchilles platform. Read operations run automatically. In an interactive terminal, the agent can propose a state-changing operation, but the CLI displays its exact parameters and calls the API only after you type the unique confirmation shown for that action.
 
 ```bash
 achilles chat
@@ -28,16 +28,19 @@ graph TD
 
     G --> H[AI SDK streamText]
     H --> I[System Prompt]
-    H --> J[Tool Registry - 60 tools]
+    H --> J[Per-session Tool Registry - up to 66 tools]
     H --> K[Provider Factory]
 
     K --> L[Anthropic]
     K --> M[OpenAI]
     K --> N[Ollama / Local]
 
-    J --> O[Read Tools - 36]
-    J --> P[Write Tools - 13]
-    J --> Q[Destructive Tools - 11]
+    J --> O[Read Tools - 42]
+    J --> P[Write Proposals - 13]
+    J --> Q[Sensitive Proposals - 11]
+    P --> R[Trusted Terminal Approval]
+    Q --> R
+    R --> S[API Executor]
 ```
 
 ## Two Interface Modes
@@ -55,6 +58,7 @@ When running in a real terminal with TTY support, you get a full-screen interfac
 - **Streaming spinner** — animated dots while waiting for the first AI token
 - **Bordered input area** — text input with placeholder text, green border (gray when streaming)
 - **Dynamic status bar** — shows the active server URL and configured AI model (reads from config, not hardcoded)
+- **Action approval panel** — shows the proposed operation and exact parameters, then requires its unique `confirm <tool> <id>` text before execution
 - **Keyboard hints** — `/clear reset` and `ctrl+c quit` displayed below the input
 
 **Chat commands:**
@@ -69,6 +73,8 @@ When running in a real terminal with TTY support, you get a full-screen interfac
 ### Piped Mode (Readline)
 
 When stdin is not a TTY (piped input, CI environments), the chat falls back to a readline REPL with full markdown-to-ANSI rendering via `marked-terminal`:
+
+Piped mode exposes read tools only. State-changing proposals are unavailable because piped input is not a trusted approval channel.
 
 ```bash
 # Piped mode — send a single query
@@ -144,9 +150,9 @@ OPENAI_API_KEY=sk-...         achilles chat
 
 ## Available Tools
 
-The AI agent has access to **60 tools** organized into three approval tiers:
+Interactive chat has access to **66 tools** organized into three approval tiers. Non-interactive chat receives only the 42 read tools.
 
-### Read Tools (36 — No Confirmation Required)
+### Read Tools (42 — No Confirmation Required)
 
 These tools only query data and are executed immediately:
 
@@ -195,9 +201,9 @@ These tools only query data and are executed immediately:
 | `list_users` | Team members |
 | `list_invitations` | Pending invitations |
 
-### Write Tools (13 — Brief Confirmation)
+### Write Tools (13 — Exact Terminal Confirmation)
 
-These tools modify data. The agent will describe the action before executing:
+These tools modify data. The terminal shows the structured proposal and exact parameters, and any input other than the displayed one-time confirmation cancels it:
 
 | Tool | Description |
 |------|-------------|
@@ -214,7 +220,7 @@ These tools modify data. The agent will describe the action before executing:
 | `accept_risk` | Create a risk acceptance |
 | `invite_user` | Invite a team member |
 
-### Destructive Tools (11 — Explicit Confirmation)
+### Destructive Tools (11 — Exact Terminal Confirmation)
 
 These tools perform irreversible operations:
 

@@ -1,24 +1,31 @@
 /**
  * AI chat agent setup using AI SDK v6 ToolLoopAgent.
  *
- * Configures the agent with all ProjectAchilles tools and the domain-specific
- * system prompt. Supports streaming for real-time terminal output.
+ * Configures the agent with ProjectAchilles tools and the domain-specific
+ * system prompt. State-changing tools are available only when the interactive
+ * terminal supplies an out-of-band approval callback.
  */
 
 import { streamText, stepCountIs } from 'ai';
-import { allTools } from './tools.js';
+import { createChatTools } from './tools.js';
 import { buildSystemPrompt } from './system-prompt.js';
 import { getConfiguredModel } from './provider.js';
 import { getServerUrl } from '../config/store.js';
 import { getUserInfo } from '../auth/token-store.js';
+import type { RequestApproval } from './approval.js';
 
 export interface ChatMessage {
   role: 'user' | 'assistant' | 'system';
   content: string;
 }
 
+export interface ChatOptions {
+  requestApproval?: RequestApproval;
+}
+
 export async function* streamChatResponse(
   messages: ChatMessage[],
+  options: ChatOptions = {},
 ): AsyncGenerator<string, void, unknown> {
   const user = getUserInfo();
 
@@ -29,15 +36,17 @@ export async function* streamChatResponse(
     role: user?.role,
     displayName: user?.displayName,
     email: user?.email,
+    canApproveActions: Boolean(options.requestApproval),
   });
 
   const model = getConfiguredModel();
+  const tools = createChatTools(options.requestApproval);
 
   const result = streamText({
     model,
     system: systemPrompt,
     messages: messages.map(m => ({ role: m.role, content: m.content })),
-    tools: allTools,
+    tools,
     stopWhen: stepCountIs(10),
   });
 
@@ -46,9 +55,12 @@ export async function* streamChatResponse(
   }
 }
 
-export async function getChatResponse(messages: ChatMessage[]): Promise<string> {
+export async function getChatResponse(
+  messages: ChatMessage[],
+  options: ChatOptions = {},
+): Promise<string> {
   let full = '';
-  for await (const chunk of streamChatResponse(messages)) {
+  for await (const chunk of streamChatResponse(messages, options)) {
     full += chunk;
   }
   return full;
