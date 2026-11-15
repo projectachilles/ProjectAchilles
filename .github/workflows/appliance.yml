@@ -157,6 +157,8 @@ jobs:
           path: dist
 
       - name: Resolve the version and zip name
+        env:
+          TAG_NAME: ${{ github.ref_name }}
         run: |
           shopt -s nullglob
           zips=(dist/ProjectAchilles-*-hyperv.zip)
@@ -172,6 +174,14 @@ jobs:
             v[0-9]*) ;;
             *) echo "::error::cannot derive a v-prefixed version from $zip_name"; exit 1 ;;
           esac
+          # This job only runs on a tag push, and it overwrites that version's
+          # zip on R2 and the checksum on its release. The version must be the
+          # tag that started the run, not whatever the build named its zip:
+          # otherwise a run for one tag could replace another release's files.
+          if [ "$ver" != "$TAG_NAME" ]; then
+            echo "::error::the zip is for $ver but this run was started by tag $TAG_NAME; refusing to publish"
+            exit 1
+          fi
           {
             echo "ZIP_NAME=$zip_name"
             echo "VER=$ver"

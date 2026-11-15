@@ -324,20 +324,34 @@ func Execute(ctx context.Context, client *httpclient.Client, task Task, cfg *con
 	// Preferred: task-local F0_BUNDLE_DIR (set in Step 7).
 	// Fallback: legacy LOG_DIR paths (C:\F0 on Windows, /tmp/F0 on Linux/macOS) —
 	// existing test binaries may not yet honour F0_BUNDLE_DIR.
-	bundleCandidates := []string{filepath.Join(bundleDir, "bundle_results.json")}
+	// The legacy folder is shared (and /tmp/F0 is under world-writable /tmp),
+	// so it is read only when the agent trusts it; see readBundleResults.
+	legacyDir := "/tmp/F0"
 	if runtime.GOOS == "windows" {
-		bundleCandidates = append(bundleCandidates, `C:\F0\bundle_results.json`)
-	} else {
-		bundleCandidates = append(bundleCandidates, "/tmp/F0/bundle_results.json")
+		legacyDir = `C:\F0`
 	}
-	for _, bundlePath := range bundleCandidates {
-		data, readErr := os.ReadFile(bundlePath)
+	bundleCandidates := []struct {
+		dir    string
+		shared bool
+	}{
+		{bundleDir, false},
+		{legacyDir, true},
+	}
+	for _, candidate := range bundleCandidates {
+		bundlePath := filepath.Join(candidate.dir, bundleResultsName)
+		data, found, readErr := readBundleResults(candidate.dir, candidate.shared)
+		if !found {
+			continue // no file at this candidate — try the next one
+		}
 		if readErr != nil {
-			continue // file not present at this candidate path — try the next one
+			// Present but refused (a symlink, not a regular file, too large).
+			// Keep it for the operator; the run is reported as a single result.
+			log.Printf("WARNING: not reading %s: %v (falling back to single-doc result)", bundlePath, readErr)
+			break
 		}
 		var bundle BundleResults
 		if err := json.Unmarshal(data, &bundle); err != nil {
-			// Don't os.Remove — preserve forensic evidence for debugging.
+			// Don't remove — preserve forensic evidence for debugging.
 			// Result is still reported via single-doc fallback (BundleResults stays nil).
 			log.Printf("WARNING: failed to parse %s as bundle_results: %v (falling back to single-doc result)",
 				bundlePath, err)
@@ -352,7 +366,7 @@ func Execute(ctx context.Context, client *httpclient.Client, task Task, cfg *con
 			break
 		}
 		result.BundleResults = &bundle
-		os.Remove(bundlePath) // only clean up on successful processing
+		removeBundleResults(candidate.dir, candidate.shared) // only clean up on successful processing
 		break
 	}
 
