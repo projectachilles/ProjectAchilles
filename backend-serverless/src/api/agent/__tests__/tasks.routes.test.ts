@@ -74,6 +74,42 @@ function setupBlobMocks() {
   mockBlobRead.mockResolvedValue(Buffer.from('fake-binary-content'));
 }
 
+const SECRET_TASK_PAYLOAD = JSON.stringify({
+  test_uuid: 'secret-test-uuid',
+  test_name: 'Credentialed Test',
+  binary_name: 'secret-test.exe',
+  binary_sha256: 'abc123',
+  binary_size: 1024,
+  execution_timeout: 300,
+  arguments: [],
+  metadata: {
+    category: 'identity',
+    subcategory: 'identity-tenant',
+    techniques: [],
+    tactics: [],
+    threat_actor: '',
+    target: [],
+    complexity: '',
+    tags: [],
+    score: null,
+    integrations: ['azure'],
+  },
+  env_vars: {
+    AZURE_TENANT_ID: 'tenant-id',
+    AZURE_CLIENT_ID: 'client-id',
+    AZURE_CLIENT_SECRET: 'client-secret',
+  },
+});
+
+function expectAdminPayloadRedacted(payload: Record<string, unknown>) {
+  expect(payload).not.toHaveProperty('env_vars');
+  expect(payload.test_name).toBe('Credentialed Test');
+}
+
+function expectAdminTaskRedacted(task: { payload: Record<string, unknown> }) {
+  expectAdminPayloadRedacted(task.payload);
+}
+
 describe('tasks routes', () => {
   beforeEach(async () => {
     testDb = await createTestDatabase();
@@ -268,6 +304,63 @@ describe('tasks routes', () => {
         .send({ content: 123 });
 
       expect(res.status).toBe(400);
+    });
+  });
+
+  describe('admin task credential redaction', () => {
+    it('redacts env_vars from every task response while preserving agent dispatch', async () => {
+      const app = createApp();
+      await insertTestTask(testDb, { id: 'secret-detail', payload: SECRET_TASK_PAYLOAD });
+      await insertTestTask(testDb, { id: 'secret-group', batch_id: 'secret-batch', payload: SECRET_TASK_PAYLOAD });
+      await insertTestTask(testDb, { id: 'secret-cancel', payload: SECRET_TASK_PAYLOAD });
+      await insertTestTask(testDb, { id: 'secret-notes', payload: SECRET_TASK_PAYLOAD });
+      await insertTestTask(testDb, { id: 'secret-retry', status: 'failed', payload: SECRET_TASK_PAYLOAD });
+
+      const list = await request(app).get('/admin/tasks');
+      expect(list.status).toBe(200);
+      for (const task of list.body.data.tasks) expectAdminTaskRedacted(task);
+
+      const grouped = await request(app).get('/admin/tasks/grouped');
+      expect(grouped.status).toBe(200);
+      const group = grouped.body.data.groups.find((entry: { batch_id: string }) => entry.batch_id === 'secret-batch');
+      expect(group).toBeDefined();
+      expectAdminPayloadRedacted(group.payload);
+      for (const task of group.tasks) expectAdminTaskRedacted(task);
+
+      const detail = await request(app).get('/admin/tasks/secret-detail');
+      expect(detail.status).toBe(200);
+      expectAdminTaskRedacted(detail.body.data);
+
+      const cancelled = await request(app).post('/admin/tasks/secret-cancel/cancel');
+      expect(cancelled.status).toBe(200);
+      expect(cancelled.body.data.status).toBe('expired');
+      expectAdminTaskRedacted(cancelled.body.data);
+
+      const noted = await request(app)
+        .patch('/admin/tasks/secret-notes/notes')
+        .send({ content: 'Reviewed' });
+      expect(noted.status).toBe(200);
+      expect(noted.body.data.notes).toBe('Reviewed');
+      expectAdminTaskRedacted(noted.body.data);
+
+      const retried = await request(app).post('/admin/tasks/secret-retry/retry');
+      expect(retried.status).toBe(201);
+      expect(retried.body.data.status).toBe('pending');
+      expectAdminTaskRedacted(retried.body.data);
+
+      await insertTestTask(testDb, {
+        id: 'secret-agent-dispatch',
+        priority: 100,
+        payload: SECRET_TASK_PAYLOAD,
+      });
+      const dispatched = await request(app).get('/agent/tasks');
+      expect(dispatched.status).toBe(200);
+      expect(dispatched.body.data.id).toBe('secret-agent-dispatch');
+      expect(dispatched.body.data.payload.env_vars).toEqual({
+        AZURE_TENANT_ID: 'tenant-id',
+        AZURE_CLIENT_ID: 'client-id',
+        AZURE_CLIENT_SECRET: 'client-secret',
+      });
     });
   });
 

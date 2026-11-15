@@ -346,8 +346,9 @@ export function ExecResultLabel({ exec, compact }: { exec: EnrichedTestExecution
  * breaking one link breaks the chain. A run with none of those and no stage
  * that ran unprotected (every stage errored or was skipped) is Inconclusive,
  * as the Tasks page, campaigns and the Outcome breakdown read it. Cyber-hygiene
- * bundles keep per-control ratio scoring since each control is evaluated
- * independently.
+ * bundles score only assessed controls, report not-assessed coverage separately,
+ * and use color for confirmed exposure or incomplete assessment rather than a
+ * fixed ratio threshold.
  */
 export function BundleResultLabel({ group, compact }: { group: BundleGroup; compact?: boolean }) {
   const iconClass = compact ? 'w-3.5 h-3.5' : 'w-4 h-4';
@@ -357,34 +358,52 @@ export function BundleResultLabel({ group, compact }: { group: BundleGroup; comp
   const isDetected = !isProtected && !isPrevented && EDR_VENDOR_KEYS.some((k) => group[`${k}Detected`]);
 
   if (group.category === 'cyber-hygiene') {
-    if (isPrevented) {
+    const assessed = group.controls.filter((control) => !isSkippedStage(control));
+    const assessedCount = assessed.length;
+    const notAssessedCount = group.controls.length - assessedCount;
+
+    if (assessedCount === 0) {
       return (
-        <span className="inline-flex items-center gap-1.5 text-accent">
-          <ShieldCheck className={iconClass} />
-          <span className={textClass}>
-            {group.protectedCount}/{group.totalCount} Prevented
-          </span>
+        <span className="inline-flex items-center gap-1.5 text-faint">
+          <SkipForward className={iconClass} />
+          <span className={textClass}>Not assessed</span>
         </span>
       );
     }
-    if (isDetected) {
-      return (
-        <span className="inline-flex items-center gap-1.5 text-warning">
-          <ShieldAlert className={iconClass} />
-          <span className={textClass}>
-            {group.protectedCount}/{group.totalCount} Detected
-          </span>
-        </span>
-      );
-    }
-    const ratio = group.totalCount > 0 ? group.protectedCount / group.totalCount : 0;
-    const color = ratio >= 0.8 ? 'text-accent' : ratio >= 0.5 ? 'text-warning' : 'text-danger';
+
+    const outcomes = assessed.map(classifyExecution);
+    const exposedCount = outcomes.filter((outcome) => outcome === 'unprotected').length;
+    const detectedCount = outcomes.filter((outcome) => outcome === 'detected').length;
+    const inconclusiveCount = outcomes.filter((outcome) => outcome === 'inconclusive').length;
+    const label = exposedCount === 0 && isPrevented ? 'Prevented' : exposedCount === 0 && isDetected ? 'Detected' : 'Protected';
+    const color = exposedCount > 0
+      ? 'text-danger'
+      : detectedCount > 0 || inconclusiveCount > 0
+        ? 'text-warning'
+        : 'text-accent';
+    const Icon = exposedCount > 0
+      ? ShieldX
+      : detectedCount > 0
+        ? ShieldAlert
+        : inconclusiveCount > 0
+          ? ShieldQuestion
+          : ShieldCheck;
+    const notes = [
+      exposedCount > 0 ? `${exposedCount} exposed` : '',
+      detectedCount > 0 && label !== 'Detected' ? `${detectedCount} detected` : '',
+      inconclusiveCount > 0 ? `${inconclusiveCount} inconclusive` : '',
+      notAssessedCount > 0 ? `${notAssessedCount} not assessed` : '',
+    ].filter(Boolean).join(' · ');
+
     return (
-      <span className={`inline-flex items-center gap-1.5 ${color}`}>
-        <ShieldCheck className={iconClass} />
-        <span className={textClass}>
-          {group.protectedCount}/{group.totalCount} Protected
+      <span className="inline-flex flex-col items-end">
+        <span className={`inline-flex items-center gap-1.5 ${color}`}>
+          <Icon className={iconClass} />
+          <span className={textClass}>
+            {group.protectedCount}/{assessedCount} {label}
+          </span>
         </span>
+        {notes && <span className="mt-0.5 text-[10px] font-normal text-faint">{notes}</span>}
       </span>
     );
   }

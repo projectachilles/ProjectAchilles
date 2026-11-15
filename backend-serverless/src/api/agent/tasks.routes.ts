@@ -19,6 +19,7 @@ import {
   retryTask,
   deleteTask,
   updateTaskNotes,
+  sanitizeTaskForAdmin,
   markTaskIngested,
   markIngestionFailed,
   TerminalStateRejection,
@@ -279,6 +280,8 @@ adminTasksRouter.get(
 
     const result = await listTasks(filters);
 
+    result.tasks = result.tasks.map(sanitizeTaskForAdmin);
+
     res.json({ success: true, data: result });
   })
 );
@@ -320,6 +323,10 @@ adminTasksRouter.get(
     };
 
     const result = await listTasksGrouped(filters);
+    for (const group of result.groups) {
+      group.tasks = group.tasks.map(sanitizeTaskForAdmin);
+      group.payload = { ...group.payload, env_vars: undefined };
+    }
     res.json({ success: true, data: result });
   })
 );
@@ -333,7 +340,7 @@ adminTasksRouter.get(
   requirePermission('endpoints:tasks:read'),
   asyncHandler(async (req, res) => {
     await requireTaskInScope(req);
-    const task = await getTask(req.params.id);
+    const task = sanitizeTaskForAdmin(await getTask(req.params.id));
 
     res.json({ success: true, data: task });
   })
@@ -350,7 +357,7 @@ adminTasksRouter.post(
     await requireTaskInScope(req);
     const task = await cancelTask(req.params.id);
 
-    res.json({ success: true, data: task });
+    res.json({ success: true, data: sanitizeTaskForAdmin(task) });
   })
 );
 
@@ -376,7 +383,7 @@ adminTasksRouter.post(
     await assertAgentsInOrg([(await getTask(req.params.id)).agent_id], callerOrg(req));
     const task = await retryTask(req.params.id, userId);
 
-    res.status(201).json({ success: true, data: task });
+    res.status(201).json({ success: true, data: sanitizeTaskForAdmin(task) });
   })
 );
 
@@ -414,7 +421,7 @@ adminTasksRouter.patch(
     await requireTaskInScope(req);
     const task = await updateTaskNotes(req.params.id, content, userId);
 
-    res.json({ success: true, data: task });
+    res.json({ success: true, data: sanitizeTaskForAdmin(task) });
   })
 );
 

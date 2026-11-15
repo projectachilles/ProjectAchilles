@@ -67,14 +67,51 @@ function getCliSecret(): string {
  * The Clerk user behind a CLI session, as they are now. Every token the CLI
  * flow issues (first sign-in and each refresh) goes through this, so a user
  * removed or demoted since they approved the code gets no token, or one with
- * their current role.
+ * their current role. Organization membership is live authorization state too:
+ * a stored organization is accepted only while Clerk still lists the user as
+ * one of its members.
  *
  *   - deleted or banned: their CLI sessions are ended, 401;
+ *   - removed from the stored organization: their CLI sessions are ended, 401;
  *   - locked (temporary, failed sign-in attempts): 401, sessions kept;
  *   - Clerk unreachable: 503. We don't issue a token for a user we can't
  *     vouch for, and nothing is deleted, so the CLI can try again.
  */
-async function loadActiveCliUser(userId: string): Promise<{
+async function requireActiveCliMembership(userId: string, organizationId: string | null): Promise<void> {
+  // "default" represents a deployment/user without Clerk Organizations. It
+  // must retain the same organization-less behavior as the browser session.
+  if (!organizationId || organizationId === 'default') return;
+
+  const limit = 100;
+  let offset = 0;
+  try {
+    while (true) {
+      const memberships = await clerkClient.users.getOrganizationMembershipList({
+        userId,
+        limit,
+        offset,
+      });
+      if (memberships.data.some((membership) => membership.organization.id === organizationId)) return;
+
+      offset += memberships.data.length;
+      if (memberships.data.length === 0 || offset >= memberships.totalCount) break;
+    }
+  } catch (err) {
+    if ((err as { status?: number })?.status === 404) {
+      revokeCliSessions(userId);
+      throw new AppError('This account can no longer sign in', 401);
+    }
+    throw new AppError('Could not confirm your organization access. Try again shortly.', 503);
+  }
+
+  // Membership removal ends every CLI session for the user. Besides removing
+  // this refresh token/device code, the revocation record rejects access
+  // tokens issued before this check.
+  revokeCliSessions(userId);
+  throw new AppError('You no longer have access to this organization', 401);
+}
+
+async function loadActiveCliUser(userId: string, organizationId: string | null): Promise<{
   role: AppRole | null;
   email: string | undefined;
   displayName: string | undefined;
@@ -96,6 +133,7 @@ async function loadActiveCliUser(userId: string): Promise<{
   if (user.locked) {
     throw new AppError('This account is locked. Try again later.', 401);
   }
+  await requireActiveCliMembership(userId, organizationId);
   return {
     role: getUserRole({ sessionClaims: { metadata: user.publicMetadata } }) ?? null,
     email: user.emailAddresses?.[0]?.emailAddress,
@@ -236,7 +274,7 @@ router.post('/poll', pollLimiter, validate(PollDeviceCodeSchema), asyncHandler(a
   // Verified. The role stored on the code is the one the user had when they
   // approved it; they may have been removed or demoted since, so the token is
   // issued for the user as Clerk has them now.
-  const { role, email, displayName } = await loadActiveCliUser(code.user_id);
+  const { role, email, displayName } = await loadActiveCliUser(code.user_id, code.org_id);
 
   const secret = getCliSecret();
   const refreshToken = crypto.randomBytes(32).toString('hex');
@@ -326,9 +364,9 @@ router.post('/refresh', refreshLimiter, validate(RefreshTokenSchema), asyncHandl
     throw new AppError('Invalid or expired refresh token', 401);
   }
 
-  // Before extending the session, confirm the user still exists and may sign
-  // in, and take their role as it is now.
-  const { role } = await loadActiveCliUser(stored.user_id);
+  // Before extending the session, confirm the user still exists, still belongs
+  // to the stored organization, and may sign in; take their role as it is now.
+  const { role } = await loadActiveCliUser(stored.user_id, stored.org_id);
 
   // Issue new access token
   const secret = getCliSecret();
