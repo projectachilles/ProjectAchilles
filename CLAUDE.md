@@ -436,6 +436,15 @@ Saved test plans (tests x agents) with one-click runs and an evidence matrix (`s
 - **Cell verdicts match Analytics** (`services/outcomes/verdict.ts`, shared with the notice Finished email): Protected > Prevented > Detected > Unprotected > Error, per-stage via `reports/stageOutcome.ts` `classifyStage`. EDR flags come from ES by exact `_id` (`<task_id>` or `<task_id>::<control_id>`, `outcomes/edr.ts`); ES down → exit codes only, `edr.status: 'unavailable'`. `percent_protected` counts prevented + detected as protected (Defense Score basis). If you change the Analytics label rule, change this too. The matrix is async (one ES query per run, chunked by 1,000 ids).
 - **Print**: no named `@page` (it adds a blank portrait page after the app shell); `CampaignRunPage` injects `@page { size: landscape }` while mounted, like the Analytics report.
 
+### About dialog & release check
+`GET /api/about` (any signed-in user, backend-only, capability `about`) feeds the sidebar's About dialog. User doc: `wiki/docs/user-guide/console/about.md`.
+- **`backend/src/data/releaseInfo.ts` is generated** from `docs/CHANGELOG.md` (`node scripts/generate-release-info.mjs`; the image is built from `backend/` alone, so the changelog isn't in it). Run it in every release PR after the changelog is written: a backend test fails when the file is stale or its version differs from `package.json`. `[Unreleased]` entries don't affect it.
+- **"Official release" needs evidence**, never the version string (it stays the same on every commit until the next release PR): `GIT_TAG === v<version>`, or GitHub's compare saying the commit is the tag. `resolveReleaseStatus()` in `lib/buildInfo.ts` is the one place that decides.
+- **`GIT_TAG` is a run-time variable**, set by `scripts/deploy-server.sh` from the checkout on every run and passed under `environment:` in `docker-compose.server.yml`. Don't make it a build arg: the script reuses images built earlier from the same commit (the appliance's included), so a baked value would be stale or missing.
+- **The release check never runs on a request path** (`services/about/releaseCheck.ts`): one minute after start, then daily, result in memory. Two anonymous GETs to a fixed host and repository, with `Accept` and `User-Agent` only. Never add a token (not `GITHUB_TOKEN`) or anything that identifies the install. `RELEASE_CHECK=off` disables it.
+- **Release notes from GitHub are untrusted markdown** (`ReleaseNotes.tsx`): no raw HTML, images dropped, links in a new tab. Agent release pages start with install commands; only the part after the `---` line is shown.
+- "Agent update available" compares the official agent with what the install has **registered**, in the frontend; the endpoint has no fleet data.
+
 ### Certificate System & Code Signing
 - Multi-cert storage: `~/.projectachilles/certs/cert-<timestamp>/` (max 5)
 - Active cert tracked in `active-cert.txt`

@@ -242,6 +242,13 @@ Identical to the public deployment — see
 [`SELF_HOSTED_SERVER.md`](./SELF_HOSTED_SERVER.md#day-2-operations). On-prem
 extras:
 
+**Update check.** Once a day the backend asks `api.github.com` which releases are
+the newest, for the console's About dialog. It sends nothing about the install.
+On a network with no outbound access the dialog still shows the installed
+release and its notes, and the install still reads as an official release when
+the checkout is on a release tag. To make no request at all, set
+`RELEASE_CHECK=off` in `backend/.env` and restart the backend.
+
 | Symptom | Check |
 |---------|-------|
 | Browser shows cert warning (`internal`/`byo`) | Root CA not installed in the client trust store — see Step 3. |

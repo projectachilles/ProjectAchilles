@@ -60,6 +60,7 @@ const sidebars: SidebarsConfig = {
           items: [
             'user-guide/console/navigation',
             'user-guide/console/security-dashboard',
+            'user-guide/console/about',
           ],
         },
         {
