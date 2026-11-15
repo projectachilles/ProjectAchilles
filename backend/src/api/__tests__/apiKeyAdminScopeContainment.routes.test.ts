@@ -178,6 +178,33 @@ describe('admin CLI token containment', () => {
     expect(res.body.error).toBe('This action requires a signed-in user session');
   });
 
+  it.each([
+    ['revoke an invitation', 'post', '/api/users/invitations/inv_1/revoke'],
+    ['remove a role', 'delete', '/api/users/user_other/role'],
+    ['delete a user', 'delete', '/api/users/user_other'],
+  ] as const)('cannot %s', async (_label, method, url) => {
+    const { clerkClient } = await import('@clerk/express');
+    const res = await request(makeApp())[method](url).set('Authorization', `Bearer ${adminCliToken()}`);
+
+    expect(res.status).toBe(403);
+    expect(res.body.error).toBe('This action requires a signed-in user session');
+    expect(clerkClient.invitations.revokeInvitation).not.toHaveBeenCalled();
+    expect(clerkClient.users.updateUserMetadata).not.toHaveBeenCalled();
+    expect(clerkClient.users.deleteUser).not.toHaveBeenCalled();
+  });
+
+  it('can still list users (reads are not session-only)', async () => {
+    const { clerkClient } = await import('@clerk/express');
+    vi.mocked(clerkClient.users.getUserList).mockResolvedValue({ data: [], totalCount: 0 } as never);
+
+    const res = await request(makeApp())
+      .get('/api/users')
+      .set('Authorization', `Bearer ${adminCliToken()}`);
+
+    expect(res.status).toBe(200);
+    expect(res.body.data).toEqual([]);
+  });
+
   it('cannot verify another CLI device code', async () => {
     storePendingCode('CLI1-CODE');
     const res = await request(makeApp())

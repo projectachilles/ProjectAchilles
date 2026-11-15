@@ -25,7 +25,7 @@ vi.mock('@clerk/express', () => ({
 vi.mock('../../middleware/clerk.middleware.js', () => ({
   requireClerkAuth: () => (req: { auth?: unknown }, _res: unknown, next: () => void) => {
     req.auth = {
-      userId: 'admin_user_1',
+      userId: 'user_admin_1',
       tokenType: 'session_token',
       sessionClaims: { metadata: { role: 'admin' } },
     };

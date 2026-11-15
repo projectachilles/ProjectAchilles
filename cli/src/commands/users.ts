@@ -1,11 +1,13 @@
 import { registerCommand } from './registry.js';
 import * as api from '../api/users.js';
 import { colors, timeAgo } from '../output/colors.js';
-import type { AppRole } from '../api/types.js';
 
 registerCommand({
   name: 'users',
-  description: 'Manage team users and invitations',
+  // Read-only on purpose: inviting, changing roles and deleting users need a
+  // signed-in browser session (Settings → Users). The server refuses them for
+  // CLI tokens, so there are no commands for them here.
+  description: 'List team users and pending invitations',
   subcommands: {
     list: {
       description: 'List team members',
@@ -32,20 +34,6 @@ registerCommand({
         );
       },
     },
-    invite: {
-      description: 'Invite a new user',
-      flags: {
-        email: { type: 'string' as const, required: true, description: 'Email address' },
-        role: { type: 'string' as const, required: true, choices: ['admin', 'operator', 'analyst', 'explorer'], description: 'Role to assign' },
-      },
-      handler: async (ctx) => {
-        const inv = await api.inviteUser(
-          ctx.flags.email as string,
-          ctx.flags.role as AppRole,
-        );
-        ctx.output.success(`Invitation sent to ${inv.emailAddress} (role: ${inv.role})`);
-      },
-    },
     invitations: {
       description: 'List pending invitations',
       handler: async (ctx) => {
@@ -59,47 +47,6 @@ registerCommand({
             { key: 'status', label: 'Status', width: 10 },
           ],
         );
-      },
-    },
-    'revoke-invitation': {
-      description: 'Revoke a pending invitation',
-      args: [{ name: 'id', required: true }],
-      handler: async (ctx) => {
-        await api.revokeInvitation(ctx.args.id);
-        ctx.output.success(`Invitation ${ctx.args.id} revoked`);
-      },
-    },
-    role: {
-      description: 'Set or remove a user role',
-      args: [
-        { name: 'action', required: true, description: '"set" or "remove"' },
-        { name: 'userId', required: true, description: 'User ID' },
-      ],
-      flags: {
-        role: { type: 'string' as const, choices: ['admin', 'operator', 'analyst', 'explorer'], description: 'Role (required for set)' },
-      },
-      handler: async (ctx) => {
-        if (ctx.args.action === 'set') {
-          if (!ctx.flags.role) {
-            ctx.output.error('--role is required for "set" action');
-            process.exit(1);
-          }
-          const result = await api.setUserRole(ctx.args.userId, ctx.flags.role as AppRole);
-          ctx.output.success(`Role set to ${result.role} for user ${result.userId}`);
-        } else if (ctx.args.action === 'remove') {
-          const result = await api.removeUserRole(ctx.args.userId);
-          ctx.output.success(`Role removed for user ${result.userId} (now full admin)`);
-        } else {
-          ctx.output.error(`Unknown action: ${ctx.args.action}. Use "set" or "remove".`);
-        }
-      },
-    },
-    delete: {
-      description: 'Delete a user',
-      args: [{ name: 'userId', required: true }],
-      handler: async (ctx) => {
-        await api.deleteUser(ctx.args.userId);
-        ctx.output.success(`User ${ctx.args.userId} deleted`);
       },
     },
   },

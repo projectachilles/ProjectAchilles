@@ -153,6 +153,13 @@ meaning revoking the leaked key would no longer contain the incident. User and
 key management (`/api/api-keys/*`, `/api/users/*`) stay Clerk-session-only,
 even for `admin`-scope keys.
 
+The same holds for CLI tokens, which are bearer credentials too.
+`requireUserSession()` (`middleware/userSession.middleware.ts`) refuses every
+principal that is not a Clerk browser session: all of `/api/api-keys/*`, every
+non-GET on `/api/users/*`, and `POST /api/cli/auth/verify` (a CLI token can't
+approve another device code). An admin's CLI session can still list users and
+invitations; the CLI has no commands or chat tools for the writes.
+
 Scope → permission mapping lives in one place: `permissionsForScope()` in
 `backend/src/middleware/apiKeyAuth.middleware.ts`. The `read` scope is
 *derivational* — it is computed as "every permission whose name ends in `:read`",

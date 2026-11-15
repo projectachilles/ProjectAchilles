@@ -20,7 +20,7 @@ vi.mock('../../middleware/clerk.middleware.js', () => ({
   clerkAuth: (_req: any, _res: any, next: any) => next(),
   requireClerkAuth: () => (req: any, _res: any, next: any) => {
     req.auth = {
-      userId: 'admin_user_1',
+      userId: 'user_admin_1',
       orgId: 'org_test',
       tokenType: 'session_token',
       sessionClaims: { metadata: { role: 'admin' } },

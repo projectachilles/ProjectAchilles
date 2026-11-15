@@ -490,20 +490,6 @@ function createApprovedTools(requestApproval: RequestApproval) {
       () => riskApi.acceptRisk(params),
     ),
   }),
-  invite_user: tool({
-    description: 'Propose inviting a new team user. Requires exact terminal approval.',
-    inputSchema: z.object({
-      email: z.string(),
-      role: z.enum(['admin', 'operator', 'analyst', 'explorer']),
-    }),
-    execute: async (params) => executeWithApproval(
-      'invite_user',
-      { tier: 'destructive', description: 'Invite a user to the team' },
-      params,
-      () => usersApi.inviteUser(params.email, params.role),
-    ),
-  }),
-
   // ─── Destructive Tools ────────────────────────────────────────────────────
 
   delete_agent: tool({
@@ -611,16 +597,6 @@ function createApprovedTools(requestApproval: RequestApproval) {
       { tier: 'destructive', description: 'Revoke a risk acceptance' },
       params,
       () => riskApi.revokeRiskAcceptance(params.id, params.reason),
-    ),
-  }),
-  delete_user: tool({
-    description: 'Propose deleting a user from the team. Requires exact terminal approval.',
-    inputSchema: z.object({ userId: z.string() }),
-    execute: async (params) => executeWithApproval(
-      'delete_user',
-      { tier: 'destructive', description: 'Delete a user from the team' },
-      params,
-      () => usersApi.deleteUser(params.userId),
     ),
   }),
   };

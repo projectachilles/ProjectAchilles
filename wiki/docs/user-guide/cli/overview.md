@@ -96,7 +96,7 @@ bun run build
 | `certs` | | Manage code signing certificates |
 | `integrations` | | Configure Azure AD, EDR integrations (Defender, CrowdStrike), and alerting |
 | `risk` | | Risk acceptance workflow management |
-| `users` | | Team member and invitation management |
+| `users` | | List team members and pending invitations (changes are made in the web console) |
 | `deploy` | | Unified deployment TUI — guided multi-target deploys (interactive or headless) |
 | `help` | | Show help |
 | `chat` | | Launch AI conversational agent |

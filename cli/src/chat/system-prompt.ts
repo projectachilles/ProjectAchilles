@@ -29,7 +29,7 @@ You have tools to inspect the ProjectAchilles platform and, in interactive sessi
 - **CrowdStrike integration**: Access CrowdStrike Falcon ZTA score, alerts, and cross-correlation
 - **Build system**: Trigger test binary builds and manage dependencies
 - **Certificate management**: List, upload, generate, and activate signing certificates
-- **User management**: List users, send invitations, manage roles
+- **User management**: List users and pending invitations (read-only: inviting, role changes and deletion are done in the web console)
 - **Risk acceptance**: Create and manage formal risk acceptances
 - **Integration config**: Configure Azure AD, Defender, CrowdStrike, and alerting
 

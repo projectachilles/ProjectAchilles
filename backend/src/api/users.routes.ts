@@ -11,8 +11,18 @@ import { revokeCliSessions } from '../services/cliSessions.js';
 const router = Router();
 
 router.use(requireClerkAuth());
-router.use(requireUserSession());
 router.use(requirePermission('settings:users:manage'));
+
+// Every change here needs a signed-in browser session. A CLI token is a
+// bearer credential too: with it an attacker could invite or promote an
+// admin, and revoking the token would no longer end the incident. Reads stay
+// open to an admin's CLI session (`achilles users list`). The guard is on the
+// method, not on each route, so a new write can't be added without it.
+const sessionOnly = requireUserSession();
+router.use((req, res, next) => {
+  if (req.method === 'GET' || req.method === 'HEAD') return next();
+  sessionOnly(req, res, next);
+});
 
 /**
  * GET /api/users

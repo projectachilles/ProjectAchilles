@@ -28,7 +28,7 @@ graph TD
 
     G --> H[AI SDK streamText]
     H --> I[System Prompt]
-    H --> J[Per-session Tool Registry - up to 66 tools]
+    H --> J[Per-session Tool Registry - up to 64 tools]
     H --> K[Provider Factory]
 
     K --> L[Anthropic]
@@ -150,7 +150,7 @@ OPENAI_API_KEY=sk-...         achilles chat
 
 ## Available Tools
 
-Interactive chat has access to **66 tools** organized into three approval tiers. Non-interactive chat receives only the 42 read tools.
+Interactive chat has access to **64 tools** organized into three approval tiers. Non-interactive chat receives only the 42 read tools.
 
 ### Read Tools (42 — No Confirmation Required)
 
@@ -201,7 +201,7 @@ These tools only query data and are executed immediately:
 | `list_users` | Team members |
 | `list_invitations` | Pending invitations |
 
-### Write Tools (13 — Exact Terminal Confirmation)
+### Write Tools (12 — Exact Terminal Confirmation)
 
 These tools modify data. The terminal shows the structured proposal and exact parameters, and any input other than the displayed one-time confirmation cancels it:
 
@@ -218,9 +218,8 @@ These tools modify data. The terminal shows the structured proposal and exact pa
 | `trigger_sync` | Trigger test library sync |
 | `build_test` | Compile and sign a test binary |
 | `accept_risk` | Create a risk acceptance |
-| `invite_user` | Invite a team member |
 
-### Destructive Tools (11 — Exact Terminal Confirmation)
+### Destructive Tools (10 — Exact Terminal Confirmation)
 
 These tools perform irreversible operations:
 
@@ -236,7 +235,10 @@ These tools perform irreversible operations:
 | `delete_build` | Delete a build artifact |
 | `delete_certificate` | Delete a signing certificate |
 | `revoke_risk_acceptance` | Revoke a risk acceptance |
-| `delete_user` | Remove a team member |
+
+:::info[User management is browser-only]
+The chat agent and the `users` command can list users and pending invitations, but can't invite, change roles or delete users. Those actions need a signed-in browser session (**Settings → Users**); the server refuses them for CLI tokens, so a stolen CLI session can't create or promote an administrator.
+:::
 
 ## Visual Style
 
