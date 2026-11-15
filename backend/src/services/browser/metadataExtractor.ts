@@ -2,7 +2,8 @@
 
 import * as fs from 'fs';
 import * as path from 'path';
-import { TestMetadata, StageInfo, ScoreBreakdown } from '../../types/test.js';
+import type { TestMetadata, StageInfo, ScoreBreakdown } from '../../types/test.js';
+import { FileService } from './fileService.js';
 
 /**
  * Parse the legacy five-row score breakdown table from info-card markdown.
@@ -51,12 +52,16 @@ function stageTitle(raw: string): string | undefined {
 }
 
 export class MetadataExtractor {
+  private static readFile(filePath: string, roots: string[]): string {
+    return FileService.readFileContent(filePath, roots).content;
+  }
+
   /**
    * Extract metadata from a Go source file header
    * Supports both legacy (5 fields) and new (12+ fields) formats
    */
-  static extractFromGoFile(filePath: string): Partial<TestMetadata> {
-    const content = fs.readFileSync(filePath, 'utf-8');
+  static extractFromGoFile(filePath: string, roots: string[] = [path.dirname(filePath)]): Partial<TestMetadata> {
+    const content = this.readFile(filePath, roots);
     const metadata: Partial<TestMetadata> = {
       techniques: [],
       tactics: [],
@@ -224,8 +229,8 @@ export class MetadataExtractor {
   /**
    * Extract metadata from README.md file
    */
-  static extractFromReadme(filePath: string): Partial<TestMetadata> {
-    const content = fs.readFileSync(filePath, 'utf-8');
+  static extractFromReadme(filePath: string, roots: string[] = [path.dirname(filePath)]): Partial<TestMetadata> {
+    const content = this.readFile(filePath, roots);
     const metadata: Partial<TestMetadata> = {};
 
     // Extract score from header
@@ -256,8 +261,8 @@ export class MetadataExtractor {
   /**
    * Extract metadata from info card (_info.md file)
    */
-  static extractFromInfoCard(filePath: string): Partial<TestMetadata> {
-    const content = fs.readFileSync(filePath, 'utf-8');
+  static extractFromInfoCard(filePath: string, roots: string[] = [path.dirname(filePath)]): Partial<TestMetadata> {
+    const content = this.readFile(filePath, roots);
     const metadata: Partial<TestMetadata> = {
       scoreBreakdown: {},
     };
@@ -299,8 +304,8 @@ export class MetadataExtractor {
    * Extract validator descriptions from _info.md "Bundled Validators" section.
    * Parses "### N. Validator Name" headings and takes the first line after as description.
    */
-  static extractValidatorDescriptions(filePath: string): Record<string, string> {
-    const content = fs.readFileSync(filePath, 'utf-8');
+  static extractValidatorDescriptions(filePath: string, roots: string[] = [path.dirname(filePath)]): Record<string, string> {
+    const content = this.readFile(filePath, roots);
     const descriptions: Record<string, string> = {};
 
     // Find the "Bundled Validators" section
@@ -330,11 +335,11 @@ export class MetadataExtractor {
   /**
    * Detect multi-stage architecture and extract stage information
    */
-  static extractStageInfo(testDir: string, uuid?: string): StageInfo[] {
+  static extractStageInfo(testDir: string, uuid?: string, roots: string[] = [testDir]): StageInfo[] {
     const stages: StageInfo[] = [];
     const files = fs.readdirSync(testDir);
     const declared = uuid
-      ? this.extractStageHeadings(path.join(testDir, `${uuid}_info.md`))
+      ? this.extractStageHeadings(path.join(testDir, `${uuid}_info.md`), roots)
       : new Map<number, StageHeading>();
 
     // Look for stage-T*.go files
@@ -347,7 +352,7 @@ export class MetadataExtractor {
         const filePath = path.join(testDir, fileName);
 
         try {
-          const content = fs.readFileSync(filePath, 'utf-8');
+          const content = this.readFile(filePath, roots);
 
           // Extract stage ID
           const stageIdMatch = content.match(/STAGE_ID\s*=\s*(\d+)/);
@@ -395,11 +400,15 @@ export class MetadataExtractor {
    * heading line counts; body text often mentions techniques the stage doesn't
    * perform.
    */
-  static extractStageHeadings(infoCardPath: string): Map<number, StageHeading> {
+  static extractStageHeadings(
+    infoCardPath: string,
+    roots: string[] = [path.dirname(infoCardPath)],
+  ): Map<number, StageHeading> {
     const byStage = new Map<number, StageHeading>();
     let content: string;
     try {
-      content = fs.readFileSync(infoCardPath, 'utf-8');
+      if (!fs.existsSync(infoCardPath)) return byStage;
+      content = this.readFile(infoCardPath, roots);
     } catch {
       return byStage;
     }
@@ -421,7 +430,12 @@ export class MetadataExtractor {
    * @param uuid - The test UUID
    * @param category - The category folder name (optional, for categorical structure)
    */
-  static extractTestMetadata(testDir: string, uuid: string, category?: string): TestMetadata {
+  static extractTestMetadata(
+    testDir: string,
+    uuid: string,
+    category?: string,
+    roots: string[] = [testDir],
+  ): TestMetadata {
     const metadata: Partial<TestMetadata> = {
       uuid,
       category, // Set from folder structure
@@ -442,7 +456,7 @@ export class MetadataExtractor {
     // Extract from main Go file
     const mainGoFile = path.join(testDir, `${uuid}.go`);
     if (fs.existsSync(mainGoFile)) {
-      const goData = this.extractFromGoFile(mainGoFile);
+      const goData = this.extractFromGoFile(mainGoFile, roots);
       // Merge arrays
       this.mergeArrayField(metadata, goData, 'techniques');
       this.mergeArrayField(metadata, goData, 'tactics');
@@ -458,7 +472,7 @@ export class MetadataExtractor {
     // Extract from README
     const readmePath = path.join(testDir, 'README.md');
     if (fs.existsSync(readmePath)) {
-      const readmeData = this.extractFromReadme(readmePath);
+      const readmeData = this.extractFromReadme(readmePath, roots);
       // Merge techniques arrays
       this.mergeArrayField(metadata, readmeData, 'techniques');
       // Assign other fields
@@ -469,7 +483,7 @@ export class MetadataExtractor {
     // Extract from info card
     const infoCardPath = path.join(testDir, `${uuid}_info.md`);
     if (fs.existsSync(infoCardPath)) {
-      const infoData = this.extractFromInfoCard(infoCardPath);
+      const infoData = this.extractFromInfoCard(infoCardPath, roots);
       // Merge techniques arrays
       this.mergeArrayField(metadata, infoData, 'techniques');
       // Assign other fields
@@ -479,14 +493,14 @@ export class MetadataExtractor {
 
     // Extract validator descriptions from _info.md (for bundle tests)
     if (fs.existsSync(infoCardPath)) {
-      const validatorDescs = this.extractValidatorDescriptions(infoCardPath);
+      const validatorDescs = this.extractValidatorDescriptions(infoCardPath, roots);
       if (Object.keys(validatorDescs).length > 0) {
         metadata.validatorDescriptions = validatorDescs;
       }
     }
 
     // Extract stage information
-    metadata.stages = this.extractStageInfo(testDir, uuid);
+    metadata.stages = this.extractStageInfo(testDir, uuid, roots);
     metadata.isMultiStage = metadata.stages.length > 0;
 
     // Ensure folder category takes precedence over any extracted category

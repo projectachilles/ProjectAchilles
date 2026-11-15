@@ -125,7 +125,7 @@ export function readDefenseGuidance(testDir: string, uuid: string): string | nul
   const file = path.join(testDir, `${uuid}_DEFENSE_GUIDANCE.md`);
   if (!fs.existsSync(file)) return null;
   try {
-    return FileService.readFileContent(file).content;
+    return FileService.readFileContent(file, [testDir]).content;
   } catch {
     return null;
   }

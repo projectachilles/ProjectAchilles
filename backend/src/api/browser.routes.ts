@@ -1,7 +1,6 @@
 // API routes for security tests
 
 import { Router, Request, Response } from 'express';
-import fs from 'fs';
 import path from 'path';
 import { fileURLToPath } from 'url';
 import { requireClerkAuth, requirePermission } from '../middleware/clerk.middleware.js';
@@ -258,7 +257,12 @@ export function createBrowserRouter(options: {
     const memoKey = `${uuid}|${enrichedTest.lastModifiedDate ?? ''}`;
     let overview = overviewMemo.get(memoKey);
     if (!overview) {
-      overview = extractOverview(test.files, (f) => fs.readFileSync(f.path, 'utf-8'), uuid);
+      const sourceRoots = testIndexer.getSourceRoots();
+      overview = extractOverview(
+        test.files,
+        (f) => FileService.readFileContent(f.path, sourceRoots).content,
+        uuid,
+      );
       if (overviewMemo.size >= OVERVIEW_MEMO_MAX) {
         const oldest = overviewMemo.keys().next().value;
         if (oldest !== undefined) overviewMemo.delete(oldest);
@@ -376,7 +380,7 @@ export function createBrowserRouter(options: {
       throw new AppError('Invalid file path', 400);
     }
 
-    const fileContent = FileService.readFileContent(safePath);
+    const fileContent = FileService.readFileContent(safePath, testIndexer.getSourceRoots());
 
     res.json({
       success: true,
@@ -421,7 +425,7 @@ export function createBrowserRouter(options: {
       throw new AppError('Invalid attack flow path', 400);
     }
 
-    const fileContent = FileService.readFileContent(safePath);
+    const fileContent = FileService.readFileContent(safePath, testIndexer.getSourceRoots());
 
     res.json({
       success: true,
@@ -461,7 +465,7 @@ export function createBrowserRouter(options: {
       throw new AppError('Invalid kill chain path', 400);
     }
 
-    const fileContent = FileService.readFileContent(safePath);
+    const fileContent = FileService.readFileContent(safePath, testIndexer.getSourceRoots());
 
     res.json({
       success: true,

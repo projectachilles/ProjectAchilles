@@ -44,7 +44,7 @@ function scanSourcePath(
       const testDir = path.join(categoryDir, uuid);
 
       try {
-        const metadata = MetadataExtractor.extractTestMetadata(testDir, uuid, category);
+        const metadata = MetadataExtractor.extractTestMetadata(testDir, uuid, category, [sourcePath]);
         metadata.source = provenance;
         next.set(uuid, metadata);
         nextDirs.set(uuid, testDir);
