@@ -325,6 +325,36 @@ var configData string
       expect(deps[1]).toEqual({ filename: 'config.yaml', sourceFile: 'main.go', exists: false, sourceBuilt: false });
     });
 
+    it('ignores //go:embed mentioned inside a prose comment', () => {
+      const goSource = `package main
+
+// Embedded gzip-compressed stage binaries. The //go:embed directives and
+// their variables live in the per-OS files.
+
+type validator struct {
+	Binary []byte // Embedded signed binary (populated via //go:embed)
+	Name   string
+}
+
+var (
+	//go:embed payload.bin
+	payloadData []byte
+)
+`;
+      mockExistsSync.mockImplementation((p: string) => {
+        if (p === `${TESTS_SOURCE}/cyber-hygiene/${VALID_UUID}`) return true;
+        if (p === `${TESTS_SOURCE}/cyber-hygiene/${VALID_UUID}/payload.bin`) return true;
+        return false;
+      });
+      mockStatSync.mockReturnValue({ isDirectory: () => true });
+      mockReaddirSync.mockReturnValue(['main.go']);
+      mockReadFileSync.mockReturnValue(goSource);
+
+      const deps = service.getEmbedDependencies(VALID_UUID);
+
+      expect(deps.map(d => d.filename)).toEqual(['payload.bin']);
+    });
+
     it('skips .go and .ps1 embed targets', () => {
       const goSource = `package main
 
