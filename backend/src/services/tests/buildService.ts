@@ -529,7 +529,9 @@ const ARTIFACT_DIR = \`${artifactDir}\`
     const deps: EmbedDependency[] = [];
     const goFiles = fs.readdirSync(testDir).filter(f => f.endsWith('.go'));
     const goFileSet = new Set(goFiles);
-    const embedRegex = /\/\/go:embed\s+(\S+)/g;
+    // Only a comment that STARTS with //go:embed is a directive (Go's own
+    // rule). A prose comment that mentions it is not a dependency.
+    const embedRegex = /^[ \t]*\/\/go:embed[ \t]+(\S+)/gm;
 
     // Read build_all.sh content for source-built detection
     const buildScriptPath = path.join(testDir, 'build_all.sh');
