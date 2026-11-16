@@ -65,14 +65,29 @@ The platform writes test results into **dated write indices** and reads them bac
 | **Write index** | `achilles-results-<date>` — resolved per ingest from the write-index prefix + rollover mode |
 | **Rollover modes** | `daily` (`achilles-results-YYYY.MM.DD`), `monthly` (`achilles-results-YYYY.MM`), or `none` (static prefix) |
 | **Read pattern** | `achilles-results-*` (`ELASTICSEARCH_INDEX_PATTERN`) — spans all dated indices, so analytics see everything |
-| **Configured via** | Analytics → Settings in the UI, or `ELASTICSEARCH_WRITE_INDEX_PREFIX` / `ELASTICSEARCH_WRITE_INDEX_ROLLOVER` env vars |
+| **Configured via** | **Settings → Integrations → Analytics (Elasticsearch)** in the UI (default rollover: None, a single index), or `ELASTICSEARCH_WRITE_INDEX_PREFIX` / `ELASTICSEARCH_WRITE_INDEX_ROLLOVER` env vars |
 
 Two operational consequences:
 
 - New dated indices are **auto-created on first ingest** with the canonical mapping — there is no manual "create index" step (the UI control for it was removed). This is why application API keys scoped to `achilles-results-*` need the `create_index` privilege alongside `write`.
 - Old dated indices can be snapshotted and deleted individually for retention, without touching the current write index.
 
-Defender integration data lives in a separate `achilles-defender` index.
+Other indices the platform creates:
+
+| Index | Holds |
+|---|---|
+| `achilles-defender` | Microsoft Defender scores, controls and alerts |
+| `achilles-crowdstrike` | CrowdStrike Falcon alerts and posture |
+| `achilles-sentinelone`, `achilles-sentinelone-posture` | SentinelOne threats, alerts and posture |
+| `achilles-sophos` | Sophos Central alerts, detections and posture |
+| `achilles-risk-acceptances` | Risk acceptances |
+| `archived-achilles...` | Archived results |
+
+An application API key needs grants on the EDR indices of every integration in use, plus `read` and `write` on the results pattern. The exact list is in `wiki/docs/user-guide/integrations/elasticsearch.md` ("API key privileges for EDR integrations"). Saving an EDR integration checks the key and shows a **Saved, but not syncing** notice when a grant is missing.
+
+All of these are created with `index.auto_expand_replicas: 0-1` (no replica on one node, one replica when a second data node exists). A task or schedule that names its own target index must use an `achilles-results-...` name.
+
+When you change the Elasticsearch URL or Cloud ID in the UI, enter the credentials again: blank fields keep the saved ones only for the same cluster. **Test Connection** and **Save** both need an admin.
 
 ---
 
@@ -289,7 +304,7 @@ curl -s -u "elastic:$ES_PW" \
 | Status | Meaning | Action |
 |---|---|---|
 | `green` | All shards allocated | None |
-| `yellow` | Replicas missing | Expected on a single-node cluster — replicas can't allocate elsewhere. Ignore unless multi-node |
+| `yellow` | Replicas missing | On a single-node cluster this comes from indices created without a replica setting (ProjectAchilles indices created before v2.9.0, or other applications' indices). For the ProjectAchilles ones, run once: `PUT achilles-*,archived-achilles*/_settings {"index.auto_expand_replicas":"0-1"}` |
 | `red` | Primary shards unassigned | Investigate immediately |
 
 ### List indices and disk usage

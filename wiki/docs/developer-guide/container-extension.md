@@ -8,6 +8,10 @@ description: "Docker Desktop security probe manager for container-based testing.
 
 The Container Extension is a Docker Desktop extension that provides a graphical interface for deploying and managing security probes inside running Docker containers. It integrates with Prelude Security's platform for continuous container security monitoring.
 
+:::info[Not part of the ProjectAchilles repository]
+The extension's source is in the test library repository (`preludeorg-libraries/container/extension`), not in ProjectAchilles. It talks to Prelude Security's platform, not to the ProjectAchilles backend, and the ProjectAchilles console does not use it.
+:::
+
 ## What It Does
 
 - View all running Docker containers in a unified interface

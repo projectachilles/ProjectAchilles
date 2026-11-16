@@ -22,9 +22,9 @@ Most analytics subcommands accept these common filters:
 
 | Flag | Type | Description |
 |------|------|-------------|
-| `--org` | string | Filter by organization |
-| `--from` | string | Start date (ISO 8601 format, e.g., `2026-03-01`) |
-| `--to` | string | End date (ISO 8601 format) |
+| `--org` | string | Filter by organization. If your account belongs to an organization, you only ever get that organization's results, whatever you pass |
+| `--from` | string | Start date (ISO 8601, e.g. `2026-11-01`, or relative, e.g. `now-30d`) |
+| `--to` | string | End date (same formats) |
 
 ## Subcommands
 
@@ -55,7 +55,7 @@ achilles analytics score [flags]
 The defense score is a percentage (0-100%) representing how well your defenses blocked simulated attacks. Higher is better.
 
 :::note[CLI numbers vs the dashboard]
-The CLI requests the API's default **executions basis**, which counts every conclusive execution in the window. The Dashboard and Analytics headline use the **latest-result** score instead, which counts each test × endpoint pair once, by its most recent result (see [Defense Score](../analytics/defense-score.md#latest-result-score)). The two can differ for the same range. In `analytics trend`, a day with no results in its window prints as `—`, not `0.0%`.
+The CLI requests the API's default **executions basis**, which counts every conclusive execution in the window. It also uses the API's default scoring mode, any-stage: a multi-stage test run counts once, as protected when any of its stages was. The Dashboard and Analytics headline use the **latest-result** score instead, which counts each test × endpoint pair once, by its most recent result (see [Defense Score](../analytics/defense-score.md#latest-result-score)). The two can differ for the same range. In `analytics trend`, a day with no results in its window prints as `—`, not `0.0%`.
 :::
 
 **Example:**
@@ -93,19 +93,21 @@ achilles analytics trend [flags]
 | Flag | Type | Default | Description |
 |------|------|---------|-------------|
 | `--interval` | string | `1d` | Time bucket interval (`1h`, `1d`, `1w`) |
-| `--days` | number | 30 | Window in days |
+| `--days` | number | 30 | Rolling window in days (1 to 90). Each point is the score over the `--days` days that end at that point |
+
+`--days` does not set the date range. The range comes from `--from` and `--to`; without `--from` the trend covers the last 7 days.
 
 **Example:**
 
 ```bash
-# Daily trend for the last 30 days (default)
+# Last 7 days, one point per day, each a 30-day rolling score (default)
 achilles analytics trend
 
-# Hourly trend for the last 7 days
-achilles analytics trend --interval 1h --days 7
+# Last 30 days, one point per day, 7-day rolling score
+achilles analytics trend --from now-30d --days 7
 
-# Weekly trend for the last 90 days
-achilles analytics trend --interval 1w --days 90
+# Last 90 days, one point per week, 30-day rolling score
+achilles analytics trend --from now-90d --interval 1w
 ```
 
 **Example output:**
@@ -113,10 +115,10 @@ achilles analytics trend --interval 1w --days 90
 ```
   Date          Score     Protected    Total
   ────────────  ────────  ──────────   ────────
-  3/19/2026     73.2%           42         58
-  3/18/2026     71.8%           38         53
-  3/17/2026     68.4%           26         38
-  3/16/2026     75.0%           30         40
+  11/14/2026    73.2%           42         58
+  11/13/2026    71.8%           38         53
+  11/12/2026       —             0          0
+  11/11/2026    75.0%           30         40
 ```
 
 ## analytics by-test
@@ -207,7 +209,7 @@ Get defense scores broken down by organization.
 achilles analytics by-org [flags]
 ```
 
-Only accepts `--from` and `--to` filters (not `--org`, since the breakdown is across orgs).
+Only accepts `--from` and `--to` filters (not `--org`, since the breakdown is across orgs). A user who belongs to an organization gets one row, their own.
 
 ## analytics executions
 
@@ -224,6 +226,8 @@ achilles analytics executions [flags]
 | `--page` | number | 1 | Page number |
 | `--size` | number | 20 | Page size |
 | `--grouped` | boolean | false | Group results by batch |
+
+The **Outcome** column is `PROTECTED`, `UNPROTECTED`, or `ERROR` for a result with no conclusive outcome.
 
 **Flat mode example:**
 
@@ -308,7 +312,7 @@ Get the test error rate breakdown.
 achilles analytics errors [flags]
 ```
 
-Returns a summary of execution errors, helping identify flaky tests or infrastructure issues.
+Returns `errorRate`, `errorCount`, `conclusiveCount` and `totalTestActivity`, helping identify flaky tests or infrastructure issues.
 
 ## analytics hostnames
 

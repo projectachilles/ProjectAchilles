@@ -116,7 +116,7 @@ Every user without a role is read-only. In the Clerk Dashboard, add the
 
 ## Enrolling agents
 
-Agents connect to the same public host over HTTPS. In **Endpoints → enrollment**,
+Agents connect to the same public host over HTTPS. On the **Agents** page, click **Enroll agent**,
 generate a token and run the printed command on the endpoint. Because the
 certificate is publicly trusted, no extra CA configuration is needed —
 `AGENT_SERVER_URL` was already set to your public URL by the installer.
@@ -130,6 +130,10 @@ docker compose -f docker-compose.server.yml logs -f    # logs
 # Upgrade (idempotent):
 git pull && ./scripts/deploy-server.sh
 ```
+
+Re-run `deploy-server.sh` after every `git pull`: the Caddy configuration is
+rendered from the checkout into `deploy/caddy/rendered/`, and the script
+rebuilds the images for the new commit.
 
 Persistent state lives in Docker volumes: `achilles-data` (SQLite, encrypted
 settings, certs), `esdata` (self-hosted ES), `caddy-data` (TLS certs). Back up

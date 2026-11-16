@@ -95,7 +95,7 @@ flyctl secrets set \
 > { "achilles_role": { "cluster": ["monitor"], "indices": [{ "names": ["achilles-*", "archived-*"], "privileges": ["manage", "read", "write"], "allow_restricted_indices": false }] } }
 > ```
 
-> **`ENCRYPTION_SECRET` is required on Fly.io.** Without it, the backend derives a key from the container's hostname, which changes across deploys and corrupts encrypted settings.
+> **`ENCRYPTION_SECRET` is required.** Without it the backend cannot save or read encrypted settings (Elasticsearch, integrations, certificates). Keep the value stable: settings saved with one secret can't be read with another.
 
 ## Step 4: Set Frontend Environment Variables
 
@@ -180,17 +180,9 @@ cd backend && flyctl deploy --app achilles-backend
 cd frontend && flyctl deploy --app achilles-frontend
 ```
 
-For CI/CD automation, add `flyctl deploy` to your GitHub Actions workflow. Fly.io provides a [setup-flyctl](https://github.com/superfly/flyctl-actions) GitHub Action:
+For CI/CD automation the repository includes `.github/workflows/deploy-flyio.yml`. On every push to `main` it runs the backend and frontend build and tests, then deploys both apps with `flyctl deploy --remote-only`. It passes the commit to the backend image (`--build-arg GIT_COMMIT`), so `/api/health` reports what is running.
 
-```yaml
-- uses: superfly/flyctl-actions/setup-flyctl@master
-- run: flyctl deploy --app achilles-backend
-  working-directory: backend
-  env:
-    FLY_API_TOKEN: ${{ secrets.FLY_API_TOKEN }}
-```
-
-Generate a deploy token with `flyctl tokens create deploy --app achilles-backend` and add it as a GitHub Actions secret.
+Generate a deploy token with `flyctl tokens create deploy` and add it as the `FLY_API_TOKEN` GitHub Actions secret.
 
 ## Custom Domains
 
@@ -302,7 +294,7 @@ When you're ready to use custom domains instead of `*.fly.dev`:
 
 ## Agent Build from Source
 
-The backend Docker image includes Go 1.24.3, so agent cross-compilation works on Fly.io — same as Railway and Render. Set `AGENT_REPO_URL` and the backend clones the `agent/` subdirectory at startup (sparse checkout), then uses it for Go cross-compilation.
+The backend Docker image includes Go 1.25, so agent cross-compilation works on Fly.io — same as Render. Set `AGENT_REPO_URL` and the backend clones the `agent/` subdirectory at startup (sparse checkout), then uses it for Go cross-compilation.
 
 Before **every build**, the backend fetches the latest commit of `AGENT_REPO_BRANCH` (`git fetch --depth 1` + hard reset), so a build always compiles the current branch, even when an agent-only merge didn't trigger a redeploy. The commit is recorded in the version's release notes (`Built from source (windows/amd64) at 1bbe749`). If the fetch fails, the build fails rather than compiling stale code.
 
@@ -346,12 +338,14 @@ flyctl apps restart achilles-backend
 
 | Service | Est. Monthly Cost |
 |---------|------------------|
-| Backend Machine (shared-2x, 512 MB) | ~$5 |
+| Backend Machine (shared-cpu-2x, 512 MB) | ~$5 |
 | Frontend Machine (shared-1x, 256 MB) | ~$3 |
 | Volume (1 GB) | ~$0.15 |
 | **Total** | **~$8** |
 
-For comparison: Railway ~$10-13/mo (usage-based), Render ~$14/mo (flat rate), Vercel ~$20/mo (Pro plan). See [Fly.io pricing](https://fly.io/docs/about/pricing/) for current rates.
+This is the price with a shared-CPU backend (the `flyctl scale` commands above). The checked-in `backend/fly.toml` asks for a dedicated CPU (`performance`, 1 CPU, 2 GB), because SQLite under a real fleet was slow on a shared CPU; that Machine costs roughly $30/month.
+
+For comparison: Render ~$33/mo (flat rate, Standard backend), Vercel ~$20/mo (Pro plan). See [Fly.io pricing](https://fly.io/docs/about/pricing/) for current rates.
 
 ## Helper Scripts
 
@@ -392,7 +386,7 @@ The backend's `CORS_ORIGIN` doesn't match the frontend's origin. Verify:
 
 ### Encrypted settings lost after redeploy
 
-`ENCRYPTION_SECRET` is not set. Without it, the backend derives a key from the container's hostname, which changes across deploys. Set a stable `ENCRYPTION_SECRET` via `flyctl secrets set`.
+`ENCRYPTION_SECRET` is not set, or it changed between deploys. Settings are encrypted with it, and a different value can't read them. Set a stable `ENCRYPTION_SECRET` via `flyctl secrets set` and save the settings again.
 
 ### Agent enrollment commands show wrong URL
 
@@ -400,7 +394,7 @@ Set `AGENT_SERVER_URL` to the backend's public Fly domain (with `https://`), e.g
 
 ### Analytics shows "not configured"
 
-The Elastic Cloud connection is stored in the encrypted `analytics.json` file. If `ENCRYPTION_SECRET` changed, the file becomes unreadable. Reconfigure via Analytics → Setup, or set `ELASTICSEARCH_CLOUD_ID` and `ELASTICSEARCH_API_KEY` as env vars (env vars take priority over the file).
+The Elastic Cloud connection is stored in the encrypted `analytics.json` file. If `ENCRYPTION_SECRET` changed, the file becomes unreadable. Reconfigure via Analytics → Setup, or set `ELASTICSEARCH_CLOUD_ID` and `ELASTICSEARCH_API_KEY` as env vars (they are used when no connection is saved in the UI, or the saved one can't be read).
 
 ### TLS certificate not provisioning
 

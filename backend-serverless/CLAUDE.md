@@ -24,6 +24,12 @@ npx vitest src/services/agent/__tests__/enrollment.service.test.ts  # Single fil
 | Build system | Go cross-compilation | Stubbed (returns 503) |
 | Cert generation | OpenSSL CLI | `node-forge` (pure JS, no native deps) |
 
+## Features Not in This Fork
+
+`GET /api/capabilities` (`src/app.ts`) tells the frontend what to hide. It reports `false` here for: `build`, `agentBuild`, `gitSync`, `preExecutionNotices`, `campaigns`, `consoleIdentity`, `outcomeBreakdown`, `stageCoverage`, `sentinelone`, `sophos`, `alerting`. There is also no API-key auth path. Certificate upload and generation, and uploading a prebuilt test binary, do work (`certUpload`, `certGenerate`, `buildUpload`).
+
+When a feature is added to `backend/` only, add its flag here as `false` so the frontend hides it on Vercel.
+
 These are **independent codebases**. Changes to `backend/` do not propagate here. If a change affects shared logic (types, API contracts, ES mappings), update both.
 
 ## Vercel Runtime Gotchas
@@ -66,7 +72,7 @@ printf "https://your-frontend.vercel.app" | vercel env add CORS_ORIGIN productio
 
 ### Frontend Clerk key prefix
 
-The frontend reads `VITE_CLERK_PUBLISHABLE_KEY` (with `VITE_` prefix). Vite only exposes `VITE_`-prefixed env vars to client-side code. The Docker/Railway deployments use `docker-entrypoint.sh` to inject `window.__env__` at runtime, bypassing this restriction.
+The frontend reads `VITE_CLERK_PUBLISHABLE_KEY` (with `VITE_` prefix). Vite only exposes `VITE_`-prefixed env vars to client-side code. The Docker deployments use `docker-entrypoint.sh` to inject `window.__env__` at runtime, bypassing this restriction.
 
 ## Environment Variables
 

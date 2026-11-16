@@ -19,6 +19,12 @@ UI primitives live in `frontend/src/components/shared/ui/`:
 | `Tabs` | Tab navigation component |
 | `Alert` | Informational/warning/error alerts |
 | `Spinner` | Loading indicator |
+| `Select`, `Checkbox`, `Switch` | Form controls |
+| `Dialog` | Modal dialog |
+| `Table` | Table parts |
+| `CopyButton` | Copy-to-clipboard button |
+| `StreamRow` | Row of a live list (dashboard streams) |
+| `formStyles.ts`, `pillStyles.ts` | Shared class strings for form fields and pills, so pages do not restyle them by hand |
 
 ## Usage
 
@@ -80,78 +86,50 @@ same commit that creates them.
 
 ## Layout System
 
-The layout is built around a hierarchical structure with `SidebarLayout` as the root container.
+All authenticated routes render inside one persistent shell, `AppShell` (`components/layout/AppShell.tsx`). `AppRouter` mounts it once through `AppLayout` and React Router's `<Outlet>`, so the sidebar stays mounted across page navigations.
 
 ```mermaid
 graph TD
-    A[SidebarLayout] --> B[AppSidebar]
-    A --> C[TopBar]
+    A[AppShell] --> R[IdentityRibbon]
+    A --> B[Sidebar<br/>fixed, 240px, desktop]
+    A --> M[Mobile header<br/>Sheet with the same sidebar]
+    A --> N[NoticeDeliveryBanner]
     A --> D[Main Content]
 
-    C --> E[GlobalSearch]
-    C --> F[NotificationBell]
-    C --> G[ThemeSelector]
+    B --> W[Wordmark]
+    B --> IP[IdentityPlate]
+    B --> E[GlobalSearch]
+    B --> F[NotificationBell]
+    B --> H[Flat navigation]
+    B --> X[shortcuts / log out]
 
-    B --> H[Module Navigation]
-    B --> I[Flyout Panels]
-
-    H --> J[Tests Module]
-    H --> K[Analytics Module]
-    H --> L[Endpoints Module]
+    D --> PH[PageHeader]
 ```
 
-### SidebarLayout
+### AppShell
 
-The main layout container. Provides:
+- **Sidebar** -- fixed on large screens (`lg` and up). Below that, a header with a menu button opens the same sidebar in a `Sheet`. The sidebar does not collapse to icons and has no flyout panels.
+- **Flat navigation** -- Dashboard, Tests, Analytics, Agents, Tasks, Settings. There are no nested modules. Campaigns and schedules are tabs of the Tasks page.
+- **Role-based** -- `useCanAccessModule()` and `useHasPermission()` decide whether Agents, Tasks and Settings appear.
+- **Locked items** -- Analytics shows a lock and a tooltip until Elasticsearch is configured. The link still works; the route guard explains.
+- **Badges** -- the Agents item shows the number of outdated agents (`useOutdatedAgentCount`).
+- **Console identity** -- `IdentityRibbon` (top of the page) and `IdentityPlate` (in the sidebar) show the console's code, name and colour when one is set (`components/layout/ConsoleIdentity.tsx`).
+- **Keyboard shortcuts** -- `useAppHotkeys` handles app-level shortcuts (number keys jump to the navigation items, `/` focuses the page's search input, `?` opens the shortcuts dialog, `Cmd/Ctrl + K` opens search). `ShortcutsDialog` lists them.
+- **Print** -- the sidebar and mobile header are hidden in print (`print:hidden`).
 
-- **Layout Context** -- Enables pages to register dynamic TopBar actions via `useLayoutActions()`
-- **Sidebar State** -- Persists collapsed/expanded state in localStorage
-- **Responsive Design** -- Adapts to different screen sizes
+There is no top bar and no theme selector.
 
-```typescript
-// Pages can register dynamic actions in the TopBar
-const { setTopBarActions } = useLayoutActions();
-setTopBarActions({
-  onRefreshClick: handleRefresh,
-  isRefreshing: loading
-});
+### PageHeader
+
+Each page renders its own header with `PageHeader`:
+
+```tsx
+<PageHeader title="Tests" description="Security test library" titleAside={<Badge>42</Badge>}>
+  <Button onClick={handleSync}>Sync</Button>
+</PageHeader>
 ```
 
-### AppSidebar
-
-Collapsible navigation sidebar with role-based module access:
-
-- **Collapsible** -- Transitions between full and icon-only modes
-- **Role-based** -- Uses `useCanAccessModule()` and `useHasPermission()` to show/hide modules
-- **Flyout panels** -- Shows sub-navigation when collapsed (rendered via React portals)
-- **Module locking** -- Displays locked state for unconfigured modules (e.g., Analytics without ES)
-
-**Module structure:**
-
-```typescript
-const modules: ModuleWithItems[] = [
-  {
-    label: "Tests",
-    icon: Shield,
-    path: "/dashboard",
-    subItems: [
-      { label: "Dashboard", icon: LayoutDashboard, path: "/dashboard" },
-      { label: "Browse All", icon: Home, path: "/dashboard?tab=browse" },
-      { label: "Favorites", icon: Bookmark, path: "/favorites" }
-    ]
-  }
-  // ... Analytics, Endpoints, Settings modules
-];
-```
-
-### TopBar
-
-Application header with dynamic content:
-
-- **Breadcrumbs** -- Auto-generated from current route via `getBreadcrumb()`
-- **Global search** -- Embedded search trigger (`Cmd/Ctrl + K`)
-- **User context** -- Role badges and user information
-- **Action buttons** -- Refresh, settings, documentation, notifications
+`children` are the page's actions (buttons, filters), shown on the right.
 
 ### GlobalSearch
 
@@ -169,7 +147,7 @@ Command palette-style search (`Cmd/Ctrl + K`) with multi-entity results:
 
 Real-time alert notifications with dropdown history:
 
-- Connects to `alertsApi` for system alerts
+- Connects to `alertsApi` for system alerts. When the backend reports `alerting: false` (Vercel), it skips those calls and shows flash notifications only
 - Red dot indicator for unseen notifications
 - Shows setup prompts when alerting is not configured
 - Relative timestamps (e.g., "5 minutes ago")
@@ -338,7 +316,7 @@ Modal dialog with backdrop, Escape key handling, and focus management:
 
 | Component | Purpose |
 |-----------|---------|
-| `Badge` | Status indicators with variants (`success`, `warning`, `destructive`, etc.) |
+| `Badge` | Status indicators with variants (`default`, `primary`, `secondary`, `success`, `warning`, `destructive`, `outline`) |
 | `PlatformBadge` | OS-specific badges (Windows, Linux, macOS) |
 | `StatusDot` | Simple online/offline indicator |
 
@@ -408,7 +386,7 @@ Recharts integration with theme-aware configuration:
 ```
 
 :::warning
-When writing custom `content` renderers for Recharts components (Treemap, etc.), always set `stroke="none"` on `<text>` elements. Recharts sets `stroke` on the parent SVG container for cell borders, and SVG `stroke` inherits to text children -- causing visible dark outlines around glyphs in dark mode.
+When writing custom `content` renderers for Recharts components (Treemap, etc.), always set `stroke="none"` on `<text>` elements. Recharts sets `stroke` on the parent SVG container for cell borders, and SVG `stroke` inherits to text children -- causing visible dark outlines around glyphs on the dark theme.
 :::
 
 ## Integration Patterns
@@ -502,8 +480,7 @@ function TaskList({ tasks }) {
 ## Performance Considerations
 
 - **Search debouncing** -- GlobalSearch uses a 200ms delay to prevent excessive API calls
-- **Portal rendering** -- Sidebar flyout panels use React portals to escape stacking contexts
-- **Memoized calculations** -- Search results and breadcrumbs are memoized
+- **Memoized calculations** -- The navigation items and search results are memoized
 - **Conditional rendering** -- Role-based components only render when the user has access
 
 ## Accessibility

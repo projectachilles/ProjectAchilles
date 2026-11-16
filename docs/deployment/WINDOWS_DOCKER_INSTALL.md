@@ -209,6 +209,12 @@ powershell -ExecutionPolicy Bypass -File .\scripts\Install-ProjectAchilles.ps1 -
 powershell -ExecutionPolicy Bypass -File .\scripts\Install-ProjectAchilles.ps1 -WithElasticsearch
 ```
 
+**From images that are already loaded** (for example from the offline kit, `deploy/offline-kit/`): add `-NoBuild`. The script then starts the loaded images instead of building them, and Git is not required. Docker still builds any image that is missing.
+
+```powershell
+powershell -ExecutionPolicy Bypass -File .\scripts\Install-ProjectAchilles.ps1 -NoBuild
+```
+
 > If you use the bootstrap script, skip to [Section 8: Verify Installation](#8-verify-installation) — the script handles Sections 6 and 7 automatically.
 
 ### Option B: Setup Wizard (Git Bash)
@@ -279,7 +285,7 @@ python -c "import secrets; print(secrets.token_urlsafe(32))"
 
 Or use this online generator: https://generate-secret.vercel.app/32
 
-Replace both `REPLACE_ME` values with the generated strings.
+Replace both `REPLACE_ME` values with the generated strings. `ENCRYPTION_SECRET` is required: the backend cannot save the Elasticsearch connection, integrations or certificates without it, and settings saved with one value can't be read with another. `SESSION_SECRET` is not read by the backend today; it is harmless to set.
 
 4. Create a `.env` file in the **project root** (next to `docker-compose.yml`) with the same publishable key. Docker Compose passes it to the frontend container from there; without it the UI loads a black page (`Missing publishableKey`):
 
@@ -311,7 +317,7 @@ docker compose up -d --build
 ```
 
 This will:
-1. **Build the backend image** — installs Node.js 22, Go 1.24, compiles TypeScript (~3–5 minutes first time)
+1. **Build the backend image** — installs Node.js 22, Go 1.25, compiles TypeScript (~3–5 minutes first time)
 2. **Build the frontend image** — compiles React app, creates nginx image (~2–3 minutes first time)
 3. **Start both services** — backend on port 3000, frontend on port 80
 
@@ -373,10 +379,15 @@ Expected response:
 {
   "status": "ok",
   "service": "ProjectAchilles",
-  "version": "1.0.0",
-  "timestamp": "2026-02-08T..."
+  "version": "2.11.0",
+  "commit": null,
+  "commit_short": null,
+  "branch": null,
+  "timestamp": "2026-11-15T..."
 }
 ```
+
+`commit` is filled in only when the image was built with the `GIT_COMMIT` build argument.
 
 ### 8.3 Verify Modules
 
@@ -384,10 +395,13 @@ After signing in, check each module:
 
 | Module | What to verify |
 |--------|----------------|
-| **Browser** | Test library loads (if test repo configured) |
+| **Tests** | Test library loads (the public library is synced by default) |
 | **Analytics** | Shows setup/configuration page (configure Elasticsearch later) |
 | **Agents** | Agent management page loads |
-| **Settings** | Certificate management and build settings accessible |
+| **Tasks** | Runs, Schedules and Campaigns tabs load |
+| **Settings** | Tabs load: General, Integrations, Tests (certificates), Agent, Users, API keys |
+
+A new account has no role and is read-only. Give yourself the admin role in Clerk first: see [Clerk roles](https://docs.projectachilles.io/docs/deployment/clerk-setup#first-admin).
 
 ---
 
@@ -409,7 +423,7 @@ Wait about 60 seconds for Elasticsearch to start and the seed data to load, then
 curl http://localhost:9200/_cluster/health
 ```
 
-The analytics module will auto-detect the local Elasticsearch instance. If not, configure it via **Settings** → **Analytics** in the UI, or set these in `backend/.env` and restart:
+The analytics module will auto-detect the local Elasticsearch instance. If not, configure it on the Analytics setup page (`http://localhost/analytics/setup`, node URL `http://elasticsearch:9200`, no credentials), or set these in `backend/.env` and restart:
 
 ```env
 ELASTICSEARCH_NODE=http://elasticsearch:9200
@@ -480,6 +494,8 @@ docker compose up -d --build
 ```
 
 If there are database schema changes, the backend handles migrations automatically on startup.
+
+Pull before you build a new agent version too: unless `AGENT_REPO_URL` is set, agent **Build from source** compiles the `agent/` folder of this checkout.
 
 ---
 
@@ -676,8 +692,8 @@ These volumes persist across container restarts and rebuilds. Only `docker compo
 
 After installation is complete:
 
-1. **Configure the test library** — Go to Settings in the UI to connect a Git repository with security tests
+1. **Sync the test library** — The public library is synced by default; use **Sync** on the Tests page to refresh it
 2. **Set up Elasticsearch** — Either use the local Docker profile or connect to Elastic Cloud for analytics
-3. **Upload certificates** — Go to Settings → Certificates to upload code signing certificates for Windows binary signing
-4. **Deploy agents** — Create enrollment tokens in the Agents module and deploy the Go agent to target endpoints
-5. **Explore the API** — See the [API Reference](README.md#api-reference) for all available endpoints
+3. **Add a certificate** — Go to **Settings → Tests** to generate or upload the code signing certificate for Windows binaries
+4. **Deploy agents** — Register an agent version in **Settings → Agent**, then click **Enroll agent** on the Agents page and run the command on the endpoint. To try it without a real machine, add the lab endpoint: `docker compose -f docker-compose.yml -f docker-compose.lab.yml up -d`, then `docker exec achilles-lab-endpoint enroll <TOKEN>`
+5. **Explore the API** — See the [API Reference](../../README.md#api-reference) for all available endpoints

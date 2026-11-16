@@ -17,9 +17,8 @@ All configuration is stored in the `~/.achilles/` directory:
 | `~/.achilles/config.json` | Main configuration (profiles, AI settings, defaults) |
 | `~/.achilles/auth.json` | Auth tokens for the `default` profile |
 | `~/.achilles/auth-{name}.json` | Auth tokens for named profiles |
-| `~/.achilles/history` | Command history |
 
-All files are created with **`0700`** (directory) or **`0600`** (files) permissions for security.
+The directory is created with mode **`0700`** and the files with mode **`0600`**, so only your user can read them.
 
 ## Config Commands
 
@@ -51,6 +50,8 @@ achilles config get ai.provider
 achilles config get defaults.page_size
 ```
 
+Secret values are never printed. `config list`, `config get` and `config set` show `(set, hidden)` for any key whose name ends in `api_key`, `token`, `secret`, `password` or `passphrase` (today that is `ai.api_key`). The value itself stays in `~/.achilles/config.json`.
+
 ## Setting Values
 
 ```bash
@@ -79,8 +80,10 @@ achilles config set defaults.page_size 100
 | `defaults.page_size` | number | `50` | Default pagination size |
 | `ai.provider` | string | `anthropic` | AI provider for chat mode |
 | `ai.model` | string | (per provider) | AI model name |
-| `ai.api_key` | string | | AI provider API key |
-| `ai.base_url` | string | | Custom API base URL (for Ollama) |
+| `ai.api_key` | string | | AI provider API key (shown as `(set, hidden)`) |
+| `ai.base_url` | string | | Custom API base URL (Ollama, other OpenAI-compatible servers) |
+
+A value that is a number is stored as a number; everything else is stored as text.
 
 ---
 
@@ -175,7 +178,7 @@ The chat agent requires an AI provider to be configured. Three providers are sup
 The AI provider resolves settings in this order:
 
 1. **CLI config** (`~/.achilles/config.json` -- `ai.*` keys)
-2. **Environment variables** (`ANTHROPIC_API_KEY`, `OPENAI_API_KEY`)
+2. **Environment variables** (`ANTHROPIC_API_KEY`, else `OPENAI_API_KEY`). The CLI does not match the variable to the provider: with both set and `ai.provider openai`, the Anthropic key is sent. Set only the one you use, or set `ai.api_key`
 3. **Defaults** (Anthropic with `claude-sonnet-4-6`)
 
 ### Setting Up Anthropic (Default)
@@ -184,6 +187,7 @@ The AI provider resolves settings in this order:
 # Option 1: Set in config
 achilles config set ai.provider anthropic
 achilles config set ai.api_key sk-ant-api03-...
+# ✓ ai.api_key = (set, hidden)
 
 # Option 2: Use environment variable
 export ANTHROPIC_API_KEY=sk-ant-api03-...
@@ -213,7 +217,7 @@ Ollama uses the OpenAI-compatible API, so the CLI creates an OpenAI provider ins
 
 ### Verifying AI Configuration
 
-When you launch `achilles chat`, the chat interface displays the active model in the status bar. If no API key is configured, you will see a warning:
+When you launch `achilles chat`, the chat interface displays the active model in the status bar. In piped (non-interactive) mode, if no API key is configured, you will see a warning:
 
 ```
   ⚠ No AI provider configured.

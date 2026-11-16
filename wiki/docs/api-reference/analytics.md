@@ -8,6 +8,8 @@ description: "REST API endpoints for ProjectAchilles analytics — defense score
 
 Endpoints under `/api/analytics/*` query the Elasticsearch-backed view of test results. All require `analytics:dashboards:read` permission (or higher); the configuration endpoints require `analytics:settings:read` / `analytics:settings:write`.
 
+With `REQUIRE_ORG_ISOLATION=true`, a caller without an organization gets `403` on every result endpoint. Responses that queried Elasticsearch carry a `Server-Timing` header (`es` = time spent waiting on Elasticsearch and the number of calls, `es-took` = time Elasticsearch reports).
+
 :::tip[Use the Programmatic Access guide for examples]
 This page is the **parameter reference**. For curl examples, common recipes (CI gates, SIEM forwarders, drift detection), and a walkthrough of the three score variants, read the [Programmatic Access guide](./programmatic-access.md).
 :::
@@ -25,7 +27,7 @@ Most endpoints accept the same filter vocabulary. Pass any combination:
 | `techniques` | string | Comma-separated MITRE ATT&CK technique IDs (e.g. `T1486,T1059`). |
 | `hostnames` | string | Comma-separated hostnames. |
 | `categories` | string | Comma-separated test categories. |
-| `severities` | string | Comma-separated severities: `low`, `medium`, `high`, `critical`. |
+| `severities` | string | Comma-separated severities: `low`, `medium`, `high`, `critical`. Still accepted; the console no longer shows or filters by severity. |
 | `threatActors` | string | Comma-separated threat-actor names. |
 | `tags` | string | Comma-separated tags. |
 | `errorNames` | string | Comma-separated error names (resolved from exit codes). |
@@ -49,12 +51,12 @@ If you don't pass `from`/`to`, every endpoint applies a **`now-7d`** date filter
 Under `latest`:
 
 - The date range sets the freshness window. It is capped at 365 days (All time becomes "last 365d").
-- Outcome filters (`result`, `errorCodes`, `errorNames`) select the pairs whose latest result matches. `result=protected|unprotected` follows the pair's verdict, the same rule the score counts: a Defender- or CrowdStrike-detected `101` is protected, and an `any-stage` bundle pair matches exactly one of the two. `errorCodes` and `errorNames` match any code or name in the latest result, so a bundle pair whose latest run mixes `101` and `126` matches both `errorCodes=101` and `errorCodes=126`.
+- Outcome filters (`result`, `errorCodes`, `errorNames`) select the pairs whose latest result matches. `result=protected|unprotected` follows the pair's verdict, the same rule the score counts: an EDR-detected `101` is protected, and an `any-stage` bundle pair matches exactly one of the two. `errorCodes` and `errorNames` match any code or name in the latest result, so a bundle pair whose latest run mixes `101` and `126` matches both `errorCodes=101` and `errorCodes=126`.
 - The server keeps each fetched pair set for up to 30 seconds and reuses it across requests with the same filters (outcome filters aside), so a relative range such as `now-7d` can be up to 30 seconds stale.
 - Under `latest`, `from`/`to` accept `now`, `now-<n><unit>` (units `d`, `h`, `w`, `m` or `M`, where `m`/`M` = 30 days) and ISO dates. ES date math such as `now/d` is rejected, as is an unparseable or reversed range, with `400 Invalid date range`.
 - `result=inconclusive` yields no pairs under `latest`, because only conclusive results are scored.
-- These endpoints accept `basis=latest`: `/defense-score`, `/defense-score/trend`, `/defense-score/by-category-subcategory`, `/defense-score/by-hostname`, `/technique-distribution`, `/test-coverage`. Their counts become pairs. For `test-coverage`, pairs are grouped by test name; each pair is one host × test, so each count is a number of hosts. `technique-distribution` always scores **per stage**, even with `scoringMode=any-stage`. Each bundle control is its own pair, judged by its own latest result, so a technique shows unprotected when its own stage got through, even if another stage of the same bundle was stopped. An EDR detection counts for a stage only when the EDR's alert matched that stage itself (`<vendor>_stage_detected`); an alert that named only the bundle, or another of its stages, does not make the stage detected.
-- These endpoints are executions-only and ignore `basis=latest`: `by-test`, `by-technique`, `by-severity`, `by-category`, `by-org`, `threat-actor-coverage`.
+- These endpoints accept `basis=latest`: `/defense-score`, `/defense-score/trend`, `/defense-score/by-category-subcategory`, `/defense-score/by-hostname`, `/technique-distribution`, `/test-coverage`, `/threat-actor-coverage`. Their counts become pairs. For `test-coverage`, pairs are grouped by test name; each pair is one host × test, so each count is a number of hosts. `technique-distribution` always scores **per stage**, even with `scoringMode=any-stage`. Each bundle control is its own pair, judged by its own latest result, so a technique shows unprotected when its own stage got through, even if another stage of the same bundle was stopped. An EDR detection counts for a stage only when the EDR's alert matched that stage itself (`<vendor>_stage_detected`); an alert that named only the bundle, or another of its stages, does not make the stage detected.
+- These endpoints are executions-only and ignore `basis=latest`: `by-test`, `by-technique`, `by-severity`, `by-category`, `by-org`.
 
 ## Endpoints
 
@@ -70,11 +72,11 @@ Returns the aggregate defense score and breakdown counts for the filtered window
 
 ```jsonc
 {
-  "score": 54.59,            // EDR-protected OR Defender-detected, risk-accepted excluded
-  "realScore": 53.21,        // EDR-protected only, risk-accepted excluded
-  "rawScore": 53.83,         // EDR-protected OR Defender-detected, WITHOUT risk-acceptance exclusion
-  "protectedCount": 1391,    // strictly EDR-protected
-  "detectedCount": 36,       // Defender caught (EDR missed)
+  "score": 54.59,            // blocked OR detected by a connected EDR, risk-accepted excluded
+  "realScore": 53.21,        // blocked only, risk-accepted excluded
+  "rawScore": 53.83,         // blocked OR detected, WITHOUT risk-acceptance exclusion
+  "protectedCount": 1391,    // blocked
+  "detectedCount": 36,       // not blocked, but an EDR alert matched the test
   "unprotectedCount": 1187,  // neither
   "totalExecutions": 2614,   // = protected + detected + unprotected
   "riskAcceptedCount": 37    // excluded from totalExecutions
@@ -132,7 +134,7 @@ GET /api/analytics/defense-score/by-category-subcategory
 GET /api/analytics/defense-score/by-hostname
 ```
 
-All accept the shared filter parameters and return protected/unprotected counts grouped by the named dimension.
+All accept the shared filter parameters and return protected/unprotected counts grouped by the named dimension. `by-test` takes `limit` (default 10) and `by-hostname` takes `limit` (default 50). `by-technique` defaults to `scoringMode=all-stages`.
 
 ### Recent Executions
 
@@ -163,7 +165,7 @@ Filtered, grouped, paginated execution results. Accepts every shared filter plus
 | Param | Type | Description |
 |-------|------|-------------|
 | `page` | number | Page number (1-indexed, default 1). |
-| `pageSize` | number | Results per page (default 25). |
+| `pageSize` | number | Results per page (default 25, maximum 100; a larger value is lowered to 100). To export every matching result, request page after page until `hasNext` is `false`. |
 | `sortField` | string | Field to sort by. |
 | `sortOrder` | string | `asc` or `desc`. |
 | `grouped` | boolean | If true, groups results by bundle/standalone identity. |
@@ -260,9 +262,9 @@ Splits the latest result of each test x endpoint pair into the four outcomes the
 GET /api/analytics/chain-depth
 ```
 
-Accepts the shared filter parameters. For each multi-stage (non-cyber-hygiene) chain, it takes the latest run on each host and reports the stage where it was blocked (by the endpoint, exit 105/126/127, or by the EDR's own action on an error-coded stage, which the Executions view labels Prevented). Response fields: `chains`, `buckets` (`[{ stage, blocked, alertedNotBlocked, bundleNames }]`), `endToEnd`, `endToEndAlerted`, `endToEndBundleNames`, `endToEndAlertedBundleNames`, `endToEndUndetectedBundleNames`, `inconclusive`, `blockedBeforeRun`, `blockedBeforeRunBundleNames`, and `stageErrors`. There are always four buckets, `stage` 1, 2, 3 and 4, where 4 means "4+" (blocked at stage 4 or later). `alertedNotBlocked` counts the bucket's chains where an EDR (Defender or CrowdStrike) detected a stage without blocking it. `endToEndAlerted` has the same alerted-not-blocked meaning for the chains that ran end to end. `endToEndAlertedBundleNames` and `endToEndUndetectedBundleNames` list the bundles behind those two groups; a bundle appears in both when its chains differ by host. Chains whose latest run had a stage error or a pre-execution block are counted in `inconclusive` only, which splits into `blockedBeforeRun` (a stage was blocked before it ran, exit 260; the technique was not evaluated; `blockedBeforeRunBundleNames` lists the bundles) and `stageErrors` (for example exit 999). A run with both counts as `blockedBeforeRun`. An error or pre-execution block on a stage numbered after the run's first blocked stage doesn't make the run inconclusive: the chain was already stopped, so it counts at that stage (chains that keep running after a block, such as The Gentlemen, can error later). An error before the first block, or a stage without a `Stage N` number, keeps the run inconclusive. Runs where an EDR killed the agent mid-test (see [Exit Codes & Outcomes](../user-guide/analytics/exit-codes-and-outcomes.md#6-agent-terminated-by-the-edr)) carry no stages: they are counted in `chains` and in the new `agentTerminated` count, with `agentTerminatedBundleNames` listing their bundles, and are never placed in a stage bucket (the UI shows "Stopped by EDR, stage unknown: N"). A blocked chain's stage is its lowest-numbered blocked stage (from the `Stage N` validator), so a chain that keeps running after a block, such as LockBit `298cc137`, counts where it was first stopped, and `alertedNotBlocked` counts only detections on stages before that one. Runs without stage numbers fall back to the number of stages that ran, which gives the same stage for chains that stop at the first block.
+Accepts the shared filter parameters. For each multi-stage (non-cyber-hygiene) chain, it takes the latest run on each host and reports the stage where it was blocked (by the endpoint, exit 105/126/127, or by the EDR's own action on an error-coded stage, which the Executions view labels Prevented). Response fields: `chains`, `buckets` (`[{ stage, blocked, alertedNotBlocked, bundleNames }]`), `endToEnd`, `endToEndAlerted`, `endToEndBundleNames`, `endToEndAlertedBundleNames`, `endToEndUndetectedBundleNames`, `inconclusive`, `blockedBeforeRun`, `blockedBeforeRunBundleNames`, and `stageErrors`. There are always four buckets, `stage` 1, 2, 3 and 4, where 4 means "4+" (blocked at stage 4 or later). `alertedNotBlocked` counts the bucket's chains where a connected EDR detected a stage without blocking it. `endToEndAlerted` has the same alerted-not-blocked meaning for the chains that ran end to end. `endToEndAlertedBundleNames` and `endToEndUndetectedBundleNames` list the bundles behind those two groups; a bundle appears in both when its chains differ by host. Chains whose latest run had a stage error or a pre-execution block are counted in `inconclusive` only, which splits into `blockedBeforeRun` (a stage was blocked before it ran, exit 260; the technique was not evaluated; `blockedBeforeRunBundleNames` lists the bundles) and `stageErrors` (for example exit 999). A run with both counts as `blockedBeforeRun`. An error or pre-execution block on a stage numbered after the run's first blocked stage doesn't make the run inconclusive: the chain was already stopped, so it counts at that stage (chains that keep running after a block, such as The Gentlemen, can error later). An error before the first block, or a stage without a `Stage N` number, keeps the run inconclusive. Runs where an EDR killed the agent mid-test (see [Exit Codes & Outcomes](../user-guide/analytics/exit-codes-and-outcomes.md#6-agent-terminated-by-the-edr)) carry no stages: they are counted in `chains` and in the new `agentTerminated` count, with `agentTerminatedBundleNames` listing their bundles, and are never placed in a stage bucket (the UI shows "Stopped by EDR, stage unknown: N"). A blocked chain's stage is its lowest-numbered blocked stage (from the `Stage N` validator), so a chain that keeps running after a block, such as LockBit `298cc137`, counts where it was first stopped, and `alertedNotBlocked` counts only detections on stages before that one. Runs without stage numbers fall back to the number of stages that ran, which gives the same stage for chains that stop at the first block.
 
-The row endpoints (`GET /api/analytics/executions` and `/executions/paginated`) add `edr_terminated` (`true` for a run proven to be killed by the EDR), `edr_terminated_vendors` (`defender`, `crowdstrike`, `sentinelone`), `edr_terminated_alert_ids` (the alert ids that are the evidence) and `stages_unknown`. These rows are Protected as a whole and are excluded from the technique endpoints.
+The row endpoints (`GET /api/analytics/executions` and `/executions/paginated`) add `edr_terminated` (`true` for a run proven to be killed by the EDR), `edr_terminated_vendors` (for example `defender`, `crowdstrike`, `sentinelone`), `edr_terminated_alert_ids` (the alert ids that are the evidence) and `stages_unknown`. These rows are Protected as a whole and are excluded from the technique endpoints.
 
 ### Stage Coverage
 
@@ -342,7 +344,7 @@ Only real test results are counted: upload confirmations (exit 200) and Skipped 
 ```
 GET /api/analytics/unique-hostnames       — distinct host count
 GET /api/analytics/unique-tests           — distinct test count (a bundle counts once, not once per stage)
-GET /api/analytics/canonical-test-count   — count of canonical (deduped) tests: standalone test names plus bundle names
+GET /api/analytics/canonical-test-count   — count of canonical (deduped) tests: standalone test names plus bundle names (`days`, default 90)
 GET /api/analytics/organizations          — known organizations
 GET /api/analytics/available-tests        — all tests with any execution
 GET /api/analytics/executed-test-uuids    — every test UUID that has been executed
@@ -379,22 +381,28 @@ POST /api/analytics/executions/archive          — archive by group keys
 POST /api/analytics/executions/archive-by-date  — archive everything before a date
 ```
 
-Require `analytics:executions:archive` permission. See the [Programmatic Access guide](./programmatic-access.md) for the response envelope and idempotency notes.
+Require `analytics:executions:archive` permission. Bodies: `{ "groupKeys": ["bundle::...", "standalone::..."] }` (1 to 500 keys, as returned by the grouped executions list) and `{ "before": "<ISO date>" }`. Both return `{ "success": true, "archived": n, "errors": [...] }`. A caller in an organization archives only its own organization's results. See the [Programmatic Access guide](./programmatic-access.md) for the response envelope and idempotency notes.
 
 ### Index Management
 
 ```
-GET  /api/analytics/indices       — list configured indices
+GET  /api/analytics/indices       — list Achilles indices
 POST /api/analytics/index/create  — create a new index (requires analytics:index:create)
 ```
+
+`/indices` takes an optional `pattern` (default `achilles-results-*`). It must name Achilles indices (`achilles-*` or `archived-achilles*`), else `400`. `/index/create` takes `{ "index_name": "achilles-results-engagement1" }` (lowercase letters, digits and hyphens).
 
 ### Configure Elasticsearch
 
 ```
 GET  /api/analytics/settings      — fetch current settings (masked)
 POST /api/analytics/settings      — save settings (requires analytics:settings:write)
-POST /api/analytics/settings/test — test a candidate configuration
+POST /api/analytics/settings/test — test a candidate configuration (requires analytics:settings:write)
 ```
+
+- The settings response masks `cloudId` and `caCert` and never returns the API key or password. It also has `writeIndexPrefix` (default `achilles-results-`) and `writeIndexRollover` (`none`, `daily` or `monthly`; default `none`).
+- The Elasticsearch connection is shared by the whole install. Saving settings and creating an index return `403` for a caller signed in to an organization.
+- Saved credentials are reused only when a save or test targets the saved cluster (same connection type, Cloud ID or node URL). For any other target, send the credentials in the request.
 
 Stored encrypted at rest (AES-256-GCM) in `~/.projectachilles/analytics.json` on filesystem deployments, or in Vercel Blob on serverless.
 

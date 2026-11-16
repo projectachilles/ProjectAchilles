@@ -28,11 +28,13 @@ Environment variable equivalents: `ELASTICSEARCH_WRITE_INDEX_PREFIX` and `ELASTI
 
 ## Viewing Indices
 
-The read-only index list in Analytics settings shows all indices matching the configured pattern, with document count, size, and creation date.
+The read-only **Index Management** list in the Elasticsearch settings (**Settings → Integrations**) shows every results index (`achilles-results-*`) with its document count, size and health. Select a row to use that index as the index pattern.
 
 ## Per-Task Index Targeting
 
-When creating a task or schedule, you can specify a target Elasticsearch index under **Advanced** (the default is the global write index). Results from that task are ingested into the specified index instead.
+When creating a task or schedule, you can pick a **Target Index** under **Advanced** (the default is the global write index). Results from that task are ingested into that index instead.
+
+The list offers the existing results indices. Through the API, `target_index` must name an Achilles results index (`achilles-results-…`, lower case); any other name is rejected with a 400, because results are written with the backend's own Elasticsearch credentials.
 
 This is useful for:
 - **Engagement isolation** — Keep results from different engagements separate

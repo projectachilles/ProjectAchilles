@@ -24,7 +24,8 @@ This project adheres to a [Code of Conduct](CODE_OF_CONDUCT.md). By participatin
 - **Node.js** 22.x or higher
 - **npm** 10.x or higher
 - **Git**
-- **Go** 1.24+ (optional — only needed for agent development)
+- **Go** 1.26+ (optional — only needed for agent or installer development)
+- **Bun** 1.3+ (optional — only needed for CLI development)
 - **Docker** and Docker Compose (optional — for containerized development)
 
 ### Setting Up Your Development Environment
@@ -54,9 +55,15 @@ ProjectAchilles/
 ├── frontend/              # React 19 + TypeScript + Vite
 ├── backend/               # Express + TypeScript (ES modules)
 ├── backend-serverless/    # Vercel serverless fork (Turso + Vercel Blob)
+├── cli/                   # Bun + TypeScript CLI (`achilles`) with AI chat agent
 ├── agent/                 # Go agent source (cross-platform)
-├── scripts/               # Shell scripts (start.sh, setup.sh, etc.)
-├── docs/                  # Documentation (deployment, security, plans)
+├── installer/             # achilles-installer: Go TUI for Linux server installs
+├── appliance/             # Windows Hyper-V appliance image build
+├── deploy/                # Caddy config, lab endpoint, offline kit
+├── wiki/                  # Docusaurus documentation site (docs.projectachilles.io)
+├── blog/                  # Next.js blog (blog.projectachilles.io)
+├── scripts/               # Shell scripts (start.sh, setup.sh, deploy-server.sh, etc.)
+├── docs/                  # Documentation (deployment, security, changelog)
 ├── docker-compose.yml     # Multi-service deployment
 └── CLAUDE.md              # Development guidance
 ```
@@ -96,6 +103,7 @@ git checkout -b feature/your-feature-name
 2. **Ensure your changes work**
    - Test locally with `./scripts/start.sh -k --daemon`
    - Verify no TypeScript errors: `cd frontend && npm run build` and `cd backend && npm run build`
+   - Run the tests of each package you changed (see [Testing](#testing))
    - If modifying Go agent: `cd agent && go build ./...`
    - If modifying Docker: `docker compose build`
 
@@ -249,7 +257,7 @@ We follow [Conventional Commits](https://www.conventionalcommits.org/):
 
 ### Scopes
 
-Common scopes: `frontend`, `backend`, `backend-serverless`, `agent`, `analytics`, `browser`, `docker`, `settings`, `certs`, `deps`
+Scopes: `frontend`, `backend`, `backend-serverless`, `agent`, `analytics`, `browser`, `docker`, `render`, `vercel`, `fly`, `settings`, `certs`, `deps`, `ci`, `release`, `wiki`, `installer`
 
 ### Examples
 
@@ -266,13 +274,13 @@ docs(readme): update architecture diagram
 ### Automated Tests (Vitest)
 
 ```bash
-# Backend (912 tests across 40 files)
+# Backend
 cd backend && npm test
 
-# Frontend (127 tests across 8 files)
+# Frontend
 cd frontend && npm test
 
-# Backend Serverless (626 tests across 25 files)
+# Backend Serverless (change it too when you change shared logic in backend/)
 cd backend-serverless && npm test
 
 # Single test file
@@ -283,7 +291,12 @@ cd backend && npx vitest -t "creates a token"
 
 # Watch mode
 cd backend && npm run test:watch
+
+# CLI
+cd cli && bun run typecheck && bun run test
 ```
+
+CI runs `npm ci`, `npm run build`, then `npm test` for `backend`, `frontend` and `backend-serverless` on every pull request.
 
 Test file pattern: `src/**/__tests__/**/*.test.{ts,tsx}`
 
@@ -313,6 +326,7 @@ cd backend && npm run build
 ```bash
 cd agent && go build ./...
 cd agent && go test ./...
+cd installer && go test ./...   # if you changed the installer
 ```
 
 ### Docker Validation (if applicable)
@@ -330,6 +344,7 @@ docker compose ps
 
 - Adding new features
 - Changing API endpoints
+- Changing what a page shows (labels, tabs, navigation)
 - Modifying configuration options
 - Updating dependencies with breaking changes
 - Adding new modules or services
@@ -342,29 +357,32 @@ docker compose ps
 - `.github/SECURITY.md` - Security policy and architecture
 - `docs/CHANGELOG.md` - Version history
 - `docs/ROADMAP.md` - Planned features and direction
+- `wiki/docs/` - User guide, API reference and deployment docs, published at [docs.projectachilles.io](https://docs.projectachilles.io). `./scripts/check-docs-drift.sh` lists the wiki pages mapped to the code you changed
+
+Say "organization", not "customer", and never put a real secret, hostname or organization name in a doc; use placeholders.
 
 ## Releasing
 
-Releases are managed through Claude Code commands and GitHub Actions. See `docs/RELEASING.md` for the full guide.
+Releases are managed through GitHub Actions (maintainers also use local Claude Code commands). See `docs/RELEASING.md` for the full guide.
 
 ### Quick Reference
 
 | Stream | Tag format | Workflow | Example |
 |--------|-----------|----------|---------|
-| Platform | `vX.Y.Z` | `release.yml` | `v2.0.0` |
-| Agent | `agent-vX.Y.Z` | `release-agent.yml` | `agent-v0.7.0` |
+| Platform | `vX.Y.Z` | `release.yml`, `appliance.yml` | `v2.11.0` |
+| Agent | `agent-vX.Y.Z` | `release-agent.yml` | `agent-v0.7.4` |
 
 ### Process
 
-1. Ensure all tests pass and you're on `main`
-2. Run `/release` in Claude Code for an interactive flow, or manually:
+1. Ensure all tests pass
+2. On a release branch:
    - Update version numbers in package.json files (platform) or Makefile + main.go (agent)
    - Update `docs/CHANGELOG.md` with a new version section
-   - Commit: `chore(release): vX.Y.Z`
-   - Tag: `git tag vX.Y.Z`
-   - Push: `git push origin main --tags`
-3. GitHub Actions automatically creates the GitHub Release
-   - Agent releases also build, sign, and attach binaries for all platforms
+   - Commit: `chore(release): vX.Y.Z`, then open a pull request
+3. After the PR is merged, tag the merge commit and push only the tag: `git tag vX.Y.Z && git push origin vX.Y.Z`. The workflows refuse a tag that is not on `main`
+4. GitHub Actions creates the GitHub Release
+   - Platform releases attach the `achilles-installer` binaries and publish the Hyper-V appliance
+   - Agent releases build, sign, and attach binaries for all platforms
 
 ### Who Can Release
 

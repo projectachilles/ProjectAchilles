@@ -58,8 +58,8 @@ Validation only works if the platform can live next to the endpoints it tests, k
 - **On-prem LAN.** One command on a Linux server opens an install wizard. It creates a ProjectAchilles CA name-constrained to your DNS zone, so endpoints can trust it without trusting it for anything else. No public IP or inbound internet is needed.
 - **Windows Hyper-V.** A prebuilt [appliance VM](wiki/docs/deployment/appliance.md), imported by a script that verifies its checksum, then the same wizard. You don't manage Linux yourself.
 - **Cloud server.** The same wizard on a VPS switches to Let's Encrypt.
-- **Managed platforms.** Render, Fly.io and Railway run the same backend. Vercel runs a serverless edition on Turso and Vercel Blob.
-- **Laptop.** Docker Compose, with optional synthetic data for evaluation.
+- **Managed platforms.** Render and Fly.io run the same backend. Vercel runs a serverless edition on Turso and Vercel Blob.
+- **Laptop.** Docker Compose, with optional synthetic data for evaluation, a throwaway [lab endpoint](deploy/lab-endpoint/README.md) to enroll, and an [offline kit](deploy/offline-kit/README.md) for workshops on a slow network.
 
 Every target except Vercel runs the same `backend/`, so a fix ships to all of them at once. See [Deployment Targets](#deployment-targets).
 
@@ -102,7 +102,7 @@ ProjectAchilles is a continuous security validation platform with four core comp
 
 2. **Execution Framework** — A lightweight Go agent deployed to endpoints (Windows, Linux, macOS) that executes security tests on demand or on schedule, reports results with cryptographic integrity, and self-updates without downtime.
 
-3. **Analytics & Measurement** — An Elasticsearch-backed dashboard that quantifies defense readiness with scores, heatmaps, trend analysis, and MITRE ATT&CK coverage matrices — turning raw test results into actionable intelligence for security teams and leadership.
+3. **Analytics & Measurement** — An Elasticsearch-backed dashboard that quantifies defense readiness with scores, outcome and stage breakdowns, trend analysis, and a MITRE ATT&CK coverage matrix — turning raw test results into actionable intelligence for security teams and leadership.
 
 4. **CLI & AI Agent** — A Bun-powered command-line tool (`achilles`) with 18 command modules for platform management — including a unified `achilles deploy` TUI — and an AI conversational agent mode powered by Vercel AI SDK for natural-language fleet operations.
 
@@ -132,7 +132,7 @@ That one command:
 
 1. clones the latest release into `/opt/projectachilles`;
 2. downloads the `achilles-installer` binary for your architecture (amd64 or arm64) and **verifies it against the release's `SHA256SUMS`**, refusing to run on a mismatch;
-3. opens a ten-screen terminal wizard: preflight, network and DNS name, certificates, Clerk login, analytics, organisation, review, live install, and done.
+3. opens a ten-screen terminal wizard: welcome, preflight, network and DNS name, certificates, Clerk login, analytics, organisation, review, live install, and done.
 
 <p align="center">
   <img src="wiki/static/img/screenshots/onprem-review.png" alt="achilles-installer review screen — hostname, LAN IP, ProjectAchilles CA constrained to the DNS zone, Clerk keys, and Elasticsearch mode before installing" width="700">
@@ -209,7 +209,6 @@ The PowerShell script checks prerequisites, fixes line endings, configures `back
 | **Public server (VPS/droplet)** | `scripts/deploy-server.sh` or `scripts/deploy-do.sh` | SQLite (volume) | Yes | [Public Server Guide](docs/deployment/SELF_HOSTED_SERVER.md) |
 | **On-prem server over SSH** | `scripts/deploy-remote.sh user@host` | SQLite (volume) | Yes | [On-Prem Guide](docs/deployment/ON_PREM_SERVER.md) |
 | **Docker Compose** | `scripts/setup.sh` + `docker compose up -d` | SQLite (volume) | Yes | [docker-compose.yml](docker-compose.yml) |
-| **Railway** | Railway dashboard | SQLite (volume) | Partial | [Railway Guide](docs/deployment/RAILWAY.md) |
 | **Render** | Blueprint (`render.yaml`) | SQLite (persistent disk) | Partial | [Render Guide](docs/deployment/RENDER.md) |
 | **Fly.io** | `flyctl` | SQLite (volume) | Yes | [Fly.io Guide](docs/deployment/FLY.md) |
 | **Vercel** | Two Vercel projects (`backend-serverless/` + `frontend/`) | Turso (libSQL) | No | [Vercel Guide](docs/deployment/VERCEL.md) |
@@ -223,15 +222,15 @@ The three server targets share one engine (`scripts/deploy-server.sh` + `docker-
 One landing page for posture across the test library, the endpoint fleet, and Elasticsearch analytics — replacing the three separate module dashboards.
 
 <p align="center">
-  <img src="docs/screenshots/security-dashboard.png" alt="Security Dashboard — attention banner, KPI strip, trend overview, testing cadence, ATT&CK outcome matrix, and threat-actor readiness" width="800">
+  <img src="docs/screenshots/security-dashboard.png" alt="Security Dashboard — time-range and attention chips under the header, KPI row with Defense Score, Secure Score, tests and agents online, then trend overview, testing cadence, ATT&CK outcome matrix, threat-actor readiness, top remediation controls, fleet health and recent executions" width="800">
 </p>
 
-- **Attention banner** — derived, never stored: offline agents, stale agents, failed tasks in the last 24 h, outdated binaries, and git sync failures, each linking to the page that resolves it
-- **KPI strip** — Defense Score, Secure Score, total tests, average score, agents online, executions in the window
+- **Attention chips** — a quiet row of counts, derived and never stored: offline agents, stale agents, failed tasks in the last 7 days, outdated agents, and a failed library sync, each linking to the page that resolves it
+- **KPI strip** — Defense Score, Secure Score, total tests, average score, agents online; a CrowdStrike ZTA score and a Sophos Health Check tile join when those integrations are configured
 - **Scores what is true now** — the Defense Score counts the **latest result per test × endpoint pair**, so an old failure that has since been fixed stops dragging the score down; the tile and the trend share that basis
-- **Cards** — trend overview, testing cadence, ATT&CK outcome matrix (prevented / detected / missed per technique), threat-actor readiness, top remediation controls, fleet health, recent executions
+- **Cards** — trend overview, testing cadence, ATT&CK outcome matrix (stopped / partial / got through per technique), threat-actor readiness, top remediation controls, fleet health, recent executions
 - **Shared time range** with Analytics (24 h, 7 d, 30 d, 90 d, All; default 30 days), remembered across pages
-- **Per-card degradation** — an unconfigured integration greys out its own card with a "Configure →" link; the dashboard never redirects you away
+- **Per-card degradation** — a card whose data source is not connected says so in place (with a "Set up analytics →" link for Elasticsearch); the dashboard never redirects you away
 
 ### Console & Navigation
 
@@ -240,13 +239,13 @@ A single dark **f0 design language** across every screen — terminal-green acce
 | Destination | What lives there |
 |-------------|------------------|
 | **Dashboard** | Unified posture across tests, endpoints, and analytics |
-| **Tests** | The test library with a faceted browse rail |
+| **Tests** | The test library with a faceted browse rail, library sync, and a tabbed briefing page per test |
 | **Analytics** | Defense Score, executions, risk acceptances, Defender, CrowdStrike, SentinelOne, Sophos |
 | **Agents** | Fleet table plus the fleet-pulse utility rail |
-| **Tasks** | Live task stream, scheduled tasks, task detail |
-| **Settings** | Integrations, tests, agent binaries, users, API keys |
+| **Tasks** | Runs (live task stream and task detail), Schedules, Campaigns |
+| **Settings** | General (console identity), integrations, tests, agent binaries, users, API keys |
 
-Keyboard shortcuts: `1`–`6` jump between destinations, `/` focuses page search, `⌘K` opens global search, `?` lists every shortcut. Every pre-2.1 URL (`/browser`, `/endpoints/*`, `/favorites`, …) redirects, so existing bookmarks keep working.
+Keyboard shortcuts: `1`–`6` jump between destinations, `/` focuses page search, `⌘K` opens global search, `?` lists every shortcut. Every pre-2.1 URL (`/browser`, `/endpoints/*`, `/favorites`, …) redirects, and so does `/campaigns`, so existing bookmarks keep working. A [console identity](wiki/docs/user-guide/settings/console-identity.md) (code, name and colour, set in Settings → General) marks every page, so two installs are never confused; it is not available on Vercel.
 
 ### AI-Powered Test Development
 
@@ -271,11 +270,11 @@ Threat Intelligence Article
 | Test binary | Go (Windows, Linux, macOS) | Executes the simulated technique on the endpoint |
 | Detection rules | KQL, YARA, Sigma, Elastic EQL, LimaCharlie | Import directly into your SIEM/EDR |
 | Hardening scripts | PowerShell, Bash (Linux + macOS) | Remediate gaps found by the test |
-| Documentation | Markdown (README + info card) | MITRE mapping, severity, threat actor context |
+| Documentation | Markdown (README + info card) | MITRE mapping, threat actor context |
 | Kill chain diagram | Interactive HTML | Visualizes multi-stage attack flow |
 
 <p align="center">
-  <img src="docs/screenshots/test-detail-killchain.png" alt="Test detail view — ATT&CK technique cards and a five-stage kill chain diagram beside documentation, build artifacts and source files" width="800">
+  <img src="docs/screenshots/test-detail-killchain.png" alt="Test briefing page — test name with threat actor, platform, stage count and modified date above the tabs (Overview, README, Info card, Detection, Defense, Source, Kill chain); the Overview tab shows the ordered stage chain with fleet results per stage beside the Deploy, On your fleet, Quality and Ships with panels" width="800">
 </p>
 
 **Test categories:**
@@ -311,13 +310,13 @@ A Bun-powered command-line interface for managing the entire platform from the t
 - **CrowdStrike** — ZTA posture score, alerts, cross-correlation
 - **Build system** — Trigger cross-compilation, manage certificates
 - **Risk acceptance** — Accept/revoke risk on individual controls
-- **User management** — List and inspect Clerk users
+- **User management** — List and inspect Clerk users (read-only; changes need a browser session)
 - **Deployment** — Unified `achilles deploy` TUI that walks through multi-target deployments (interactive or headless)
 
 **Key features:**
 - `--json` flag on every command for structured output (scripts, LLM consumption)
 - Multi-profile server configuration (`achilles config profile`)
-- Clerk device-flow authentication (`achilles login`)
+- Clerk device-flow authentication (`achilles login`): you open the link in a signed-in browser and type the code the terminal shows; the token is bound to the server that issued it
 - AI chat mode with Ink TUI (interactive) or readline fallback (piped)
 - Interactive AI chat shows every state-changing proposal and its exact parameters, then requires a unique typed confirmation before calling the API
 - Piped and other non-interactive chat sessions are read-only because they have no trusted terminal approval channel
@@ -327,22 +326,23 @@ A Bun-powered command-line interface for managing the entire platform from the t
 Browse the full test library with rich metadata and execute tests directly from the UI.
 
 <p align="center">
-  <img src="docs/screenshots/tests.png" alt="Tests — facet rail with category, platform and threat-actor filters beside the list view with techniques, platform, stages, fleet result and score per test" width="800">
+  <img src="docs/screenshots/tests.png" alt="Tests — header with the test count and the library sync chip; facet rail with view, category, platform and threat-actor filters beside the list with techniques, platform, stages, fleet result and score per test" width="800">
 </p>
 
-- **Facet rail** — category, platform, threat actor, and a "not run yet" toggle, with live counts and client-side filtering
-- **Grid or list view** — tests grouped by category; the list view adds per-test fleet results (techniques, platform, stages, score) with columns that appear as the screen widens
-- View source code, detection rules, hardening scripts, and attack flow diagrams
+- **Facet rail** — all / favorites / recently viewed, category, platform, threat actor, and "Not run yet" / "Has binary" toggles, with live counts and client-side filtering
+- **List view** — one row per test with techniques, platform, stages, fleet result and score; columns appear as the screen widens
+- **Library sync** — the sync chip in the page header shows branch, commit and last sync, and pulls the test library on demand
+- **Briefing page** — each test opens on an Overview built from its own docs (what it does, ordered stages, safety notes) with fleet results per stage; further tabs hold the README, info card, detection rules, defense guidance, source, kill chain and attack flow ([guide](wiki/docs/user-guide/test-browser/test-detail-pages.md))
 - Build, sign, and download test binaries directly from test detail pages
 - Dispatch a test to selected agents, now or on a schedule
-- Favorite tests, track recent views, view version history and Git modification dates
+- Favorite tests, track recent views, see Git modification dates
 
 ### Execution Framework
 
 Deploy a lightweight Go agent to endpoints for remote test execution with full lifecycle management.
 
 <p align="center">
-  <img src="docs/screenshots/agents.png" alt="Agents — outdated-version banner with Update All, fleet pulse rail with online/offline ring, version rollout, groups, key rotation and binaries beside the grouped agent table" width="800">
+  <img src="docs/screenshots/agents.png" alt="Agents — attention row with an outdated-agents chip and Update all, fleet pulse rail with online/offline ring, version rollout, groups, key rotation and binaries beside the grouped agent table" width="800">
 </p>
 
 - **Enrollment** — Token-based registration with configurable TTL and max uses
@@ -354,12 +354,14 @@ Deploy a lightweight Go agent to endpoints for remote test execution with full l
 - **Zero-Downtime Key Rotation** — API keys rotated automatically via heartbeat with dual-key grace period
 - **Encrypted Config** — Agent credentials encrypted at rest with AES-256-GCM using machine-bound keys
 - **Remote Uninstall** — Two-phase agent removal (stop service + cleanup) initiated from admin UI
-- **Pre-execution blocks recorded, not failed** — when Defender ASR or application control denies launch of a fresh test binary, agent 0.7.0+ reports exit code `260` (inconclusive, excluded from the Defense Score) with the remedy, instead of leaving the task stuck
+- **Pre-execution blocks recorded, not failed** — when Defender ASR or application control denies launch of a fresh test binary, agent 0.7.0+ reports exit code `260` (inconclusive, excluded from the Defense Score) with the remedy, instead of leaving the task stuck. When an EDR's own prevention alert proves it blocked the launch, the run counts as Protected
 - **Per-stage descriptions** — each stage's plain-language "what this does" travels with the result into run detail
 - **Pinned LAN enrollment** — on `achilles-installer` deployments, one bootstrap script verifies the root CA fingerprint, trusts it, installs the agent into a locked-down `C:\F0`, and enrolls
+- **Cleans up after itself** — the agent removes a test's binaries after each run and sweeps leftover task folders at startup; its own files are never touched
+- **Endpoint prerequisites** — distributing the signing certificate, the per-rule Defender ASR exclusion for `C:\F0`, application control, and what to expect from each EDR: [guide](wiki/docs/deployment/endpoint-prerequisites.md)
 
 - **Fleet utility rail** — online/offline/stale ring, version rollout, groups, key-rotation settings, and per-platform binary downloads beside the agent table
-- **Live task stream** — chronological view with date markers, collapsible batch rows, a detail panel, an expanded stdout/stderr view, and one-click retry for failed test tasks
+- **Live task stream** — chronological view with date markers, collapsible batch rows, task-type pills, the outcome of each test run (not just "failed"), a detail panel with copyable stdout/stderr and who requested the task, and one-click retry for failed test tasks. Deleting a finished task archives it instead of discarding it
 
 <details>
 <summary>More: heartbeat monitoring &amp; task stream</summary>
@@ -368,7 +370,7 @@ Deploy a lightweight Go agent to endpoints for remote test execution with full l
   <img src="docs/screenshots/agent-heartbeat.png" alt="Agent heartbeat — CPU usage, memory usage, and disk free charts over 7 days" width="800">
 </p>
 <p align="center">
-  <img src="docs/screenshots/tasks.png" alt="Tasks — KPI strip above the live task stream, with a selected task's detail panel showing agent, duration, exit code and stdout" width="800">
+  <img src="docs/screenshots/tasks.png" alt="Tasks — Runs / Schedules / Campaigns tabs beside the title, a one-line 7-day summary of test outcomes, task-type pills and status filter above the live task stream, with a selected task's detail panel showing agent, requester, duration, exit code and output" width="800">
 </p>
 </details>
 
@@ -377,35 +379,37 @@ Deploy a lightweight Go agent to endpoints for remote test execution with full l
 Quantify your security posture with 30+ query endpoints powered by Elasticsearch.
 
 <p align="center">
-  <img src="docs/screenshots/analytics-dashboard.png" alt="Analytics dashboard — results by error type, ATT&CK technique distribution with Defender and CrowdStrike alert badges, attack chain depth, Defense Score ledger, and trend overview" width="800">
+  <img src="docs/screenshots/analytics-dashboard.png" alt="Analytics dashboard — Outcome breakdown (Protected, Prevented, Detected only, Silent), ATT&CK technique distribution with EDR alert badges, attack chain depth, the full-width Stage coverage card, then the Defense Score ledger and trend overview" width="800">
 </p>
 
-- **Defense Score** — Latest-result score (`basis=latest`) or per-execution score, with breakdowns by test, technique, category, hostname, and severity
+- **Defense Score** — Latest-result score (`basis=latest`) or per-execution score, with breakdowns by test, technique, category, and hostname
 - **Run Detail** — bundle stages in execution order with plain-language verdicts, ATT&CK technique names, and an attack-chain strip
+- **Outcome Breakdown** — the latest result of every attack test × endpoint pair, split into Protected, Prevented, Detected only and Silent; click a slice to open the matching executions
+- **Stage Coverage** — for each multi-stage attack, how many stages were blocked, detected or got through, so a chain that rests on a single caught stage stands out (also in the PDF report; not on Vercel)
 - **Chain Depth** — how far each multi-stage attack got before something stopped it, split into detected / undetected chains, pre-execution blocks, and stage errors
 - **Execution Report** — a print-ready PDF report (executive verdict, kill chain, timeline, findings) at `/analytics/report`, named for your organisation via the console identity (Settings → General) or `ORGANIZATION_NAME`
 - **Compliance Export** — SB-PC-2026-001 JSON export (with JSON Schema) that honours the analytics scope filters
 - **Trend Analysis** — Rolling-window defense score and error rate trends over time
-- **MITRE ATT&CK Heatmaps** — Host-test matrix showing protection status across your fleet
-- **Coverage Treemaps** — Hierarchical category/subcategory coverage visualization
-- **Executions Master-Detail** — grouped runs on the left, per-control Protected/Unprotected results on the right; keyboard selection, bulk archive / accept-risk, CSV + JSON export, and a deep-linkable `?expanded=<id>`
+- **Test Breadth by Host** — one tile per host showing how much of the test set it has run, including enrolled hosts with no result yet
+- **Test Coverage and Defense Score by Host** — protected vs unprotected hosts per test, and the score per host
+- **Executions Master-Detail** — grouped runs on the left, per-control Protected/Unprotected results on the right; keyboard selection, bulk archive / accept-risk, CSV + JSON export of every matching result, and a deep-linkable `?expanded=<id>`
 - **Risk Acceptance** — Accept risk on individual controls with audit tracking
 - **Microsoft Defender Integration** — Sync Secure Score, alerts, and control profiles with cross-correlation analytics; dedicated Defender tab with alert drill-down drawer, correlation timeline, per-execution detection rate with MITRE roll-up, and control ↔ alert linking
 - **CrowdStrike Falcon Integration** — Sync ZTA posture score and alerts with cross-correlation analytics; dedicated CrowdStrike tab with alert drill-down drawer (Falcon console links), correlation timeline, and per-execution detection rate; optional auto-resolve closes correlated alerts with an audit-trail comment
-- **SentinelOne Integration** — Sync threats and detection alerts (read-only by default) with cross-correlation analytics; dedicated SentinelOne tab with agent health, policy and path-exclusion gap views; opt-in auto-resolve (re-checks the console before acting) and opt-in automatic kill / quarantine of unmitigated test threats, never counted as SentinelOne prevention. Docker-style backends only (not Vercel)
+- **SentinelOne Integration** — Sync threats and detection alerts (read-only by default) with cross-correlation analytics; dedicated SentinelOne tab with an Endpoint Protection score (computed by Achilles, labelled as such), agent health, policy and path-exclusion gap views; opt-in auto-resolve (re-checks the console before acting) and opt-in automatic kill / quarantine of unmitigated test threats, never counted as SentinelOne prevention. Docker-style backends only (not Vercel)
 - **Sophos Integration** — Sophos Central tenant credential: Common Alerts, SIEM prevention evidence (24 h window, with a visible sync-gap warning), XDR detections (ATT&CK techniques) and the Account Health Check as the posture score (labelled as an Achilles average); dedicated Sophos tab with endpoint health, policy and exclusion / allow-list gap views (flags an allowed certificate or `C:\F0` exclusion that would exempt every test); opt-in auto-resolve (acknowledge / TRUE_POSITIVE_BENIGN, re-checks Sophos before acting). Read-only by default. Docker-style backends only (not Vercel)
-- **Vendor-Confirmed Prevention** — a stage that CrowdStrike, SentinelOne, Sophos or Defender reports as prevented is credited as protected; the EDR tabs share one layout with source/severity filters and evidence-based technique coverage (prevented / detected only / missed)
-- **Trend Alerting** — Threshold-based Slack and email notifications with in-app notification bell
+- **Evidence-Based Verdicts** — a stage is credited only by an EDR alert that names that stage: Prevented when CrowdStrike, SentinelOne, Sophos or Defender stopped it during the run, Detected when it only alerted. A run the EDR cut short by killing the agent, or blocked at launch, counts as Protected when the EDR's own alert proves it. The EDR tabs share one layout with source/severity filters and evidence-based technique coverage (prevented / detected only / missed). See [Exit codes and outcomes](wiki/docs/user-guide/analytics/exit-codes-and-outcomes.md)
+- **Trend Alerting** — Threshold-based Slack and email notifications with in-app notification bell (not on Vercel)
 - **Write-Index Rollover** — Results ingest into dated write indices (`achilles-results-YYYY.MM.DD`) with daily, monthly, or static rollover; per-task index targeting for isolated result sets
 
 <details>
 <summary>More: the posture section</summary>
 <br>
 <p align="center">
-  <img src="docs/screenshots/analytics-posture.png" alt="Analytics posture row — latest-result Defense Score ledger, Defender Secure Score and CrowdStrike ZTA score beside the trend overview, with test activity and top remediation controls" width="800">
+  <img src="docs/screenshots/analytics-posture.png" alt="Analytics posture section — latest-result Defense Score ledger (ring gauge with Actual, EDR-only, Risk-accepted and Inconclusive lines), Defender Secure Score and CrowdStrike ZTA score beside the trend overview, with test activity and top remediation controls below" width="800">
 </p>
 <p align="center">
-  <img src="docs/screenshots/executions-table.png" alt="Executions — master-detail view with bundle runs on the left and run detail on the right: attack-chain strip and ordered stages with Prevented, Protected, Unprotected and Detected verdicts" width="800">
+  <img src="docs/screenshots/executions-table.png" alt="Executions — master-detail view with grouped runs on the left and run detail on the right: attack-chain strip and ordered stages, each with its own Protected, Prevented, Detected or Unprotected verdict" width="800">
 </p>
 
 The Defense Score renders as a **ledger** — a ring gauge beside four reconciling lines (Actual, EDR-only, Risk-accepted, Inconclusive) — rather than one big number with the reconciliation left implicit. Secure Score and Top Remediation Controls appear only when Microsoft Defender is configured; without it the remaining cards reflow to fill the row. A CrowdStrike ZTA score card follows the same pattern when CrowdStrike Falcon is configured.
@@ -419,6 +423,7 @@ Compile and sign test binaries on demand with Go cross-compilation.
 - **Code Signing** — Windows Authenticode (osslsigncode) and macOS ad-hoc signing (rcodesign)
 - **Multi-Certificate Management** — Upload PFX/P12 or generate self-signed certs (up to 5)
 - **Embed Dependencies** — Detects `//go:embed` directives and manages required files
+- **Isolated build environment** — build subprocesses get an allowlisted environment, never the backend's own, so test-library code can't read its secrets (`BUILD_ENV_PASSTHROUGH` adds names for one install)
 - **Build Caching** — Previously built binaries cached for instant download
 - **Background Builds** — builds run asynchronously with progress polling and resume after a page refresh; Build All runs one test at a time
 
@@ -427,13 +432,13 @@ Compile and sign test binaries on demand with Go cross-compilation.
 Automate test execution across agent pools with flexible scheduling.
 
 - **Schedule Types** — Once, daily, weekly (specific days), monthly (specific day)
-- **Randomized Timing** — Optional randomization within office hours, fleet-wide or per-machine (each agent gets an independent next-run time)
-- **Per-Task ES Index** — Target specific Elasticsearch indices per task for result isolation
+- **Randomized Timing** — Optional randomization within office hours, fleet-wide or per-machine (each agent gets an independent next-run time); works for one-off (Once) schedules too
+- **Per-Task ES Index** — Target a specific `achilles-results-...` index per task for result isolation
 - **Priority Queue** — Higher-priority tasks assigned first
 
 ### Security Test Campaigns
 
-Save a test plan, run it with one click, and hand the result to an auditor.
+Save a test plan, run it with one click, and hand the result to an auditor. Campaigns live under **Tasks → Campaigns** ([guide](wiki/docs/user-guide/agent-management/campaigns.md)); not available on Vercel.
 
 - **Saved plans** — up to 100 tests crossed with a set of agents, scoped to your organization, with an optional framework label (e.g. "CIS v8")
 - **Preflight** — before launch, every test × host pair is checked (not built, no binary for the host's OS, agent offline); you confirm "Run the rest" or fix the plan, so a run never silently does less than the campaign says
@@ -450,15 +455,17 @@ Tell the SOC before every test runs, so simulated attacks are not triaged as rea
 - **Loud failures** — retries with backoff, a console banner and Slack alert; tests that never get a notice are marked "Not run", never run unannounced
 - **Release without notice** — during a mail outage, release a held run from Settings with a recorded reason
 - **Finished email** — outcome counts with the same labels as Analytics once the run is over
-- **Per organization**, off by default; not available on the Vercel (serverless) deployment
+- **Advance digest** — optional daily email at 09:00 listing the next day's scheduled tests
+- **Per organization**, off by default; not available on the Vercel (serverless) deployment ([guide](wiki/docs/user-guide/integrations/pre-execution-notices.md))
 
 ### Programmatic Access (API Keys)
 
 Automate the platform from scripts and CI without a browser session.
 
-- **`pa_` Bearer Tokens** — Create and revoke keys in Settings → API Keys; hashed at rest, shown only once at creation
+- **`pa_` Bearer Tokens** — Create and revoke keys in Settings → API keys (from a signed-in browser session only); hashed at rest, shown only once at creation
 - **Permission Scoping** — `read`, `read-write`, or `admin` permission sets enforced per key; `admin` is the only scope with remote command execution
 - **Full Read Coverage** — Query analytics, agents, tasks, and schedules with `Authorization: Bearer pa_...`
+- Not available on the Vercel (serverless) deployment
 - See the [Programmatic Access guide](wiki/docs/api-reference/programmatic-access.md) for recipes and endpoint reference
 
 ### Agent Communication Security
@@ -482,7 +489,7 @@ The agent-server communication channel has been hardened through an internal sec
 ```mermaid
 graph TB
     subgraph Clients
-        FE["Frontend<br/>React 19 · Vite · Tailwind CSS<br/><i>Browser · Analytics · Agents · Settings</i>"]
+        FE["Frontend<br/>React 19 · Vite · Tailwind CSS<br/><i>Dashboard · Tests · Analytics · Agents · Tasks · Settings</i>"]
         CLI["CLI<br/>Bun · Ink · AI SDK v6<br/><i>Commands · AI Chat Agent</i>"]
     end
 
@@ -499,6 +506,7 @@ graph TB
         S1S[SentinelOne Service]
         SPS[Sophos Service]
         ALS[Alerting Service]
+        CNS[Campaigns · Pre-execution Notices]
     end
 
     BRS --> GIT[(Git Repo)]
@@ -510,6 +518,8 @@ graph TB
     S1S --> S1API[SentinelOne Management API]
     SPS --> SPAPI[Sophos Central API]
     ALS --> NOTIFY[Slack · Email]
+    CNS --> DB
+    CNS --> NOTIFY
 
     AGS <-->|Agent API Key| AGENT
 
@@ -525,7 +535,7 @@ graph TB
 | Frontend | React | 19.3 |
 | Build Tool | Vite | 8.3 |
 | Styling | Tailwind CSS | 4.1 |
-| State Management | Redux Toolkit | 2.13 |
+| State Management | Redux Toolkit | 2.14 |
 | Routing | React Router | 7.18 |
 | Authentication | Clerk | 5.x |
 | Backend | Express | 4.22 |
@@ -548,7 +558,7 @@ ProjectAchilles/
 ├── frontend/                  # React 19 + TypeScript + Vite
 │   └── src/
 │       ├── components/        # Shared UI primitives
-│       ├── pages/             # Module pages (browser, analytics, agents, settings)
+│       ├── pages/             # Pages (dashboard, tests, analytics, endpoints, campaigns, settings)
 │       ├── services/api/      # API client modules
 │       ├── hooks/             # Custom hooks (useAuthenticatedApi, etc.)
 │       └── store/             # Redux slices
@@ -571,9 +581,13 @@ ProjectAchilles/
 │   └── internal/              # Agent modules (poller, executor, updater, sysinfo)
 ├── installer/                 # achilles-installer: Go + Bubble Tea TUI for Linux server installs
 │   └── internal/              # Wizard (tui), CA, DNS/Clerk checks, preflight, engine runner, day-2
+├── appliance/                 # Windows Hyper-V appliance image: build, boot test, Import-Achilles.ps1
 ├── blog/                      # Next.js 16 + MDX blog (blog.projectachilles.io, ES/EN i18n)
 ├── wiki/                      # Docusaurus documentation site
-├── deploy/caddy/              # Caddy config for single-server installs (TLS modes, CA endpoints)
+├── deploy/
+│   ├── caddy/                 # Caddy config for single-server installs (TLS modes, CA endpoints)
+│   ├── lab-endpoint/          # Throwaway Linux endpoint container for demos (docker-compose.lab.yml)
+│   └── offline-kit/           # Everything a Docker Compose install downloads, for workshops
 ├── scripts/                   # Shell scripts and PowerShell bootstrap
 │   ├── install-onprem.sh      # One-command Linux bootstrap (verified installer download + wizard)
 │   ├── deploy-server.sh       # Server install engine (used by the wizard and the scripts below)
@@ -583,10 +597,11 @@ ProjectAchilles/
 │   ├── setup.sh               # Interactive setup wizard (Linux/macOS)
 │   └── Install-ProjectAchilles.ps1 # Bootstrap script (Windows)
 ├── docs/                      # Documentation
-│   ├── deployment/            # Deployment guides (on-prem LAN, server, Fly, Railway, Render, Vercel)
+│   ├── deployment/            # Deployment guides (on-prem LAN, server, Fly, Render, Vercel)
 │   └── security/              # Security audit and remediation docs
 ├── docker-compose.yml         # Multi-service deployment (local / evaluation)
 ├── docker-compose.server.yml  # Single-origin server deployment behind Caddy
+├── docker-compose.lab.yml     # Optional lab endpoint, layered on either file above
 └── CLAUDE.md                  # AI assistant development guidance
 ```
 
@@ -673,17 +688,18 @@ Runtime state (agents, tokens, settings, certificates, compiled binaries) is sto
 
 | Path | Contents |
 |------|----------|
-| `agents.db` | SQLite database: agents, enrollment tokens, tasks, schedules, agent_versions |
+| `agents.db` | SQLite database: agents, enrollment tokens, tasks (and archived deleted tasks), schedules, agent versions, campaigns and their runs, pre-execution notices, API keys, CLI sessions |
 | `analytics.json` | Encrypted Elasticsearch credentials (AES-256-GCM) |
-| `integrations.json` | Encrypted Defender, CrowdStrike, Slack, and email credentials |
+| `integrations.json` | Encrypted Defender, CrowdStrike, SentinelOne, Sophos, Slack, and email credentials; pre-execution notice settings |
 | `tests.json` | Test library configuration |
+| `console-identity.json` | Console identity (code, name, colour) |
 | `certs/cert-*/` | Code-signing PFX certificates (max 5, active cert tracked in `active-cert.txt`) |
 | `binaries/<os>-<arch>/` | Compiled Go agents ready to download |
 | `builds/<test-uuid>/` | Per-test compiled binaries |
-| `signing/` | Agent API key signing keypair |
+| `signing/` | Ed25519 keypair that signs agent updates |
 | `custom-tests/` | User-authored tests outside the git-synced library |
 
-Additionally, test results and EDR alerts are stored in **Elasticsearch** (`achilles-results-*`, `achilles-defender`, `achilles-crowdstrike` indices) — that data lives in your ES cluster, not on the local filesystem.
+Additionally, test results and EDR alerts are stored in **Elasticsearch** (`achilles-results-*`, `achilles-defender`, `achilles-crowdstrike`, `achilles-sentinelone`, `achilles-sophos` indices) — that data lives in your ES cluster, not on the local filesystem.
 
 > **Why this matters**: deleting or renaming `/ProjectAchilles` and doing a fresh `git clone` does **not** reset your installation. The backend will start up against the same `agents.db` and show the same agents, tokens, schedules, and settings.
 
@@ -754,6 +770,9 @@ Restart the backend afterwards so it reopens the database cleanly.
 | `GET` | `/api/analytics/defense-score/trend` | Score trend over time |
 | `GET` | `/api/analytics/host-test-matrix` | Host × test heatmap data |
 | `GET` | `/api/analytics/technique-distribution` | Technique coverage breakdown |
+| `GET` | `/api/analytics/outcome-breakdown` | Protected / prevented / detected / silent split of the latest results |
+| `GET` | `/api/analytics/chain-depth` | How far each multi-stage attack got |
+| `GET` | `/api/analytics/stage-coverage` | Stages blocked / detected / through per chain (not on Vercel) |
 | `GET` | `/api/analytics/executions/paginated` | Paginated results with filters |
 | `POST` | `/api/analytics/settings` | Configure Elasticsearch connection |
 
@@ -798,9 +817,9 @@ Restart the backend afterwards so it reopens the database cleanly.
 | `GET` | `/api/analytics/defender/secure-score/trend` | Secure Score trend over time |
 | `GET` | `/api/analytics/defender/alerts` | Defender alerts with filtering |
 | `GET` | `/api/analytics/defender/controls` | Control profiles with compliance status |
-| `GET` | `/api/analytics/defender/cross-correlation` | Defense Score vs Secure Score correlation |
-| `GET` | `/api/integrations/defender/config` | Defender configuration status |
-| `POST` | `/api/integrations/defender/config` | Save Defender credentials |
+| `GET` | `/api/analytics/defender/correlation/scores` | Defense Score vs Secure Score correlation |
+| `GET` | `/api/integrations/defender` | Defender configuration status |
+| `POST` | `/api/integrations/defender` | Save Defender credentials |
 | `POST` | `/api/integrations/defender/sync` | Trigger manual data sync |
 
 ### CrowdStrike Integration
@@ -835,13 +854,14 @@ Backend (Docker-style deployments) only; `GET /api/capabilities` reports `sentin
 | `GET` | `/api/analytics/sentinelone/alerts` | Threats and detection alerts with filtering (`sourceType=threats\|cloud_detection_alerts`) |
 | `GET` | `/api/analytics/sentinelone/alerts/summary` | Alert counts by severity and status |
 | `GET` | `/api/analytics/sentinelone/alerts/trend` | Alert volume over time |
-| `GET` | `/api/analytics/sentinelone/correlation/scores` | Defense Score series (no vendor posture score) |
+| `GET` | `/api/analytics/sentinelone/correlation/scores` | Defense Score series with the Endpoint Protection score (`ztaScore`) |
 | `GET` | `/api/analytics/sentinelone/correlation/techniques` | MITRE technique overlap |
 | `GET` | `/api/analytics/sentinelone/correlation/technique-coverage` | Evidence-based technique coverage |
 | `GET` | `/api/analytics/sentinelone/correlation/detection-rate` | Per-execution detection rate |
 | `GET` | `/api/analytics/sentinelone/correlation/alerts-for-test` | Alerts matched to a test execution |
 | `GET` | `/api/analytics/sentinelone/posture/policies` | Account / site / group policy snapshot |
 | `GET` | `/api/analytics/sentinelone/posture/agent-health` | Agent health counts and trend |
+| `GET` | `/api/analytics/sentinelone/posture/protection-score` | Endpoint Protection score (computed by Achilles) |
 | `GET` | `/api/analytics/sentinelone/posture/exclusion-gaps` | Missed tests on hosts covered by a path exclusion |
 | `GET` | `/api/integrations/sentinelone` | SentinelOne configuration (token masked) |
 | `POST` | `/api/integrations/sentinelone` | Save SentinelOne settings |
@@ -896,8 +916,27 @@ Backend (Docker-style deployments) only; `GET /api/capabilities` reports `sophos
 
 | Method | Endpoint | Description |
 |--------|----------|-------------|
-| `GET` | `/api/integrations/alerts/config` | Get alert threshold configuration |
-| `POST` | `/api/integrations/alerts/config` | Save alert thresholds and notification channels |
+| `GET` | `/api/integrations/alerts` | Get alert threshold configuration |
+| `POST` | `/api/integrations/alerts` | Save alert thresholds and notification channels |
+| `POST` | `/api/integrations/alerts/test` | Send a test notification |
+| `GET` | `/api/integrations/alerts/history` | Recent alerts (feeds the notification bell) |
+
+### Campaigns, Notices and Console Identity
+
+Backend (Docker-style deployments) only; `GET /api/capabilities` reports `campaigns`, `preExecutionNotices` and `consoleIdentity` as `false` on Vercel.
+
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| `GET` / `POST` | `/api/campaigns` | List or create campaigns |
+| `GET` / `PUT` / `DELETE` | `/api/campaigns/:id` | Read, edit or delete a campaign |
+| `GET` | `/api/campaigns/:id/preflight` | Check every test × host pair before a run |
+| `POST` | `/api/campaigns/:id/runs` | Start a run (409 with the skipped pairs until `confirm_partial: true`) |
+| `GET` | `/api/campaigns/runs/:runId` | Evidence matrix of a run |
+| `GET` | `/api/campaigns/runs/:runId/export.csv` | CSV export, one row per pair |
+| `GET` / `PUT` | `/api/notices/settings` | Pre-execution notice settings |
+| `GET` | `/api/notices/status` | Current notice status for the caller's organization |
+| `POST` | `/api/notices/:id/release` | Release a held run without a notice (reason recorded) |
+| `GET` / `PUT` / `DELETE` | `/api/settings/identity` | Console identity (read by any signed-in user, edited by admins from a browser session) |
 
 ### API Keys
 
@@ -907,27 +946,25 @@ Backend (Docker-style deployments) only; `GET /api/capabilities` reports `sophos
 | `GET` | `/api/api-keys` | List keys (metadata only, no tokens) |
 | `DELETE` | `/api/api-keys/:id` | Revoke a key |
 
-> API keys are `pa_`-prefixed bearer tokens for programmatic access with per-key permission scoping. Managing keys requires Clerk authentication; using them does not.
+> API keys are `pa_`-prefixed bearer tokens for programmatic access with per-key permission scoping. Managing keys requires a signed-in browser session (an API key or CLI token can't create or revoke keys, or manage users); using them does not. Not available on Vercel.
 
 ## Documentation
 
 ### Getting Started
 - **[Server Installer: On-Prem LAN or Cloud](docs/deployment/SERVER_INSTALLER.md)** — the one-command Linux install: `achilles-installer` wizard, first admin through Clerk, name-constrained ProjectAchilles CA with GPO trust for Windows agents on a LAN, or Let's Encrypt on a cloud server, backups and day-2
-- [Quick Start Deployment](docs/deployment/QUICK_START_DEPLOYMENT.md) — 50-minute production deployment
 - [Windows Hyper-V Appliance](wiki/docs/deployment/appliance.md) — Prebuilt VM, checksum-verified import, same install wizard
 - [Windows Docker Installation](docs/deployment/WINDOWS_DOCKER_INSTALL.md) — Complete guide for Windows with Docker Desktop
 - [Docker Compose guide](docker-compose.yml) — Local deployment with optional Elasticsearch
-- [Documentation site](wiki/docs/) — user guide, API reference, and deployment docs (Docusaurus)
+- [Documentation site](https://docs.projectachilles.io) — user guide, API reference, and deployment docs (source in [`wiki/docs/`](wiki/docs/))
+- [Endpoint Prerequisites](wiki/docs/deployment/endpoint-prerequisites.md) — What to prepare on Windows endpoints before running tests (certificate, Defender ASR, EDRs)
+- [Lab Endpoint](deploy/lab-endpoint/README.md) and [Offline Kit](deploy/offline-kit/README.md) — a throwaway Linux endpoint for demos, and a USB-ready kit for workshops
 
 ### Deployment
 - [Public Server Deployment](docs/deployment/SELF_HOSTED_SERVER.md) — Publicly-reachable single-server install (DigitalOcean or any VPS) with Caddy auto-TLS
 - [On-Prem Deployment](docs/deployment/ON_PREM_SERVER.md) — On-premises install over SSH with internal CA, DNS-01, or bring-your-own certificate
-- [Railway Deployment](docs/deployment/RAILWAY.md) — Railway with private networking
 - [Render Deployment](docs/deployment/RENDER.md) — Render with persistent disk and Blueprint
 - [Fly.io Deployment](docs/deployment/FLY.md) — Fly.io with custom domains and volumes
 - [Vercel Deployment](docs/deployment/VERCEL.md) — Serverless with Turso and Vercel Blob
-- [Production Deployment Guide](docs/deployment/PRODUCTION_DEPLOYMENT.md) — Comprehensive Railway deployment
-- [Deployment Checklist](docs/deployment/DEPLOYMENT_CHECKLIST.md) — Interactive pre-flight checklist
 - [LAN Development Agents](docs/deployment/LAN_DEV_AGENTS.md) — Running the backend on your LAN for real-device agent testing
 
 ### Architecture & Internals

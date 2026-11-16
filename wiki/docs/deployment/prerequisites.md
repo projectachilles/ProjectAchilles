@@ -127,5 +127,4 @@ See [Environment Variables Reference](./environment-variables) for the complete 
 | `CLERK_SECRET_KEY` | Clerk secret key (backend) | Yes |
 | `VITE_CLERK_PUBLISHABLE_KEY` | Clerk publishable key (frontend) | Yes |
 | `CORS_ORIGIN` | Allowed CORS origin | Yes |
-| `ENCRYPTION_SECRET` | Settings encryption key | Production |
-| `SESSION_SECRET` | Session signing key | Production |
+| `ENCRYPTION_SECRET` | Settings encryption key, 32+ characters. Settings can't be saved without it | Yes |

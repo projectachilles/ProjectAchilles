@@ -19,7 +19,7 @@ graph TB
         AD[agent-device.routes]
         TR[tests.routes]
         DR[defender.routes]
-        AL[alerting.routes]
+        AL[integrations.routes]
         CR[cli-auth.routes]
     end
 
@@ -29,7 +29,8 @@ graph TB
         MO --> BP[Body Parser]
         BP --> CK[Clerk Auth]
         CK --> CLI[CLI Auth]
-        CLI --> RL[Rate Limiter]
+        CLI --> AK[API Key Auth]
+        AK --> RL[Rate Limiter]
         RL --> EH[Error Handler]
     end
 
@@ -79,11 +80,20 @@ Routes are organized by module in `backend/src/api/`:
 | `agent/catalog.routes.ts` | Clerk | Test catalog administration |
 | `agent/binary.routes.ts` | Agent key | Binary download for test execution |
 | `tests.routes.ts` | Clerk | Build system, certificates |
-| `defender.routes.ts` | Clerk | Defender integration |
-| `integrations.routes.ts` | Clerk | Defender credentials, alerting config |
+| `defender.routes.ts`, `crowdstrike.routes.ts` | Clerk | Defender and CrowdStrike analytics (`/api/analytics/defender`, `/api/analytics/crowdstrike`) |
+| `sentinelone-analytics.routes.ts`, `sophos-analytics.routes.ts` | Clerk | SentinelOne and Sophos analytics (`/api/analytics/sentinelone`, `/api/analytics/sophos`) |
+| `integrations.routes.ts` | Clerk | Defender and CrowdStrike credentials, alerting config, EDR Elasticsearch readiness |
+| `sentinelone.routes.ts`, `sophos.routes.ts` | Clerk | SentinelOne and Sophos settings, sync, auto-resolve (`/api/integrations/sentinelone`, `/api/integrations/sophos`) |
+| `campaigns.routes.ts` | Clerk | Saved test campaigns, runs, evidence matrix |
+| `notices.routes.ts` | Clerk | Pre-execution notice settings, status, release |
+| `reports.routes.ts` | Clerk | Report payloads (JSON export, execution report) |
 | `risk-acceptance.routes.ts` | Clerk | Risk acceptance management |
+| `consoleIdentity.routes.ts` | Clerk (writes: browser session only) | Console identity (`/api/settings/identity`) |
 | `cli-auth.routes.ts` | Mixed | CLI device authorization flow |
-| `users.routes.ts` | Clerk | User management |
+| `api-keys.routes.ts` | Clerk browser session only | API key management |
+| `users.routes.ts` | Clerk (writes: browser session only) | User management |
+
+"Clerk" in this table means any principal the global chain turns into a Clerk-style `req.auth`: a browser session, a CLI token or an API key, each limited by its role or scope. `/api/health` and `/api/capabilities` are defined in `server.ts`.
 
 :::info[Agent routes use a two-tier split]
 Agent endpoints live under `/api/agent/`. Admin endpoints (Clerk-authenticated) are mounted at `/api/agent/admin/*`, while device endpoints (API-key-authenticated) are mounted directly at `/api/agent/*`. The parent router in `agent/index.ts` applies the correct auth middleware at mount time.
@@ -102,7 +112,8 @@ graph LR
     B --> CK[clerkAuth<br/>Parse JWT]
     CK --> HC[hydrateClaimsFromClerk<br/>Role lookup fallback]
     HC --> CLI[acceptCliAuth<br/>CLI token fallback]
-    CLI --> RL[apiLimiter<br/>1000/15 min]
+    CLI --> AK[acceptApiKey<br/>API key fallback]
+    AK --> RL[apiLimiter<br/>1000/15 min]
     RL --> ROUTE[Route Handler]
     ROUTE --> NF[notFoundHandler<br/>404]
     NF --> ERR[errorHandler<br/>AppError → JSON]
@@ -118,7 +129,7 @@ Origin is set via `CORS_ORIGIN` env var (defaults to `http://localhost:5173`). C
 
 ### 3. Morgan — Request Logging
 
-Uses `dev` format for colorized, concise HTTP logs during development.
+Uses `dev` format for colorized, concise HTTP logs during development. Right after it, `esTimingMiddleware()` is mounted on `/api`; it reports the time a request spent in Elasticsearch in the `Server-Timing` response header.
 
 ### 4. Body Parser
 
@@ -132,19 +143,38 @@ Uses `dev` format for colorized, concise HTTP logs during development.
 
 ### 6. CLI Auth (global)
 
-`acceptCliAuth()` checks for a CLI-issued JWT when Clerk has not already authenticated the request. If valid, it injects Clerk-compatible properties into `req.auth` so downstream `requireClerkAuth()` middleware works transparently.
+`acceptCliAuth()` checks for a CLI-issued JWT when Clerk has not already authenticated the request. If valid, it injects Clerk-compatible properties into `req.auth` so downstream `requireClerkAuth()` middleware works transparently. A limiter in front of it allows 60 unverified Bearer tokens per minute per IP.
 
-### 7. Global API Rate Limiter
+### 7. API Key Auth (global)
+
+`acceptApiKey()` accepts `Authorization: Bearer pa_…` and builds a `req.auth` whose permissions come from the key's scope (`permissionsForScope()` in `apiKeyAuth.middleware.ts`). It runs after Clerk and CLI auth, so those take precedence. A limiter in front of it allows 60 API key attempts per minute per IP. The serverless backend has no API keys.
+
+### 8. Global API Rate Limiter
 
 Applied to all `/api` routes except agent device endpoints (which have their own dedicated limiter). 1000 requests per 15-minute window, keyed by the authenticated Clerk user (falling back to IP for unauthenticated requests).
 
-### 8. Error Handlers
+### 9. Error Handlers
 
 `notFoundHandler` catches unmatched routes with a 404 response. `errorHandler` catches thrown `AppError` instances and unhandled errors, returning the standard `{ success: false, error: "message" }` format. Development mode includes stack traces.
 
+### Route-Level Guards
+
+These are applied per router or per route, after the global chain:
+
+| Guard | File | What it does |
+|-------|------|--------------|
+| `requireClerkAuth()` | `clerk.middleware.ts` | Rejects requests with no authenticated principal |
+| `requireOrgAccess` | `clerk.middleware.ts` | Refuses an `org_id` in the query or body that is not the caller's |
+| `requirePermission(...)` | `clerk.middleware.ts` | Role or scope permission check |
+| `requireUserSession()` | `userSession.middleware.ts` | Allows only a Clerk browser session. Refuses API keys and CLI tokens. Used on `/api/api-keys/*`, writes on `/api/users/*`, `POST /api/cli/auth/verify` and console identity writes |
+| `callerOrg()`, `listOrgScope()`, `assertAgentsInOrg()`, `assertRowInOrg()` | `orgScope.ts` | Organization scoping of agent, task and schedule admin routes. A caller with no organization sees everything, unless `REQUIRE_ORG_ISOLATION=true` |
+| `requireInstallOperator` | `installScope.ts` | Install-wide configuration (agent versions, the Elasticsearch connection, key auto-rotation) can only be changed by a caller without an organization |
+| `requireDeploymentScopeForEdrWrite` | `edrScope.middleware.ts` | With `REQUIRE_ORG_ISOLATION=true`, EDR settings writes return 403; configure them with environment variables instead |
+| `validate()`, `validateQuery()` | `validation.ts` | Zod validation of body and query (schemas in `src/schemas/`) |
+
 ## Authentication Flow
 
-The backend supports three authentication methods depending on who is calling:
+The backend supports four authentication methods depending on who is calling: an agent key, a Clerk session, a CLI token and an API key (`Bearer pa_…`, handled by `acceptApiKey()` as described above and then treated like a Clerk principal with the key's scope).
 
 ```mermaid
 graph TD
@@ -155,7 +185,7 @@ graph TD
     B -->|"CLI<br/>/api/cli/auth/*"| E[acceptCliAuth]
     B -->|"Public<br/>/api/agent/enroll<br/>/api/agent/download"| F[No auth<br/>Rate-limited only]
 
-    C --> G["Validate X-Api-Key header<br/>(ak_ prefix, bcrypt compare)"]
+    C --> G["Validate Authorization: Bearer ak_…<br/>+ X-Agent-ID (digest or bcrypt compare)"]
     G --> H{Key match?}
     H -->|Current key| I[Set req.agent]
     H -->|Pending key| J["Promote pending key<br/>then set req.agent"]
@@ -179,6 +209,8 @@ graph TD
 The `requireAgentAuth` middleware (`agentAuth.middleware.ts`) implements:
 
 - **In-memory cache** — Avoids repeated database lookups for frequently authenticating agents. Falls back to DB on cache miss.
+- **Key digests** — After a key has passed `bcrypt.compare` once, an HMAC-SHA256 digest of it is stored in `agent_key_digests`, bound to the `api_key_hash` it was proven against. Later requests with the same key skip bcrypt, also after a restart. A digest is never trusted while a key rotation is pending.
+- **Failed-auth guard** — `agentFailedAuthGuard` answers 429 once an IP has made 60 requests in a minute with unknown agent IDs, so random IDs cannot force unlimited bcrypt compares.
 - **Timing-attack protection** — Always runs `bcrypt.compare` against a dummy hash when the agent is not found, preventing enumeration via response timing.
 - **Key rotation support** — During rotation, agents may present either the current or pending key. If the pending key matches, it is promoted atomically to become the new current key.
 - **Replay protection** — Validates the `X-Request-Timestamp` header with a 5-minute clock skew tolerance.
@@ -195,7 +227,7 @@ Clerk integration (`clerk.middleware.ts`) provides:
 
 ### CLI Authentication Details
 
-The CLI device flow (`cliAuth.middleware.ts`) uses JWT tokens with `type: 'cli'`, signed with `CLI_AUTH_SECRET`. This env var is mandatory — there is no fallback. The `acceptCliAuth()` middleware only activates when Clerk has not already authenticated the request, ensuring zero interference with normal web auth.
+The CLI device flow (`cliAuth.middleware.ts`) uses JWT tokens with `type: 'cli'`, signed with `CLI_AUTH_SECRET`. This env var is mandatory — there is no fallback. A token's audience (`aud`) is the deployment's `AGENT_SERVER_URL`, set when signing and checked when verifying, so two deployments that share a secret do not accept each other's tokens. A CLI token cannot approve another device code: `POST /api/cli/auth/verify` requires a browser session. The `acceptCliAuth()` middleware only activates when Clerk has not already authenticated the request, ensuring zero interference with normal web auth.
 
 ## Rate Limiting Strategy
 
@@ -208,9 +240,11 @@ Rate limiting uses `express-rate-limit` with separate budgets for different endp
 | Binary download | 300 req | 15 min | IP | Sized for fleet rollouts behind one NAT |
 | Agent device | 30 req | 1 min | `<ip>:<agent-id>` | Per-agent budget (heartbeat + polling) |
 | Key rotation | 3 req | 15 min | IP | Expensive bcrypt operations |
+| Agent failed auth | 60 req | 1 min | IP | Requests with unknown agent IDs only |
 | CLI bearer / API key | 60 req | 1 min | IP | Programmatic access ceiling |
 | CLI device code | 10 req | 15 min | IP | Device code generation |
 | CLI polling | 60 req | 1 min | IP | Frequent polling during auth flow |
+| CLI token refresh | 10 req | 15 min | IP | Refresh token exchange |
 
 :::tip[Agent device rate limiting]
 The agent device limiter keys on the composite `<normalized-ip>:<agent-id>`. Each enrolled agent gets its own budget even when a whole fleet shares one NAT IP, while an unauthenticated probe (no `X-Agent-ID`) still cannot escape its IP bucket.
@@ -230,4 +264,6 @@ The middleware module exists in both `backend/` and `backend-serverless/` with k
 | Agent auth cache | In-memory cache for performance | No caching (stateless functions) |
 | DB queries | Prepared statements | Promise-based queries |
 | Background tasks | `setInterval` (schedules, auto-rotation) | Vercel Cron routes |
-| CLI auth | SQLite `cli_auth_codes` table | Same pattern, async Turso |
+| CLI auth | `acceptCliAuth()`, SQLite `cli_auth_codes` table | Not available (no CLI routes or middleware) |
+| API keys | `acceptApiKey()` and `/api/api-keys/*` | Not available |
+| Routes | All of the above | No campaigns, notices, SentinelOne, Sophos, console identity or API key routes |

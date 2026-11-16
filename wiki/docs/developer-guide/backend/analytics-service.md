@@ -46,7 +46,7 @@ The primary analytics engine. All query methods accept a common filter set and r
 
 The defense score measures how effectively endpoint defenses detect and block security tests. The `basis` query parameter (`executions` by default, or `latest`) selects one of two calculations:
 
-- **`executions`**: `(protected_or_detected_executions / conclusive_executions) * 100` over the window. This is the API default, and the basis used by the PDF execution report and score-drop alerts.
+- **`executions`**: `(protected_or_detected_executions / conclusive_executions) * 100` over the window. This is the API default, and the basis used by the PDF execution report. The Defense Score alert uses the latest basis (`getLatestScoreSummary()`: any-stage, fixed last 30 days), the same number the dashboard shows.
 - **`latest`**: the share of test × endpoint pairs whose most recent conclusive result in the window was blocked or detected. The Dashboard and Analytics UI always request this.
   - **Pair key:** `org | test_uuid | hostname`. In `any-stage` mode a non-cyber-hygiene bundle on a host is one pair, protected if any stage of its latest run was.
   - **Window:** the range is the freshness window, capped at 365 days. Trend points are the same calculation as of each UTC day end (weekly beyond 90 days), and the last point is the tile.
@@ -57,6 +57,11 @@ The defense score measures how effectively endpoint defenses detect and block se
 | `getDefenseScoreTrend()` / `getDefenseScoreTrendRolling()` | Executions-basis trend. Histograms extend to `to ?? now`, and empty windows return `score: null`. |
 | `getDefenseScoreLatest()` / `getDefenseScoreTrendLatest()` | Latest-basis tile and trend. Both read one cached series snapshot, so the tile always equals the trend's last point. |
 | `getLatestPairs()` | Latest-basis pair set with metadata. It feeds the four `*Latest` breakdowns: category/subcategory, hostname, technique distribution and test coverage. |
+| `getLatestScoreSummary()` | Latest-basis score for the Defense Score alert |
+| `getOutcomeBreakdown()` | Protected / Prevented / Detected / Silent split of the latest pairs (attack tests only) |
+| `getTechniqueOutcomes()` | Per-technique outcomes, latest basis, per stage |
+| `getChainDepth()` | How far each attack chain got on its latest run per host |
+| `getStageCoverage()` | Stage coverage card: stages blocked, detected and through per chain's latest run |
 | `getDefenseScoreByTest()` | Breakdown by individual test |
 | `getDefenseScoreByTechnique()` | Breakdown by MITRE ATT&CK technique |
 | `getDefenseScoreByOrg()` | Breakdown by organization |
@@ -71,6 +76,8 @@ The defense score measures how effectively endpoint defenses detect and block se
 | `getPaginatedExecutions()` | Paginated test results with full filter support |
 | `getGroupedPaginatedExecutions()` | Groups by bundle or standalone test for the Executions table |
 | `getRecentExecutions()` | Latest test activity for the dashboard overview |
+| `getTestResults()` | Per-test results across the fleet, for the Tests list and test pages |
+| `getExecutionActivity()` | Execution counts over time |
 
 #### Error Rate and Coverage
 
@@ -157,15 +164,18 @@ Handles Elasticsearch index creation, listing, and mapping management.
 |--------|---------|
 | `createResultsIndex()` | Create a new index with the canonical field mapping |
 | `listResultsIndices()` | List existing indices with document counts and sizes |
+| `missingMappingProperties()` | Compare an existing index's mapping with the canonical one |
 
-The **canonical mapping** defines the standard field structure for test execution documents. Key field groups include:
+The **canonical mapping** (`RESULTS_INDEX_MAPPING`) defines the standard field structure for test execution documents. Key field groups include:
 
 | Field Group | Example Fields | Purpose |
 |-------------|---------------|---------|
-| `f0rtika.*` | `test_uuid`, `bundle_id`, `control_id` | Test identification |
-| `f0rtika.result.*` | `exit_code`, `severity`, `techniques` | Test outcomes |
-| `f0rtika.agent.*` | `hostname`, `os`, `arch` | Endpoint info |
-| `f0rtika.meta.*` | `category`, `threat_actor`, `tags` | Test metadata |
+| `routing.*` | `event_time`, `oid`, `hostname` | When, which organization, which endpoint |
+| `event.*` | `ERROR` (exit code, `long`), `ERROR_raw` | Test outcome |
+| `f0rtika.*` | `test_uuid`, `test_name`, `category`, `techniques`, `tactics`, `threat_actor`, `tags` | Test identification and metadata |
+| `f0rtika.*` (bundles) | `bundle_id`, `bundle_name`, `control_id`, `control_validator`, `is_bundle_control`, `skipped` | Per-control and per-stage documents |
+| `f0rtika.<vendor>_*` | `<vendor>_detected`, `<vendor>_stage_detected`, `<vendor>_stage_prevented` | EDR correlation flags, added to result documents by the EDR enrichment passes |
+| `f0rtika.launch_block.*`, `f0rtika.edr_terminated` | `original_exit_code`, `vendors` | EDR launch blocks and EDR-killed agent runs |
 
 ## Error Code Classification
 
@@ -181,11 +191,12 @@ The analytics service uses a canonical error code system to classify test outcom
 | 127 | `QuarantinedOnExecution` | protected | Yes (protected) |
 | 200 | `NoOutput` | inconclusive | No |
 | 259 | `StillActive` | inconclusive | No |
+| 260 | `BlockedPreExecution` | inconclusive | No, until an EDR alert proves the block. The launch-block pass then rewrites the document to 126 |
 | 999 | `UnexpectedTestError` | error | No |
 
 **Key metrics derived from these codes:**
 
-- **Defense Score:** `(protected / conclusive) * 100` where conclusive = codes `[101, 105, 126, 127]`
+- **Defense Score:** `(protected / conclusive) * 100` where conclusive = codes `[101, 105, 126, 127]`, plus an error-coded stage whose own EDR alert carried a confirmed action (`EDR_PREVENTED_ERROR_STAGE`). `buildConclusiveResultsFilter` applies this everywhere in `backend/`; `backend-serverless/` uses the exit codes only
 - **Error Rate:** `(error_count / total_activity) * 100` where error = codes `[0, 1, 259, 999]`, except a skipped stage (exit 0 on an attack bundle stage, after the chain was stopped) and an error stage the EDR prevented
 
 :::warning[Conclusive vs inconclusive]
@@ -228,19 +239,32 @@ The analytics services are exposed through `analytics.routes.ts`:
 | `/api/analytics/defense-score/by-hostname` | GET | Per-endpoint breakdown |
 | `/api/analytics/defense-score/by-severity` | GET | Per-severity breakdown |
 | `/api/analytics/defense-score/by-category` | GET | Per-category breakdown |
+| `/api/analytics/defense-score/by-category-subcategory` | GET | Category and subcategory breakdown |
 | `/api/analytics/defense-score/by-org` | GET | Per-organization breakdown |
-| `/api/analytics/executions` | GET | Paginated test executions |
-| `/api/analytics/executions/grouped` | GET | Grouped executions (bundle-aware) |
-| `/api/analytics/recent` | GET | Recent test activity |
+| `/api/analytics/outcome-breakdown` | GET | Protected / Prevented / Detected / Silent split (backend only) |
+| `/api/analytics/chain-depth` | GET | Attack chain depth |
+| `/api/analytics/stage-coverage` | GET | Stage coverage (backend only) |
+| `/api/analytics/technique-distribution`, `/technique-outcomes` | GET | Technique views |
+| `/api/analytics/threat-actor-coverage` | GET | Threat actor coverage |
+| `/api/analytics/test-coverage` | GET | Protected vs unprotected counts per test |
+| `/api/analytics/host-test-matrix` | GET | Host by test matrix |
+| `/api/analytics/test-results`, `/test-results/:uuid/stages` | GET | Per-test fleet results and per-stage results |
+| `/api/analytics/executions` | GET | Recent test activity |
+| `/api/analytics/executions/paginated` | GET | Paginated executions (bundle-aware grouping) |
+| `/api/analytics/execution-activity` | GET | Execution counts over time |
 | `/api/analytics/error-rate` | GET | Current error rate |
 | `/api/analytics/error-rate/trend` | GET | Error rate time series |
-| `/api/analytics/coverage` | GET | Test coverage statistics |
-| `/api/analytics/coverage/threat-actor` | GET | Threat actor coverage |
-| `/api/analytics/test-count` | GET | Canonical test count |
-| `/api/analytics/settings` | GET/PUT | Connection settings (encrypted) |
+| `/api/analytics/results-by-error-type` | GET | Results by exit code |
+| `/api/analytics/canonical-test-count` | GET | Canonical test count |
+| `/api/analytics/filter-options`, `/available-*`, `/unique-*`, `/organizations` | GET | Values for the filter bar |
+| `/api/analytics/settings` | GET/POST | Connection settings (encrypted) |
+| `/api/analytics/settings/test` | POST | Test a connection |
 | `/api/analytics/indices` | GET | List result indices |
-| `/api/analytics/indices` | POST | Create new result index |
-| `/api/analytics/archive` | POST | Archive test executions |
+| `/api/analytics/index/create` | POST | Create new result index |
+| `/api/analytics/executions/archive` | POST | Archive selected executions |
+| `/api/analytics/executions/archive-by-date` | POST | Archive executions before a date |
+
+The full request and response reference is in the [Analytics API reference](../../api-reference/analytics).
 
 ## Integration Points
 
@@ -267,5 +291,6 @@ The backend uses `@elastic/elasticsearch` client v8.x, which must match the Elas
 
 - **Index patterns** -- use specific patterns (e.g., `achilles-results-2026.*`) to limit query scope when data volume is high
 - **Rolling windows** -- configure window sizes based on data volume; larger windows smooth trends but increase query cost
-- **Aggregation limits** -- most `by-*` endpoints use `size: 10000` term aggregations; adjust if the cardinality of a dimension exceeds this
+- **Query timing** -- every `/api` response carries a `Server-Timing` header with the time spent in Elasticsearch; slow queries are also logged unless `ES_TIMING_LOG=off`
+- **Aggregation limits** -- terms aggregations have a fixed `size`; check it if the cardinality of a dimension grows very large
 - **Archive strategy** -- use `archiveByDateRange()` to move old data to a separate archive index, keeping the active index fast

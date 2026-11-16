@@ -7,7 +7,7 @@ ProjectAchilles now supports **multiple test sources** and **auto-bootstraps** t
 ### Before
 
 - `TESTS_REPO_URL` and `GITHUB_TOKEN` had to be set in `.env` for any tests to appear
-- The Browser module showed zero tests on a fresh install
+- The Tests page showed zero tests on a fresh install
 - All tests came from a single source directory (the git-synced f0_library clone)
 
 ### After
@@ -46,7 +46,7 @@ Custom tests live at `~/.projectachilles/custom-tests/` (or `$CUSTOM_TESTS_PATH`
 ```
 
 - Create a test directory with a valid UUID name inside any known category folder (`cyber-hygiene`, `intel-driven`, `mitre-top10`, `phase-aligned`)
-- The test will appear in the Browser module with a green **CUSTOM** badge
+- The test appears on the Tests page next to the upstream tests. The page shows no badge for it; the `source` field in the API tells the two apart
 - Custom tests persist across git syncs (they're in a completely separate directory tree)
 - To override an upstream test, create a custom test with the **same UUID** -- the custom version wins
 
@@ -101,15 +101,14 @@ Users who run `docker compose up` or `./scripts/start.sh` for the first time wil
 
 While f0_library is private, users must still set `GITHUB_TOKEN` in their `.env`. The auto-clone will fail gracefully without it (the server logs a warning and continues with an empty library).
 
-### Custom tests in the Browser
+### Custom tests on the Tests page
 
-- Custom tests appear alongside upstream tests with a green **CUSTOM** badge in both grid and list views
-- The badge appears before the severity indicator for maximum visibility
-- Upstream tests show no badge (they're the default)
+- Custom tests appear alongside upstream tests in the list, and can be built, run and scheduled the same way
+- The Tests page does not mark them (there is no **CUSTOM** badge any more). Use `source` in `GET /api/browser/tests` to tell them apart
 
 ### Sync safety
 
-Clicking **Sync** in the Browser module only affects the upstream f0_library clone. Custom tests are never touched by sync operations. After sync, both upstream and custom tests are re-indexed so changes appear immediately.
+Clicking the sync chip in the Tests page header only affects the upstream f0_library clone. Custom tests are never touched by sync operations. After sync, both upstream and custom tests are re-indexed so changes appear immediately.
 
 ### Disabling auto-sync
 

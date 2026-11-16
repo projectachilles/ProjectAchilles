@@ -69,7 +69,7 @@ techniques and the auto-resolve receipt when present. Filter it by **source**
 stable as you filter, and the "All" count equals the Alerts tile total. The
 summary strip above the feed follows the source you pick but not the severity;
 severity only narrows the rows and the page count. A linked alert's **Linked
-test** opens the Executions view filtered to that test, or to the bundle when
+test** opens the All Executions tab filtered to that test, or to the bundle when
 the alert was matched to a bundle. Rows aren't clickable; the link icon opens
 the alert in the Defender portal. To open the alert drawer, click a technique in
 Technique Coverage below.
@@ -103,8 +103,14 @@ detectionRate = (prevented + detectedOnly) / executions × 100
 ```
 
 - **executions** — conclusive attack-simulation executions in the selected
-  window. Each execution is counted once, even if it exercises several
-  techniques.
+  window, on the hosts Defender covers. Each execution is counted once, even
+  if it exercises several techniques.
+- **hosts** — the tab counts only hosts that raised a Defender alert in the
+  last 90 days (the tile says how many, for example "on 4 hosts with a
+  Defender alert in 90 days"), so a fleet with several EDRs doesn't divide
+  Defender's results by hosts it never saw. A host where Defender never
+  alerted is left out. See [CrowdStrike Falcon](./crowdstrike#detection-rate)
+  for how the other EDR tabs pick their hosts.
 - **detected** — the execution's own enrichment flag says Defender caught it. A
   bundle stage counts only by its own per-stage flag, so it is never credited
   because a sibling stage was detected; a standalone test counts by its own

@@ -6,17 +6,21 @@ description: "Browse and filter test execution results in the paginated Executio
 
 # Execution Table
 
-The Execution Table provides a paginated, filterable view of all test execution results stored in Elasticsearch.
+The Execution Table is the **All Executions** tab of Analytics: a paginated, filterable view of all test execution results stored in Elasticsearch.
 
 ## Features
 
-- **Pagination** — Navigate through results with configurable page size
-- **Sorting** — Sort by timestamp, test name, hostname, or exit code
-- **Advanced filtering** — Filter by technique, hostname, threat actor, tags, error codes, and date range
+- **Master-detail layout** — runs on the left, the selected run's detail on the right. `↑` / `↓` move the selection, and the selected run is kept in the URL (`?expanded=<id>`), so a link opens straight to it
+- **Pagination** — 10, 25, 50 or 100 runs per page. The toolbar shows the number of runs (groups) and of results (documents)
+- **Sorting** — Sort by time, test name, hostname, result, category or score, ascending or descending
+- **Advanced filtering** — Filter by result, hostname, category, threat actor, tags, error name, error code, bundle, test, technique and date range
+- **Outcome chip** — Opening the table from the dashboard's Outcome breakdown card filters it to that outcome (Protected, Prevented, Detected only or Silent). An "Outcome: …" chip above the table removes the filter
+- **Export** — CSV, JSON, the [PDF report](./execution-report) and the SB Export. CSV and JSON hold every matching result, not only the current page, up to 10,000. See [Data Export](./defense-score#data-export)
+- **Bulk actions** — Tick runs to accept risk or archive them together
 
 ## Shared FilterBar
 
-The Execution Table shares its filter bar with other Analytics dashboard tabs, providing a unified filtering experience.
+The Execution Table shares its filter bar and date range with the Analytics **Dashboard** tab. Open it with the **Filters** button in the page header. See [Filtering](./defense-score#filtering).
 
 ![Executions — master-detail view with grouped bundle runs on the left and the selected run's attack chain and per-stage results on the right](/img/screenshots/executions-table.png)
 
@@ -76,4 +80,10 @@ When an EDR kills the agent mid-test and an alert proves it, the run appears as 
 
 ## Archiving
 
-Use the **Archive** button to move old execution results out of active views. Archived results are still queryable but hidden from the default view.
+Archiving moves execution results out of the results indices into a separate Elasticsearch index, named `archived-` plus the index pattern's prefix (`archived-achilles-results` by default). Three ways:
+
+- **Archive** in a run's detail panel
+- **Archive selected** after ticking several runs
+- **Archive by date**, which archives every execution before the date you pick
+
+Archived results no longer appear in the table, the dashboard, the scores or the [execution report](./execution-report). The documents stay in the archive index, where you can query them in Elasticsearch; the console has no view or restore for them. Archiving needs the `analytics:executions:archive` permission, and the Elasticsearch API key must be allowed to create and write the archive index.

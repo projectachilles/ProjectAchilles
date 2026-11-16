@@ -45,6 +45,10 @@ graph LR
     B --> G[expired]
 ```
 
+When [pre-execution notices](../integrations/pre-execution-notices.md) are enabled, a new test task stays `pending` until the notice has been sent and its lead time has passed.
+
+You can only create, see and change tasks for agents of your own organization.
+
 ### tasks create
 
 Create security test execution tasks for one or more agents.
@@ -85,7 +89,7 @@ achilles tasks create \
 
 ### tasks command
 
-Execute an arbitrary shell command on one or more agents.
+Execute an arbitrary shell command on one or more agents. The command runs as root / SYSTEM on the endpoint, so this needs the `endpoints:tasks:command` permission, which only the `admin` role has.
 
 ```bash
 achilles tasks command --cmd <command> --agents <id1,id2,...> [flags]
@@ -231,6 +235,8 @@ Delete a task that is `completed`, `failed`, or `expired`.
 achilles tasks delete <id>
 ```
 
+A task in any other state is refused with HTTP 409; cancel it first. A deleted task disappears from every list, but the server keeps an archived copy with the time and the user who deleted it.
+
 ### tasks notes
 
 Add or update notes on a task.
@@ -291,10 +297,12 @@ achilles schedules create \
 
 | Type | Config Example | Description |
 |------|---------------|-------------|
-| `once` | `{"time":"2026-03-20T14:00:00Z"}` | Run once at specified time |
+| `once` | `{"date":"2026-12-01","time":"14:00"}` | Run once on that date at that time |
 | `daily` | `{"time":"14:00"}` | Run daily at specified time |
-| `weekly` | `{"time":"09:00","day_of_week":1}` | Run weekly (0=Sun, 1=Mon, ..., 6=Sat) |
-| `monthly` | `{"time":"08:00","day_of_month":15}` | Run monthly on specified day |
+| `weekly` | `{"days":[1,3],"time":"09:00"}` | Run on the listed weekdays (0=Sun, 1=Mon, ..., 6=Sat) |
+| `monthly` | `{"dayOfMonth":15,"time":"08:00"}` | Run monthly on that day (1 to 31) |
+
+Dates and times are read in the schedule's `--timezone`. Unknown keys are rejected. Two optional keys randomize the run time: `"randomize_time": true` (daily, weekly, monthly) and `"randomize_mode"` (`fixed`, `fleet` or `per_machine`). See [Task Scheduling](../agent-management/task-scheduling.md).
 
 **Examples:**
 
@@ -313,7 +321,7 @@ achilles schedules create \
   --test abc12345-def6-7890-abcd-ef1234567890 \
   --agents a1b2c3d4 \
   --type weekly \
-  --config '{"time":"09:00","day_of_week":1}' \
+  --config '{"days":[1],"time":"09:00"}' \
   --timezone Europe/London
 ```
 

@@ -8,7 +8,7 @@ description: Step-by-step Clerk Dashboard setup for ProjectAchilles — create t
 
 ProjectAchilles signs people in with [Clerk](https://clerk.com). Every
 deployment, from the [Server Installer](./server-installer) to Docker Compose,
-Fly.io, Render, Railway and Vercel, needs one Clerk application set up as on
+Fly.io, Render and Vercel, needs one Clerk application set up as on
 this page. It takes about 15 minutes in the Clerk Dashboard
 ([dashboard.clerk.com](https://dashboard.clerk.com)).
 

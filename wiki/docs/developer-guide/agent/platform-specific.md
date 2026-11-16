@@ -32,7 +32,7 @@ package service
 | Service manager | SCM (`sc.exe`) | systemd | launchd (plist) |
 | System info | WMI/native | `/proc`, `/etc` | sysctl, vm_stat |
 | Binary update | temp file + rename | atomic rename | atomic rename |
-| Code signing | Authenticode | None | Ad-hoc (rcodesign) |
+| Code signing | Authenticode | None | Ad-hoc (`rcodesign` in backend builds, `codesign` in release builds and on the endpoint) |
 | File permissions | ACLs via `icacls` | Unix permissions | Unix permissions |
 
 ## CGO
@@ -44,6 +44,8 @@ CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build ./...
 ```
 
 ## Service Management
+
+`--install` first copies the agent into its install folder (`C:\F0\achilles-agent.exe` on Windows, `/opt/f0/achilles-agent` on Linux and macOS; `internal/service/placement.go`). The copy is verified against the source's SHA-256, and the folder is refused when SYSTEM/Administrators (or root) do not own it. The service then runs the binary from that folder.
 
 The agent installs as a native system service on each platform. The core interface is the same across all three:
 
@@ -93,15 +95,16 @@ Windows uses the native SCM via `sc.exe` and the `golang.org/x/sys/windows/svc` 
 Key behaviors:
 - Creates a Windows service registered with the SCM
 - Implements the full SCM lifecycle (start, stop, interrogate)
-- Configures automatic restart on failure with exponential backoff
+- Configures automatic restart on failure (three restart actions, 10 seconds apart)
 - Uses Task Scheduler as a fallback restart mechanism after updates (see below)
 - Hardens the binary with `icacls` (SYSTEM + Administrators only, inherited permissions removed). Every `icacls` call names well-known SIDs (`*S-1-5-18`, `*S-1-5-32-544`), never account names, which are localized (`BUILTIN\Administradores` on Spanish Windows)
 
 ```bash
 # What Install() does under the hood
-sc.exe create achilles-agent binPath= "C:\path\to\achilles-agent.exe --run" start= auto
-sc.exe failure achilles-agent reset= 86400 actions= restart/5000/restart/10000/restart/30000
-icacls "C:\path\to\achilles-agent.exe" /inheritance:r /grant:r *S-1-5-18:(RX) /grant:r *S-1-5-32-544:(F)
+sc.exe create achilles-agent binPath= "\"C:\F0\achilles-agent.exe\" --run" start= auto
+sc.exe failure achilles-agent reset= 86400 actions= restart/10000/restart/10000/restart/10000
+sc.exe failureflag achilles-agent 1
+icacls "C:\F0\achilles-agent.exe" /inheritance:r /grant:r *S-1-5-18:(RX) /grant:r *S-1-5-32-544:(F)
 ```
 
 :::info
@@ -115,7 +118,7 @@ On Windows, `RunService()` enters the SCM handler loop. The SCM sends control si
 Linux uses systemd unit files placed in `/etc/systemd/system/`.
 
 Key behaviors:
-- Creates a unit file with `Restart=always` and `RestartSec=5`
+- Creates a unit file with `Restart=always` and `RestartSec=10`
 - Declares `After=network-online.target` to wait for network availability
 - Manages lifecycle via `systemctl enable`, `systemctl start`, etc.
 - Restricts binary permissions to root-only (`0700`)
@@ -123,15 +126,16 @@ Key behaviors:
 ```ini
 # Generated unit file: /etc/systemd/system/achilles-agent.service
 [Unit]
-Description=Achilles Security Agent
+Description=Achilles Agent
 After=network-online.target
 Wants=network-online.target
 
 [Service]
 Type=simple
-ExecStart=/usr/local/bin/achilles-agent --run
+ExecStart=/opt/f0/achilles-agent --run
 Restart=always
-RestartSec=5
+RestartSec=10
+WorkingDirectory=/opt/f0
 
 [Install]
 WantedBy=multi-user.target
@@ -158,7 +162,7 @@ Key behaviors:
     <string>com.achilles.agent</string>
     <key>ProgramArguments</key>
     <array>
-        <string>/usr/local/bin/achilles-agent</string>
+        <string>/opt/f0/achilles-agent</string>
         <string>--run</string>
     </array>
     <key>RunAtLoad</key>
@@ -233,7 +237,7 @@ Endpoint security can refuse to execute a freshly built binary. The Defender ASR
 Every platform leaves the previous binary at `<path>.old`. `rollbackUpdate` (`internal/updater/verify_install.go`) relies on it and is cross-platform. Renaming works even when endpoint security blocks *executing* or *reading* the rejected file: this was checked on a Windows endpoint with ASR rule `01443614` in Block mode.
 
 :::info
-On macOS, the updated binary is re-signed with an ad-hoc signature using `rcodesign sign --code-signature-flags adhoc`. This is required because macOS Launch Constraints reject unsigned binaries loaded from `/Library/LaunchDaemons/`.
+On macOS, the updater re-signs the new binary with an ad-hoc signature using the system's `codesign -f -s -` (no extra tools needed on the endpoint). This is required because macOS Launch Constraints reject unsigned binaries loaded from `/Library/LaunchDaemons/`.
 :::
 
 ## Uninstall Process
@@ -314,7 +318,7 @@ All platforms apply permission hardening during installation and after updates:
 | Platform | Binary Permissions | Config Permissions |
 |----------|-------------------|-------------------|
 | Windows | SYSTEM + Administrators full control via `icacls`, inherited permissions removed | SYSTEM + Administrators read/write via `icacls` |
-
-On Windows the agent also locks its folder at every startup (agent 0.7.1+), the same way `bootstrap-windows.ps1` does: owner Administrators, a protected DACL granting SYSTEM and Administrators full control and OWNER RIGHTS only read-control, inherited by everything inside, and the work dir reset to inherit it. A folder under `C:\` otherwise inherits *Modify* for every signed-in user, and test binaries run as SYSTEM from `C:\F0\tasks` after their hash check. It only does this in the standard layout (work dir directly inside the folder holding the binary, e.g. `C:\F0\tasks` next to `C:\F0\achilles-agent.exe`) and never on a junction or symbolic link; otherwise it logs a warning, and the folder should be locked with `bootstrap-windows.ps1` or a GPO.
 | Linux | `0700` (root execute only) | `0600` (root read/write only) |
 | macOS | `0700` (root execute only) | `0600` (root read/write only) |
+
+On Windows the agent also locks its folder at every startup (agent 0.7.1+), the same way `bootstrap-windows.ps1` does: owner Administrators, a protected DACL granting SYSTEM and Administrators full control and OWNER RIGHTS only read-control, inherited by everything inside, and the work dir reset to inherit it. A folder under `C:\` otherwise inherits *Modify* for every signed-in user, and test binaries run as SYSTEM from `C:\F0\tasks` after their hash check. It only does this in the standard layout (work dir directly inside the folder holding the binary, e.g. `C:\F0\tasks` next to `C:\F0\achilles-agent.exe`) and never on a junction or symbolic link; otherwise it logs a warning, and the folder should be locked with `bootstrap-windows.ps1` or a GPO.

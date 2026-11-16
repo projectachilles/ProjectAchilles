@@ -12,12 +12,12 @@ Risk Acceptance allows you to formally acknowledge that certain security control
 
 ## Accepting Risk
 
-1. In the Execution Table or Defense Score breakdown, find the unprotected control
-2. Click the **Accept Risk** button on the row
+1. In **Analytics → All Executions**, find the unprotected test, control or stage
+2. Select **Accept risk** in its detail panel, or tick several runs and use **Accept risk** in the bulk bar
 3. Choose the **scope** using the toggle:
    - **All Hosts** (default) — excludes the test/control from Defense Score across the entire organization
    - **This Host Only** — scopes the exclusion to the specific hostname where the failure occurred
-4. Provide a justification (required)
+4. Provide a justification (required, at least 10 characters)
 5. The control is marked as "Risk Accepted" and excluded from the Defense Score calculation
 
 ![Risk Acceptances tab — accepted controls with scope, justification, who accepted them, and a revoke action](/img/screenshots/risk-acceptances.png)
@@ -31,7 +31,9 @@ All risk acceptance decisions are tracked with:
 
 ## Revoking Acceptance
 
-Risk acceptance can be revoked at any time, which returns the control to the "Unprotected" category and recalculates the Defense Score.
+Risk acceptance can be revoked at any time, from the result or from the **Risk Acceptances** tab. A reason of at least 10 characters is required. Revoking returns the control to the "Unprotected" category and recalculates the Defense Score.
+
+Accepting and revoking need the `analytics:risk:write` permission.
 
 ## Acceptance Scope
 
@@ -68,25 +70,24 @@ graph TD
 The exclusion filter generates Elasticsearch `must_not` clauses that match the `test_name`, `control_id`, and `hostname` fields of each active acceptance. This means:
 
 - **Accepted tests** no longer count as "Unprotected" in the Defense Score
-- **Heatmap cells** for accepted risks show a distinct visual state
-- **Treemap tiles** for accepted controls are grouped separately
+- The **Defense Score ledger** shows how many test × endpoint pairs are excluded (*Risk-accepted*) and the score without the exclusions (*Actual*)
+- The **Outcome breakdown** card leaves accepted pairs out and says how many ("N risk-accepted pairs not counted")
 
 :::info[Performance]
 Active acceptances are cached in memory for 60 seconds to avoid hitting Elasticsearch on every Defense Score query. The cache is automatically invalidated when a new acceptance is created or revoked.
 :::
 
-## Heatmap Integration
+## Where accepted risks show \{#heatmap-integration}
 
-Accepted risks appear as a distinct state in the MITRE ATT&CK heatmap:
+Accepted risks stay visible, so an exclusion never hides a gap silently:
 
-| Heatmap Color | Meaning |
-|---------------|---------|
-| Green | Protected (test passed) |
-| Red | Unprotected (test failed) |
-| Yellow/Amber | Risk Accepted (excluded from scoring) |
-| Gray | Not tested |
-
-This visual distinction ensures that accepted risks are visible to the team without inflating the "unprotected" count.
+| Place | What it shows |
+|-------|---------------|
+| **All Executions** | A **Revoke** button in place of **Accept risk** on the affected result. Hover it for the justification and who accepted the risk |
+| **Risk Acceptances** tab | Every acceptance with its scope, justification and who accepted it. The tab shows the number of active acceptances |
+| **Defense Score ledger** | *Risk-accepted: N excluded*, and the *Actual* score before exclusions |
+| **Trend Overview** | A dashed *Actual Score* line while acceptances are active |
+| **Execution report (PDF)** | The accepted risks in scope, for users allowed to read them, and the score before accepted risks |
 
 ## Acceptance Workflow
 
@@ -102,7 +103,7 @@ sequenceDiagram
     User->>UI: Click "Accept Risk" on control
     UI->>UI: Show justification dialog
     User->>UI: Enter justification text
-    UI->>API: POST /api/analytics/risk-acceptances
+    UI->>API: POST /api/risk-acceptances
     API->>ES: Index document in achilles-risk-acceptances
     ES-->>API: Document ID
     API->>API: Invalidate exclusion filter cache
@@ -115,7 +116,7 @@ sequenceDiagram
     User->>UI: Click "Revoke" on accepted risk
     UI->>UI: Show revocation reason dialog
     User->>UI: Enter revocation reason
-    UI->>API: POST /api/analytics/risk-acceptances/:id/revoke
+    UI->>API: POST /api/risk-acceptances/:id/revoke
     API->>ES: Update document status → "revoked"
     API->>API: Invalidate exclusion filter cache
     API-->>UI: Updated record
@@ -157,4 +158,4 @@ The audit trail captures every risk decision with full context:
 - **What** was accepted (test name, control ID, hostname)
 - **Why** the decision was made (justification or revocation reason)
 
-Use the **Risk Acceptances** table in the Analytics dashboard to review all active and historical acceptances. Filter by status (`active` / `revoked`), test name, or date range.
+Use the **Risk Acceptances** table in the Analytics dashboard to review all active and historical acceptances. Filter by status: `active`, `revoked` or `all`.

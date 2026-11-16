@@ -21,7 +21,7 @@ The `@elastic/elasticsearch` client must stay on version 8.x. Version 9.x sends 
    - **Cloud ID** — Deployment section
    - **API Key** — Create under Security → API Keys
 3. Configure in ProjectAchilles:
-   - **Via UI**: Analytics → Setup → enter Cloud ID and API Key
+   - **Via UI**: **Settings → Integrations → Analytics (Elasticsearch)** → **Elastic Cloud** → enter Cloud ID and API Key
    - **Via env vars**: Set `ELASTICSEARCH_CLOUD_ID` and `ELASTICSEARCH_API_KEY`
 
 ## Option 2: Self-Hosted (Docker)
@@ -30,8 +30,8 @@ The `@elastic/elasticsearch` client must stay on version 8.x. Version 9.x sends 
 docker compose --profile elasticsearch up -d
 ```
 
-Then configure Analytics → Setup with:
-- **Node URL**: `http://elasticsearch:9200` (Docker internal) or `http://localhost:9200` (host)
+Then open **Settings → Integrations → Analytics (Elasticsearch)**, select **Direct URL** and enter:
+- **Elasticsearch URL**: `http://elasticsearch:9200` (Docker internal) or `http://localhost:9200` (host)
 - No credentials needed
 
 ## Option 3: Existing Cluster
@@ -42,9 +42,59 @@ Set `ELASTICSEARCH_NODE` to your cluster URL:
 ELASTICSEARCH_NODE=https://my-es-cluster.example.com:9200
 ```
 
+The same card takes an API key (preferred) or a username and password, and,
+for a cluster with a private certificate, a CA certificate under **TLS /
+Certificates**. Settings saved in the UI take priority over the environment
+variables.
+
+## Changing the connection \{#changing-the-connection}
+
+Only an admin can save or test the connection (`analytics:settings:write`).
+
+- **Blank credential fields keep the saved credentials only for the same
+  cluster.** When you change the Elasticsearch URL, the Cloud ID or the
+  connection type, enter the API key (or username and password) and the CA
+  certificate again. Saved credentials are never sent to a different host.
+- **Test Connection** follows the same rule and needs the same permission as
+  **Save**.
+- **Installs with Clerk organizations:** the connection is shared by every
+  organization, so only an admin who is not signed in to an organization can
+  save it or create an index. Others get a 403.
+
 ## Index Pattern
 
 Results are stored in indices matching `achilles-results-*` (configurable via `ELASTICSEARCH_INDEX_PATTERN`). The backend creates indices with the correct field mappings automatically.
+
+Reads use the **Index Pattern**. Writes go to one index, set by two more fields
+on the card:
+
+| Field | Default | Meaning |
+|-------|---------|---------|
+| **Write Index Prefix** | `achilles-results-` | Start of the index name results are written to. Lowercase, no wildcards. Env: `ELASTICSEARCH_WRITE_INDEX_PREFIX`. |
+| **Write index rollover** | None (single index) | **Daily** writes to `<prefix>YYYY.MM.DD`, **Monthly** to `<prefix>YYYY.MM`. Env: `ELASTICSEARCH_WRITE_INDEX_ROLLOVER` (`none`, `daily`, `monthly`). |
+
+Daily rollover creates one index per testing day. On a small or shared cluster
+choose **Monthly** or **None**. Keep the prefix inside the index pattern, or the
+dashboards won't read what was written.
+
+A task or schedule can name its own target index. It must be an
+`achilles-results-...` name.
+
+## Replicas
+
+ProjectAchilles creates its indices (results, archive, EDR, risk acceptance)
+with `index.auto_expand_replicas: 0-1`: no replica on a single-node cluster, one
+replica once a second data node exists. Clusters that reject the setting
+(Elastic Cloud Serverless) get the index without it.
+
+Indices created before v2.9.0 keep the Elasticsearch default of one replica,
+which leaves a single-node cluster yellow. To fix them, run this once in Kibana
+Dev Tools:
+
+```
+PUT achilles-*,archived-achilles*/_settings
+{"index.auto_expand_replicas":"0-1"}
+```
 
 ## API key privileges for EDR integrations \{#edr-api-key-privileges}
 

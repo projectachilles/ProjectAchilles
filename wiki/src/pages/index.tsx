@@ -15,7 +15,7 @@ const features: Feature[] = [
     label: 'dashboard',
     title: 'Unified Security Dashboard',
     description:
-      'One command centre for posture across tests, endpoints, and analytics — KPI strip, attention banner, trend overview, and ATT&CK coverage, with a 7d/30d/90d range selector.',
+      'One command centre for posture across tests, endpoints, and analytics — KPI strip, attention chips, trend overview, and ATT&CK coverage, with a 24h/7d/30d/90d/All range selector.',
     link: '/docs/getting-started/features',
   },
   {
@@ -29,7 +29,7 @@ const features: Feature[] = [
     label: 'library',
     title: 'Test Browser',
     description:
-      'Browse the git-synced library with MITRE ATT&CK mapping. Facet by category, severity, platform, and threat actor. Build, sign, and dispatch straight from the UI.',
+      'Browse the git-synced library with MITRE ATT&CK mapping. Facet by category, platform, and threat actor. Build, sign, and dispatch straight from the UI.',
     link: '/docs/user-guide/test-browser/browsing-filtering',
   },
   {
@@ -48,9 +48,9 @@ const features: Feature[] = [
   },
   {
     label: 'integrations',
-    title: 'Microsoft Defender & Alerting',
+    title: 'EDR Integrations & Alerting',
     description:
-      'Secure Score correlation, alert cross-matching, and opt-in auto-resolve for Achilles-generated alerts. Slack and email alerting on score thresholds.',
+      'Microsoft Defender, CrowdStrike, SentinelOne, and Sophos: alerts matched to the test that caused them, posture scores, and opt-in auto-resolve of test alerts. Slack and email alerting on score thresholds.',
     link: '/docs/user-guide/integrations/microsoft-defender',
   },
   {
@@ -64,7 +64,7 @@ const features: Feature[] = [
     label: 'deployment',
     title: 'Seven Deployment Targets',
     description:
-      'Docker Compose, self-hosted or on-prem server behind Caddy, Railway, Render, Fly.io, or Vercel serverless — each with a dedicated hardening guide.',
+      'Docker Compose, a public or on-prem server behind Caddy, the on-prem installer wizard (also shipped as a Windows Hyper-V appliance), Render, Fly.io, or Vercel serverless — each with its own guide.',
     link: '/docs/deployment/overview',
   },
 ];
@@ -72,7 +72,7 @@ const features: Feature[] = [
 const stats = [
   {value: '30+', label: 'Elasticsearch analytics endpoints'},
   {value: '4', label: 'Agent platform targets'},
-  {value: '7', label: 'Supported deployment targets'},
+  {value: '8', label: 'Supported deployment targets'},
   {value: '5', label: 'Detection rule output formats'},
 ];
 

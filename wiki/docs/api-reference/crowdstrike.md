@@ -13,6 +13,12 @@ require `integrations:read` or `integrations:write`.
 All analytics endpoints are guarded by `requireCrowdStrikeConfigured()` and
 return `400` when the integration is not configured.
 
+On Vercel (`backend-serverless/`) the CrowdStrike routes exist, with these
+differences: no `POST /correlation/alerts-for-tests`, no `elasticsearch` field
+in the save response, no
+[Elasticsearch readiness](./overview.md#edr-elasticsearch-readiness) route, and
+no `REQUIRE_ORG_ISOLATION` check on the settings writes.
+
 ## Analytics Endpoints
 
 Base path: `/api/analytics/crowdstrike`
@@ -51,9 +57,12 @@ GET /api/analytics/crowdstrike/alerts/trend
 - **`/alerts/summary`** — alert counts broken down by severity
   (`informational` / `low` / `medium` / `high` / `critical`) and status
   (`new` / `in_progress` / `reopened` / `closed`).
-- **`/alerts`** — the alert list, paged and filterable by severity, status,
-  free-text search, and MITRE techniques.
-- **`/alerts/trend`** — alert volume bucketed over time (`?days=<n>`).
+- **`/alerts`**: the alert list, paged (`page`, `pageSize`) and sortable
+  (`sortField`, `sortOrder` `asc` or `desc`, default `desc`), filterable by
+  severity, `status`, free-text `search`, and MITRE `techniques`
+  (comma-separated).
+- **`/alerts/trend`**: alert volume bucketed over time (`?days=<n>`, default
+  30).
 
 ### Window parameters
 
@@ -168,14 +177,21 @@ a missing flag means no match. Per execution, detected is any of:
   (`f0rtika.is_bundle_control` is not `true`). On a bundle stage this flag only
   means the bundle was matched, so a stage counts only by its own stage flag and
   is never credited because a sibling stage was caught;
-- `f0rtika.crowdstrike_prevented: true` — a vendor-confirmed prevention counts as
-  detected;
-- `f0rtika.edr_terminated_vendors` contains `crowdstrike` — CrowdStrike killed the
-  agent mid-run.
+- the result's own prevention (below): a prevention counts as detected.
 
-Prevented is `f0rtika.crowdstrike_prevented: true` (a launch block's result
-carries it) or a CrowdStrike agent kill; detected-only is detected and not
-prevented; missed is the rest.
+Prevented is judged by the result's own evidence, any of:
+
+- `f0rtika.crowdstrike_stage_prevented: true`: an alert naming this stage carried the
+  action. On results enriched before that flag existed:
+  `f0rtika.crowdstrike_stage_detected: true` plus a `f0rtika.crowdstrike_prevention_action` of
+  `quarantined`, `process_killed` or `blocked`;
+- `f0rtika.crowdstrike_prevented: true` on a result that is **not** a bundle control (a launch block's result carries it).
+  On a bundle stage this flag is run-wide (a sibling stage's prevention sets it
+  on every stage), so it is not used there;
+- `f0rtika.edr_terminated_vendors` contains `crowdstrike`: CrowdStrike killed the agent
+  mid-run.
+
+Detected-only is detected and not prevented; missed is the rest.
 
 ```jsonc
 {
@@ -223,7 +239,7 @@ POST /api/analytics/crowdstrike/correlation/alerts-for-tests
 ```
 
 - **`/correlation/scores`** — Defense Score vs. ZTA posture score over time
-  (`?days=<n>`).
+  (`?days=<n>`, default 90).
 - **`/correlation/techniques`** — MITRE technique overlap between test results
   and CrowdStrike alerts.
 - **`/correlation/detection-rate`** — the legacy technique plus time-window
@@ -232,7 +248,10 @@ POST /api/analytics/crowdstrike/correlation/alerts-for-tests
   the Analytics tab (see [Technique Coverage](#technique-coverage)).
 - **`/correlation/alerts-for-test`** — per-test evidence correlation; returns
   the CrowdStrike alerts matched to a specific test execution, with stage and
-  bundle attribution (powers the alert drawer drill-down).
+  bundle attribution (powers the alert drawer drill-down). `techniques`
+  (comma-separated) and `timestamp` are required (`400` otherwise);
+  `windowMinutes` (default 30), `hostname`, `binaryName` and `bundleName` are
+  optional.
 - **`POST /correlation/alerts-for-tests`** — many executions in one request;
   same body, limits and response as the
   [Defender batch endpoint](./defender#cross-correlation).
@@ -272,6 +291,12 @@ for the full metric definition.
 
 Base path: `/api/integrations/crowdstrike`
 
+The CrowdStrike configuration is deployment-wide: these routes ignore the
+caller's Clerk organization. With `REQUIRE_ORG_ISOLATION=true`,
+`POST /crowdstrike`, `DELETE /crowdstrike` and
+`PUT /crowdstrike/auto-resolve/mode` return `403`; set the `CROWDSTRIKE_*`
+environment variables instead. Reads, `/test` and `/sync` stay available.
+
 ### Configuration
 
 ```
@@ -284,24 +309,32 @@ POST   /api/integrations/crowdstrike/test
 - **`GET /crowdstrike`** — returns whether CrowdStrike is configured, with
   secrets masked (`integrations:read`). The response includes the selected
   `region` plus a server-derived, display-only `base_url` resolved from that
-  region.
-- **`POST /crowdstrike`** — save credentials. Stored AES-256-GCM encrypted. The response includes `elasticsearch`: the [Elasticsearch readiness](./overview.md#edr-elasticsearch-readiness) of the key, checked (and the index created) before responding.
-  Kicks off a background sync after saving (`integrations:write`).
+  region, `zta_status`, `auto_resolve_mode` and `env_configured`.
+- **`POST /crowdstrike`**: save credentials (partial update;
+  `integrations:write`). Stored AES-256-GCM encrypted. `client_id` and
+  `client_secret` are required on the first save (`400` otherwise). The response includes `elasticsearch`: the [Elasticsearch readiness](./overview.md#edr-elasticsearch-readiness) of the key, checked (and the index created) before responding.
+  Kicks off a background sync after saving.
 - **`DELETE /crowdstrike`** — remove the stored configuration
-  (`integrations:write`).
-- **`POST /crowdstrike/test`** — validate credentials against the Falcon API
-  (real token acquisition plus a `limit:1` alerts query).
+  (`integrations:write`). Refused with `400` when the credentials come from the
+  `CROWDSTRIKE_*` environment variables.
+- **`POST /crowdstrike/test`** (`integrations:write`): validate credentials
+  against the Falcon API (real token acquisition plus a `limit:1` alerts
+  query), using the body's `region`, `client_id` and `client_secret` and
+  falling back to the stored values. Always HTTP 200:
+  `{ "success": true, "message": "..." }` or
+  `{ "success": false, "error": "..." }`.
 
 **`POST /crowdstrike` body:**
 ```json
 {
   "region": "us-1",
-  "clientId": "...",
-  "clientSecret": "...",
+  "client_id": "<32-character lowercase hex>",
+  "client_secret": "...",
   "label": "Production Falcon"
 }
 ```
 
+`client_id` must be a 32-character lowercase hex string (`400` otherwise).
 `region` must be one of `us-1` (default), `us-2`, `eu-1`, or `us-gov-1` —
 custom base URLs are not accepted; the API base URL is derived server-side
 from the region. See
@@ -314,10 +347,13 @@ POST /api/integrations/crowdstrike/sync
 GET  /api/integrations/crowdstrike/sync/status
 ```
 
-- **`POST /crowdstrike/sync`** — trigger an immediate sync from the Falcon API
-  (alerts + ZTA, followed by enrichment and an auto-resolve pass).
-- **`GET /crowdstrike/sync/status`** — last sync timestamps for alerts and
-  ZTA, plus `zta_status` (`ok` / `not_licensed`).
+- **`POST /crowdstrike/sync`** (`integrations:write`): run a sync from the
+  Falcon API (alerts + ZTA, followed by enrichment and an auto-resolve pass)
+  and return its result when it finishes (`{ success, data }`). `400` when
+  CrowdStrike is not configured.
+- **`GET /crowdstrike/sync/status`** (`integrations:read`): `lastAlertSync`,
+  `lastZtaSync`, `ztaStatus` (`ok` / `not_licensed`), `lastSyncResult`,
+  `lastAttemptAt` and `lastError`.
 
 ### Auto-Resolve
 
@@ -327,10 +363,17 @@ PUT /api/integrations/crowdstrike/auto-resolve/mode
 GET /api/integrations/crowdstrike/auto-resolve/receipts?limit=<n>&offset=<n>
 ```
 
-- **`/auto-resolve/status`** — current mode plus recent receipt counts.
-- **`/auto-resolve/mode`** — set the mode; body
-  `{ "mode": "disabled" | "dry_run" | "enabled" }`.
-- **`/auto-resolve/receipts`** — paginated receipt history.
+- **`/auto-resolve/status`** (`integrations:read`):
+  `{ success, data: { mode, counts: { last24h, last7d, last30d }, lastAutoResolve } }`.
+  `lastAutoResolve` is the last pass result or `null`.
+- **`/auto-resolve/mode`** (`integrations:write`): set the mode; body
+  `{ "mode": "disabled" | "dry_run" | "enabled" }`. `400` when CrowdStrike is
+  not configured.
+- **`/auto-resolve/receipts`** (`integrations:read`):
+  `{ success, data: { items, total, limit, offset } }`, newest first. `limit`
+  defaults to 20 (1–100), `offset` to 0. Each item has `alert_id`,
+  `alert_title`, `severity`, `achilles_test_uuid`, `auto_resolved_at`,
+  `auto_resolve_mode` and `auto_resolve_error`.
 
 See [CrowdStrike Auto-Resolve](../user-guide/integrations/crowdstrike-auto-resolve)
 for the feature walkthrough.

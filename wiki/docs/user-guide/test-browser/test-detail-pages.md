@@ -125,19 +125,19 @@ supports them; on deployments without fleet support (such as the Vercel
 serverless backend) or without Analytics they are not shown, and the Overview
 falls back to lab results.
 
-![Test detail page — Overview with the stage chain and side panels](/img/screenshots/test-detail-killchain.png)
+![Test page, Kill chain tab — technique cards above the stage progression diagram](/img/screenshots/test-detail-killchain.png)
 
 ### Source tab
 Go source code with syntax highlighting. Copy-to-clipboard is available for the
 entire file.
 
-![Source code viewer — Go source with syntax highlighting](/img/screenshots/test-detail-source.png)
+![Source tab — file pills above the Go source with syntax highlighting](/img/screenshots/test-detail-source.png)
 
 ### Detection tab
 Detection rules for the test's activity. Copy individual rules to the clipboard
 for use in your SIEM or EDR.
 
-![Detection rules — LimaCharlie D&R YAML with syntax highlighting in the Detection tab](/img/screenshots/test-detail-detection.png)
+![Detection tab — rule format pills (Defender KQL, Elastic EQL, YARA, Sigma) above the KQL queries with syntax highlighting](/img/screenshots/test-detail-detection.png)
 
 ### Kill chain and Attack flow tabs
 The test's diagrams, shown in a sandboxed frame. A diagram loads the first time
@@ -147,15 +147,16 @@ you open its tab.
 
 Click **Run on agents** to open the execution drawer, which allows you to:
 1. Select target agent(s)
-2. Choose the target platform and architecture
-3. Build the test binary (if not cached)
-4. Create a task for execution
+2. Build the test binary (if it has no build yet)
+3. Run now, or create a schedule
+
+There is no platform to choose: each agent receives the build for its own operating system. See [Execution Drawer](./building-signing#execution-drawer).
 
 **Run on agents** is shown only to users who can create agent tasks.
 
 ## Build & Download
 
 The **Deploy** panel on the Overview tab triggers Go cross-compilation for the
-selected platform; **Download** in the header fetches the latest build. Both
+test's target platform; **Download** in the header fetches the latest build. Both
 need permission to build tests. See [Building & Signing](./building-signing)
 for details.

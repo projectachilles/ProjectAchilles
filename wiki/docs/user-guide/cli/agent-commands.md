@@ -1,7 +1,7 @@
 ---
 sidebar_position: 3
 title: "Agent Commands"
-description: "Managing agents via CLI — list, show, update, delete, rotate-key, metrics."
+description: "Managing agents, enrollment tokens and agent versions via CLI."
 ---
 
 # Agent Commands
@@ -73,12 +73,14 @@ achilles agents list --json
 ```
   ID          Hostname              OS        Arch    Version   Status        Last Seen     Tags
   ─────────   ────────────────────  ────────  ──────  ────────  ────────────  ────────────  ──────────
-  a1b2c3d4…   prod-web-01           windows   amd64   1.4.2     ● active      2m ago        production
-  e5f6g7h8…   dev-db-03             linux     amd64   1.4.1     ● active      4h ago        dev, staging
-  i9j0k1l2…   staging-api-02        darwin    arm64   1.4.2     ○ disabled    6h ago        staging
+  a1b2c3d4…   prod-web-01           windows   amd64   0.7.4     ● active      2m ago        production
+  e5f6g7h8…   dev-db-03             linux     amd64   0.7.3     ○ active      4h ago        dev, staging
+  i9j0k1l2…   staging-api-02        darwin    arm64   0.7.4     ○ disabled    6h ago        staging
 
   Showing 3 of 3 agents
 ```
+
+The dot before the status shows whether the agent is online (`●`) or offline (`○`). You only see agents of your own organization.
 
 ## agents show
 
@@ -226,7 +228,7 @@ achilles agents metrics
 
 This combines two API calls to show:
 
-- **Fleet metrics**: Total agents, online/offline counts, breakdown by OS
+- **Fleet metrics**: Total agents, online/offline/stale counts, breakdown by OS
 - **Health KPIs**: Fleet uptime (30-day), task success rate (7-day), MTBF (mean time between failures), stale agent count
 
 **Example output:**
@@ -241,3 +243,71 @@ This combines two API calls to show:
   mtbf_hours:               168
   stale_agents:             1
 ```
+
+---
+
+## Enrollment Tokens \{#tokens}
+
+```bash
+achilles tokens <subcommand> [flags]
+```
+
+| Subcommand | Description |
+|------------|-------------|
+| `create` | Create an enrollment token |
+| `list` | List active enrollment tokens |
+| `revoke <id>` | Revoke a token |
+
+**Flags for `create`:**
+
+| Flag | Type | Default | Description |
+|------|------|---------|-------------|
+| `--ttl-hours` | number | 24 | Token lifetime in hours (1 to 720) |
+| `--max-uses` | number | 1 | How many agents may enroll with it (1 to 1000) |
+| `--metadata` | string | | JSON object stored with the token, e.g. `'{"env":"prod"}'` |
+
+```bash
+achilles tokens create --ttl-hours 48 --max-uses 10
+```
+
+The token is created for the organization of your CLI session, and agents that enroll with it join that organization. The full token value is shown once, in the `create` output; `list` shows only its first 8 characters.
+
+## Agent Versions \{#versions}
+
+```bash
+achilles versions <subcommand> [flags]
+```
+
+| Subcommand | Description |
+|------------|-------------|
+| `list` | List registered agent versions (version, OS, arch, size, signed, mandatory) |
+| `upload` | Upload an agent binary |
+| `build` | Build an agent binary from source on the server |
+| `delete <version> <os> <arch>` | Delete a registered binary |
+
+**Flags for `upload`:**
+
+| Flag | Type | Required | Description |
+|------|------|----------|-------------|
+| `--version` | string | Yes | Version string. It must equal the version stamped into the binary |
+| `--os` | string | Yes | `windows`, `linux` or `darwin` |
+| `--arch` | string | Yes | `amd64` or `arm64` |
+| `--file` | string | Yes | Path to the binary |
+| `--notes` | string | No | Release notes |
+| `--mandatory` | boolean | No | Mark as a mandatory update |
+
+`build` takes `--version`, `--os` and `--arch` (all required).
+
+```bash
+achilles versions upload --version=0.7.4 --os windows --arch amd64 \
+  --file ./achilles-agent-windows-amd64.exe
+achilles versions build --version=0.7.4 --os linux --arch amd64
+```
+
+:::note[Write `--version=<value>`]
+A bare `--version` is the global flag that prints the CLI version, so `--version 0.7.4` (with a space) prints the CLI version and does nothing else. Use the `=` form here.
+:::
+
+:::warning[The version must match the binary]
+The server reads the version built into the binary and refuses the registration (HTTP 422) when it differs from `--version`, or when the binary has no version stamp. A mislabelled binary would make agents install it, restart reporting the old version, and install it again in a loop. See [Self-Updates](../agent-management/self-updates.md).
+:::

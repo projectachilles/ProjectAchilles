@@ -13,7 +13,7 @@ When the feature is on, tests **wait** until the mail server has accepted the no
 The feature is **off by default**. With it off, nothing about task creation, pickup or expiry changes.
 
 :::note
-Pre-execution notices work on Docker Compose, Render, Fly.io, Railway and server installs. They are **not available on Vercel** (the serverless backend), and the settings card is hidden there.
+Pre-execution notices work on Docker Compose, Render, Fly.io and server installs. They are **not available on Vercel** (the serverless backend), and the settings card is hidden there.
 :::
 
 ## Turn it on
@@ -28,7 +28,7 @@ The settings apply to your organization. Each organization has its own recipient
 
 ## Settings
 
-![Pre-execution notices settings — enable switch, recipients, lead time, max wait for delivery, pickup window and the finished-email option](/img/screenshots/settings-notices.png)
+![Pre-execution notices settings — enable switch, recipients, lead time, max wait for delivery, pickup window, the finished-email option and the daily advance digest option](/img/screenshots/settings-notices.png)
 
 | Setting | Default | Range | What it does |
 |---------|---------|-------|--------------|
@@ -83,17 +83,17 @@ The body has:
 - Who or what triggered the run: the user's name and email for Run Now or a manual retry, or the schedule name. The name is looked up when the email is sent. If the lookup fails, the email shows the user ID instead.
 - A table of tests: each test's name with its UUID underneath, its number of **stages**, and its MITRE ATT&CK techniques and tactics. A single-binary test counts as 1 stage. A cyber-hygiene bundle shows its number of **controls**, taken from its most recent completed run on your deployment. Before a bundle has run once, it shows `bundle`. A test no longer in the library shows `—`.
 - A table of hosts: hostname, operating system, and whether each is online. Offline hosts run only if they reconnect before the window ends. Past 50 hosts, the first 50 are listed and the full list is attached as a CSV file.
-- An EDR section for the integrations you have configured (Microsoft Defender, CrowdStrike Falcon). It says which alerts to expect and whether auto-resolve is on, in dry-run, or off. With neither configured, it lists techniques and hosts in vendor-neutral wording.
+- An EDR section for the integrations you have configured (Microsoft Defender, CrowdStrike Falcon, SentinelOne, Sophos Intercept X). It says which alerts to expect and whether auto-resolve is on, in dry-run, or off. With none configured, it lists techniques and hosts in vendor-neutral wording.
 - A link to the Tasks page.
 
 A calendar file (`.ics`) is attached so the window shows up in the engineers' calendars.
 
-The **finished email** is sent once the window is over and every task has ended. It repeats the run tag, shows the actual start and finish, and counts outcomes with the same labels as Analytics → All Executions and the campaign evidence page: **Protected**, **Prevented**, **Detected**, **Unprotected**, **Error** and **Not run**. Prevented and Detected come from Microsoft Defender or CrowdStrike Falcon alerts that match the test. The email goes out after the pickup window closes, by which time the EDR sync has caught up. If Elasticsearch can't be reached, the email says the counts use test exit codes only. It also updates the calendar entry to end at the real finish time. If it cannot be sent, nothing is held back by that.
+The **finished email** is sent once the window is over and every task has ended. It repeats the run tag, shows the actual start and finish, and counts outcomes with the same labels as Analytics → All Executions and the campaign evidence page: **Protected**, **Prevented**, **Detected**, **Unprotected**, **Error** and **Not run**. Prevented and Detected come from the alerts of your connected EDR (Microsoft Defender, CrowdStrike Falcon, SentinelOne or Sophos) that match the test. The email goes out after the pickup window closes, by which time the EDR sync has caught up. If Elasticsearch can't be reached, the email says the counts use test exit codes only. It also updates the calendar entry to end at the real finish time. If it cannot be sent, nothing is held back by that.
 
 When an EDR is connected and a test was cut off by the watchdog (the agent went offline or timed out), the finished email waits up to 15 minutes for the EDR sync to confirm whether the EDR killed the agent. A confirmed kill is reported as **Protected** (the email names the EDR vendor). Without confirmation the run counts as **Not run** in the email, because every task that did not complete does. The latest attempt decides: if a retry exists, its outcome is the one reported.
 
-:::note[SentinelOne with a long polling interval]
-The kill is confirmed after an EDR poll. Microsoft Defender and CrowdStrike poll alerts every 5 minutes. If SentinelOne is your only EDR and its polling interval is above about 8 minutes, the confirmation may not arrive within the 15-minute wait. The email then says **Not run**, while Analytics shows the run as **Protected** once the next poll confirms the kill.
+:::note[SentinelOne or Sophos with a long polling interval]
+The kill is confirmed after an EDR poll. Microsoft Defender and CrowdStrike poll alerts every 5 minutes; SentinelOne and Sophos do too by default, but their interval can be changed. If one of them is your only EDR and its polling interval is above about 8 minutes, the confirmation may not arrive within the 15-minute wait. The email then says **Not run**, while Analytics shows the run as **Protected** once the next poll confirms the kill.
 :::
 
 ## What the Tasks page shows

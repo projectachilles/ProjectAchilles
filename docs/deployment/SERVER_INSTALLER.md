@@ -1196,6 +1196,8 @@ promotes) that address as described in section 4.1 and prints the outcome. If
 the Clerk call fails, the install still exits 0 and prints a warning with the
 manual steps.
 
+Optional keys in the same file: `CONSOLE_ORG_CODE`, `CONSOLE_ORG_NAME` and `CONSOLE_ORG_COLOR` (console identity) and `ORG_NAMES` (display names for organization UUIDs). The engine copies them to `backend/.env`. Quote values with spaces, and single-quote the `ORG_NAMES` JSON. They are described in `deploy.config.env.example`.
+
 Then:
 
 ```bash

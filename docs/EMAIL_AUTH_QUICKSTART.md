@@ -20,8 +20,9 @@
 
 **Navigation:**
 ```
-Left Sidebar → Configure → Email, Phone, Username
+Left Sidebar → Configure → User & authentication
 ```
+(Older Clerk dashboards call this page "Email, Phone, Username".)
 
 **Enable Email Address:**
 ```
@@ -92,6 +93,9 @@ http://localhost:5173
 
 ### 3. Click "Sign Up"
 
+If Clerk's access mode is **Invite-only** (recommended), sign-ups are closed.
+Invite the test address from **Settings → Users** and open the link in the email.
+
 You should now see:
 ```
 ┌──────────────────────────────┐
@@ -123,7 +127,8 @@ Password: TestPass123!
 - Check your email inbox
 - Find verification code (6 digits)
 - Enter code in app
-- ✅ You're signed up!
+- ✅ You're signed up, and land on the Dashboard (`/dashboard`)
+- An account with no role is read-only until an admin sets one under **Settings → Users**
 
 ---
 
@@ -150,7 +155,7 @@ Production Ready:
 ├─ [✓] Email auth enabled in Clerk
 ├─ [✓] Password requirements set
 ├─ [✓] Tested in development
-└─ [✓] Ready for Railway deployment
+└─ [✓] Ready for deployment
 ```
 
 ---
@@ -194,4 +199,4 @@ Once email auth is working:
 
 ---
 
-**Remember:** This works immediately in production too! Once you deploy to Railway, email authentication will be available automatically.
+**Remember:** This works in production too, on every deployment target. A Clerk Production instance has its own settings, so enable email and password there as well.

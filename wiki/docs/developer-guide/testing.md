@@ -8,14 +8,14 @@ description: "Testing patterns for ProjectAchilles — Vitest, in-memory SQLite,
 
 ## Test Framework
 
-All modules use **Vitest** with the test file pattern: `src/**/__tests__/**/*.test.{ts,tsx}`
+The frontend, both backends and the CLI use **Vitest** with the test file pattern: `src/**/__tests__/**/*.test.{ts,tsx}`. The Go agent and the installer use `go test`.
 
 ## Running Tests
 
 ```bash
-cd backend && npm test           # 912 tests across 40 files (~12s)
-cd frontend && npm test          # 127 tests across 8 files (~2s)
-cd backend-serverless && npm test  # 626 tests across 25 files (~11s)
+cd backend && npm test
+cd frontend && npm test
+cd backend-serverless && npm test
 
 # Single file
 cd backend && npx vitest src/services/agent/__tests__/enrollment.service.test.ts
@@ -23,8 +23,13 @@ cd backend && npx vitest src/services/agent/__tests__/enrollment.service.test.ts
 # Filter by name
 cd backend && npx vitest -t "creates a token"
 
-# Watch mode
+# Watch mode / coverage
 cd backend && npm run test:watch
+cd backend && npm run test:coverage
+
+# Go
+cd agent && go test ./...
+cd installer && go test ./...
 ```
 
 ## Backend Test Pattern

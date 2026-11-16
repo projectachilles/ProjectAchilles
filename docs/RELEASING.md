@@ -6,10 +6,12 @@ This guide covers the release process for ProjectAchilles's two version streams.
 
 | Stream | Components | Tag format | Workflow |
 |--------|-----------|-----------|----------|
-| **Platform** | frontend, backend, backend-serverless | `vX.Y.Z` | `release.yml` |
+| **Platform** | frontend, backend, backend-serverless, `achilles-installer`, Windows Hyper-V appliance | `vX.Y.Z` | `release.yml`, `appliance.yml` |
 | **Agent** | Go binary (achilles-agent) | `agent-vX.Y.Z` | `release-agent.yml` |
 
-The platform and agent version independently. A platform `v2.1.0` might ship alongside agent `v0.8.0`.
+The platform and agent version independently. Platform `v2.11.0` shipped alongside agent `v0.7.4`.
+
+Both release workflows refuse a tag that does not point to a commit on `main`.
 
 ## Pre-release Checklist
 
@@ -40,6 +42,8 @@ It walks you through the entire process interactively:
 4. Generate and insert changelog
 5. Commit, tag, and push
 
+`/release`, `/changelog` and `/pr` are maintainer tooling: `.claude/` is gitignored, so the commands are not in a fresh clone. Without them, follow the manual process below.
+
 ## Manual Release Process
 
 ### Platform Release
@@ -62,18 +66,26 @@ It walks you through the entire process interactively:
    - Update comparison links at the bottom
    - Or use `/changelog` in Claude Code to generate entries
 
-4. **Commit and tag**:
+4. **Commit on a release branch and open a PR** (releases reach `main` through a pull request, like every other change):
    ```bash
+   git checkout -b chore/release-vX.Y.Z
    git add frontend/package.json backend/package.json backend-serverless/package.json docs/CHANGELOG.md
    git commit -m "chore(release): vX.Y.Z"
-   git tag vX.Y.Z
-   git push origin main --tags
+   git push origin chore/release-vX.Y.Z
    ```
 
-5. **Verify**: The `release.yml` workflow runs automatically:
-   - Tests pass
-   - GitHub Release is created with changelog excerpt
-   - Fly.io deployment happens via the separate `deploy-flyio.yml` (triggered by the push to main)
+5. **Tag the merge commit** once the PR is merged, and push only the tag:
+   ```bash
+   git checkout main && git pull origin main
+   git tag vX.Y.Z
+   git push origin vX.Y.Z
+   ```
+
+6. **Verify**: the tag starts two workflows.
+   - `release.yml`: checks the tag is on `main`, builds and tests `backend` and `frontend`, builds `achilles-installer` for linux amd64 and arm64 (stamped with the tag), and creates the GitHub Release with the changelog excerpt, both installer binaries and their `SHA256SUMS`. `scripts/install-onprem.sh` downloads the installer from this release and verifies it against that file.
+   - `appliance.yml`: builds the Windows Hyper-V appliance image from the tag, runs the full boot test (install, backup, restore), uploads the Hyper-V zip to the R2 bucket, and attaches `appliance-SHA256SUMS` and `Import-Achilles.ps1` to the GitHub Release. It waits up to 20 minutes for the release to exist, and fails if the R2 configuration is missing (see [GitHub Actions Secrets](#github-actions-secrets)).
+
+   Deployments are separate from the tag: `deploy-flyio.yml` runs on every push to `main`, and `deploy-render.yml` after CI passes on `main` (only when its deploy-hook secrets are set).
 
 ### Agent Release
 
@@ -89,26 +101,32 @@ It walks you through the entire process interactively:
    - Add `## Agent [X.Y.Z] - YYYY-MM-DD` section
    - Update comparison links at the bottom
 
-4. **Commit and tag**:
+4. **Commit on a release branch and open a PR**:
    ```bash
+   git checkout -b chore/release-agent-X.Y.Z
    git add agent/Makefile agent/main.go docs/CHANGELOG.md
    git commit -m "chore(release): agent-vX.Y.Z"
-   git tag agent-vX.Y.Z
-   git push origin main --tags
+   git push origin chore/release-agent-X.Y.Z
    ```
 
-5. **Verify**: The `release-agent.yml` workflow runs automatically:
-   - Go tests pass
-   - Binaries built for all platforms (Windows, Linux, macOS)
-   - Windows binary signed (if certificate configured)
-   - macOS binaries signed (ad-hoc)
-   - SHA256SUMS generated
-   - GitHub Release created with binaries attached
+5. **Tag the merge commit** once the PR is merged, and push only the tag:
+   ```bash
+   git checkout main && git pull origin main
+   git tag agent-vX.Y.Z
+   git push origin agent-vX.Y.Z
+   ```
 
-6. **Post-release**: Register the new agent version in each deployment:
-   - Download binaries from the GitHub Release
-   - Upload via the admin UI or `POST /api/agent/admin/versions/upload`
-   - Connected agents will auto-update on their next poll
+6. **Verify**: The `release-agent.yml` workflow runs automatically:
+   - Checks the tag is on `main`; `go test ./...` and `go vet ./...` pass
+   - Binaries built with `make build-all VERSION=X.Y.Z`: Windows amd64, Linux amd64, macOS amd64 + arm64
+   - Windows binary signed when `WINDOWS_CERT_PFX` is configured. If it is not, or signing fails, the release still goes out and its notes open with a warning that the `.exe` is unsigned. Set the repository variable `REQUIRE_SIGNED_AGENT_RELEASE=true` to fail the release instead
+   - macOS binaries signed ad-hoc on a macOS runner, then `SHA256SUMS` regenerated
+   - GitHub Release created with the binaries attached (not marked "latest"; that stays on the platform release)
+
+7. **Post-release**: Register the new agent version in each deployment:
+   - Settings → Agent → **Build Agent Binary** (builds from source on the install), or download the binaries from the GitHub Release and use **Upload Agent Binary** / `POST /api/agent/admin/versions/upload`
+   - The registered version must equal the version compiled into the binary; a mismatch or an unstamped binary is rejected with 422
+   - Connected agents update on their next version check. See [Agent Binary: Build, Register & Distribute](agent-binary-release.md)
 
 ## Changelog Format
 
@@ -143,6 +161,14 @@ Platform sections use `## [X.Y.Z]`. Agent sections use `## Agent [X.Y.Z]`. They 
 | `WINDOWS_CERT_PFX` | Optional | Base64-encoded PFX certificate for Authenticode signing |
 | `WINDOWS_CERT_PASSWORD` | With PFX | Password for the PFX certificate |
 | `GITHUB_TOKEN` | Automatic | Used for creating releases and uploading assets |
+| `R2_ACCOUNT_ID`, `R2_ACCESS_KEY_ID`, `R2_SECRET_ACCESS_KEY`, `R2_BUCKET` | Platform release | Upload of the appliance zip to the R2 bucket (`appliance.yml`) |
+
+Repository variables:
+
+| Variable | Required | Purpose |
+|----------|----------|---------|
+| `R2_PUBLIC_BASE_URL` | Platform release | Public base URL of the R2 bucket; the appliance download link is built from it |
+| `REQUIRE_SIGNED_AGENT_RELEASE` | Optional | `true` makes an unsigned Windows agent binary fail the agent release |
 
 To add the Windows signing certificate:
 ```bash
@@ -173,18 +199,18 @@ To configure (Settings > Rules > Rulesets):
 # Delete local tag and recreate
 git tag -d vX.Y.Z
 git tag vX.Y.Z
-git push origin --tags
+git push origin vX.Y.Z
 ```
 
 ### CI fails after tag push
 The release workflow runs tests as a gate. If tests fail:
 1. The GitHub Release is NOT created
 2. Delete the tag: `git push origin :refs/tags/vX.Y.Z && git tag -d vX.Y.Z`
-3. Fix the issue, push to main
-4. Re-tag and push
+3. Fix the issue through a PR to main
+4. Tag the new merge commit and push the tag
 
 ### Version mismatch detected
-The `/release` command and pre-push hook validate version consistency. If you see a mismatch:
+The `/release` command and the `validate-tag-push.sh` hook validate version consistency. If you see a mismatch:
 1. Check all package.json files match (platform) or Makefile + main.go match (agent)
 2. Ensure `docs/CHANGELOG.md` has the version section
 3. Use `/release` to handle this automatically
@@ -195,9 +221,11 @@ GitHub Releases can be deleted via the GitHub UI. To unpublish:
 2. Click "Delete release"
 3. Optionally delete the tag: `git push origin :refs/tags/vX.Y.Z`
 
-Note: this does NOT roll back deployed code. Use `flyctl releases` for deployment rollbacks.
+Note: this does NOT roll back deployed code. Use `flyctl releases` for deployment rollbacks. The appliance zip of a deleted release stays in the R2 bucket until it is removed there.
 
 ## Claude Code Tooling
+
+The hook scripts live in `scripts/hooks/`. The commands are maintainer-local (see above).
 
 | Tool | Type | Purpose |
 |------|------|---------|

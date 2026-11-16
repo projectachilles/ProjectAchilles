@@ -8,6 +8,8 @@ description: "Show which organization a console belongs to: an organization code
 
 When you work with more than one ProjectAchilles install, it is easy to run a test or change a setting in the wrong organization's console. Console identity labels each console with the organization it belongs to, so everyone who signs in sees it at once.
 
+![Settings, General tab — the Console identity card with the code, full name, colour swatches and a preview; the sidebar plate and the page-header pill show the result](/img/screenshots/settings-general.png)
+
 An administrator sets three values:
 
 | Field | Rules |

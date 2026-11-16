@@ -39,7 +39,7 @@ Group imports: external libraries first, then internal modules:
 ```typescript
 // External
 import { useState, useEffect } from 'react';
-import { useDispatch } from 'react-redux';
+import { useNavigate } from 'react-router-dom';
 
 // Internal
 import { Button } from '@/components/shared/ui/Button';
@@ -66,7 +66,8 @@ graph TD
     F --> G[AnalyticsAuthProvider]
     G --> H[ErrorBoundary]
     H --> I[BrowserRouter]
-    I --> J[AppRouter]
+    I --> CI[ConsoleIdentityProvider]
+    CI --> J[AppRouter]
     J --> K[Route Guards]
     K --> L[Page Components]
 ```
@@ -78,10 +79,14 @@ graph TD
 | 1 | `ClerkProvider` | Authentication state, JWT tokens |
 | 2 | Redux `Provider` | Global state management |
 | 3 | `AppContent` | Sets up API interceptors via `useAuthenticatedApi` |
-| 4 | `ThemeProvider` | Visual theme (light/dark, style variants) |
+| 4 | `ThemeProvider` | Applies the single dark theme (compatibility shim) |
 | 5 | `AnalyticsAuthProvider` | Elasticsearch configuration status |
 | 6 | `ErrorBoundary` | Global React error catching |
-| 7 | `BrowserRouter` / `AppRouter` | URL routing and route guards |
+| 7 | `BrowserRouter` | URL routing |
+| 8 | `ConsoleIdentityProvider` | Console identity (code, name, colour); skips the fetch when the backend reports `consoleIdentity: false` |
+| 9 | `AppRouter` | Routes and route guards |
+
+When `VITE_SITE_MODE=marketing`, `App` renders only the landing page: no Clerk, no Redux, no router.
 
 :::info
 The two-tier structure (`App` handles auth providers, `AppContent` handles theme/analytics/routing) exists because `useAuthenticatedApi` must run inside `ClerkProvider` to obtain JWT tokens.
@@ -106,6 +111,8 @@ The two-tier structure (`App` handles auth providers, `AppContent` handles theme
 - `/sign-in/*`, `/sign-up/*` -- Authentication flows
 - `/user-profile` -- User profile management
 
+`/cli-auth` (CLI sign-in approval) and `/analytics/report` (print-ready execution report) require sign-in but render outside `AppLayout`.
+
 **Protected Routes** (all share persistent `AppLayout`):
 
 | Destination | Routes | Access Control |
@@ -114,13 +121,16 @@ The two-tier structure (`App` handles auth providers, `AppContent` handles theme
 | **Tests** | `/tests`, `/tests/:uuid` | `RequireAuth` |
 | **Analytics** | `/analytics` (`?tab=`, `?expanded=`) | `RequireAuth` + `AnalyticsProtectedRoute` |
 | **Agents** | `/agents`, `/agents/:agentId` | `RequireAuth` + `RequireModule module="endpoints"` |
-| **Tasks** | `/tasks` | `RequireAuth` + `RequireModule module="endpoints"` |
-| **Settings** | `/settings` | `RequireAuth` + `RequireModule` |
+| **Tasks** | `/tasks` (Runs), `/tasks/schedules` | `RequireAuth` + `RequireModule module="endpoints"` |
+| **Campaigns** | `/tasks/campaigns`, `/tasks/campaigns/runs/:runId` | As Tasks, plus `RequireCapability capability="campaigns"` |
+| **Settings** | `/settings` | `RequireAuth` + `RequireModule module="settings"` |
 
 Pre-2.1 paths still resolve — `AppRouter.tsx` keeps `<Navigate replace>` entries
 for `/browser`, `/browser/test/:uuid`, `/endpoints/dashboard`,
-`/endpoints/agents(/:id)`, `/endpoints/tasks`, `/favorites`, `/recent`, and
-`/analytics/setup`, so bookmarks and older links keep working.
+`/endpoints/agents(/:id)`, `/endpoints/tasks`, `/favorites`, `/recent`,
+`/analytics/setup`, and the former top-level `/campaigns` and
+`/campaigns/runs/:runId`, so bookmarks and older links keep working. Unknown
+paths go to `/dashboard`.
 
 ### Route Guards
 
@@ -135,6 +145,8 @@ for `/browser`, `/browser/test/:uuid`, `/endpoints/dashboard`,
   </RequireModule>
 </RequireAuth>
 ```
+
+**`RequireCapability`** -- Renders its children only when the backend reports the named capability in `GET /api/capabilities` (see `useCapabilities`). Used for features the serverless backend lacks, such as campaigns.
 
 **`AnalyticsProtectedRoute`** -- Checks analytics configuration status:
 - Shows loading state during the configuration check
@@ -169,17 +181,17 @@ rather than branching on `theme`.
 See **[UI Components → Theming](./ui-components)** for the token layers and the
 chart-colour guard tests.
 
-Theme CSS variables are defined in Tailwind CSS v4 `@theme` blocks and drive all component styling. The `useTheme` hook manages the `<html>` element classes:
+Theme CSS variables are defined in Tailwind CSS v4 `@theme` blocks in `styles/index.css` and drive all component styling. The hook's remaining API is:
 
 ```typescript
-const { theme, themeStyle, setTheme, setThemeStyle, toggleThemeStyle } = useTheme();
+const { theme, setTheme, toggleTheme } = useTheme(); // theme === 'dark'; the setters do nothing
 ```
 
 ## Build Configuration
 
 | Tool | Version | Notes |
 |------|---------|-------|
-| Vite | 7 | Dev server on port 5173; proxies `/api` to backend |
+| Vite | 8 | Dev server on port 5173; proxies `/api` to backend |
 | TypeScript | Strict mode | `tsc -b` for type checking |
 | Tailwind CSS | v4 | `@theme` blocks for CSS variables |
 | React | 19 | StrictMode enabled in `main.tsx` |

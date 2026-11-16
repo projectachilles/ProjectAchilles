@@ -1,6 +1,6 @@
 ## Repository Shape
 
-- There is no root package/workspace manifest. `backend/`, `frontend/`, `backend-serverless/`, `blog/`, and `wiki/` are independent npm projects; `cli/` uses Bun; `agent/` is Go.
+- There is no root package/workspace manifest. `backend/`, `frontend/`, `backend-serverless/`, `blog/`, and `wiki/` are independent npm projects; `cli/` uses Bun; `agent/` and `installer/` (the `achilles-installer` TUI) are separate Go modules; `appliance/` builds the Windows Hyper-V appliance image.
 - Main entrypoints are `backend/src/server.ts`, `frontend/src/main.tsx`, `backend-serverless/src/app.ts` plus `backend-serverless/api/index.ts`, `cli/bin/achilles.ts`, and `agent/main.go`.
 - `backend-serverless/` is an independent Vercel fork, not a build of `backend/`: it uses async Turso/libSQL and Vercel Blob, build-time test-library cloning, and cron routes. Changes to shared API contracts, types, Elasticsearch mappings, or business logic usually need deliberate edits and tests in both backends.
 - `blog/` is an independent Next.js site; `wiki/` is Docusaurus. Do not assume either shares frontend code or deployment.
@@ -12,7 +12,7 @@
 - Full local stack: `./scripts/start.sh -k --daemon`; stop it with `./scripts/start.sh --stop`. The script installs package dependencies, selects free backend/frontend ports, and synchronizes the chosen backend port into Vite.
 - CI order for `backend/` and `frontend/` is `npm ci`, `npm run build`, then `npm test`. There is no repository lint/formatter command.
 - Focused Vitest: from the owning package run `npx vitest path/to/file.test.ts` or `npx vitest -t "test name"`. Tests are discovered under `src/**/__tests__/**/*.test.{ts,tsx}` (backend variants accept `.ts`).
-- Relevant package gates: `backend-serverless`: `npm run build && npm test`; `cli`: `bun run typecheck && bun run test && bun run build`; `blog`: `npm test && npm run build`; `wiki`: `npm run build`; `agent`: `go test ./... && go build ./...`.
+- Relevant package gates: `backend-serverless`: `npm run build && npm test`; `cli`: `bun run typecheck && bun run test && bun run build`; `blog`: `npm test && npm run build`; `wiki`: `npm run build`; `agent` and `installer`: `go test ./... && go build ./...` in each.
 - `agent/Makefile` cross-compiles static binaries with `CGO_ENABLED=0`; `make build-all` writes `agent/dist/`. Windows signing needs `osslsigncode` and certificate env/state; macOS signing needs `rcodesign`. Signing targets intentionally leave builds unsigned when tooling or credentials are absent.
 
 ## Runtime And Data
@@ -20,12 +20,13 @@
 - Local backend startup requires Clerk keys in `backend/.env`; frontend uses `frontend/.env`. Vite proxies `/api` and `/ws` to `VITE_BACKEND_PORT` (default `3000`). Use `.env.example` files as templates and never put live credentials in tracked docs or samples.
 - Backend runtime state is outside the checkout in `~/.projectachilles/` (SQLite, encrypted settings, signing material, binaries, builds, and custom tests). Re-cloning does not reset it; do not delete it as routine cleanup.
 - Docker Compose runs backend/frontend/wiki by default. Local Elasticsearch and synthetic seeding require `docker compose --profile elasticsearch up -d`; this profile disables Elasticsearch security and is development-only.
+- Several features exist only in `backend/` (campaigns, pre-execution notices, SentinelOne, Sophos, console identity, alerting, stage coverage, Go builds; API keys too). `backend-serverless/` reports the first group as `false` in `GET /api/capabilities` and the frontend hides them; a new backend-only feature needs its flag there.
 - `backend-serverless/CLAUDE.md` contains Vercel-specific constraints. In particular, use `process.cwd()` rather than bundle-derived `__dirname`, keep static `data/**` in `vercel.json` `includeFiles`, and remember `.vercelignore` replaces `.gitignore` for upload filtering. Its `vercel-build` script clones the test library at build time (`TESTS_REPO_URL`, optional `GITHUB_TOKEN`).
 
 ## Commits And Deployment
 
 - Commit convention: `<type>(<scope>): <description>` — types `feat|fix|docs|style|refactor|perf|test|chore`; scopes include `frontend`, `backend`, `backend-serverless`, `agent`, `analytics`, `browser`, `vercel`, `wiki`, `ci`, `deps`.
-- Beyond Docker Compose, deployment targets are: public/on-prem server via `docker-compose.server.yml` + Caddy (`./scripts/deploy-server.sh`, `./scripts/deploy-remote.sh u@host`, `./scripts/deploy-do.sh`; configured from `deploy.config.env`), Render (`render.yaml`), Fly.io (`.github/workflows/deploy-flyio.yml`), and Vercel (serverless fork). Guides live under `docs/deployment/`.
+- Beyond Docker Compose, deployment targets are: public/on-prem server via `docker-compose.server.yml` + Caddy (`./scripts/deploy-server.sh`, `./scripts/deploy-remote.sh u@host`, `./scripts/deploy-do.sh`; configured from `deploy.config.env`; `achilles-installer` and `scripts/install-onprem.sh` wrap the same engine, and the Hyper-V appliance ships it prebuilt), Render (`render.yaml`), Fly.io (`.github/workflows/deploy-flyio.yml`), and Vercel (serverless fork). Guides live under `docs/deployment/`.
 
 ## Code Traps
 

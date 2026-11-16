@@ -34,7 +34,11 @@ Auto-resolve has three modes, selected from the UI or API:
 | `enabled` | PATCHes the correlated alert in Falcon to `update_status='closed'` with an appended comment naming the Achilles test UUID. |
 
 Receipts are written in both `dry_run` and `enabled` modes so the same
-candidate isn't reprocessed on every sync cycle.
+candidate isn't reprocessed on every sync cycle. An alert that got a dry-run
+receipt is not closed later, when you switch to `enabled`.
+
+The mode is deployment-wide, like the CrowdStrike credentials. With
+`REQUIRE_ORG_ISOLATION=true` it can't be changed from the UI or the API (403).
 
 
 Alerts matched to an EDR-killed agent run (see [Exit Codes & Outcomes](../analytics/exit-codes-and-outcomes#6-agent-terminated-by-the-edr)) are never auto-resolved.
@@ -105,8 +109,8 @@ PATCHing correlated alerts. In the Falcon console, resolved alerts appear
 with:
 
 - **Status**: Closed
-- **Comment**: "Achilles test `<bundle-uuid>` — authorized continuous
-  validation. Closed automatically by Project Achilles."
+- **Comment**: "Achilles test `<test-uuid>` — authorized continuous
+  validation. Resolved automatically by Project Achilles."
 
 ## How Auto-Resolve Writes to Falcon
 
@@ -225,11 +229,13 @@ cause is settings-file corruption or an env-var override — check that
 
 ## Non-Goals (v1)
 
-- **No retroactive cleanup** — open alerts from before you enabled
-  auto-resolve are ignored. Only alerts correlated going forward are resolved.
+- **No cleanup of alerts audited in dry-run** — an alert with a dry-run
+  receipt stays open in Falcon. Correlated alerts that are still `new` and
+  have no receipt (for example when you go straight from `disabled` to
+  `enabled`) are closed, oldest first, 30 per pass.
 - **No tag or assignment updates** — auto-resolve writes status + comment
   only; Falcon's detection tagging is untouched.
-- **No per-customer correlation tuning** — a single correlation policy
+- **No per-organization correlation tuning** — a single correlation policy
   (bundle-UUID prefix + hostname + time window) applies uniformly.
 
 ## API Reference

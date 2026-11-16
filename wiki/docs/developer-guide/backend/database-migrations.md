@@ -22,9 +22,22 @@ Tables are created via `CREATE TABLE IF NOT EXISTS` in `database.ts` with increm
 | `agents` | Enrolled agents with status, OS, tags |
 | `enrollment_tokens` | Registration tokens with TTL and max uses |
 | `tasks` | Task queue with status lifecycle |
-| `agent_versions` | Uploaded binary versions per platform |
+| `deleted_tasks` | Archive of deleted tasks: the full row as JSON with `deleted_at` / `deleted_by`. Task lists never read it |
+| `agent_versions` | Registered agent binary versions per platform |
 | `schedules` | Recurring execution schedules |
+| `heartbeat_history` | Heartbeat samples per agent |
+| `agent_events` | Agent lifecycle events (went offline, key rotation, and so on) |
+| `agent_key_digests` | HMAC-SHA256 digest of an agent key that already passed bcrypt, so later requests skip bcrypt |
+| `run_notices` | Pre-execution notices (`tasks.notice_id` points here) |
+| `notice_digests` | Advance (day-before) notice digests |
+| `campaigns` | Saved test campaigns |
+| `campaign_runs` | Campaign runs with a JSON snapshot of the campaign (`tasks.campaign_run_id` points here; no foreign key to `campaigns`) |
+| `api_keys` | API keys (hashed) with their scope |
 | `cli_auth_codes` | CLI device authorization codes with short TTL |
+| `cli_refresh_tokens` | CLI refresh tokens |
+| `cli_session_revocations` | Revoked CLI sessions |
+
+The serverless backend has its own schema and does not have the campaign, notice, API key or archive tables.
 
 ## Table Recreation Migrations
 
@@ -42,8 +55,8 @@ database.pragma('foreign_keys = OFF');
 // 3. Create temp table with new schema
 database.exec(`CREATE TABLE agents_temp (...)`);
 
-// 4. Copy data
-database.exec('INSERT INTO agents_temp SELECT * FROM agents');
+// 4. Copy data (name the columns; do not rely on column order)
+database.exec('INSERT INTO agents_temp (<cols>) SELECT <cols> FROM agents');
 
 // 5. Swap
 database.exec('DROP TABLE agents');
@@ -63,6 +76,7 @@ database.pragma('foreign_keys = ON');
 1. **Always `DROP TABLE IF EXISTS <temp>` first** — a previous crashed run may leave the temp table
 2. **Disable FK checks** — `PRAGMA foreign_keys = OFF` before the swap. Tables with FK references refuse DROP
 3. **Use `database.pragma()`** not `database.exec('PRAGMA ...')` — PRAGMA only works outside transactions
+4. **A recreate drops every column it does not list.** `migrateExecuteCommandType` recreates the `tasks` table and runs even on a fresh database. Columns added later by `ALTER TABLE` (for example `notice_id`, `campaign_run_id`, `result_compacted_at`) survive only because they are listed in its `optionalCols`. When you add a `tasks` column, add it to `optionalCols`, and add its index to the index recreation in the same function. `migrateUninstalledStatus` has the same list for `agents`
 
 ## Storage Architecture
 
@@ -80,12 +94,15 @@ graph TD
     SETTINGS --> AJ["analytics.json<br/>(AES-256-GCM encrypted)"]
     SETTINGS --> TJ[tests.json<br/>Platform config]
     SETTINGS --> IJ["integrations.json<br/>(AES-256-GCM encrypted)"]
+    SETTINGS --> CI[console-identity.json]
 
     CERTS --> CD1["cert-&lt;timestamp&gt;/<br/>cert.pfx + cert-meta.json"]
     CERTS --> CD2["cert-&lt;timestamp&gt;/<br/>cert.pfx + cert-meta.json"]
     CERTS --> ACT[active-cert.txt]
 
-    MISC --> LOGS[logs/]
+    MISC --> BIN["binaries/ (agent builds)"]
+    MISC --> BLD["builds/ (test builds)"]
+    MISC --> SIG["signing/ (Ed25519 key)"]
 ```
 
 ### File System Layout (Docker/PaaS)
@@ -95,16 +112,19 @@ graph TD
 ├── agents.db                    # SQLite database (WAL mode)
 ├── analytics.json               # ES connection config (encrypted fields)
 ├── tests.json                   # Platform/arch build settings
-├── integrations.json            # Defender + alerting config (encrypted fields)
+├── integrations.json            # EDR integrations, alerting, pre-execution notices (encrypted fields)
+├── console-identity.json        # Console identity (code, name, colour)
 ├── certs/
 │   ├── active-cert.txt          # ID of active signing certificate
 │   ├── cert-1709234567/
 │   │   ├── cert.pfx             # PKCS#12 certificate bundle
-│   │   └── cert-meta.json       # Label, subject, expiry, source
+│   │   └── cert-meta.json       # Label, subject, expiry, source, encrypted password
 │   └── cert-1709345678/
 │       ├── cert.pfx
 │       └── cert-meta.json
-└── logs/                        # Activity and audit logs
+├── binaries/<os>-<arch>/        # Registered agent binaries
+├── builds/<test-uuid>/          # Test build output + build-meta.json
+└── signing/                     # Ed25519 key that signs agent update binaries
 ```
 
 ### Vercel Blob Layout (Serverless)
@@ -128,8 +148,8 @@ Sensitive configuration fields are encrypted at rest using **AES-256-GCM**. This
 
 ### How It Works
 
-1. The `ENCRYPTION_SECRET` environment variable provides the encryption key (32+ characters recommended). If unset, a machine-derived fallback is used.
-2. Sensitive fields (Elasticsearch `cloudId`, `apiKey`, `password`; Defender `clientSecret`; alerting webhook URLs) are encrypted before being written to JSON files.
+1. The `ENCRYPTION_SECRET` environment variable provides the secret the key is derived from (HKDF-SHA256). It is required and must be at least 32 characters; encryption throws without it.
+2. Sensitive fields (Elasticsearch `cloudId`, `apiKey`, `password`; EDR client secrets and API tokens; alerting webhook URLs and SMTP password; certificate passwords) are encrypted before being written to JSON files.
 3. Encrypted values are stored with an `enc:` prefix so the settings service can distinguish encrypted from plaintext values.
 4. On read, the service detects the `enc:` prefix and decrypts transparently.
 
@@ -141,8 +161,8 @@ The `SettingsService` resolves Elasticsearch connection config in this order:
 2. **Environment variables** -- `ELASTICSEARCH_CLOUD_ID`, `ELASTICSEARCH_NODE`, `ELASTICSEARCH_API_KEY`, etc.
 3. **Default settings** -- last resort
 
-:::warning[Always set ENCRYPTION_SECRET in production]
-Without `ENCRYPTION_SECRET`, the backend falls back to a machine-derived key. This means encrypted settings become unreadable if the application moves to a different machine or container. Always set a stable `ENCRYPTION_SECRET` for any deployment.
+:::warning[Keep ENCRYPTION_SECRET stable]
+Settings encrypted with one `ENCRYPTION_SECRET` cannot be read with another. Generate it once (`openssl rand -base64 32`), keep it in your secret store and reuse it when the application moves to a different machine or container. Values written by old versions (keyed by a plain hash of the secret, or by a machine-derived key) are still decrypted for backward compatibility, but nothing is written with those keys any more.
 :::
 
 ### Settings Files Reference
@@ -150,8 +170,10 @@ Without `ENCRYPTION_SECRET`, the backend falls back to a machine-derived key. Th
 | File | Encrypted Fields | Purpose |
 |------|-----------------|---------|
 | `analytics.json` | `cloudId`, `apiKey`, `password` | Elasticsearch connection |
-| `integrations.json` | `clientSecret`, webhook URLs | Defender + alerting credentials |
-| `tests.json` | Certificate passwords | Build platform config |
+| `integrations.json` | Client secrets, API tokens, webhook URLs, SMTP password | EDR integration and alerting credentials, pre-execution notice settings |
+| `tests.json` | None | Build platform config |
+| `certs/<id>/cert-meta.json` | `password` | Signing certificate metadata |
+| `console-identity.json` | None | Console identity |
 
 ### Serverless Storage Differences
 

@@ -11,7 +11,7 @@ description: "Set up your development environment for contributing to ProjectAch
 - **Node.js** 22.x or higher
 - **npm** 10.x or higher
 - **Git**
-- **Go** 1.24+ (optional — only needed for agent development)
+- **Go** 1.26+ (optional — only needed for agent and installer development; the exact version is in `agent/go.mod`)
 - **Docker** and Docker Compose (optional — for containerized development)
 
 ## Getting Started
@@ -49,12 +49,14 @@ cd backend && npm run dev        # tsx watch with hot reload (port 3000)
 
 # TypeScript validation
 cd frontend && npm run build     # tsc -b + vite build
-cd backend && npm run build      # tsc -> dist/
+cd backend && npm run build      # tsc -> dist/, then type-checks backend/scripts/
 
 # Tests
-cd backend && npm test           # 912 tests (~12s)
-cd frontend && npm test          # 127 tests (~2s)
-cd backend-serverless && npm test  # 626 tests (~11s)
+cd backend && npm test
+cd frontend && npm test
+cd backend-serverless && npm test
+cd agent && go test ./...        # Go agent
+cd installer && go test ./...    # achilles-installer
 ```
 
 ## Branching Strategy

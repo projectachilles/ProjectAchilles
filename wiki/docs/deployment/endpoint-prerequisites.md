@@ -234,8 +234,9 @@ shows the check.
 
 The lock, the exclusion and every exact-path rule only help if the agent itself
 runs from `C:\F0\achilles-agent.exe`. The install command shown in
-**Agents → Enrollment** downloads it there, and the bootstrap script installs it
-there.
+**Agents → Enroll agent** downloads it there, the bootstrap script installs it
+there, and from agent 0.7.2 `--install` copies the binary there whatever folder
+it was run from.
 
 Any signed-in user can create a folder under `C:\`, and its owner can always
 change its permissions. A `C:\F0` created by a non-administrator would let that
@@ -250,7 +251,7 @@ downloads anything, the enrollment command:
 - deletes any old `achilles-agent.exe`, so the download is a new file that
   inherits the lock.
 
-Agents later than 0.7.1 make the same checks themselves on `--install`, before
+Agent 0.7.2 and later make the same checks themselves on `--install`, before
 enrolling. If the command stops, look at what is in `C:\F0`, remove the folder
 (or anything not yours), and run it again. The
 [bootstrap script](./server-installer#enroll-with-the-bootstrap-script) goes
@@ -258,9 +259,9 @@ further and normalizes every item already in the folder.
 
 ### Agent outside C:\F0 \{#agent-outside-cf0}
 
-Older versions of the **Agents → Enrollment** command downloaded the agent into
-PowerShell's current folder, and `--install` registered the service wherever the
-binary was. An elevated PowerShell starts in `C:\Windows\System32`, so those
+Older versions of the **Agents → Enroll agent** command downloaded the agent into
+PowerShell's current folder, and before agent 0.7.2 `--install` registered the
+service wherever the binary was. An elevated PowerShell starts in `C:\Windows\System32`, so those
 agents can run from there, outside the lock and the exclusion. Check which file
 the service runs; it should print `"C:\F0\achilles-agent.exe" --run`:
 
@@ -268,7 +269,7 @@ the service runs; it should print `"C:\F0\achilles-agent.exe" --run`:
 (Get-CimInstance Win32_Service -Filter "Name='AchillesAgent'").PathName
 ```
 
-Agents later than 0.7.1 also log this line at startup when they run from
+Agent 0.7.2 and later also log this line at startup when they run from
 anywhere else:
 
 ```text
@@ -277,7 +278,7 @@ WARNING: the agent is running from <path>, not C:\F0\achilles-agent.exe.
 
 The agent never moves itself. To fix an endpoint, from an elevated PowerShell:
 
-- **Agent later than 0.7.1** (its log shows the warning above): run the
+- **Agent 0.7.2 or later** (its log shows the warning above): run the
   binary the service uses with `--install`. It copies itself to
   `C:\F0\achilles-agent.exe`, re-registers the `AchillesAgent` service there and
   keeps its enrollment.
@@ -287,7 +288,7 @@ The agent never moves itself. To fix an endpoint, from an elevated PowerShell:
   ```
 
 - **Any agent version**: generate a token and run the current Windows command
-  from **Agents → Enrollment**. It downloads into `C:\F0` and replaces the
+  from **Agents → Enroll agent**. It downloads into `C:\F0` and replaces the
   service. This enrolls the endpoint again as a new agent; delete the old,
   offline entry from **Agents** afterwards.
 
@@ -754,6 +755,13 @@ detections on a default policy; and the current Falcon console labels.
   `C:\F0\achilles-agent.exe`.
 - Restricts `C:\F0` to SYSTEM and Administrators.
 - Writes test binaries, stage binaries and results under `C:\F0`.
+- Removes what a test leaves behind (agent 0.7.3 and later). When a run ends the
+  agent deletes that test's binaries from `C:\F0` (files named
+  `<test uuid>.exe` or `<test uuid>-<control>.exe`). At startup it also deletes
+  run folders (`task-*`, `cmd-*`) and test binaries left by runs that died more
+  than an hour earlier. It never deletes its own binary, configuration, logs or
+  queue. Before 0.7.3 the binaries of every test ever run stayed in `C:\F0`, and
+  an EDR file alert could list several tests at once.
 - With the server installer's `achilles-ca` or `internal` TLS modes, the
   bootstrap script imports that **server's TLS root** into `LocalMachine\Root`
   (see [Server installer](./server-installer#distributing-trust-and-enrolling-windows-endpoints)).
@@ -854,6 +862,15 @@ No certificate or exclusion is needed to get past platform gates:
   before any code runs. Gatekeeper only assesses files that carry the quarantine
   attribute, and the agent's downloads don't.
 - **Linux:** binaries are not signed.
+
+The agent installs into `/opt/f0` (binary, configuration, log and
+`/opt/f0/tasks`); from agent 0.7.2 `--install` copies it there and refuses an
+`/opt/f0` that root does not own. Tests extract their stage binaries into the
+shared `/tmp/F0`. Because `/tmp` is world-writable, the agent cleans that
+folder (0.7.3 and later) and reads a test's `bundle_results.json` from it
+(0.7.4 and later) only when it is a real directory, owned by root or the agent
+and not writable by group or others. A results file that fails the check, or is
+larger than 16 MiB, is left in place and not used.
 
 Your EDR still judges each binary, and the guidance in
 [step 6](#6-edr-expectations) applies.

@@ -28,7 +28,7 @@ Threat intelligence reports pile up unread. Compliance checklists are checked on
 
 2. **Execution Framework** — A lightweight Go agent deployed to endpoints (Windows, Linux, macOS) executes security tests on demand or on schedule, reports results with cryptographic integrity, and self-updates without downtime.
 
-3. **Analytics & Measurement** — An Elasticsearch-backed dashboard quantifies defense readiness with scores, heatmaps, trend analysis, and MITRE ATT&CK coverage matrices — turning raw test results into actionable intelligence for security teams and leadership.
+3. **Analytics & Measurement** — An Elasticsearch-backed dashboard quantifies defense readiness with scores, outcome and stage breakdowns, trend analysis, and a MITRE ATT&CK coverage matrix — turning raw test results into actionable intelligence for security teams and leadership.
 
 ## What It Measures
 
@@ -48,7 +48,7 @@ Threat intelligence reports pile up unread. Compliance checklists are checked on
 | Role | How You Use ProjectAchilles |
 |------|----------------------------|
 | **Security Team Leads** | Schedule validation campaigns, track defense scores over time, identify where to focus hardening efforts |
-| **Security Engineers** | Browse and execute tests, review detection gaps, integrate with Elasticsearch and Defender |
+| **Security Engineers** | Browse and execute tests, review detection gaps, integrate with Elasticsearch and your EDR (Microsoft Defender, CrowdStrike, SentinelOne, Sophos) |
 | **GRC / Compliance** | Verify controls compliance across the fleet, track risk acceptance decisions, generate evidence for audits |
 | **CISOs / Security Managers** | Review trend analytics, measure security ROI, make data-driven investment decisions |
 
@@ -56,18 +56,21 @@ Threat intelligence reports pile up unread. Compliance checklists are checked on
 
 - **AI-Generated Test Packages** — ~19 artifacts per test including binaries, detection rules (KQL, YARA, Sigma, Elastic EQL, LimaCharlie), hardening scripts, and kill chain diagrams
 - **Cross-Platform Agent** — Lightweight Go agent with enrollment, heartbeat monitoring, self-updating, and encrypted credentials across Windows, Linux, and macOS
-- **30+ Analytics Endpoints** — Defense scores, heatmaps, treemaps, error rate trends, and MITRE ATT&CK coverage matrices
+- **30+ Analytics Endpoints** — Defense scores, outcome breakdown, stage coverage, chain depth, error rate trends, and MITRE ATT&CK coverage
 - **Build & Sign From UI** — Cross-compile test binaries and sign with Authenticode (Windows) or ad-hoc signing (macOS)
 - **Microsoft Defender Integration** — Sync Secure Score, alerts, and control profiles with cross-correlation analytics
 - **CrowdStrike Falcon Integration** — Sync alerts and Zero Trust Assessment scores, correlate them with tests, and optionally auto-resolve test alerts
-- **Security Test Campaigns** — Save a set of tests × hosts, run it with one click, and export an evidence matrix (CSV or print) for audits. See [Campaigns](../user-guide/agent-management/campaigns)
+- **SentinelOne and Sophos Central Integrations** — Sync threats, alerts and posture data, correlate them with tests, and optionally auto-resolve test alerts. See [SentinelOne](../user-guide/integrations/sentinelone) and [Sophos](../user-guide/integrations/sophos)
+- **EDR Evidence in Every Verdict** — A result is Protected, Prevented, Detected or Unprotected based on the test's exit code and on the EDR alerts matched to that run, stage by stage
+- **Security Test Campaigns** — Save a set of tests × hosts, run it with one click from the Tasks page, and export an evidence matrix (CSV or print) for audits. See [Campaigns](../user-guide/agent-management/campaigns)
 - **Pre-execution Notices** — Email the security engineers before every test run and hold the tests until the notice is accepted, so the SOC knows it's a test. See [Pre-execution Notices](../user-guide/integrations/pre-execution-notices)
 - **Trend Alerting** — Threshold-based Slack and email notifications with in-app notification bell
-- **7 Deployment Targets** — Docker Compose, self-hosted server, on-prem server, Railway, Render, Fly.io, and Vercel (serverless)
+- **Many Ways to Deploy** — Docker Compose, a public or on-prem server (script or the `achilles-installer` wizard), a ready-made Windows Hyper-V appliance, Render, Fly.io, and Vercel (serverless, with a reduced feature set)
+- **Console Identity** — Give each console a code, name and colour, shown on every page, so you always know which environment you are in
 - **Risk Acceptance** — Accept risk for individual controls with audit tracking
-- **Unified Security Dashboard** — One landing page for posture across tests, endpoints, and analytics, with a time range selector shared with Analytics and an attention banner that links straight to whatever needs a human
+- **Unified Security Dashboard** — One landing page for posture across tests, endpoints, and analytics, with a time range selector shared with Analytics and attention chips that link straight to whatever needs a human
 
-![Security Dashboard — attention banner, KPI strip, trend overview, testing cadence, threat actor readiness and ATT&CK outcome matrix](/img/screenshots/security-dashboard.png)
+![Security Dashboard — attention chips, KPI strip, trend overview, testing cadence, threat actor readiness and ATT&CK outcome matrix](/img/screenshots/security-dashboard.png)
 
 ## What's Next?
 

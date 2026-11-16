@@ -36,8 +36,8 @@ graph TD
     K --> N[Ollama / Local]
 
     J --> O[Read Tools - 42]
-    J --> P[Write Proposals - 13]
-    J --> Q[Sensitive Proposals - 11]
+    J --> P[Write Proposals - 9]
+    J --> Q[Sensitive Proposals - 13]
     P --> R[Trusted Terminal Approval]
     Q --> R
     R --> S[API Executor]
@@ -58,15 +58,15 @@ When running in a real terminal with TTY support, you get a full-screen interfac
 - **Streaming spinner** — animated dots while waiting for the first AI token
 - **Bordered input area** — text input with placeholder text, green border (gray when streaming)
 - **Dynamic status bar** — shows the active server URL and configured AI model (reads from config, not hardcoded)
-- **Action approval panel** — shows the proposed operation and exact parameters, then requires the one-time code shown for it (for example `confirm K7RD`) before execution
+- **Action approval panel** — shows the proposed operation and exact parameters, then requires the one-time code shown for it (for example `confirm K7RD`) before execution. The code is new for every proposal, is not case sensitive, and any other input cancels the action. When the agent proposes several actions, they are shown one at a time. What you type in the panel is never sent to the model
 - **Keyboard hints** — `/clear reset` and `ctrl+c quit` displayed below the input
 
 **Chat commands:**
 
 | Command | Description |
 |---------|-------------|
-| `/clear` | Clear conversation history |
-| `/help` | Show available chat commands |
+| `/clear` | Clear conversation history (interactive mode) |
+| `/help` | Show available chat commands (interactive mode) |
 | `/quit`, `/exit`, `/q` | Exit the chat |
 | `Ctrl+C` | Quit immediately |
 
@@ -154,7 +154,7 @@ OPENAI_API_KEY=sk-...         achilles chat
 
 ## Available Tools
 
-Interactive chat has access to **64 tools** organized into three approval tiers. Non-interactive chat receives only the 42 read tools.
+Interactive chat has access to **64 tools** in three groups: read tools, write tools and sensitive tools. Non-interactive chat receives only the 42 read tools.
 
 ### Read Tools (42 — No Confirmation Required)
 
@@ -205,30 +205,30 @@ These tools only query data and are executed immediately:
 | `list_users` | Team members |
 | `list_invitations` | Pending invitations |
 
-### Write Tools (12 — Exact Terminal Confirmation)
+### Write Tools (9 — Exact Terminal Confirmation)
 
-These tools modify data. The terminal shows the structured proposal and exact parameters, and any input other than the displayed one-time confirmation cancels it:
+These tools modify data. The terminal shows the proposal under **Action approval required** with its exact parameters, and any input other than the displayed one-time confirmation cancels it:
 
 | Tool | Description |
 |------|-------------|
 | `create_token` | Create enrollment token |
 | `create_tasks` | Create test execution tasks |
-| `create_command_task` | Execute shell command on agents |
 | `create_update_tasks` | Push agent updates |
-| `update_agent` | Update agent status |
 | `add_agent_tag` / `remove_agent_tag` | Manage agent tags |
 | `update_task_notes` | Add notes to a task |
 | `update_schedule` | Modify a schedule |
 | `trigger_sync` | Trigger test library sync |
 | `build_test` | Compile and sign a test binary |
-| `accept_risk` | Create a risk acceptance |
 
-### Destructive Tools (10 — Exact Terminal Confirmation)
+### Sensitive Tools (13 — Exact Terminal Confirmation)
 
-These tools perform irreversible operations:
+These tools are irreversible or have a wide effect. The panel is titled **Sensitive action approval required**; the confirmation works the same way:
 
 | Tool | Description |
 |------|-------------|
+| `create_command_task` | Execute shell command on agents |
+| `update_agent` | Update agent status |
+| `accept_risk` | Create a risk acceptance |
 | `delete_agent` | Decommission an agent |
 | `rotate_agent_key` | Rotate an agent's API key |
 | `revoke_token` | Revoke an enrollment token |
@@ -323,12 +323,16 @@ achilles chat
 
 The AI agent understands ProjectAchilles-specific concepts:
 
-- **Exit codes**: 0 = attack succeeded (unprotected), 1 = attack blocked (protected), 2+ = error
+- **Outcomes**: protected (the defense blocked the simulated attack) and unprotected (it did not)
 - **Agent states**: active, disabled, decommissioned, uninstalled
 - **Task flow**: pending, assigned, downloading, executing, completed/failed/expired
 - **MITRE ATT&CK**: Technique IDs (T1059, T1486, etc.), tactics, and the kill chain
 - **Defense scoring**: 0-100% scale where higher means better defense coverage
 - **Bundle tests**: Multi-control tests that fan out into individual scored controls
+
+:::warning[Exit codes in chat answers]
+The built-in prompt tells the model that exit code 0 means unprotected and 1 means protected. That is not the platform's mapping: `101` is unprotected, `105`, `126` and `127` are protected, and other codes are errors or inconclusive. Check an exit-code explanation from the chat against the outcome the tools return.
+:::
 
 ## Step Limit
 
@@ -363,5 +367,6 @@ The agent enforces a **10-step limit** per response to prevent infinite tool-cal
 | `cli/src/chat/view.tsx` | Ink TUI components (ChatApp, Message, AsciiTitle) |
 | `cli/src/chat/agent.ts` | AI SDK `streamText` with tool calling |
 | `cli/src/chat/provider.ts` | Provider factory (Anthropic, OpenAI, Ollama) |
-| `cli/src/chat/tools.ts` | 60 tool definitions (read/write/destructive) |
+| `cli/src/chat/tools.ts` | 64 tool definitions (read/write/sensitive) |
+| `cli/src/chat/approval.ts` | Confirmation codes and the approval step in front of every change |
 | `cli/src/chat/system-prompt.ts` | Domain-specific system prompt builder |

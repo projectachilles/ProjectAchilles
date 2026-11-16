@@ -13,7 +13,7 @@ A **campaign** is a saved test plan: a set of tests crossed with a set of agents
 Use campaigns when you need repeatable, auditable proof of what was tested and what the controls did, for example for a compliance review or a quarterly validation. A campaign is also optionally labelled with a **framework label** (for example `ISO 27001 A.8`) that is carried onto the evidence page.
 
 :::info[Availability]
-Campaigns are available on self-hosted deployments (Docker, Render, Fly.io, Railway, public and on-prem servers). They are not available on Vercel; the **Campaigns** section of the Tasks page is hidden when the deployment does not support them.
+Campaigns are available on self-hosted deployments (Docker, Render, Fly.io, public and on-prem servers). They are not available on Vercel; the **Campaigns** section of the Tasks page is hidden when the deployment does not support them.
 :::
 
 ## Creating a Campaign
@@ -95,9 +95,9 @@ Completed cells use **the same labels and order as Analytics → All Executions*
 
 | State | Meaning |
 |-------|---------|
-| **Protected** | A stage (or the test) was blocked: exit code 105, 126 or 127 |
-| **Prevented** | Nothing reported a block, but Microsoft Defender or CrowdStrike Falcon reported that it prevented the activity (quarantined, process killed, or blocked) |
-| **Detected** | Defender or CrowdStrike raised an alert for the test, but nothing was blocked or prevented |
+| **Protected** | A stage (or the test) was blocked: exit code 105, 126 or 127. Also a run the agent could not finish when a connected EDR's alert proves the EDR killed the agent and the test (`Stopped by <EDR>`; stages are not reported) |
+| **Prevented** | Nothing reported a block, but a connected EDR (Microsoft Defender, CrowdStrike Falcon, SentinelOne or Sophos) reported that it prevented the activity (quarantined, process killed, or blocked) |
+| **Detected** | A connected EDR raised an alert for the test, but nothing was blocked or prevented |
 | **Unprotected** | At least one stage ran without being blocked (exit code 101), and no EDR alert matched |
 | **Error** | No stage reached a verdict and no EDR alert matched: for example exit code 999 (prerequisites not met), 1, 259 or 260, or the task failed. A 260 that an EDR's own alert proves was the EDR blocking the launch shows **Protected** instead ([Exit Codes & Outcomes](../analytics/exit-codes-and-outcomes#7-test-blocked-at-launch-by-the-edr)) |
 | **Waiting for notice** | The task is queued and the pre-execution notice has not been released yet |
@@ -116,7 +116,7 @@ Stage 3 (T1005): skipped
 
 Cyber-hygiene bundles are judged by their overall result, and the reason counts compliant controls (`47 of 52 controls compliant; 5 not.`).
 
-EDR alerts reach ProjectAchilles a few minutes after a run (the Defender sync runs every 5 minutes), so a cell can move from **Unprotected** to **Detected** or **Prevented** shortly after the test finishes. If Elasticsearch cannot be reached, the page says `EDR results unavailable` and falls back to exit codes alone. See [Exit Codes and Outcomes](../analytics/exit-codes-and-outcomes) for the exit-code rules.
+EDR alerts reach ProjectAchilles a few minutes after a run (the Defender sync runs every 5 minutes), so a cell can move from **Unprotected** to **Detected** or **Prevented** shortly after the test finishes, and from **Error** to **Protected** when an alert proves the EDR stopped the run. If Elasticsearch cannot be reached, the page says `EDR results unavailable` and falls back to exit codes alone. See [Exit Codes and Outcomes](../analytics/exit-codes-and-outcomes) for the exit-code rules.
 
 When a pair has more than one attempt in the run (a retry), the cell shows the **latest** attempt.
 

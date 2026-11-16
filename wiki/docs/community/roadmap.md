@@ -19,7 +19,7 @@ description: "ProjectAchilles product roadmap — planned features and developme
 - macOS agent support (launchd, sysctl, rcodesign)
 - Remote agent uninstall
 - Risk acceptance tracking
-- 3 visual themes
+- 3 visual themes (replaced by a single dark theme later in 2026)
 
 ## Q2 2026 (Shipped)
 
@@ -33,7 +33,7 @@ description: "ProjectAchilles product roadmap — planned features and developme
 - Per-machine schedule randomization
 - Blog at [blog.projectachilles.io](https://blog.projectachilles.io) with Spanish/English auto-translation
 
-Carried over to Q3: agent groups and tagging, custom dashboard builder, enhanced reporting (PDF/CSV export).
+Carried over to Q3: agent groups and tagging, custom dashboard builder, enhanced reporting (PDF/CSV export). Agent tagging and PDF/CSV reporting have since shipped; agent groups and the dashboard builder are under [Planned](#planned).
 
 ## Q3–Q4 2026 (Shipped)
 

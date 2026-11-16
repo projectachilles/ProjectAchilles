@@ -43,7 +43,7 @@ graph TB
 
     API[tests.routes.ts] --> BS
     API --> SS
-    AGENT[agentBuild.service.ts] --> BS
+    AGENT[agentBuild.service.ts] --> SS
 ```
 
 ## BuildService
@@ -61,8 +61,8 @@ sequenceDiagram
     participant GO as Go Compiler
     participant SIGN as Signing Tool
 
-    UI->>API: POST /api/tests/:uuid/build
-    API->>BS: buildAndSign(uuid)
+    UI->>API: POST /api/tests/builds/:uuid
+    API->>BS: startBuild(uuid)
     BS->>BS: 1. Locate test directory
     BS->>BS: 2. Detect target OS from build tags
     BS->>BS: 3. Check embed dependencies
@@ -77,7 +77,7 @@ sequenceDiagram
     alt Windows target
         BS->>SIGN: osslsigncode sign
     else macOS target
-        BS->>SIGN: rcodesign sign --adhoc
+        BS->>SIGN: rcodesign sign (ad-hoc)
     end
     SIGN-->>BS: Signed binary
     BS-->>API: Build result + metadata
@@ -88,10 +88,21 @@ sequenceDiagram
 
 | Method | Purpose |
 |--------|---------|
+| `startBuild(uuid)` | Starts a build job (or joins the one already running for that test) and returns the job plus a promise |
 | `buildAndSign(uuid)` | Complete build pipeline: compile, sign, store metadata |
+| `getBuildJob(uuid)` / `isBuilding(uuid)` | State of the latest build job for a test |
 | `getEmbedDependencies(uuid)` | Analyze `//go:embed` directives, detect missing files |
 | `uploadBinary(uuid, buffer)` | Direct binary upload with PE header validation |
 | `saveUploadedFile(uuid, filename, buffer)` | Upload embed dependencies with security checks |
+
+### Build Jobs
+
+A Go build can run for minutes, longer than a reverse proxy waits for a response (nginx: 60 s). `BuildJobs` (`buildJobs.ts`) tracks the latest job per test UUID in memory:
+
+- `POST /api/tests/builds/:uuid` waits for the build and returns the build info. A `BuildError` becomes a 422.
+- `POST /api/tests/builds/:uuid?async=true` returns 202 with the job at once. The client polls `GET /api/tests/builds/:uuid`, which includes `job` while one exists.
+- A second request for a test that is already building joins the running job. Uploads and deletes for that test return 409 until it finishes.
+- Job state lives in the backend process only. A restart forgets every job, and also kills the build.
 
 ### Platform Detection
 
@@ -207,7 +218,7 @@ certs/
 
 ### Legacy Migration
 
-On the Docker backend, certificates stored in the old flat-file layout (`~/.projectachilles/cert.pfx`) are automatically migrated to the subdirectory structure on the first call to `listCertificates()`.
+On the Docker backend, certificates stored in the old flat-file layout (`~/.projectachilles/certs/cert.pfx`) are automatically migrated to the subdirectory structure on the first call to `listCertificates()`.
 
 ### Docker vs Serverless Differences
 
@@ -229,26 +240,32 @@ The test management services are exposed through `tests.routes.ts`:
 
 | Endpoint | Method | Purpose |
 |----------|--------|---------|
-| `/api/tests/:uuid/build` | POST | Build and sign a test binary |
-| `/api/tests/:uuid/files/:filename` | POST | Upload an embed dependency |
-| `/api/tests/:uuid/binary` | POST | Direct binary upload |
+| `/api/tests/builds` | GET | List the UUIDs of tests that have a binary |
+| `/api/tests/builds/:uuid` | GET | Build info, detected platform and the current build job |
+| `/api/tests/builds/:uuid` | POST | Build and sign a test binary (`?async=true` returns 202 and a job) |
+| `/api/tests/builds/:uuid` | DELETE | Delete a build |
+| `/api/tests/builds/:uuid/download` | GET | Download the binary |
+| `/api/tests/builds/:uuid/dependencies` | GET | List embed dependencies |
+| `/api/tests/builds/:uuid/upload` | POST | Upload an embed dependency |
+| `/api/tests/builds/:uuid/upload-binary` | POST | Direct binary upload |
 | `/api/tests/platform` | GET | Get current platform settings |
-| `/api/tests/platform` | PUT | Update platform settings |
+| `/api/tests/platform` | POST | Update platform settings |
 | `/api/tests/certificates` | GET | List all certificates |
-| `/api/tests/certificates` | POST | Upload a PFX certificate |
+| `/api/tests/certificates/upload` | POST | Upload a PFX certificate |
 | `/api/tests/certificates/generate` | POST | Generate a self-signed certificate |
 | `/api/tests/certificates/:id/active` | PUT | Set active certificate |
+| `/api/tests/certificates/:id` | PATCH | Update a certificate's label |
 | `/api/tests/certificates/:id` | DELETE | Delete a certificate |
+| `/api/tests/certificates/:id/download` | GET | Download a certificate |
+
+The older single-certificate routes at `/api/tests/certificate` (GET, POST, DELETE) still exist.
 
 ## Error Handling
 
-Build errors use a custom `BuildError` type that includes:
-- The failing command and its arguments
-- `stderr` output from the build process
-- A user-friendly message describing what went wrong
+Build failures throw a `BuildError`. Its message names the failing command and includes the `stderr` (or `stdout`) output of the build process. The build route returns it as a 422.
 
 Certificate operations include validation and rollback mechanisms to prevent partial failures from leaving the system in an inconsistent state (e.g., a certificate directory created but metadata write failed).
 
 ## Agent Build Integration
 
-The `BuildService` is also used by `agentBuild.service.ts` to compile and sign agent binaries. The agent build service uses the same certificate infrastructure, signing pipeline, and platform detection -- ensuring consistent behavior between test builds and agent builds.
+`agentBuild.service.ts` (`AgentBuildService`) compiles and signs agent binaries. It is a separate class that mirrors `BuildService`: it reads the active certificate from the same `TestsSettingsService` and signs the same way, so test builds and agent builds behave alike. Before every build it refreshes the agent source clone, and it registers the result through `registerVersion()`, which rejects a binary whose embedded version differs from the version being registered.
