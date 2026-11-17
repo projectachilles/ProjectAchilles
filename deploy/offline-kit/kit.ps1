@@ -89,6 +89,14 @@ else {
     # Windows' tar.exe keeps the files byte for byte: shell scripts stay LF.
     & tar.exe -xzf (Join-Path $Kit 'ProjectAchilles.tar.gz') -C $Dest
     if ($LASTEXITCODE -ne 0) { Die "unpacking failed" }
+    # The checkout was made on Linux (filemode = true). Windows has no
+    # executable bit, so Git would see every script as changed and refuse to
+    # `git pull`. Git may not be installed yet, so edit the config file.
+    $gitConfig = Join-Path $target '.git\config'
+    if (Test-Path -LiteralPath $gitConfig) {
+        $cfg = [IO.File]::ReadAllText($gitConfig)
+        [IO.File]::WriteAllText($gitConfig, ($cfg -replace '(?m)^([ \t]*filemode[ \t]*=[ \t]*)true[ \t]*$', '${1}false'))
+    }
 }
 
 # Docker copies the preloaded test library and Go caches into these volumes
