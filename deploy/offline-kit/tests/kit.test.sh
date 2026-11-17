@@ -64,6 +64,10 @@ kit_loads() {
   [ -f "$WORK/home/ProjectAchilles/docker-compose.lab.yml" ] || fail "${FUNCNAME[0]}" "source not unpacked"
   [ "$(git -C "$WORK/home/ProjectAchilles" rev-parse HEAD)" = "$(cat "$KIT/images/COMMIT")" ] \
     || fail "${FUNCNAME[0]}" "source is not the commit the images were built from"
+  # A plain `git pull` must update the install.
+  # (origin/main is not fetched yet, so read the config, not main@{upstream}.)
+  [ "$(git -C "$WORK/home/ProjectAchilles" config branch.main.remote)/$(git -C "$WORK/home/ProjectAchilles" config branch.main.merge)" = origin/refs/heads/main ] \
+    || fail "${FUNCNAME[0]}" "main has no upstream: git pull would not update the install"
   pass "${FUNCNAME[0]}"
 }
 
@@ -175,6 +179,9 @@ tests_build_offline() {
       const { BuildService } = await import('/app/dist/services/tests/buildService.js');
       const { TestsSettingsService } = await import('/app/dist/services/tests/settings.js');
       const svc = new BuildService(new TestsSettingsService(), ['/root/.projectachilles/custom-tests', '/data/f0_library/tests_source']);
+      // The Deploy panel disables Build & Sign while an upload is missing.
+      const missing = svc.getEmbedDependencies('$uuid').filter(d => !d.exists && !d.sourceBuilt);
+      if (missing.length) { console.log('MISSING ' + missing.map(d => d.filename).join(' ')); process.exit(1); }
       const info = await svc.buildAndSign('$uuid');
       console.log('BUILT ' + info.filename + ' ' + info.fileSize);
       process.exit(0);\" 2>&1")" || fail "${FUNCNAME[0]}" "$uuid: $(tail -20 <<<"$out")"
