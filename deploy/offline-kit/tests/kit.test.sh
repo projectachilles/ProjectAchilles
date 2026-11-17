@@ -65,7 +65,8 @@ kit_loads() {
   [ "$(git -C "$WORK/home/ProjectAchilles" rev-parse HEAD)" = "$(cat "$KIT/images/COMMIT")" ] \
     || fail "${FUNCNAME[0]}" "source is not the commit the images were built from"
   # A plain `git pull` must update the install.
-  [ "$(git -C "$WORK/home/ProjectAchilles" rev-parse --abbrev-ref 'main@{upstream}' 2>/dev/null)" = origin/main ] \
+  # (origin/main is not fetched yet, so read the config, not main@{upstream}.)
+  [ "$(git -C "$WORK/home/ProjectAchilles" config branch.main.remote)/$(git -C "$WORK/home/ProjectAchilles" config branch.main.merge)" = origin/refs/heads/main ] \
     || fail "${FUNCNAME[0]}" "main has no upstream: git pull would not update the install"
   pass "${FUNCNAME[0]}"
 }
