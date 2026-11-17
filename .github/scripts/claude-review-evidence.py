@@ -10,7 +10,9 @@
            comment carrying this review's marker for the PR's head commit:
            <!-- claude-security-review sha=<head sha> -->
            An earlier run's comment, a comment for another commit, or a comment
-           from a user can't satisfy it.
+           from a user can't satisfy it. It also fails when the PR's head is no
+           longer that commit (a push landed while the review ran): the comment
+           is for the old commit, so the check must not end green.
 
 Standard library only. The diff is written as text and never executed; on fork
 PRs this file comes from the base-branch checkout.
@@ -98,6 +100,11 @@ def receipt(env):
     return any(is_receipt(c, env['REVIEW_KIND'], head, since) for c in comments(env))
 
 
+def live_head(env):
+    """The PR's head commit right now, not the one in the event that started the run."""
+    return require_sha(gh_api(f"repos/{env['GITHUB_REPOSITORY']}/pulls/{env['PR']}", '--jq', '.head.sha').strip())
+
+
 def main(argv, env):
     command = argv[1] if len(argv) > 1 else ''
     if command == 'prepare':
@@ -113,8 +120,16 @@ def main(argv, env):
     if command == 'receipt':
         try:
             found = receipt(env)
+            # Read last, so a push at any point during the review is seen. A
+            # failed lookup fails the check: unknown is not "unchanged".
+            moved = live_head(env) != env['HEAD_SHA']
         except (OSError, ValueError, KeyError, subprocess.CalledProcessError) as error:
             print(f'::error::Could not check for the review comment ({type(error).__name__}).')
+            return 1
+        if moved:
+            print('::error::The PR changed during the review: this run covered '
+                  f"{env['HEAD_SHA'][:7]}, which is no longer the PR's head. The new commits were not "
+                  'reviewed. On a fork PR, read the new diff and add the claude-review label again.')
             return 1
         if found:
             print('Review comment for this commit is present.')

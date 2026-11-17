@@ -77,7 +77,7 @@ Two jobs use Claude: the code review (`claude-code-review.yml`) and the security
 
 - **Fork PRs**: `pull_request` runs from forks get no secrets, so both jobs skip them. A maintainer reads the diff and then adds the **`claude-review`** label, which starts the review. The label is removed after the run, so it must be added again after each new push.
 - Labelled runs check out only the base branch and read the PR through the API. No PR code is on disk and none runs.
-- **A green job does not prove a review happened.** The security review must leave a comment from the current run for the current commit; a "Verify the review posted" step fails the job otherwise. The code review posts nothing on PRs it judges trivial and reviews a PR only once.
+- **A green job does not prove a review happened.** The security review must leave a comment from the current run for the current commit; a "Verify the review posted" step fails the job otherwise. It also fails when the PR received a push while the review ran: the comment is for the earlier commit, so read the new diff and add the `claude-review` label again. The code review posts nothing on PRs it judges trivial and reviews a PR only once.
 - **A PR that edits a review workflow is not reviewed.** The job stays green with a "Not reviewed" warning. Such a change is only proven on the next ordinary PR after it merges.
 
 ## Releases
