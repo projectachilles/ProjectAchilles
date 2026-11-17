@@ -201,6 +201,31 @@ describe('RunDetailPanel — cyber-hygiene bundles keep the ratio view', () => {
     expect(screen.getByText('Test UUID')).toBeInTheDocument();
     expect(screen.getByText('Validator')).toBeInTheDocument();
   });
+
+  const skipped = (n: number) =>
+    stage(n, { category: 'cyber-hygiene', control_validator: 'Defender', control_id: `CH-DEF-00${n}`, error_code: 0, skipped: true });
+
+  it('divides by the assessed controls when some were skipped', () => {
+    const ch = [
+      stage(1, { category: 'cyber-hygiene', control_validator: 'Defender', control_id: 'CH-DEF-001', error_code: 126 }),
+      skipped(2),
+      skipped(3),
+    ];
+    render(<Harness row={group(ch, { category: 'cyber-hygiene' })} />);
+    const header = screen.getByText('Controls').parentElement as HTMLElement;
+    expect(within(header).getByText('1/1')).toBeInTheDocument();
+    expect(within(header).getByTestId('controls-ratio-bar')).toBeInTheDocument();
+  });
+
+  it('shows "Not assessed" and no ratio or bar when every control was skipped', () => {
+    render(<Harness row={group([skipped(1), skipped(2), skipped(3)], { category: 'cyber-hygiene' })} />);
+    const header = screen.getByText('Controls').parentElement as HTMLElement;
+    expect(within(header).getByText('Not assessed')).toBeInTheDocument();
+    expect(within(header).queryByText('0/3')).toBeNull();
+    expect(within(header).queryByTestId('controls-ratio-bar')).toBeNull();
+    // The control rows are still listed.
+    expect(screen.getByText('Stage name 3')).toBeInTheDocument();
+  });
 });
 
 describe('RunDetailPanel — EDR-killed run', () => {

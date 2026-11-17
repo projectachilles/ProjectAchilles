@@ -560,20 +560,26 @@ function BundleBody({
 function CyberHygieneControls({ group, ...props }: RunDetailPanelProps & { group: BundleGroup }) {
   const { expandedControlIndex, onToggleControl } = props;
   const scored = group.controls.filter((c) => !isSkippedStage(c));
-  const ratio = scored.length > 0 ? group.protectedCount / scored.length : 0;
   return (
     <>
-      {/* Controls header + protection ratio bar */}
+      {/* Controls header + protection ratio bar. With no assessed control there
+          is no ratio: 0/N and an empty (red) bar would read as N failures. */}
       <div className="flex items-center gap-3">
         <span className="text-[10px] font-medium uppercase tracking-wider text-faint">
           Controls
         </span>
-        <div className="h-1.5 flex-1 overflow-hidden rounded-full bg-danger-dim">
-          <div className="h-full rounded-full bg-accent" style={{ width: `${ratio * 100}%` }} />
-        </div>
-        <span className="font-mono text-[11px] text-muted">
-          {group.protectedCount}/{scored.length || group.totalCount}
-        </span>
+        {scored.length > 0 ? (
+          <>
+            <div data-testid="controls-ratio-bar" className="h-1.5 flex-1 overflow-hidden rounded-full bg-danger-dim">
+              <div className="h-full rounded-full bg-accent" style={{ width: `${(group.protectedCount / scored.length) * 100}%` }} />
+            </div>
+            <span className="font-mono text-[11px] text-muted">
+              {group.protectedCount}/{scored.length}
+            </span>
+          </>
+        ) : (
+          <span className="text-[11px] text-faint">Not assessed</span>
+        )}
       </div>
 
       {/* Per-control rows */}

@@ -16,6 +16,7 @@ This project uses two version streams:
 
 ### Fixed
 - **Build & Sign no longer asks for a file that doesn't exist.** A test's Deploy panel listed a missing file to upload (for example `directives`) and disabled **Build & Sign** when a Go comment in the test merely mentioned `//go:embed`. Only real `//go:embed` lines count now, as in Go itself. Several library tests were affected, among them "PII Exfiltration to External Inference Services" and the cyber-hygiene bundles.
+- **A cyber-hygiene run where every control was skipped no longer shows `0/N` in its detail panel.** The run list already said "Not assessed" for such a run, but the detail panel's Controls line showed `0/N` with an empty red bar, which read as N failed controls. It now says "Not assessed" and shows no bar. Runs with some skipped controls keep the ratio over the assessed ones. Display only: scores were not affected. (#PRNUM)
 
 ## [2.11.0] - 2026-11-15
 
