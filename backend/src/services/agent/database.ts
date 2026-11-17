@@ -518,6 +518,10 @@ export function initializeTables(database: Database.Database): void {
   }
   // Hot path for the retry worker: filter by status + ingestion flag.
   database.prepare(`CREATE INDEX IF NOT EXISTS idx_tasks_es_ingested ON tasks(status, es_ingested)`).run();
+
+  // Migration: tasks.test_uuid + its triggers and indexes. Keep this last: it
+  // needs es_ingested, and restores what a table-recreate migration dropped.
+  migrateTaskTestUuid(database);
 }
 
 function migrateDarwinConstraint(database: Database.Database): void {
@@ -663,6 +667,7 @@ function migrateExecuteCommandType(database: Database.Database): void {
     colSet.has('notice_id') ? 'notice_id TEXT DEFAULT NULL' : null,
     colSet.has('campaign_run_id') ? 'campaign_run_id TEXT DEFAULT NULL' : null,
     colSet.has('result_compacted_at') ? 'result_compacted_at TEXT DEFAULT NULL' : null,
+    colSet.has('test_uuid') ? 'test_uuid TEXT DEFAULT NULL' : null,
   ].filter(Boolean);
 
   database.exec(`DROP TABLE IF EXISTS tasks_new`);
@@ -696,8 +701,66 @@ function migrateExecuteCommandType(database: Database.Database): void {
     ${colSet.has('campaign_run_id') ? 'CREATE INDEX IF NOT EXISTS idx_tasks_campaign_run ON tasks(campaign_run_id);' : ''}
     ${colSet.has('result_compacted_at') ? 'CREATE INDEX IF NOT EXISTS idx_tasks_compactable ON tasks(completed_at) WHERE result_compacted_at IS NULL;' : ''}
   `);
+  // DROP TABLE also dropped the test_uuid indexes and triggers; put them back.
+  if (colSet.has('test_uuid') && colSet.has('es_ingested')) {
+    ensureTaskTestUuidObjects(database);
+  }
 
   database.pragma('foreign_keys = ON');
+}
+
+/**
+ * `tasks.test_uuid`: the test a task runs, copied out of the JSON payload so
+ * the run-recency queries (testRunHistory.ts) read an index instead of
+ * parsing every task's payload on each request.
+ *
+ * Runs last in initializeTables(), on every start: a table-recreate migration
+ * (DROP TABLE) silently drops triggers and indexes, and this puts them back.
+ */
+function migrateTaskTestUuid(database: Database.Database): void {
+  const cols = database.prepare(`PRAGMA table_info(tasks)`).all() as { name: string }[];
+  if (!cols.some((c) => c.name === 'test_uuid')) {
+    database.exec(`ALTER TABLE tasks ADD COLUMN test_uuid TEXT DEFAULT NULL`);
+  }
+  ensureTaskTestUuidObjects(database);
+  // Backfill rows written before the column (or before the triggers) existed.
+  // A no-op seek on idx_tasks_test_recency once every row is filled. Payloads
+  // without a string test_uuid get '' so they are not looked at again.
+  database.exec(`
+    UPDATE tasks
+    SET test_uuid = ${TEST_UUID_FROM_PAYLOAD('payload')}
+    WHERE type = 'execute_test' AND test_uuid IS NULL
+  `);
+}
+
+/** A task payload's test_uuid, '' when the payload isn't JSON or has no string test_uuid. */
+const TEST_UUID_FROM_PAYLOAD = (col: string): string => `
+  CASE WHEN json_valid(${col}) AND json_type(${col}, '$.test_uuid') = 'text'
+       THEN json_extract(${col}, '$.test_uuid') ELSE '' END`;
+
+function ensureTaskTestUuidObjects(database: Database.Database): void {
+  database.exec(`
+    -- The column is kept by triggers, not by each INSERT statement, so a new
+    -- insert path (or a raw insert in a test) can't forget it.
+    CREATE TRIGGER IF NOT EXISTS trg_tasks_test_uuid_insert
+    AFTER INSERT ON tasks
+    WHEN NEW.type = 'execute_test'
+    BEGIN
+      UPDATE tasks SET test_uuid = ${TEST_UUID_FROM_PAYLOAD('NEW.payload')} WHERE id = NEW.id;
+    END;
+    CREATE TRIGGER IF NOT EXISTS trg_tasks_test_uuid_update
+    AFTER UPDATE OF payload, type ON tasks
+    WHEN NEW.type = 'execute_test'
+    BEGIN
+      UPDATE tasks SET test_uuid = ${TEST_UUID_FROM_PAYLOAD('NEW.payload')} WHERE id = NEW.id;
+    END;
+    -- Covering indexes: both recency queries are answered from the index
+    -- alone (no task row, no payload JSON). Per test x agent, and per agent.
+    CREATE INDEX IF NOT EXISTS idx_tasks_test_recency
+      ON tasks(type, test_uuid, agent_id, org_id, status, es_ingested, completed_at);
+    CREATE INDEX IF NOT EXISTS idx_tasks_agent_recency
+      ON tasks(type, agent_id, org_id, status, es_ingested, completed_at);
+  `);
 }
 
 /**

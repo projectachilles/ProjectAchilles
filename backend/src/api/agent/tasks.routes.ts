@@ -1,4 +1,5 @@
 import { Router } from 'express';
+import rateLimit from 'express-rate-limit';
 import type { Request } from 'express';
 import { asyncHandler, AppError } from '../../middleware/error.middleware.js';
 import { getUserId, hasRequestPermission, requirePermission, validateRequestOrgId } from '../../middleware/clerk.middleware.js';
@@ -30,6 +31,7 @@ import { ingestResult } from '../../services/agent/results.service.js';
 import { retryPendingIngestions } from '../../services/agent/ingestionWorker.service.js';
 import { alertsService } from '../integrations.routes.js';
 import { validate } from '../../middleware/validation.js';
+import { uiLimiterKey } from '../../middleware/rateLimitKeys.js';
 import { UpdateTaskStatusSchema, TaskResultSchema } from '../../schemas/agent.schemas.js';
 import { resolveRequesterLabels, withoutEmail } from '../../services/agent/requesterLabel.js';
 import { getAgentRunRecency, getTestRunRecency, MAX_RECENCY_TESTS } from '../../services/agent/testRunHistory.js';
@@ -364,6 +366,24 @@ function requireTaskInScope(req: Request): void {
 
 const TEST_UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
+/** Requests one user may make to the recency endpoint per minute. */
+export const TEST_RECENCY_MAX_PER_MINUTE = 30;
+
+/**
+ * The recency queries read the whole task history of an organization (from
+ * an index, but still every row) and SQLite is synchronous, so the general
+ * API budget (1,000 per 15 minutes) is too generous here. The console asks
+ * once each time a run dialog opens. Per user, like the general limiter.
+ */
+const testRecencyLimiter = rateLimit({
+  windowMs: 60 * 1000,
+  max: TEST_RECENCY_MAX_PER_MINUTE,
+  standardHeaders: true,
+  legacyHeaders: false,
+  keyGenerator: uiLimiterKey,
+  message: { success: false, error: 'Too many requests, please try again later' },
+});
+
 /**
  * GET /admin/tasks/test-recency[?test_uuids=<uuid>[,<uuid>...]]
  * For the host picker's "not run recently" filter: `agents` is when each agent
@@ -373,6 +393,7 @@ const TEST_UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{
 adminTasksRouter.get(
   '/tasks/test-recency',
   requirePermission('endpoints:tasks:read'),
+  testRecencyLimiter,
   asyncHandler(async (req, res) => {
     const raw = typeof req.query.test_uuids === 'string' ? req.query.test_uuids : '';
     const testUuids = [...new Set(raw.split(',').map((u) => u.trim()).filter(Boolean))];

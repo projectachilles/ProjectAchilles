@@ -39,7 +39,7 @@ vi.mock('../../risk-acceptance/risk-acceptance.service.js', () => ({
   }),
 }));
 
-const { ElasticsearchService, resolveErrorName, ERROR_CODE_MAP, sortBundleMembers, pairTestUuid } =
+const { ElasticsearchService, resolveErrorName, ERROR_CODE_MAP, sortBundleMembers, pairTestUuid, COMPOSITE_MAX_PAGES } =
   await import('../elasticsearch.js');
 
 // ─── Helpers ──────────────────────────────────────────────────────
@@ -1874,6 +1874,95 @@ describe('elasticsearch.ts', () => {
       expect(daySearch().query.bool.filter).toContainEqual({ range: { 'routing.event_time': { gte: 'now-6d/d' } } });
     });
 
+    it('counts runs across pages into their days (same totals as one run per bucket)', async () => {
+      const day = (d: string, n: number, protectedStages: number, conclusive = 4) =>
+        Array.from({ length: n }, (_, i) => run({ host: `h${d}-${i}`, ts: `2026-10-${d}T10:00:00Z`, stages: 4, conclusive, protected: protectedStages }));
+      const all = [...day('18', 700, 1), ...day('19', 900, 0), ...day('20', 500, 0, 0)];
+      // Full pages of 1,000 (the composite page size), then a short one.
+      route({ runs: [all.slice(0, 1000), all.slice(1000, 2000), all.slice(2000)] });
+      const result = await createService().getExecutionActivity({ days: 14 });
+      expect(runSearches()).toHaveLength(3);
+      expect(result.days[11]).toEqual({ date: '2026-10-18', protected: 700, unprotected: 0, inconclusive: 0 });
+      expect(result.days[12]).toEqual({ date: '2026-10-19', protected: 0, unprotected: 900, inconclusive: 0 });
+      expect(result.days[13]).toEqual({ date: '2026-10-20', protected: 0, unprotected: 0, inconclusive: 500 });
+      expect(result.executions7d).toBe(2100);
+      expect(result).not.toHaveProperty('truncated');
+    });
+
+    it('stops paging bundle runs at the page cap and says the counts are partial', async () => {
+      // A source that never runs dry: every page is full and has an after_key.
+      let page = 0;
+      mockSearch.mockImplementation(async (req: any) => {
+        if (req.aggs?.activity_runs) {
+          page++;
+          const size = req.aggs.activity_runs.composite.size as number;
+          const buckets = Array.from({ length: size }, (_, i) =>
+            run({ host: `h${page}-${i}`, ts: '2026-10-19T10:00:00Z', stages: 4, conclusive: 4, protected: 1 }));
+          return esSearchResponse({ aggs: { activity_runs: { buckets, after_key: buckets[buckets.length - 1].key } } });
+        }
+        return esSearchResponse({ aggs: { standalone: { per_day: { buckets: [] } }, all_time: { org: { last: { value: null } } }, last_7d: { endpoints: { value: 0 } } } });
+      });
+      const result = await createService().getExecutionActivity({ days: 14 });
+      expect(runSearches()).toHaveLength(COMPOSITE_MAX_PAGES);
+      expect(result.truncated).toBe(true);
+      expect(result.days[12].protected).toBe(COMPOSITE_MAX_PAGES * 1000);
+    });
+
+    it('answers repeated and concurrent calls for one organization and window from one set of searches', async () => {
+      route({ runs: [[run({ host: 'h1', ts: '2026-10-19T10:00:00Z', stages: 4, conclusive: 4, protected: 1 })]] });
+      const svc = createService();
+      const [a, b] = await Promise.all([
+        svc.getExecutionActivity({ org: 'org-1', days: 14 }),
+        svc.getExecutionActivity({ org: 'org-1', days: 14 }),
+      ]);
+      const c = await svc.getExecutionActivity({ org: 'org-1', days: 14 });
+      expect(b).toEqual(a);
+      expect(c).toEqual(a);
+      expect(a.days[12].protected).toBe(1);
+      expect(mockSearch).toHaveBeenCalledTimes(2); // the day search + one composite page
+    });
+
+    it('keeps organizations, day counts and UTC days apart, and expires after the TTL', async () => {
+      route({});
+      const svc = createService();
+      await svc.getExecutionActivity({ org: 'org-1', days: 14 });
+      const perCall = mockSearch.mock.calls.length;
+      await svc.getExecutionActivity({ org: 'org-2', days: 14 });
+      expect(mockSearch).toHaveBeenCalledTimes(2 * perCall);
+      await svc.getExecutionActivity({ days: 14 });
+      expect(mockSearch).toHaveBeenCalledTimes(3 * perCall);
+      await svc.getExecutionActivity({ org: 'org-1', days: 30 });
+      expect(mockSearch).toHaveBeenCalledTimes(4 * perCall);
+      // The org filter of each fetch is its own organization's.
+      const orgs = mockSearch.mock.calls.map(c => c[0]).filter((r: any) => r.aggs?.standalone)
+        .map((r: any) => JSON.stringify(r.query).match(/"routing\.oid":"([^"]+)"/)?.[1] ?? null);
+      expect(orgs).toEqual(['org-1', 'org-2', null, 'org-1']);
+
+      // Inside the TTL: served from memory. After it: fetched again.
+      await svc.getExecutionActivity({ org: 'org-1', days: 14 });
+      expect(mockSearch).toHaveBeenCalledTimes(4 * perCall);
+      await vi.advanceTimersByTimeAsync(31_000);
+      await svc.getExecutionActivity({ org: 'org-1', days: 14 });
+      expect(mockSearch).toHaveBeenCalledTimes(5 * perCall);
+
+      // A new UTC day is a new window even inside the TTL.
+      vi.setSystemTime(Date.UTC(2026, 9, 20, 23, 59, 50));
+      await svc.getExecutionActivity({ org: 'org-9', days: 14 });
+      const before = mockSearch.mock.calls.length;
+      vi.setSystemTime(Date.UTC(2026, 9, 21, 0, 0, 5));
+      const next = await svc.getExecutionActivity({ org: 'org-9', days: 14 });
+      expect(mockSearch.mock.calls.length).toBe(before + perCall);
+      expect(next.days[13].date).toBe('2026-10-21');
+    });
+
+    it('does not keep a failed fetch', async () => {
+      const svc = createService();
+      mockSearch.mockRejectedValue(new Error('es down'));
+      await expect(svc.getExecutionActivity({ days: 14 })).rejects.toThrow('es down');
+      route({});
+      await expect(svc.getExecutionActivity({ days: 14 })).resolves.toHaveProperty('days');
+    });
+
     it('7d numbers count runs on 7 UTC days even when fewer bars are shown', async () => {
       route({ runs: [[run({ host: 'h1', ts: '2026-10-15T08:00:00Z', stages: 4, conclusive: 4, protected: 1 })]] });
       const result = await createService().getExecutionActivity({ days: 3 });
@@ -1963,10 +2052,13 @@ describe('elasticsearch.ts', () => {
       });
       const svc = createService();
       const result = await svc.getHostTestMatrix(makeParams());
-      expect(result).toEqual([
-        { hostname: 'h1', testName: 'T1', count: 4 },
-        { hostname: 'h2', testName: 'Chain', count: 4 },
-      ]);
+      expect(result).toEqual({
+        cells: [
+          { hostname: 'h1', testName: 'T1', count: 4 },
+          { hostname: 'h2', testName: 'Chain', count: 4 },
+        ],
+        truncated: false,
+      });
       const calls = mockSearch.mock.calls.map(c => c[0]);
       const standalone = calls.find((r: any) => r.aggs?.host_test_matrix);
       expect(standalone.query.bool.filter).toContainEqual({ bool: { must_not: [{ exists: { field: 'f0rtika.bundle_id' } }] } });
@@ -1974,6 +2066,80 @@ describe('elasticsearch.ts', () => {
       const bundles = calls.find((r: any) => r.aggs?.host_bundle_matrix);
       expect(bundles.query.bool.filter).toContainEqual({ exists: { field: 'f0rtika.bundle_id' } });
       expect(bundles.aggs.host_bundle_matrix.aggs.runs).toEqual({ cardinality: { field: 'routing.event_time' } });
+    });
+
+    describe('getHostTestMatrix bounds', () => {
+      const NOW = Date.UTC(2026, 9, 20, 15, 0, 0);
+      const rangeOf = (req: any) => req.query.bool.filter
+        .filter((f: any) => f.range?.['routing.event_time'])
+        .map((f: any) => f.range['routing.event_time']);
+      const emptyMatrix = () => mockSearch.mockImplementation(async (req: any) =>
+        esSearchResponse({ aggs: { [Object.keys(req.aggs)[0]]: { buckets: [] } } }));
+
+      beforeEach(() => {
+        vi.useFakeTimers();
+        vi.setSystemTime(NOW);
+      });
+      afterEach(() => {
+        vi.useRealTimers();
+      });
+
+      it('holds an "all time" range to the 365 days before its end', async () => {
+        emptyMatrix();
+        await createService().getHostTestMatrix(makeParams({ from: '2000-01-01', to: undefined }));
+        for (const req of mockSearch.mock.calls.map(c => c[0])) {
+          expect(rangeOf(req)).toEqual([{ gte: new Date(NOW - 365 * 86_400_000).toISOString() }]);
+        }
+        expect(mockSearch).toHaveBeenCalledTimes(2);
+      });
+
+      it('measures the 365 days back from an explicit end date, and bounds a range with no start', async () => {
+        emptyMatrix();
+        const svc = createService();
+        await svc.getHostTestMatrix(makeParams({ from: '2000-01-01', to: '2024-06-30T00:00:00Z' }));
+        expect(rangeOf(mockSearch.mock.calls[0][0])).toEqual([{ gte: '2023-07-01T00:00:00.000Z', lte: '2024-06-30T00:00:00Z' }]);
+        mockSearch.mockClear();
+        await svc.getHostTestMatrix({ to: '2024-06-30T00:00:00Z' });
+        expect(rangeOf(mockSearch.mock.calls[0][0])).toEqual([{ gte: '2023-07-01T00:00:00.000Z', lte: '2024-06-30T00:00:00Z' }]);
+      });
+
+      it('leaves a range of 365 days or less as it was sent, and keeps the 7-day default', async () => {
+        emptyMatrix();
+        const svc = createService();
+        await svc.getHostTestMatrix(makeParams());
+        expect(rangeOf(mockSearch.mock.calls[0][0])).toEqual([{ gte: '2025-01-01T00:00:00Z', lte: '2025-01-31T23:59:59Z' }]);
+        mockSearch.mockClear();
+        await svc.getHostTestMatrix({ from: 'now-90d' });
+        expect(rangeOf(mockSearch.mock.calls[0][0])).toEqual([{ gte: 'now-90d' }]);
+        mockSearch.mockClear();
+        await svc.getHostTestMatrix({});
+        expect(rangeOf(mockSearch.mock.calls[0][0])).toEqual([{ gte: 'now-7d' }]);
+      });
+
+      it('adds a 365-day floor when a bound is date math it cannot read', async () => {
+        emptyMatrix();
+        await createService().getHostTestMatrix({ from: 'now-50y/y' });
+        expect(rangeOf(mockSearch.mock.calls[0][0])).toEqual([{ gte: 'now-50y/y' }, { gte: 'now-365d' }]);
+      });
+
+      it('stops at the page cap and reports the result as truncated', async () => {
+        let n = 0;
+        mockSearch.mockImplementation(async (req: any) => {
+          const name = Object.keys(req.aggs)[0];
+          if (name === 'host_bundle_matrix') return esSearchResponse({ aggs: { [name]: { buckets: [] } } });
+          const size = req.aggs[name].composite.size as number;
+          const buckets = Array.from({ length: size }, () => {
+            n++;
+            return { key: { hostname: `h${n}`, test_name: 'T' }, doc_count: 1, runs: { value: 1 } };
+          });
+          return esSearchResponse({ aggs: { [name]: { buckets, after_key: buckets[buckets.length - 1].key } } });
+        });
+        const result = await createService().getHostTestMatrix(makeParams());
+        const standalonePages = mockSearch.mock.calls.filter(c => c[0].aggs?.host_test_matrix).length;
+        expect(standalonePages).toBe(COMPOSITE_MAX_PAGES);
+        expect(result.truncated).toBe(true);
+        expect(result.cells).toHaveLength(COMPOSITE_MAX_PAGES * 1000);
+      });
     });
 
     it('getAvailableTests — returns string[]', async () => {
