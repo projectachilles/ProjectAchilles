@@ -65,6 +65,7 @@ const mockOutcomeBreakdown = vi.fn();
 const mockTestResults = vi.fn();
 const mockGetPaginatedExecutions = vi.fn();
 const mockGetGroupedPaginatedExecutions = vi.fn();
+const mockHostTestMatrix = vi.fn();
 vi.mock('../../services/analytics/elasticsearch.js', () => ({
   ElasticsearchService: class MockElasticsearchService {
     testConnection = mockTestConnection;
@@ -94,6 +95,7 @@ vi.mock('../../services/analytics/elasticsearch.js', () => ({
     getTestResults = mockTestResults;
     getPaginatedExecutions = mockGetPaginatedExecutions;
     getGroupedPaginatedExecutions = mockGetGroupedPaginatedExecutions;
+    getHostTestMatrix = mockHostTestMatrix;
   },
 }));
 
@@ -571,6 +573,26 @@ describe('analytics routes', () => {
       const arg = mockOutcomeBreakdown.mock.calls[0][0];
       expect(arg).toEqual(expect.objectContaining({ org: 'o1' }));
       expect(arg.basis).toBeUndefined();
+    });
+  });
+
+  describe('host-test matrix', () => {
+    const cells = [{ hostname: 'h1', testName: 'T1', count: 2 }];
+
+    it('returns the cells as a plain array, with no truncation header when complete', async () => {
+      mockHostTestMatrix.mockResolvedValue({ cells, truncated: false });
+      const res = await request(createApp()).get('/api/analytics/host-test-matrix?org=o1');
+      expect(res.status).toBe(200);
+      expect(res.body).toEqual(cells);
+      expect(res.headers['x-result-truncated']).toBeUndefined();
+    });
+
+    it('flags a result cut at the page cap in a header, body unchanged', async () => {
+      mockHostTestMatrix.mockResolvedValue({ cells, truncated: true });
+      const res = await request(createApp()).get('/api/analytics/host-test-matrix?org=o1');
+      expect(res.status).toBe(200);
+      expect(res.body).toEqual(cells);
+      expect(res.headers['x-result-truncated']).toBe('true');
     });
   });
 

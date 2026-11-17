@@ -208,7 +208,8 @@ GET /api/agent/admin/tasks/test-recency[?test_uuids=<uuid>[,<uuid>...]]
 
 Run history for the target picker's "Not run" filter. Requires `endpoints:tasks:read`;
 limited to the caller's organization like the task lists. `test_uuids` is optional
-(up to 100); a malformed list returns `400`.
+(up to 100); a malformed list returns `400`. Each user may call it 30 times a
+minute (`429` after that); the console calls it once when a run dialog opens.
 
 ```json
 {

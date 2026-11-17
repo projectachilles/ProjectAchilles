@@ -47,6 +47,7 @@ import type {
   TestCoverageItem,
   TechniqueDistributionItem,
   HostTestMatrixCell,
+  HostTestMatrixResult,
   EnrichedTestExecution,
   PaginatedResponse,
   ExtendedAnalyticsQueryParams,
@@ -257,6 +258,19 @@ const POSTURE_CACHE_OPTIONS: TtlCacheOptions<PostureSnapshot> = {
  * served but not kept.
  */
 const INCONCLUSIVE_CACHE_MAX_ENTRIES = 50_000;
+
+/**
+ * Most composite pages one request may read on the endpoints that pass a cap
+ * (execution activity, host x test matrix). Those page over data a signed-in
+ * user's request alone decides the size of, so without a cap one request is
+ * an unbounded series of searches. At 1,000 buckets a page this is 200,000
+ * bundle runs in the activity window, or 200,000 matrix cells per kind; a
+ * result cut here is flagged as truncated, never returned as if complete.
+ */
+export const COMPOSITE_MAX_PAGES = 200;
+
+/** Execution activity answers kept at once (org x days); each is at most 90 day rows. */
+const ACTIVITY_CACHE_MAX_ENTRIES = 64;
 
 const DAY_MS = 86_400_000;
 const RANGE_UNIT_MS: Record<string, number> = { h: 3_600_000, d: DAY_MS, w: 7 * DAY_MS, m: 30 * DAY_MS, M: 30 * DAY_MS };
@@ -512,6 +526,29 @@ export class ElasticsearchService {
     if (to) filter.range['routing.event_time'].lte = to;
 
     return filter;
+  }
+
+  /**
+   * The date filter, with the range held to MAX_FRESHNESS_DAYS before its end
+   * (the cap the latest-basis endpoints use). For endpoints whose work grows
+   * with the range: "All time" sends from=2000-01-01. A bound this can't read
+   * (other Elasticsearch date math) gets a now-365d floor as well, so no
+   * spelling of the range escapes the cap.
+   */
+  private buildCappedDateFilters(from?: string, to?: string): any[] {
+    // Neither bound: the 7-day default.
+    if (!from && !to) return [this.buildDateFilter()];
+    const nowMs = Date.now();
+    const toMs = to ? parseRangeTime(to, nowMs) : nowMs;
+    const fromMs = from ? parseRangeTime(from, nowMs) : Number.NEGATIVE_INFINITY;
+    if (Number.isNaN(fromMs) || Number.isNaN(toMs)) {
+      return [
+        this.buildDateFilter(from, to),
+        { range: { 'routing.event_time': { gte: `now-${MAX_FRESHNESS_DAYS}d` } } },
+      ];
+    }
+    const floorMs = toMs - MAX_FRESHNESS_DAYS * DAY_MS;
+    return [this.buildDateFilter(fromMs < floorMs ? new Date(floorMs).toISOString() : from, to)];
   }
 
   // Build org filter
@@ -1286,6 +1323,21 @@ export class ElasticsearchService {
     weigh: (m) => m.size,
   });
 
+  /**
+   * Execution activity answers (the cadence card): same TTL as the posture
+   * snapshots. The card has a fixed window and no filters, so every dashboard
+   * load of an organization asks the same question; without this each one
+   * re-pages every bundle run of the window. Dropped with the instance on a
+   * settings change, like the other caches here.
+   */
+  private readonly activityCache = new TtlPromiseCache<ExecutionActivityResponse>({
+    ttlMs: POSTURE_CACHE_OPTIONS.ttlMs,
+    maxEntries: ACTIVITY_CACHE_MAX_ENTRIES,
+    maxEntryWeight: 1,
+    maxTotalWeight: ACTIVITY_CACHE_MAX_ENTRIES,
+    weigh: () => 1,
+  });
+
   private readonly PAIR_DAY_SOURCE = {
     day: { date_histogram: { field: 'routing.event_time', calendar_interval: 'day', time_zone: 'UTC' } },
   };
@@ -1304,6 +1356,10 @@ export class ElasticsearchService {
    * Run a composite aggregation to exhaustion, following after_key until a
    * page is short. Each bucket goes to onBucket as its page arrives; pages are
    * not retained, so only the caller's (much smaller) PairRuns stay in memory.
+   *
+   * With maxPages it stops after that many pages and reports `truncated: true`
+   * when more were left; the caller must pass that on, never present the
+   * partial result as complete.
    */
   private async paginateComposite(
     filters: any[],
@@ -1312,9 +1368,10 @@ export class ElasticsearchService {
     sources: Record<string, unknown>[],
     subAggs: Record<string, unknown>,
     onBucket: (bucket: any) => void,
-  ): Promise<void> {
+    maxPages = Number.POSITIVE_INFINITY,
+  ): Promise<{ truncated: boolean }> {
     let after: Record<string, unknown> | undefined;
-    for (;;) {
+    for (let pages = 1; ; pages++) {
       const response = await this.client.search({
         index: this.settings.indexPattern,
         size: 0,
@@ -1329,7 +1386,8 @@ export class ElasticsearchService {
       const agg = (response.aggregations as any)?.[aggName];
       const page: any[] = agg?.buckets ?? [];
       for (const b of page) onBucket(b);
-      if (page.length < pageSize || !agg?.after_key) break;
+      if (page.length < pageSize || !agg?.after_key) return { truncated: false };
+      if (pages >= maxPages) return { truncated: true };
       after = agg.after_key;
     }
   }
@@ -2393,10 +2451,10 @@ export class ElasticsearchService {
    * test counts its results; a bundle counts its runs under the bundle name
    * (not one cell per stage), like Executions.
    */
-  async getHostTestMatrix(params: AnalyticsQueryParams & Partial<ExtendedAnalyticsQueryParams>): Promise<HostTestMatrixCell[]> {
+  async getHostTestMatrix(params: AnalyticsQueryParams & Partial<ExtendedAnalyticsQueryParams>): Promise<HostTestMatrixResult> {
     const filters: any[] = [
       this.buildTestDataFilter(),
-      this.buildDateFilter(params.from, params.to)
+      ...this.buildCappedDateFilters(params.from, params.to),
     ];
 
     const orgFilter = this.buildOrgFilter(params.org);
@@ -2413,7 +2471,7 @@ export class ElasticsearchService {
       if (cell) cell.count += count;
       else cells.set(key, { hostname: String(hostname), testName: String(testName), count });
     };
-    await Promise.all([
+    const pages = await Promise.all([
       this.paginateComposite(
         [...filters, { bool: { must_not: [bundleDoc] } }],
         'host_test_matrix',
@@ -2423,6 +2481,7 @@ export class ElasticsearchService {
         // and All Executions shows it as one row.
         { runs: { cardinality: { field: 'routing.event_time' } } },
         (b) => add(b.key?.hostname, b.key?.test_name, Number(b.runs?.value) || 0),
+        COMPOSITE_MAX_PAGES,
       ),
       this.paginateComposite(
         [...filters, bundleDoc],
@@ -2432,9 +2491,10 @@ export class ElasticsearchService {
         // Every doc of one run shares routing.event_time.
         { runs: { cardinality: { field: 'routing.event_time' } } },
         (b) => add(b.key?.hostname, b.key?.bundle_name, Number(b.runs?.value) || 0),
+        COMPOSITE_MAX_PAGES,
       ),
     ]);
-    return [...cells.values()];
+    return { cells: [...cells.values()], truncated: pages.some((p) => p.truncated) };
   }
 
 
@@ -3947,16 +4007,23 @@ export class ElasticsearchService {
   async getExecutionActivity(params: { org?: string; days?: number } = {}): Promise<ExecutionActivityResponse> {
     const requested = Number.isFinite(params.days) ? Math.trunc(params.days as number) : 14;
     const days = Math.max(1, Math.min(90, requested));
+    const todayMs = Math.floor(Date.now() / DAY_MS) * DAY_MS;
+    // Everything that shapes the answer: the organization, the clamped day
+    // count and the UTC day the window ends on. JSON keeps the parts apart.
+    const key = JSON.stringify([params.org ?? null, days, todayMs]);
+    return this.activityCache.get(key, () => this.fetchExecutionActivity(params.org, days, todayMs));
+  }
+
+  private async fetchExecutionActivity(org: string | undefined, days: number, todayMs: number): Promise<ExecutionActivityResponse> {
     // The query window must also cover the 7-day headline numbers.
     const spanDays = Math.max(days, 7);
-    const todayMs = Math.floor(Date.now() / DAY_MS) * DAY_MS;
     const dayKeys: string[] = [];
     for (let i = spanDays - 1; i >= 0; i--) {
       dayKeys.push(new Date(todayMs - i * DAY_MS).toISOString().slice(0, 10));
     }
 
-    const orgFilter = this.buildOrgFilter(params.org);
-    // Real test results only (see the doc comment above).
+    const orgFilter = this.buildOrgFilter(org);
+    // Real test results only (see getExecutionActivity).
     const countedFilter = {
       bool: {
         filter: [this.buildTestDataFilter(), ...(orgFilter ? [orgFilter] : [])],
@@ -4005,9 +4072,8 @@ export class ElasticsearchService {
 
     type DayCounts = { protected: number; unprotected: number; inconclusive: number };
     const byDay = new Map<string, DayCounts>(dayKeys.map((d) => [d, { protected: 0, unprotected: 0, inconclusive: 0 }]));
-    const runVerdicts: Array<{ date: string; verdict: keyof DayCounts }> = [];
 
-    const [response] = await Promise.all([
+    const [response, bundleRuns] = await Promise.all([
       this.client.search({
         index: this.settings.indexPattern,
         size: 0,
@@ -4067,8 +4133,12 @@ export class ElasticsearchService {
           if (conclusiveDocs === 0) verdict = 'inconclusive';
           else if ((Number(b.hygiene?.doc_count) || 0) > 0) verdict = protectedDocs === conclusiveDocs ? 'protected' : 'unprotected';
           else verdict = protectedDocs > 0 ? 'protected' : 'unprotected';
-          runVerdicts.push({ date: new Date(ts).toISOString().slice(0, 10), verdict });
+          // Counted here, not collected: memory stays at one counter set per
+          // day however many runs the window holds.
+          const day = byDay.get(new Date(ts).toISOString().slice(0, 10));
+          if (day) day[verdict]++;
         },
+        COMPOSITE_MAX_PAGES,
       ),
     ]);
 
@@ -4082,10 +4152,6 @@ export class ElasticsearchService {
       day.protected += b.protected?.doc_count ?? 0;
       day.unprotected += b.unprotected?.doc_count ?? 0;
       day.inconclusive += b.inconclusive?.doc_count ?? 0;
-    }
-    for (const r of runVerdicts) {
-      const day = byDay.get(r.date);
-      if (day) day[r.verdict]++;
     }
     const rows = dayKeys.map((date) => ({ date, ...byDay.get(date)! }));
 
@@ -4104,6 +4170,7 @@ export class ElasticsearchService {
       executions7d: runs7d,
       protectedPct7d: conclusive7d > 0 ? Math.round((protected7d / conclusive7d) * 1000) / 10 : null,
       endpointsTested7d: aggs?.last_7d?.endpoints?.value ?? 0,
+      ...(bundleRuns.truncated ? { truncated: true as const } : {}),
     };
   }
 

@@ -225,7 +225,7 @@ GET /api/analytics/error-rate/trend       — error rate over time (rolling wind
 GET /api/analytics/results-by-error-type  — breakdown by error code/name
 ```
 
-All accept the shared filter parameters. `technique-distribution`, `test-coverage` and `threat-actor-coverage` also accept `basis=latest`. Under `latest`, `threat-actor-coverage` also returns `pairCount` and `lastTestedAt` per actor.
+All accept the shared filter parameters. `host-test-matrix` reads at most the 365 days before the end of the range (a longer range, such as "All time", is shortened to that) and at most 200,000 cells each for standalone tests and for bundles; when that limit cut the result, the response carries the header `X-Result-Truncated: true` and the array is incomplete. `technique-distribution`, `test-coverage` and `threat-actor-coverage` also accept `basis=latest`. Under `latest`, `threat-actor-coverage` also returns `pairCount` and `lastTestedAt` per actor.
 
 ### Technique Outcomes
 
@@ -336,6 +336,8 @@ GET /api/analytics/execution-activity?days=14
 ```
 
 Takes the organization and `days` (1 to 90, default 14); it does not use the shared filters. Returns `days[]` (daily protected, got-through and inconclusive counts of test runs, one entry per UTC day, zero-filled), `lastExecutionAt` (all time), `executions7d` (test runs; the name predates the change), `protectedPct7d` (protected runs out of conclusive runs) and `endpointsTested7d`. A run is one standalone result or one bundle run. A multi-stage run is protected when any stage was blocked or detected, got through when stages ran without either, and inconclusive with no conclusive stage; a cyber-hygiene bundle run is protected only when every conclusive control passed. It feeds the testing cadence card.
+
+The answer is kept for 30 seconds per organization and `days`, so repeated calls inside that time return the same numbers. Bundle runs are read up to a limit of 200,000 in the window; past it the response has `truncated: true` and the daily counts are a lower bound.
 
 Only real test results are counted: upload confirmations (exit 200) and Skipped bundle stages (exit 0 on a bundle-control document) are left out everywhere, including `lastExecutionAt`. Protected means conclusive and blocked or detected; got through means conclusive and not protected; anything else is inconclusive. The `*7d` numbers cover the last 7 UTC days including today, the same days as the last seven bars.
 

@@ -136,6 +136,13 @@ export interface HostTestMatrixCell {
   count: number;
 }
 
+/** What the service returns; the route sends `cells` as the body and `truncated` as a header. */
+export interface HostTestMatrixResult {
+  cells: HostTestMatrixCell[];
+  /** The page cap was reached: some host x test cells are missing. */
+  truncated: boolean;
+}
+
 // ============================================
 // Enriched Types (for new fields)
 // ============================================
@@ -445,6 +452,7 @@ export interface ExecutionActivityResponse {
   executions7d: number;            // test runs, last 7 days (name kept for API compatibility)
   protectedPct7d: number | null;   // protected runs / conclusive runs, last 7 days
   endpointsTested7d: number;       // distinct hostnames, last 7 days
+  truncated?: true;                // present when the bundle-run page cap was reached: counts are a lower bound
 }
 
 // Error rate trend data point (rolling window)

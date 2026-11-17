@@ -2,6 +2,12 @@
  * Per-agent run history of a test, for the "not tested recently" filter of the
  * host picker. Reads the tasks table only: tasks are keyed by agent id and are
  * never pruned (retention compacts their output, not the rows).
+ *
+ * Both queries must stay answerable from their covering index
+ * (idx_tasks_test_recency, idx_tasks_agent_recency in database.ts): better-sqlite3
+ * is synchronous, so a query that parses every task's payload stalls the whole
+ * backend. `tasks.test_uuid` is kept in step with the payload by triggers. A
+ * column added to either SELECT must be added to its index too.
  */
 import { getDatabase } from './database.js';
 
@@ -59,16 +65,15 @@ export function getTestRunRecency(testUuids: readonly string[], orgId?: string):
 
   const rows = db.prepare(`
     SELECT agent_id,
-           json_extract(payload, '$.test_uuid') AS test_uuid,
+           test_uuid,
            MAX(CASE WHEN status = 'completed' OR (status = 'failed' AND es_ingested = 1)
                     THEN completed_at END) AS last_run_at,
            MAX(CASE WHEN status IN ('pending', 'assigned', 'downloading', 'executing')
                     THEN 1 ELSE 0 END) AS queued
     FROM tasks
     WHERE type = 'execute_test'
-      AND json_valid(payload)
-      AND json_extract(payload, '$.test_uuid') IN (${placeholders})${orgClause}
-    GROUP BY agent_id, json_extract(payload, '$.test_uuid')
+      AND test_uuid IN (${placeholders})${orgClause}
+    GROUP BY test_uuid, agent_id
   `).all(...params) as RecencyRow[];
 
   return rows.map((r) => ({

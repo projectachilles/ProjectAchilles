@@ -386,7 +386,10 @@ router.get('/technique-distribution', asyncHandler(async (req, res) => {
 router.get('/host-test-matrix', asyncHandler(async (req, res) => {
   const es = await getEsService();
   const result = await es.getHostTestMatrix(extractFilterParams(req.query));
-  res.json(result);
+  // The body stays a plain array (console, CLI and API clients read it as
+  // one); a result cut at the page cap says so in a header.
+  if (result.truncated) res.setHeader('X-Result-Truncated', 'true');
+  res.json(result.cells);
 }));
 
 // GET /api/analytics/available-tests - List all available tests
