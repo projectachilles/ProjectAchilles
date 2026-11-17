@@ -5,6 +5,7 @@
 import fs from 'fs';
 import path from 'path';
 import { MetadataExtractor } from '../browser/metadataExtractor.js';
+import { isUsableSourceRoot } from '../browser/repositoryRoot.js';
 import type { TestMetadata, TestSource } from '../../types/test.js';
 
 const CATEGORY_DIRS = ['cyber-hygiene', 'intel-driven', 'mitre-top10', 'phase-aligned'];
@@ -22,6 +23,9 @@ function scanSourcePath(
   next: Map<string, TestMetadata>,
   nextDirs: Map<string, string>,
 ): void {
+  // A Git-synced root that is a link is refused (see repositoryRoot.ts).
+  if (!isUsableSourceRoot(sourcePath)) return;
+
   for (const category of CATEGORY_DIRS) {
     const categoryDir = path.join(sourcePath, category);
 
