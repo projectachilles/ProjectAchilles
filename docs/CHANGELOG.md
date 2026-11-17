@@ -17,6 +17,9 @@ This project uses two version streams:
 ### Fixed
 - **Build & Sign no longer asks for a file that doesn't exist.** A test's Deploy panel listed a missing file to upload (for example `directives`) and disabled **Build & Sign** when a Go comment in the test merely mentioned `//go:embed`. Only real `//go:embed` lines count now, as in Go itself. Several library tests were affected, among them "PII Exfiltration to External Inference Services" and the cyber-hygiene bundles.
 
+### Security
+- **The Claude security review no longer ends green for a commit that is not the PR's head any more.** On a fork PR the review runs when a maintainer adds the `claude-review` label, for the commit the PR had at that moment. When the author pushed while the review ran, the "Verify the review posted" step still passed (the comment for the earlier commit was there) and the label was removed, so the green check could be read as covering the new commits. The step now also reads the PR's current head and fails with "The PR changed during the review" when it differs, or when it cannot be read. Read the new diff and add the label again. (#824)
+
 ## [2.11.0] - 2026-11-15
 
 **Stage Coverage and a Security Round.** Two things make up this release. Analytics gains a view of how much of each attack chain your defenses catch, on the dashboard and in the execution report, and Test Breadth by Host now shows every host, tested or not. And a security review of the whole platform, with one privately reported issue, led to the fixes listed under Security: what a CLI token, an API key, an enrolled agent, a task creator and a test-library build can do is now limited to what each needs. Most installs upgrade without changes; read the upgrade notes if you use the `achilles` CLI, the analytics API, score alerts, or test builds that need environment variables.
