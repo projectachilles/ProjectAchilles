@@ -23,6 +23,7 @@ import { errorHandler, notFoundHandler } from './middleware/error.middleware.js'
 import { GitSyncService } from './services/browser/gitSyncService.js';
 import { GitHubMetadataService } from './services/browser/githubMetadataService.js';
 import { localTestsSourceWarning } from './services/browser/testsSource.js';
+import { registerRepositoryRoot } from './services/browser/repositoryRoot.js';
 import { createAgentRouter } from './api/agent/index.js';
 import usersRoutes from './api/users.routes.js';
 import integrationsRoutes, { alertsService } from './api/integrations.routes.js';
@@ -214,6 +215,9 @@ async function startServer() {
       localPath: process.env.TESTS_LOCAL_PATH || path.resolve(__dirname, '../../data/f0_library'),
       githubToken: process.env.GITHUB_TOKEN,
     });
+    // `<clone>/tests_source` is repository content, not an operator path: it
+    // must stay a real folder inside the clone (checked on every use).
+    registerRepositoryRoot(gitSyncService.getTestsSourcePath(), gitSyncService.getRepoPath());
 
     try {
       // Ensure repo is cloned (clone if missing, use existing if present)
