@@ -19,6 +19,8 @@ This project uses two version streams:
 
 ### Security
 - **Offline kit: a kit digest tells a changed copy from the kit you built.** `kit.sh` and `kit.ps1` checked the kit's files against `SHA256SUMS`, which is in the kit folder next to the loaders. That finds a damaged copy, but someone able to write to a USB stick could replace an image, the list and the loader together, and a replaced backend image would receive the install's secrets. `build-kit.sh` now ends by printing the **kit digest** (the SHA-256 of `SHA256SUMS`) and saves it next to the kit folder, outside it. Show it on a slide or the handout: `START-HERE.md` has one line per system to compare it and to check the loader before running it, and `deploy/offline-kit/seal-kit.sh --check <copy> <digest>` checks a stick before you hand it out. The README says what the built-in check does and does not cover. The kit is still not signed. (#825)
+- **The Claude security review no longer ends green for a commit that is not the PR's head any more.** On a fork PR the review runs when a maintainer adds the `claude-review` label, for the commit the PR had at that moment. When the author pushed while the review ran, the "Verify the review posted" step still passed (the comment for the earlier commit was there) and the label was removed, so the green check could be read as covering the new commits. The step now also reads the PR's current head and fails with "The PR changed during the review" when it differs, or when it cannot be read. Read the new diff and add the label again. (#824)
+
 
 ## [2.11.0] - 2026-11-15
 

@@ -94,11 +94,23 @@ class ReceiptTests(unittest.TestCase):
         self.comment = dict(user=dict(login='claude[bot]', type='Bot'), created_at='2026-11-15T12:03:00Z',
                             body=f'<!-- claude-security-review sha={HEAD} -->\n<h2>Claude Security Review</h2>\nNo issues.')
 
-    def check(self, comments):
+    def check(self, comments, live_head=HEAD):
+        """live_head: what the pulls API reports as the PR's head (an Exception to make that call fail)."""
         lines = '\n'.join(json.dumps(c) for c in comments)
-        with patch.object(evidence, 'gh_api', return_value=lines) as api:
+        calls = []
+
+        def api(endpoint, *args):
+            calls.append((endpoint, args))
+            if endpoint == 'repos/owner/repo/pulls/7':
+                if isinstance(live_head, Exception):
+                    raise live_head
+                return live_head + '\n'
+            return lines
+
+        with patch.object(evidence, 'gh_api', side_effect=api):
             code, out = run_main('receipt', self.env)
-        self.assertIn('--paginate', api.call_args.args)
+        self.assertIn('--paginate', calls[0][1])
+        self.calls = calls
         return code, out
 
     def test_comment_for_this_commit_and_run_passes(self):
@@ -147,6 +159,30 @@ class ReceiptTests(unittest.TestCase):
                 self.comment['user'] = dict(login=login, type=kind)
                 self.assertEqual(self.check([self.comment])[0], 1)
 
+    def test_head_moved_during_the_review_fails(self):
+        # The comment for the reviewed commit is there, but a push landed meanwhile.
+        code, out = self.check([self.comment], live_head=OTHER)
+        self.assertEqual(code, 1)
+        self.assertIn('::error::The PR changed during the review', out)
+        self.assertIn('claude-review label again', out)
+
+    def test_head_is_read_after_the_comments(self):
+        self.check([self.comment])
+        self.assertEqual([endpoint for endpoint, _ in self.calls][-1], 'repos/owner/repo/pulls/7')
+        self.assertEqual(self.calls[-1][1], ('--jq', '.head.sha'))
+
+    def test_head_lookup_failure_fails_closed(self):
+        for effect in (subprocess.CalledProcessError(1, 'gh'), '', 'null', 'not-a-sha'):
+            with self.subTest(effect=effect):
+                code, out = self.check([self.comment], live_head=effect)
+                self.assertEqual(code, 1)
+                self.assertIn('::error::', out)
+
+    def test_head_moved_and_no_comment_reports_the_moved_head(self):
+        code, out = self.check([], live_head=OTHER)
+        self.assertEqual(code, 1)
+        self.assertIn('The PR changed during the review', out)
+
     def test_api_failure_fails(self):
         with patch.object(evidence, 'gh_api', side_effect=subprocess.CalledProcessError(1, 'gh')):
             code, out = run_main('receipt', self.env)
@@ -163,12 +199,14 @@ class EntrypointTest(unittest.TestCase):
     def test_receipt_end_to_end(self):
         with tempfile.TemporaryDirectory() as tmp:
             gh = Path(tmp) / 'gh'
-            gh.write_text("#!/usr/bin/env python3\nimport os\nprint(os.environ['FIXTURE'])\n")
+            gh.write_text("#!/usr/bin/env python3\nimport os, sys\n"
+                          "print(os.environ['LIVE_HEAD'] if '/pulls/' in sys.argv[2] else os.environ['FIXTURE'])\n")
             gh.chmod(0o755)
             good = json.dumps(dict(user=dict(login='claude[bot]', type='Bot'), created_at='2026-11-15T12:03:00Z',
                                    body=f'<!-- claude-security-review sha={HEAD} -->'))
-            for fixture, expected in ((good, 0), ('', 1)):
+            for fixture, live_head, expected in ((good, HEAD, 0), ('', HEAD, 1), (good, OTHER, 1)):
                 env = dict(os.environ, PATH=tmp + os.pathsep + os.environ['PATH'], FIXTURE=fixture,
+                           LIVE_HEAD=live_head,
                            GITHUB_REPOSITORY='owner/repo', PR='7', HEAD_SHA=HEAD, REVIEW_KIND='security',
                            SINCE='2026-11-15T12:00:00Z')
                 result = subprocess.run(['python3', str(SCRIPTS / 'claude-review-evidence.py'), 'receipt'],
