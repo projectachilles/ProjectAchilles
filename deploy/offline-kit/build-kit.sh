@@ -147,9 +147,11 @@ Preloaded Go modules for: ${TESTS[*]:-none}
 Architectures:  ${ARCH_LIST[*]} (lab endpoint: amd64)
 EOF
 
-(cd "$KIT" && find . -type f ! -name SHA256SUMS | sed 's|^\./||' | LC_ALL=C sort | xargs sha256sum >SHA256SUMS)
 rm -rf "$STAGE"
 
 log "Kit ready: $KIT"
 du -sh "$KIT"/images/* "$KIT/ProjectAchilles.tar.gz" | sed 's|'"$KIT"'/||'
 du -sh "$KIT"
+# Last, so the kit digest is the last thing on screen: SHA256SUMS, and next to
+# the kit folder (never in it) the digest people compare out of band.
+"$HERE/seal-kit.sh" "$KIT"
