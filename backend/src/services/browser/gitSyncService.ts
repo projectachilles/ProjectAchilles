@@ -4,6 +4,7 @@ import * as fs from 'fs';
 import * as path from 'path';
 import { simpleGit, CleanOptions } from 'simple-git';
 import type { SimpleGit } from 'simple-git';
+import { isUsableSourceRoot } from './repositoryRoot.js';
 
 /**
  * Non-`git*` variables simple-git v4 also guards (mirrors `GitEnvKeys` in
@@ -153,6 +154,11 @@ export class GitSyncService {
   public repoExists(): boolean {
     const gitDir = path.join(this.config.localPath, '.git');
     return fs.existsSync(gitDir);
+  }
+
+  /** The clone folder (operator-set; the folders inside it are repository content). */
+  public getRepoPath(): string {
+    return this.config.localPath;
   }
 
   /**
@@ -349,7 +355,7 @@ export class GitSyncService {
       // Count test directories (UUIDs in category folders)
       let testCount = 0;
       const testsSourcePath = this.getTestsSourcePath();
-      if (fs.existsSync(testsSourcePath)) {
+      if (fs.existsSync(testsSourcePath) && isUsableSourceRoot(testsSourcePath)) {
         const categories = fs.readdirSync(testsSourcePath);
         for (const category of categories) {
           const categoryPath = path.join(testsSourcePath, category);

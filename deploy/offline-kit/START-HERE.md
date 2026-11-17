@@ -14,6 +14,17 @@ Compose (Linux) is installed and running. About 8 GB of free disk (this kit is
 
    It checks the files, loads the images for your machine (Intel/AMD or Apple
    Silicon) and unpacks the source to `ProjectAchilles` in your home folder.
+
+   That check finds a damaged copy. It cannot tell whether someone changed
+   the kit, because the checksum list is in this folder too. If the organiser
+   showed you a **kit digest** (on a slide or a handout, not in this folder),
+   compare it before you load the kit. From this folder:
+   - Windows (PowerShell): `(Get-FileHash SHA256SUMS).Hash.ToLower(); (Get-FileHash kit.ps1).Hash.ToLower(); Select-String ' kit\.ps1$' SHA256SUMS`
+   - macOS: `shasum -a 256 SHA256SUMS kit.sh; grep ' kit\.sh$' SHA256SUMS`
+   - Linux: `sha256sum SHA256SUMS kit.sh; grep ' kit\.sh$' SHA256SUMS`
+
+   The first value must be the kit digest. The second must be the value on
+   the last line. If either differs, do not load the kit and tell the organiser.
 3. **Configure** (Clerk keys, secrets). Choose the **local** Elasticsearch.
    - Windows: `cd ~\ProjectAchilles`, then
      `powershell -ExecutionPolicy Bypass -File .\scripts\Install-ProjectAchilles.ps1 -NoBuild`
@@ -49,6 +60,18 @@ ocupa 2,5 GB; las imágenes cargadas, unos 3,5 GB).
 
    Verifica los archivos, carga las imágenes para tu equipo (Intel/AMD o Apple
    Silicon) y descomprime el código en `ProjectAchilles`, en tu carpeta personal.
+
+   Esa verificación detecta una copia dañada. No puede saber si alguien
+   modificó el kit, porque la lista de sumas está en esta misma carpeta. Si el
+   organizador te mostró un **resumen del kit** (kit digest; en una diapositiva
+   o en el material impreso, no en esta carpeta), compáralo antes de cargar el
+   kit. Desde esta carpeta:
+   - Windows (PowerShell): `(Get-FileHash SHA256SUMS).Hash.ToLower(); (Get-FileHash kit.ps1).Hash.ToLower(); Select-String ' kit\.ps1$' SHA256SUMS`
+   - macOS: `shasum -a 256 SHA256SUMS kit.sh; grep ' kit\.sh$' SHA256SUMS`
+   - Linux: `sha256sum SHA256SUMS kit.sh; grep ' kit\.sh$' SHA256SUMS`
+
+   El primer valor debe ser el resumen del kit. El segundo debe ser el valor
+   de la última línea. Si alguno difiere, no cargues el kit y avisa al organizador.
 3. **Configura** (claves de Clerk, secretos). Elige el Elasticsearch **local**.
    - Windows: `cd ~\ProjectAchilles` y luego
      `powershell -ExecutionPolicy Bypass -File .\scripts\Install-ProjectAchilles.ps1 -NoBuild`
