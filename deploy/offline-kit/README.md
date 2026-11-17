@@ -32,8 +32,36 @@ images/arm64/*.tar      Apple Silicon
 images/lab-endpoint.tar amd64 only (emulated on Apple Silicon)
 images/IMAGES, COMMIT   what kit.sh checks after loading
 KIT-INFO.txt            versions in the kit
-SHA256SUMS
+SHA256SUMS              checksum of every file above
 ```
+
+The build ends by printing the **kit digest** (the SHA-256 of `SHA256SUMS`)
+and saves it next to the kit folder, in `out/achilles-kit.sha256`, which is
+not part of the kit.
+
+## Damaged copy or changed copy
+
+`kit.sh` and `kit.ps1` check the files they load against `SHA256SUMS`. That
+finds a damaged or incomplete copy. It does not show that a copy is the kit
+you built: the list and both loaders are on the same stick, so someone who
+can write to it can replace an image, the list and the loader together, and
+the check still passes. A replaced backend image would receive the install's
+secrets.
+
+The kit digest closes that gap, as long as it reaches people by another way
+than the copy itself:
+
+- **Organiser:** put the digest on a slide or the printed handout. Check each
+  stick from this checkout before handing it out:
+  `deploy/offline-kit/seal-kit.sh --check <stick>/achilles-kit deploy/offline-kit/out/achilles-kit.sha256`
+  (digest of `SHA256SUMS`, every file, and no file the kit was not built with).
+- **Attendee:** step 2 of `START-HERE.md` has one line per system. It shows
+  the digest of `SHA256SUMS` (must equal the kit digest) and the checksum of
+  the loader next to its line in `SHA256SUMS` (must be equal). The loader
+  then checks everything it loads.
+
+The kit is not signed. Do that (a release key and a signed manifest) before
+publishing kits for download.
 
 ## How it avoids every download
 
@@ -51,6 +79,7 @@ machine, so building a kit never replaces an install's own images there.
 
 ```bash
 bash deploy/offline-kit/tests/fixes.test.sh                 # the install fixes it relies on
+bash deploy/offline-kit/tests/seal.test.sh                  # the checksum list and the kit digest
 bash deploy/offline-kit/tests/kit.test.sh                   # amd64: full install, no network
 KIT_ARCH=arm64 bash deploy/offline-kit/tests/kit.test.sh    # arm64: loads, runs emulated
 ```
