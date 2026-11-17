@@ -3,6 +3,7 @@
 import * as fs from 'fs';
 import * as path from 'path';
 import type { FileContent } from '../../types/test.js';
+import { checkRepositoryRoot } from './repositoryRoot.js';
 
 interface SecurePath {
   canonicalPath: string;
@@ -39,9 +40,12 @@ export class FileService {
 
   /**
    * Resolve an existing path beneath an allowed root without accepting a
-   * symbolic link in any component below the root. The root itself is set by
-   * the operator, not by repository content, so it may be a symlink (a
-   * mounted or relocated test library); it is canonicalised first.
+   * symbolic link in any component below the root. A root set by the
+   * operator may be a symlink (a mounted or relocated test library); it is
+   * canonicalised first. A root that is content of a Git clone (see
+   * repositoryRoot.ts) must be a real folder inside that clone: the
+   * repository decides what it is, so a link there is refused like any other
+   * link in repository content.
    */
   private static secureResolveWithinRoots(candidate: string, roots: string[]): SecurePath | null {
     const resolved = path.resolve(candidate);
@@ -52,7 +56,16 @@ export class FileService {
       if (relative === '' || relative.startsWith('..') || path.isAbsolute(relative)) continue;
 
       try {
+        const repositoryRoot = checkRepositoryRoot(resolvedRoot);
+        if (repositoryRoot.guarded && repositoryRoot.canonicalRoot === null) continue;
+
         const canonicalRoot = fs.realpathSync(resolvedRoot);
+        if (repositoryRoot.guarded) {
+          // Bind this read to the root that was just checked: a root swapped
+          // for a link after the check canonicalises to somewhere else.
+          const fromChecked = path.relative(repositoryRoot.canonicalRoot!, canonicalRoot);
+          if (fromChecked.startsWith('..') || path.isAbsolute(fromChecked)) continue;
+        }
         let current = canonicalRoot;
 
         let hasSymlink = false;

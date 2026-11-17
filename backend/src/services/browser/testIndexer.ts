@@ -4,6 +4,7 @@ import * as fs from 'fs';
 import * as path from 'path';
 import type { TestDetails, TestFile, TestSource, TestSourceProvenance } from '../../types/test.js';
 import { MetadataExtractor } from './metadataExtractor.js';
+import { isUsableSourceRoot } from './repositoryRoot.js';
 
 // Known category folders in the new structure
 const KNOWN_CATEGORIES = ['cyber-hygiene', 'intel-driven', 'mitre-top10', 'phase-aligned'];
@@ -231,12 +232,15 @@ export class TestIndexer {
       // Check if we have a cached category mapping
       const cached = this.uuidToCategory.get(uuid);
       if (cached) {
-        testDir = this.findTestDir(path.join(cached.sourcePath, cached.category), uuid) ?? undefined;
+        testDir = isUsableSourceRoot(cached.sourcePath)
+          ? this.findTestDir(path.join(cached.sourcePath, cached.category), uuid) ?? undefined
+          : undefined;
         provenance = this.getProvenanceForPath(cached.sourcePath);
         sourceRoot = cached.sourcePath;
       } else {
         // Search all sources for this UUID
         for (const source of this.sources) {
+          if (!isUsableSourceRoot(source.path)) continue;
           // Try categorical structure first
           for (const cat of KNOWN_CATEGORIES) {
             const catPath = this.findTestDir(path.join(source.path, cat), uuid);
@@ -337,6 +341,9 @@ export class TestIndexer {
    */
   private scanSource(source: TestSource, tests: TestDetails[]): void {
     if (!fs.existsSync(source.path)) return;
+    // A Git-synced root that is a link, or is reached through one, is
+    // repository content pointing somewhere else: index nothing from it.
+    if (!isUsableSourceRoot(source.path)) return;
 
     const structure = this.detectStructure(source.path);
 

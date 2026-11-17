@@ -10,6 +10,7 @@ import type { TestsSettingsService } from './settings.js';
 import { BuildJobs } from './buildJobs.js';
 import { describeCommandFailure } from '../shared/commandFailure.js';
 import { buildSubprocessEnv } from './buildEnv.js';
+import { isUsableSourceRoot } from '../browser/repositoryRoot.js';
 
 const execFileAsync = promisify(execFile);
 
@@ -209,6 +210,8 @@ export class BuildService {
   private findTestDir(uuid: string): string | null {
     for (const basePath of this.testSourcePaths) {
       const root = path.resolve(basePath);
+      // A Git-synced root that is a link is refused (see repositoryRoot.ts).
+      if (!isUsableSourceRoot(root)) continue;
 
       // Verify a candidate path stays inside `root`. Returns the canonical
       // form (path.resolve output) when safe, null otherwise. Returning the
