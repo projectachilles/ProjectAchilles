@@ -64,6 +64,10 @@ TAG="$(git describe --exact-match --tags HEAD 2>/dev/null || true)"
 LIBRARY_COMMIT="$(git ls-remote "$TESTS_REPO_URL" "refs/heads/$LIBRARY_REF" | awk '{print $1}')"
 [ -n "$LIBRARY_COMMIT" ] || die "test library branch '$LIBRARY_REF' not found in $TESTS_REPO_URL"
 
+# Absolute: the image builds run from the staged source folder, so a relative
+# --out would put the image archives there and leave the kit without them.
+mkdir -p "$OUT"
+OUT="$(cd "$OUT" && pwd)"
 KIT="$OUT/achilles-kit"
 STAGE="$OUT/.stage"
 rm -rf "$KIT" "$STAGE"
@@ -76,6 +80,9 @@ git -C "$SRC" fetch -q --depth 1 "file://$ROOT" "$COMMIT"
 git -C "$SRC" checkout -q -b main FETCH_HEAD
 [ -z "$TAG" ] || git -C "$SRC" tag "$TAG"
 git -C "$SRC" remote add origin "$ORIGIN_URL"
+# So a plain `git pull` updates an install made from the kit.
+git -C "$SRC" config branch.main.remote origin
+git -C "$SRC" config branch.main.merge refs/heads/main
 tar -czf "$KIT/ProjectAchilles.tar.gz" -C "$STAGE" ProjectAchilles
 AGENT_VERSION="$(sed -n 's/^VERSION[[:space:]]*:\{0,1\}=[[:space:]]*//p' "$SRC/agent/Makefile" | head -1)"
 [ -n "$AGENT_VERSION" ] || die "no VERSION in agent/Makefile"
@@ -110,6 +117,13 @@ for a in "${ARCH_LIST[@]}"; do
   for t in elasticsearch es-seed backend frontend wiki; do build_image "$a" "$t"; done
 done
 build_image amd64 lab-endpoint
+
+for a in "${ARCH_LIST[@]}"; do
+  for t in elasticsearch es-seed backend frontend wiki; do
+    [ -s "$KIT/images/$a/$t.tar" ] || die "no image archive for $t ($a) in $KIT/images"
+  done
+done
+[ -s "$KIT/images/lab-endpoint.tar" ] || die "no image archive for lab-endpoint in $KIT/images"
 
 cat >"$KIT/images/IMAGES" <<EOF
 $PROJECT-backend:latest
