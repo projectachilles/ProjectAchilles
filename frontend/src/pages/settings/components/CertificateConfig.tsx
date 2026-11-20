@@ -205,19 +205,21 @@ export function CertificateConfig({ canDelete = true, onStatusChange }: Certific
                     cursor-pointer"
                 />
               </div>
-              <Input
-                label="Certificate Password"
-                type="password"
-                value={uploadPassword}
-                onChange={(e) => setUploadPassword(e.target.value)}
-                placeholder="Password for the PFX file"
-              />
-              <Input
-                label="Label (optional)"
-                value={uploadLabel}
-                onChange={(e) => setUploadLabel(e.target.value)}
-                placeholder="e.g. Production Cert, Test Cert"
-              />
+              <div className="grid gap-4 sm:grid-cols-2">
+                <Input
+                  label="Certificate Password"
+                  type="password"
+                  value={uploadPassword}
+                  onChange={(e) => setUploadPassword(e.target.value)}
+                  placeholder="Password for the PFX file"
+                />
+                <Input
+                  label="Label (optional)"
+                  value={uploadLabel}
+                  onChange={(e) => setUploadLabel(e.target.value)}
+                  placeholder="e.g. Production Cert, Test Cert"
+                />
+              </div>
               <div className="flex justify-end">
                 <Button
                   onClick={handleUpload}
@@ -235,38 +237,42 @@ export function CertificateConfig({ canDelete = true, onStatusChange }: Certific
 
           <TabsContent value="generate">
             <div className="space-y-4">
-              <Input
-                label="Common Name"
-                value={commonName}
-                onChange={(e) => setCommonName(e.target.value)}
-                placeholder="Microsoft Windows"
-              />
-              <Input
-                label="Organization"
-                value={organization}
-                onChange={(e) => setOrganization(e.target.value)}
-                placeholder="Microsoft Corporation"
-              />
-              <Input
-                label="Country (2-letter code)"
-                value={country}
-                onChange={(e) => setCountry(e.target.value.toUpperCase().slice(0, 2))}
-                placeholder="US"
-                maxLength={2}
-              />
-              <Input
-                label="Password (optional)"
-                type="password"
-                value={generatePassword}
-                onChange={(e) => setGeneratePassword(e.target.value)}
-                placeholder="Leave blank for auto-generated password"
-              />
-              <Input
-                label="Label (optional)"
-                value={generateLabel}
-                onChange={(e) => setGenerateLabel(e.target.value)}
-                placeholder="e.g. Dev Signing Cert"
-              />
+              <div className="grid gap-4 sm:grid-cols-2">
+                <Input
+                  label="Common Name"
+                  value={commonName}
+                  onChange={(e) => setCommonName(e.target.value)}
+                  placeholder="Microsoft Windows"
+                />
+                <Input
+                  label="Organization"
+                  value={organization}
+                  onChange={(e) => setOrganization(e.target.value)}
+                  placeholder="Microsoft Corporation"
+                />
+              </div>
+              <div className="grid gap-4 sm:grid-cols-[11rem_1fr_1fr]">
+                <Input
+                  label="Country (2-letter code)"
+                  value={country}
+                  onChange={(e) => setCountry(e.target.value.toUpperCase().slice(0, 2))}
+                  placeholder="US"
+                  maxLength={2}
+                />
+                <Input
+                  label="Password (optional)"
+                  type="password"
+                  value={generatePassword}
+                  onChange={(e) => setGeneratePassword(e.target.value)}
+                  placeholder="Leave blank for auto-generated password"
+                />
+                <Input
+                  label="Label (optional)"
+                  value={generateLabel}
+                  onChange={(e) => setGenerateLabel(e.target.value)}
+                  placeholder="e.g. Dev Signing Cert"
+                />
+              </div>
               <div className="flex justify-end">
                 <Button
                   onClick={handleGenerate}
