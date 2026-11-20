@@ -6,6 +6,7 @@ import type {
   AgentMetrics,
   AgentTask,
   AgentVersion,
+  InstallReadiness,
   EnrollmentToken,
   CreateTokenRequest,
   CreateTasksRequest,
@@ -203,6 +204,12 @@ export const agentApi = {
 
   async listVersions(): Promise<AgentVersion[]> {
     const response = await apiClient.get('/agent/admin/versions');
+    return response.data.data;
+  },
+
+  /** Per platform, whether an install command's download would succeed now. */
+  async getInstallReadiness(): Promise<InstallReadiness> {
+    const response = await apiClient.get('/agent/admin/versions/readiness');
     return response.data.data;
   },
 
