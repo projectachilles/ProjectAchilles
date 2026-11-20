@@ -347,20 +347,21 @@ export function AlertsConfig({ onStatusChange }: AlertsConfigProps) {
           Enable email notifications
         </label>
 
-        <Input
-          label="SMTP Host"
-          placeholder="smtp.example.com"
-          value={smtpHost}
-          onChange={(e) => setSmtpHost(e.target.value)}
-        />
-
-        <Input
-          label="SMTP Port"
-          type="number"
-          placeholder="587"
-          value={smtpPort}
-          onChange={(e) => setSmtpPort(e.target.value)}
-        />
+        <div className="grid gap-4 sm:grid-cols-[1fr_8rem]">
+          <Input
+            label="SMTP Host"
+            placeholder="smtp.example.com"
+            value={smtpHost}
+            onChange={(e) => setSmtpHost(e.target.value)}
+          />
+          <Input
+            label="SMTP Port"
+            type="number"
+            placeholder="587"
+            value={smtpPort}
+            onChange={(e) => setSmtpPort(e.target.value)}
+          />
+        </div>
 
         <label className="flex items-center gap-2 text-sm">
           <input
@@ -372,26 +373,27 @@ export function AlertsConfig({ onStatusChange }: AlertsConfigProps) {
           Use TLS
         </label>
 
-        <Input
-          label="Username"
-          placeholder={
-            editMode
-              ? savedSmtpUserMask ? `Saved (${savedSmtpUserMask}). Leave blank to keep` : 'Leave blank to keep current'
-              : 'SMTP username'
-          }
-          value={smtpUser}
-          onChange={(e) => setSmtpUser(e.target.value)}
-          helperText={editMode ? 'Optional: Only fill in to update' : undefined}
-        />
-
-        <Input
-          label="Password"
-          type="password"
-          placeholder={editMode ? 'Leave blank to keep current' : 'SMTP password'}
-          value={smtpPass}
-          onChange={(e) => setSmtpPass(e.target.value)}
-          helperText={editMode ? 'Optional: Only fill in to update' : undefined}
-        />
+        <div className="grid gap-4 sm:grid-cols-2">
+          <Input
+            label="Username"
+            placeholder={
+              editMode
+                ? savedSmtpUserMask ? `Saved (${savedSmtpUserMask}). Leave blank to keep` : 'Leave blank to keep current'
+                : 'SMTP username'
+            }
+            value={smtpUser}
+            onChange={(e) => setSmtpUser(e.target.value)}
+            helperText={editMode ? 'Optional: Only fill in to update' : undefined}
+          />
+          <Input
+            label="Password"
+            type="password"
+            placeholder={editMode ? 'Leave blank to keep current' : 'SMTP password'}
+            value={smtpPass}
+            onChange={(e) => setSmtpPass(e.target.value)}
+            helperText={editMode ? 'Optional: Only fill in to update' : undefined}
+          />
+        </div>
 
         <Input
           label="From Address"
