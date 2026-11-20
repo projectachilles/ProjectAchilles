@@ -24,6 +24,7 @@ import { GlobalSearch } from '@/components/layout/GlobalSearch';
 import { NoticeDeliveryBanner } from '@/components/layout/NoticeDeliveryBanner';
 import { NotificationBell } from '@/components/layout/NotificationBell';
 import { ShortcutsDialog } from '@/components/layout/ShortcutsDialog';
+import { AccountRow } from '@/components/layout/AccountRow';
 import { AboutDialog, newerAgentVersion } from '@/components/layout/AboutDialog';
 import { useAbout } from '@/hooks/useAbout';
 import { useCapabilities } from '@/hooks/useCapabilities';
@@ -155,6 +156,7 @@ function SidebarBody({
             )}
           </Button>
         )}
+        <AccountRow onNavigate={onNavigate} />
         <Button
           variant="ghost"
           size="sm"

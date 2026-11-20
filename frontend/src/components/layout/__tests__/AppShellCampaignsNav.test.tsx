@@ -7,6 +7,7 @@ const caps = vi.hoisted(() => ({ campaigns: false }));
 vi.mock('@/hooks/useCapabilities', () => ({ useCapabilities: () => ({ campaigns: caps.campaigns }) }));
 vi.mock('@/hooks/useAnalyticsAuth', () => ({ useAnalyticsAuth: () => ({ configured: true }) }));
 vi.mock('@/hooks/useAppRole', () => ({
+  useAppRole: () => 'admin',
   useCanAccessModule: () => true,
   useHasPermission: () => true,
 }));
