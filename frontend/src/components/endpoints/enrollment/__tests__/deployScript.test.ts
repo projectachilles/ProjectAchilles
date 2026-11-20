@@ -89,6 +89,12 @@ describe('buildWindowsDeployScript', () => {
     expect(text).toContain('Endpoint prerequisites, step 2');
   });
 
+  it('pins the signer from a comma-separated subject too', () => {
+    const r = buildWindowsDeployScript({ ...base, signerSubject: 'CN=Achilles MDM Test,O=Achilles Test,C=XX' });
+    expect(r.verifiedSigner).toBe('Achilles MDM Test');
+    expect(r.text).toContain("$signer -ne 'Achilles MDM Test'");
+  });
+
   it('has no signature block for an unsigned binary and says so in the header', () => {
     const unsigned = buildWindowsDeployScript({ ...base, signerSubject: null });
     expect(unsigned.verifiedSigner).toBeNull();
@@ -146,6 +152,16 @@ describe('signerCommonName', () => {
   it('reads the CN from any position of an OpenSSL one-line subject', () => {
     expect(signerCommonName('/C=XX/O=Acme/CN=Acme Code Signing')).toBe('Acme Code Signing');
     expect(signerCommonName('/CN=A B/O=X')).toBe('A B');
+  });
+
+  it('reads the CN from the comma-separated form newer osslsigncode versions print', () => {
+    expect(signerCommonName('CN=Achilles MDM Test,O=Achilles Test,C=XX')).toBe('Achilles MDM Test');
+    expect(signerCommonName('C=XX, O=Acme, CN=Acme Code Signing')).toBe('Acme Code Signing');
+  });
+
+  it('does not mistake another attribute ending in CN for the common name', () => {
+    expect(signerCommonName('/O=Acme/DC=example/CN=Real')).toBe('Real');
+    expect(signerCommonName('XCN=Nope,O=Acme')).toBeNull();
   });
 
   it('is null without a subject or a CN', () => {

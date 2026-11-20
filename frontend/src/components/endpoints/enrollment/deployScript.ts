@@ -45,7 +45,8 @@ const SAFE_COMMON_NAME = /^[A-Za-z0-9 ._,()&-]+$/;
 /** CN from an OpenSSL one-line subject ("/C=XX/O=Acme/CN=Acme Code Signing"), or null. */
 export function signerCommonName(subject: string | null): string | null {
   if (!subject) return null;
-  const match = subject.match(/(?:^|\/)CN=([^/]+)/);
+  // Attributes are separated by '/' (older osslsigncode) or ',' (newer ones).
+  const match = subject.match(/(?:^|[\/,])\s*CN=([^\/,]+)/);
   return match ? match[1].trim() : null;
 }
 
