@@ -1,14 +1,4 @@
 {
   "$comment": "Accepted production advisories for .github/scripts/npm-audit-gate.mjs. Each entry needs a reason and an expiry (max ~3 months); an expired entry fails CI so the risk is re-checked. Never add an entry that has a fix: upgrade instead.",
-  "advisories": [
-    {
-      "id": "GHSA-fc5q-39xc-vjpf",
-      "package": "picomatch",
-      "projects": [
-        "wiki"
-      ],
-      "reason": "No fixed release (every version up to the latest, 4.0.7, is affected). ReDoS needs an attacker-chosen glob pattern. The wiki is a static site: picomatch runs only while Docusaurus builds or serves it locally (chokidar, micromatch), on glob patterns from this repository's own configuration, never on input from a visitor.",
-      "expires": "2027-02-15"
-    }
-  ]
+  "advisories": []
 }
