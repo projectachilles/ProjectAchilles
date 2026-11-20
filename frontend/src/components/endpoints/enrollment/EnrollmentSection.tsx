@@ -16,11 +16,13 @@ import {
   TableCell,
 } from '@/components/shared/ui/Table';
 import { agentApi } from '@/services/api/agent';
-import type { EnrollmentToken, PlatformReadiness } from '@/types/agent';
+import type { AgentVersion, EnrollmentToken, PlatformReadiness } from '@/types/agent';
 import { useInstallReadiness } from '@/hooks/useInstallReadiness';
 import { fieldLabelClass } from '@/components/shared/ui/formStyles';
 import { pillClass } from '@/components/shared/ui/pillStyles';
 import { buildInstallCommands, type InstallCommand } from './installCommands';
+import { ManagementToolPanel, type ManagementToolPanelProps } from './ManagementToolPanel';
+import { getLatestPerPlatform } from '@/pages/endpoints/utils/versionHelpers';
 
 interface EnrollmentSectionProps {
   orgId: string;
@@ -76,23 +78,34 @@ function MissingBinaryPanel({ label, platform, othersReady }: {
   );
 }
 
+/** The tab after the platforms: an unattended script for a management tool. */
+const MANAGEMENT_TAB = 'management' as const;
+type InstallTab = InstallCommand['id'] | typeof MANAGEMENT_TAB;
+
 function InstallCommands({
   serverUrl,
   token,
   platforms,
+  tokenLimits,
+  windowsVersion,
 }: {
   serverUrl: string;
   token: string;
   /** null while readiness is unknown: every command is then shown as before. */
   platforms: PlatformReadiness[] | null;
+  tokenLimits: ManagementToolPanelProps['tokenLimits'];
+  /** Latest registered Windows amd64 version; null when the versions list did not load or has none. */
+  windowsVersion: AgentVersion | null;
 }): React.ReactElement {
   const commands = buildInstallCommands(serverUrl, token);
   // The user's choice wins; until they pick, start on the first platform whose download works.
-  const [picked, setPicked] = useState<InstallCommand['id'] | null>(null);
+  const [picked, setPicked] = useState<InstallTab | null>(null);
   const firstReady = commands.find((c) => readinessFor(c.id, platforms)?.ready);
   const selected = picked ?? firstReady?.id ?? commands[0].id;
   const current = commands.find((c) => c.id === selected) ?? commands[0];
   const currentReadiness = readinessFor(current.id, platforms);
+  const managementSelected = selected === MANAGEMENT_TAB;
+  const windowsReadiness = readinessFor('windows', platforms);
 
   return (
     <div className="mt-4 space-y-2">
@@ -121,8 +134,31 @@ function InstallCommands({
             </button>
           );
         })}
+        <button
+          type="button"
+          role="tab"
+          aria-selected={managementSelected}
+          className={pillClass(managementSelected)}
+          onClick={() => setPicked(MANAGEMENT_TAB)}
+        >
+          Management tool
+        </button>
       </div>
-      {currentReadiness && !currentReadiness.ready ? (
+      {managementSelected ? (
+        windowsReadiness && !windowsReadiness.ready ? (
+          <MissingBinaryPanel label="Windows" platform={windowsReadiness} othersReady={firstReady !== undefined} />
+        ) : (
+          <ManagementToolPanel
+            serverUrl={serverUrl}
+            token={token}
+            tokenLimits={tokenLimits}
+            // Offer the script only for a Windows agent the server confirmed it can serve.
+            windowsVersion={windowsReadiness?.ready && windowsVersion
+              ? { version: windowsVersion.version, signed: windowsVersion.signed === true, signerSubject: windowsVersion.signer_subject ?? null }
+              : null}
+          />
+        )
+      ) : currentReadiness && !currentReadiness.ready ? (
         <MissingBinaryPanel label={current.label} platform={currentReadiness} othersReady={firstReady !== undefined} />
       ) : (
         <div role="tabpanel" aria-label={current.label} className="rounded-md border border-border bg-background">
@@ -143,7 +179,17 @@ export default function EnrollmentSection({ orgId }: EnrollmentSectionProps): Re
   const [ttlHours, setTtlHours] = useState('24');
   const [maxUses, setMaxUses] = useState('1');
   const [creating, setCreating] = useState(false);
-  const [newToken, setNewToken] = useState<string | null>(null);
+  const [createdToken, setCreatedToken] = useState<EnrollmentToken | null>(null);
+  const newToken = createdToken ? (createdToken.token ?? createdToken.id) : null;
+  // The registered Windows agent, for the management-tool script's signature check.
+  const [windowsVersion, setWindowsVersion] = useState<AgentVersion | null>(null);
+  useEffect(() => {
+    agentApi.listVersions()
+      .then((versions) => {
+        setWindowsVersion(getLatestPerPlatform(versions).find((v) => v.os === 'windows' && v.arch === 'amd64') ?? null);
+      })
+      .catch(() => { /* unknown: the management tab then offers no script */ });
+  }, []);
   const readiness = useInstallReadiness();
   // Only a completed check counts: while loading or unknown, nothing changes.
   const platforms = readiness.status === 'ready' ? readiness.data.platforms : null;
@@ -173,7 +219,7 @@ export default function EnrollmentSection({ orgId }: EnrollmentSectionProps): Re
         ttl_hours: parseInt(ttlHours) || 24,
         max_uses: parseInt(maxUses) || 1,
       });
-      setNewToken(result.token ?? result.id);
+      setCreatedToken(result);
       fetchTokens();
     } catch (err) {
       console.error('Failed to create token:', err);
@@ -257,7 +303,15 @@ export default function EnrollmentSection({ orgId }: EnrollmentSectionProps): Re
                 {newToken}
               </code>
 
-              <InstallCommands serverUrl={serverUrl} token={newToken} platforms={platforms} />
+              <InstallCommands
+                serverUrl={serverUrl}
+                token={newToken}
+                platforms={platforms}
+                windowsVersion={windowsVersion}
+                tokenLimits={createdToken?.expires_at && createdToken.max_uses
+                  ? { maxUses: createdToken.max_uses, expiresAt: createdToken.expires_at }
+                  : null}
+              />
             </div>
           )}
         </CardContent>

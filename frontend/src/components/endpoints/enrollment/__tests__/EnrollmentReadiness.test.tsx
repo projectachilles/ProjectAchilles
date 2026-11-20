@@ -10,6 +10,7 @@ const api = vi.hoisted(() => ({
   revokeToken: vi.fn(),
   getConfig: vi.fn(),
   getInstallReadiness: vi.fn(),
+  listVersions: vi.fn().mockResolvedValue([]),
 }));
 vi.mock('@/services/api/agent', () => ({ agentApi: api }));
 
@@ -97,7 +98,8 @@ describe('EnrollmentSection agent binary readiness', () => {
 
     it('shows every command with its Copy button, as before', async () => {
       const user = await generate();
-      for (const tab of screen.getAllByRole('tab')) {
+      // The five platform tabs; the sixth (Management tool) has no command to copy.
+      for (const tab of screen.getAllByRole('tab').slice(0, 5)) {
         await user.click(tab);
         const panel = screen.getByRole('tabpanel');
         expect(panel.textContent).toContain('--enroll acht_test0123');

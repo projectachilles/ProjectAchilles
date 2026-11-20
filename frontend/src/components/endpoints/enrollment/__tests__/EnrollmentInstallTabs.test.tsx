@@ -8,6 +8,7 @@ const api = vi.hoisted(() => ({
   revokeToken: vi.fn(),
   getConfig: vi.fn(),
   getInstallReadiness: vi.fn(),
+  listVersions: vi.fn().mockResolvedValue([]),
 }));
 vi.mock('@/services/api/agent', () => ({ agentApi: api }));
 
