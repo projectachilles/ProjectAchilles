@@ -17,6 +17,8 @@ import { COMMON_TIMEZONES } from '@/lib/timezones';
 import { fieldControlClass, fieldLabelClass, fieldTextareaClass } from '@/components/shared/ui/formStyles';
 import { cn } from '@/lib/utils';
 import AgentSelector from '@/components/browser/execution/AgentSelector';
+import { TaskReadinessChecklist } from './TaskReadinessChecklist';
+import { useInstallReadiness } from '@/hooks/useInstallReadiness';
 import type { RunRecencyData } from '@/lib/testRunRecency';
 
 interface AvailableTest {
@@ -81,6 +83,15 @@ function randomizeCaption(mode: RandomizeMode): string | null {
 
 export default function TaskCreatorDialog({ open, onClose, selectedAgents = [], onCreated }: TaskCreatorDialogProps) {
   const [agents, setAgents] = useState<AgentSummary[]>([]);
+  const [agentsLoaded, setAgentsLoaded] = useState(false);
+  // No enrolled agent: nothing to pick, so the picker gives way to a checklist
+  // of what is missing. The binary check is only made in that case.
+  const noAgents = open && agentsLoaded && agents.length === 0;
+  const installReadiness = useInstallReadiness(noAgents);
+  // The checklist needs a completed binary check. Where there is none (an
+  // older or serverless backend, a failed request) the dialog stays as it was.
+  const checklistReadiness = noAgents && installReadiness.status === 'ready' ? installReadiness.data : null;
+  const [testsFailed, setTestsFailed] = useState(false);
   const [targetAgentIds, setTargetAgentIds] = useState<string[]>(selectedAgents);
   const [testUuid, setTestUuid] = useState('');
   const [testName, setTestName] = useState('');
@@ -142,8 +153,13 @@ export default function TaskCreatorDialog({ open, onClose, selectedAgents = [], 
     setTargetAgentIds(stableSelectedAgents);
     // Target picker needs the whole active fleet, not a single page — override the
     // backend's default limit of 50 (listAgents pagination) so all agents are selectable.
+    // "Loaded" is set on success only: a failed request is not "no agents".
+    setAgentsLoaded(false);
     agentApi.listAgents({ status: 'active', limit: 1000 })
-      .then((result) => setAgents(result.agents))
+      .then((result) => {
+        setAgents(result.agents);
+        setAgentsLoaded(true);
+      })
       .catch(() => {});
   }, [open, stableSelectedAgents]);
 
@@ -151,6 +167,7 @@ export default function TaskCreatorDialog({ open, onClose, selectedAgents = [], 
   useEffect(() => {
     if (!open) return;
     setLoadingTests(true);
+    setTestsFailed(false);
     browserApi.getAllTests()
       .then(async (tests) => {
         const results: AvailableTest[] = [];
@@ -169,7 +186,7 @@ export default function TaskCreatorDialog({ open, onClose, selectedAgents = [], 
         results.sort((a, b) => a.test.name.localeCompare(b.test.name));
         setAvailableTests(results);
       })
-      .catch(() => {})
+      .catch(() => setTestsFailed(true))
       .finally(() => setLoadingTests(false));
   }, [open]);
 
@@ -388,14 +405,25 @@ export default function TaskCreatorDialog({ open, onClose, selectedAgents = [], 
         ) : (
           <div className="space-y-4">
             {/* === Agent Selector (shared with the test page's drawer) === */}
-            <AgentSelector
-              agents={agents}
-              targetAgentIds={targetAgentIds}
-              onSelectionChange={setTargetAgentIds}
-              testUuids={recencyTestUuids}
-              recency={recency}
-            />
+            {checklistReadiness ? (
+              <TaskReadinessChecklist
+                readiness={checklistReadiness}
+                builtTests={loadingTests ? 'loading' : testsFailed ? 'unknown' : availableTests.length}
+              />
+            ) : (
+              <AgentSelector
+                agents={agents}
+                targetAgentIds={targetAgentIds}
+                onSelectionChange={setTargetAgentIds}
+                testUuids={recencyTestUuids}
+                recency={recency}
+              />
+            )}
 
+            {/* With nothing to run on, the checklist stands alone: the rest of
+                the form can't be used yet. */}
+            {!checklistReadiness && (
+            <>
             {/* === Task Mode Toggle (hidden unless the user may send commands) === */}
             {canSendCommand && (
             <div>
@@ -853,6 +881,8 @@ export default function TaskCreatorDialog({ open, onClose, selectedAgents = [], 
                 </div>
               </TabsContent>
             </Tabs>
+            </>
+            )}
           </div>
         )}
       </DialogContent>

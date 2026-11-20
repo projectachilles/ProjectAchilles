@@ -1,7 +1,7 @@
 // Agent module types
 
 export type AgentStatus = 'active' | 'disabled' | 'decommissioned' | 'uninstalled';
-export type AgentOS = 'windows' | 'linux';
+export type AgentOS = 'windows' | 'linux' | 'darwin';
 export type AgentArch = 'amd64' | 'arm64';
 export type AgentRuntimeStatus = 'idle' | 'executing' | 'updating' | 'error' | 'offline';
 export type TaskStatus = 'pending' | 'assigned' | 'downloading' | 'executing' | 'completed' | 'failed' | 'expired';
@@ -346,6 +346,25 @@ export interface AgentVersion {
   /** Certificate subject the binary was signed with; 'ad-hoc' for macOS. */
   signer_subject?: string | null;
   created_at: string;
+}
+
+/** Why a platform's install command would fail at the download. */
+export type BinaryUnavailableReason = 'no version' | 'file missing';
+
+export interface PlatformReadiness {
+  os: AgentOS;
+  arch: AgentArch;
+  ready: boolean;
+  /** Newest registered version, also when its file is missing. */
+  version: string | null;
+  /** null when ready. */
+  reason: BinaryUnavailableReason | null;
+}
+
+/** One entry per platform the console offers an install command for. */
+export interface InstallReadiness {
+  any_ready: boolean;
+  platforms: PlatformReadiness[];
 }
 
 // Agent Events & Heartbeat History

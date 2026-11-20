@@ -306,6 +306,7 @@ The clone records `original_task_id` (the first task in the chain) and
 | Method | Path | Permission | Notes |
 |--------|------|------------|-------|
 | `GET` | `/versions` | `endpoints:versions:read` | Registered agent versions |
+| `GET` | `/versions/readiness` | `endpoints:versions:read` | Whether an install command's download would work now. Returns `any_ready` and five `platforms` (`os`, `arch`, `ready`, `version`, `reason`: `no version` or `file missing`, `null` when ready). Not on `backend-serverless` |
 | `POST` | `/versions` | `endpoints:versions:create` | Registers a binary already on the server. Body: `version`, `os`, `arch`, `binary_path`, optional `release_notes`, `mandatory` |
 | `POST` | `/versions/upload` | `endpoints:versions:create` | Multipart upload: file field `binary`, plus `version`, `os`, `arch`, optional `release_notes`, `mandatory`, `cert_id`, `allow_unsigned` |
 | `POST` | `/versions/build` | `endpoints:versions:create` | Builds from source. Body: `version`, `os`, `arch`. `501` when the agent source is not available |

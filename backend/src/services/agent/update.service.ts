@@ -7,7 +7,15 @@ import { TestsSettingsService } from '../tests/settings.js';
 import { SigningError, signDarwinBinaryAdHoc, signWindowsBinary } from './binarySigning.service.js';
 import { assertEmbeddedVersionMatches } from './binaryVersion.js';
 import type { Response } from 'express';
-import type { AgentVersion, VersionCheckResponse, AgentOS, AgentArch } from '../../types/agent.js';
+import type {
+  AgentVersion,
+  VersionCheckResponse,
+  AgentOS,
+  AgentArch,
+  BinaryUnavailableReason,
+  InstallReadiness,
+  PlatformReadiness,
+} from '../../types/agent.js';
 import { signHash } from './signing.service.js';
 
 const VERSION_REGEX = /^[\w.\-]+$/;
@@ -151,11 +159,17 @@ export function getLatestVersion(os: AgentOS, arch: AgentArch): VersionCheckResp
   return response;
 }
 
+export type LatestBinary =
+  | { ok: true; version: string; path: string; size: number }
+  | { ok: false; reason: BinaryUnavailableReason; version: string | null };
+
 /**
- * Stream the latest agent binary for a platform to an Express response.
- * Sets appropriate headers for binary download.
+ * The agent binary a download for this platform would serve: the newest
+ * registered version, and only when its file is still on disk. The download
+ * route and the install-readiness check both go through here, so the console
+ * can never call a platform ready while its download answers 404.
  */
-export function streamUpdate(os: AgentOS, arch: AgentArch, res: Response): void {
+export function resolveLatestBinary(os: AgentOS, arch: AgentArch): LatestBinary {
   const db = getDatabase();
   const row = db.prepare(`
     SELECT binary_path, version
@@ -165,26 +179,57 @@ export function streamUpdate(os: AgentOS, arch: AgentArch, res: Response): void 
     LIMIT 1
   `).get(os, arch) as Pick<VersionRow, 'binary_path' | 'version'> | undefined;
 
-  if (!row) {
-    res.status(404).json({ success: false, error: 'No version available for this platform' });
-    return;
-  }
-
+  if (!row) return { ok: false, reason: 'no version', version: null };
   if (!fs.existsSync(row.binary_path)) {
-    res.status(404).json({ success: false, error: 'Binary file not found on server' });
+    return { ok: false, reason: 'file missing', version: row.version };
+  }
+  return { ok: true, version: row.version, path: row.binary_path, size: fs.statSync(row.binary_path).size };
+}
+
+/**
+ * Stream the latest agent binary for a platform to an Express response.
+ * Sets appropriate headers for binary download.
+ */
+export function streamUpdate(os: AgentOS, arch: AgentArch, res: Response): void {
+  const binary = resolveLatestBinary(os, arch);
+
+  if (!binary.ok) {
+    const error = binary.reason === 'no version'
+      ? 'No version available for this platform'
+      : 'Binary file not found on server';
+    res.status(404).json({ success: false, error });
     return;
   }
 
-  const stat = fs.statSync(row.binary_path);
   const extension = os === 'windows' ? '.exe' : '';
   const filename = `achilles-agent-${os}-${arch}${extension}`;
 
   res.setHeader('Content-Type', 'application/octet-stream');
   res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);
-  res.setHeader('Content-Length', stat.size.toString());
-  res.setHeader('X-Agent-Version', row.version);
+  res.setHeader('Content-Length', binary.size.toString());
+  res.setHeader('X-Agent-Version', binary.version);
 
-  fs.createReadStream(row.binary_path).pipe(res);
+  fs.createReadStream(binary.path).pipe(res);
+}
+
+/** The platforms the console offers an install command for, in that order. */
+export const INSTALL_PLATFORMS: ReadonlyArray<{ os: AgentOS; arch: AgentArch }> = [
+  { os: 'windows', arch: 'amd64' },
+  { os: 'linux', arch: 'amd64' },
+  { os: 'linux', arch: 'arm64' },
+  { os: 'darwin', arch: 'arm64' },
+  { os: 'darwin', arch: 'amd64' },
+];
+
+/** Whether each install command's download would succeed right now. */
+export function getInstallReadiness(): InstallReadiness {
+  const platforms = INSTALL_PLATFORMS.map(({ os, arch }): PlatformReadiness => {
+    const binary = resolveLatestBinary(os, arch);
+    return binary.ok
+      ? { os, arch, ready: true, version: binary.version, reason: null }
+      : { os, arch, ready: false, version: binary.version, reason: binary.reason };
+  });
+  return { any_ready: platforms.some((p) => p.ready), platforms };
 }
 
 /**

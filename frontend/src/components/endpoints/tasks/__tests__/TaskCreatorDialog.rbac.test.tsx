@@ -23,7 +23,11 @@ vi.mock('@/hooks/useAppRole', () => ({
 
 // Keep the dialog's on-open data fetches inert and deterministic.
 vi.mock('@/services/api/agent', () => ({
-  agentApi: { listAgents: vi.fn().mockResolvedValue({ agents: [] }) },
+  agentApi: {
+    listAgents: vi.fn().mockResolvedValue({ agents: [] }),
+    // No agents: the dialog shows its readiness checklist, which asks for this.
+    getInstallReadiness: vi.fn().mockRejectedValue(new Error('not available')),
+  },
 }));
 vi.mock('@/services/api/browser', () => ({
   browserApi: { getAllTests: vi.fn().mockResolvedValue([]), getBuildInfo: vi.fn() },
@@ -35,10 +39,11 @@ vi.mock('@/services/api/integrations', () => ({
   integrationsApi: { getAzureSettings: vi.fn().mockResolvedValue({ configured: false }) },
 }));
 
+import { MemoryRouter } from 'react-router-dom';
 import TaskCreatorDialog from '../TaskCreatorDialog';
 
 function renderDialog() {
-  return render(<TaskCreatorDialog open onClose={() => {}} />);
+  return render(<MemoryRouter><TaskCreatorDialog open onClose={() => {}} /></MemoryRouter>);
 }
 
 describe('TaskCreatorDialog — command task RBAC gating', () => {
