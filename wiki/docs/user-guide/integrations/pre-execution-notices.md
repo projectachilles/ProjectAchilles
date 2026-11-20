@@ -28,7 +28,7 @@ The settings apply to your organization. Each organization has its own recipient
 
 ## Settings
 
-![Pre-execution notices settings — enable switch, recipients, lead time, max wait for delivery, pickup window, the finished-email option and the daily advance digest option](/img/screenshots/settings-notices.png)
+![Pre-execution notices settings — enable switch, recipients, lead time, max wait, pickup window, the finished-email option and the daily advance digest option](/img/screenshots/settings-notices.png)
 
 | Setting | Default | Range | What it does |
 |---------|---------|-------|--------------|
