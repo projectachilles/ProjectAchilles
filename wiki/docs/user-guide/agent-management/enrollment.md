@@ -98,6 +98,7 @@ When a token is generated, the **Install command** box shows one platform at a t
 - **Windows** -- PowerShell block for an elevated PowerShell. It refuses a `C:\F0` that a non-administrator created, locks the folder to SYSTEM and Administrators, downloads the agent into it, then enrolls and installs
 - **Linux amd64** / **Linux arm64** -- `curl`-based download into `/opt/f0` with the token and server URL embedded
 - **macOS Apple Silicon** / **macOS Intel** -- The same commands with the macOS binary
+- **Management tool** -- An unattended Windows script to download, for Intune, Group Policy or Configuration Manager. See [Deploying with Intune](./deploying-with-intune)
 
 **Copy command** copies exactly what is shown. A platform only works when an agent binary for it has been registered in **Settings → Agent** ([Deploying Agents](./deploying-agents)).
 
@@ -124,7 +125,7 @@ The token list table shows a status badge for each token:
 The table lists each token's short ID, creation and expiry dates and uses (`1 / 5`).
 
 :::tip[Bulk Enrollment]
-For large deployments, create a token with a high **Max Uses** value and distribute the same installation command across your fleet using your configuration management tool (Ansible, SCCM, etc.).
+For large deployments, create a token with a high **Max Uses** value and let your management tool run the install. On Windows, the **Management tool** tab gives you a ready script and the settings Intune asks for: see [Deploying with Intune](./deploying-with-intune). On Linux and macOS, distribute the install command with your tool (Ansible, Jamf, etc.).
 :::
 
 ## After Enrollment

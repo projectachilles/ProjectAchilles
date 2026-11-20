@@ -95,6 +95,7 @@ const sidebars: SidebarsConfig = {
           items: [
             'user-guide/agent-management/enrollment',
             'user-guide/agent-management/deploying-agents',
+            'user-guide/agent-management/deploying-with-intune',
             'user-guide/agent-management/heartbeat-monitoring',
             'user-guide/agent-management/task-execution',
             'user-guide/agent-management/task-scheduling',
