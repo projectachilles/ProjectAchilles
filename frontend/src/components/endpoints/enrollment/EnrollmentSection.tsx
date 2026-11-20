@@ -51,7 +51,12 @@ function readinessFor(
 }
 
 /** Shown in place of a command whose download would fail. */
-function MissingBinaryPanel({ label, platform }: { label: string; platform: PlatformReadiness }): React.ReactElement {
+function MissingBinaryPanel({ label, platform, othersReady }: {
+  label: string;
+  platform: PlatformReadiness;
+  /** Whether some other platform has a binary, so the token is usable there. */
+  othersReady: boolean;
+}): React.ReactElement {
   return (
     <div role="tabpanel" aria-label={label} className="rounded-md border border-warning/40 bg-background">
       <div className="border-b border-border px-3 py-2 text-xs font-medium text-warning">
@@ -61,7 +66,7 @@ function MissingBinaryPanel({ label, platform }: { label: string; platform: Plat
         <p className="text-sm leading-relaxed">
           {platform.reason === 'file missing'
             ? `Agent ${platform.version} for ${label} is registered, but its file is gone from the server, so the download would fail. Build or upload it again.`
-            : `This server has no agent for ${label}, so the install command would stop at the download with a 404. The token above is fine and works for the other platforms.`}
+            : `This server has no agent for ${label}, so the install command would stop at the download with a 404.${othersReady ? ' The token above is fine and works for the other platforms.' : ''}`}
         </p>
         <Link to={AGENT_SETTINGS_URL} className={buildLinkClass}>
           Build for {label}
@@ -118,7 +123,7 @@ function InstallCommands({
         })}
       </div>
       {currentReadiness && !currentReadiness.ready ? (
-        <MissingBinaryPanel label={current.label} platform={currentReadiness} />
+        <MissingBinaryPanel label={current.label} platform={currentReadiness} othersReady={firstReady !== undefined} />
       ) : (
         <div role="tabpanel" aria-label={current.label} className="rounded-md border border-border bg-background">
           <div className="flex items-center justify-between gap-3 border-b border-border px-3 py-2">

@@ -77,6 +77,14 @@ describe('EnrollmentSection agent binary readiness', () => {
     });
   });
 
+  it('does not say the token works for other platforms when none has a binary', async () => {
+    api.getInstallReadiness.mockResolvedValue(readiness());
+    await generate();
+    const panel = screen.getByRole('tabpanel');
+    expect(panel.textContent).toContain('This server has no agent for Windows, so the install command would stop at the download with a 404.');
+    expect(panel.textContent).not.toContain('works for the other platforms');
+  });
+
   describe('readiness could not be checked', () => {
     beforeEach(() => { api.getInstallReadiness.mockRejectedValue(new Error('404')); });
 

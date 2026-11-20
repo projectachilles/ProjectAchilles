@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { render, screen } from '@testing-library/react';
+import { render, screen, waitFor } from '@testing-library/react';
 import { MemoryRouter } from 'react-router-dom';
 import type { InstallReadiness, PlatformReadiness } from '@/types/agent';
 
@@ -99,13 +99,14 @@ describe('TaskCreatorDialog with nothing to run on', () => {
     expect(screen.getByText('0 active agents.')).toBeInTheDocument();
   });
 
-  it('still shows the checklist when the binary check fails, without claiming it is missing', async () => {
+  it('keeps the plain dialog when the binary check is not available (older or serverless backend)', async () => {
     api.getInstallReadiness.mockRejectedValue(new Error('404'));
     renderDialog();
-    expect(await screen.findByText('Could not check')).toBeInTheDocument();
-    expect(screen.getByText(NOTICE)).toBeInTheDocument();
-    expect(screen.queryByText('Missing: no platform has one')).toBeNull();
-    expect(screen.getByText('0 active agents.')).toBeInTheDocument();
+    await screen.findByText('Create Task');
+    await waitFor(() => expect(api.getInstallReadiness).toHaveBeenCalled());
+    await new Promise((r) => setTimeout(r, 20));
+    expect(screen.queryByText(NOTICE)).toBeNull();
+    expect(screen.queryByText('Agent binary on this server')).toBeNull();
   });
 
   it('counts the built tests', async () => {
@@ -117,6 +118,14 @@ describe('TaskCreatorDialog with nothing to run on', () => {
     api.getAllTests.mockResolvedValue([]);
     renderDialog();
     expect(await screen.findByText('No test is built yet')).toBeInTheDocument();
+  });
+
+  it('does not call a failed test list "no test built"', async () => {
+    api.getAllTests.mockRejectedValue(new Error('network'));
+    renderDialog();
+    await screen.findByText(NOTICE);
+    expect(await screen.findByText('Could not check')).toBeInTheDocument();
+    expect(screen.queryByText('No test is built yet')).toBeNull();
   });
 
   it('shows no checklist when the agent list could not be loaded', async () => {

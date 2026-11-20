@@ -2,13 +2,13 @@ import type { ReactNode } from 'react';
 import { Link } from 'react-router-dom';
 import { Check } from 'lucide-react';
 import { Alert } from '@/components/shared/ui/Alert';
-import type { InstallReadinessState } from '@/hooks/useInstallReadiness';
+import type { InstallReadiness } from '@/types/agent';
 
 interface TaskReadinessChecklistProps {
-  /** Whether the server has an agent binary to install (step 1). */
-  readiness: InstallReadinessState;
-  /** Number of built tests (step 3); null while they load. */
-  builtTests: number | null;
+  /** A completed binary check (step 1). The checklist is only shown once there is one. */
+  readiness: InstallReadiness;
+  /** Built tests (step 3): a count, or why there is none yet. */
+  builtTests: number | 'loading' | 'unknown';
 }
 
 type StepState = 'done' | 'todo' | 'blocked' | 'unknown';
@@ -48,23 +48,20 @@ function Step({ n, state, title, status, action }: {
  * enrolled: what a test needs before it can run, and where to fix each part.
  */
 export function TaskReadinessChecklist({ readiness, builtTests }: TaskReadinessChecklistProps): React.ReactElement {
-  const readyCount = readiness.status === 'ready'
-    ? readiness.data.platforms.filter((p) => p.ready).length
-    : null;
-  const total = readiness.status === 'ready' ? readiness.data.platforms.length : 0;
-  // Only a completed check can say the binary is missing.
+  const readyCount = readiness.platforms.filter((p) => p.ready).length;
+  const total = readiness.platforms.length;
   const binaryMissing = readyCount === 0;
 
-  const binaryStatus =
-    readiness.status === 'loading' ? 'Checking…'
-      : readiness.status === 'unknown' ? 'Could not check'
-        : binaryMissing ? 'Missing: no platform has one'
-          : `Ready for ${readyCount} of ${total} platforms`;
+  const binaryStatus = binaryMissing
+    ? 'Missing: no platform has one'
+    : `Ready for ${readyCount} of ${total} platforms`;
 
+  // A failed test list is not "no test built".
   const testsStatus =
-    builtTests === null ? 'Checking…'
-      : builtTests === 0 ? 'No test is built yet'
-        : `${builtTests} ${builtTests === 1 ? 'test' : 'tests'} built and ready`;
+    builtTests === 'loading' ? 'Checking…'
+      : builtTests === 'unknown' ? 'Could not check'
+        : builtTests === 0 ? 'No test is built yet'
+          : `${builtTests} ${builtTests === 1 ? 'test' : 'tests'} built and ready`;
 
   return (
     <div className="space-y-3">
@@ -76,7 +73,7 @@ export function TaskReadinessChecklist({ readiness, builtTests }: TaskReadinessC
       <ol className="divide-y divide-border rounded-lg border border-border bg-surface">
         <Step
           n={1}
-          state={readyCount === null ? 'unknown' : binaryMissing ? 'todo' : 'done'}
+          state={binaryMissing ? 'todo' : 'done'}
           title="Agent binary on this server"
           status={binaryStatus}
           action={binaryMissing && (
@@ -92,7 +89,7 @@ export function TaskReadinessChecklist({ readiness, builtTests }: TaskReadinessC
         />
         <Step
           n={3}
-          state={builtTests === null ? 'unknown' : builtTests === 0 ? 'todo' : 'done'}
+          state={typeof builtTests !== 'number' ? 'unknown' : builtTests === 0 ? 'todo' : 'done'}
           title="Built test"
           status={testsStatus}
         />

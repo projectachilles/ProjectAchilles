@@ -88,6 +88,10 @@ export default function TaskCreatorDialog({ open, onClose, selectedAgents = [], 
   // of what is missing. The binary check is only made in that case.
   const noAgents = open && agentsLoaded && agents.length === 0;
   const installReadiness = useInstallReadiness(noAgents);
+  // The checklist needs a completed binary check. Where there is none (an
+  // older or serverless backend, a failed request) the dialog stays as it was.
+  const checklistReadiness = noAgents && installReadiness.status === 'ready' ? installReadiness.data : null;
+  const [testsFailed, setTestsFailed] = useState(false);
   const [targetAgentIds, setTargetAgentIds] = useState<string[]>(selectedAgents);
   const [testUuid, setTestUuid] = useState('');
   const [testName, setTestName] = useState('');
@@ -163,6 +167,7 @@ export default function TaskCreatorDialog({ open, onClose, selectedAgents = [], 
   useEffect(() => {
     if (!open) return;
     setLoadingTests(true);
+    setTestsFailed(false);
     browserApi.getAllTests()
       .then(async (tests) => {
         const results: AvailableTest[] = [];
@@ -181,7 +186,7 @@ export default function TaskCreatorDialog({ open, onClose, selectedAgents = [], 
         results.sort((a, b) => a.test.name.localeCompare(b.test.name));
         setAvailableTests(results);
       })
-      .catch(() => {})
+      .catch(() => setTestsFailed(true))
       .finally(() => setLoadingTests(false));
   }, [open]);
 
@@ -400,10 +405,10 @@ export default function TaskCreatorDialog({ open, onClose, selectedAgents = [], 
         ) : (
           <div className="space-y-4">
             {/* === Agent Selector (shared with the test page's drawer) === */}
-            {noAgents ? (
+            {checklistReadiness ? (
               <TaskReadinessChecklist
-                readiness={installReadiness}
-                builtTests={loadingTests ? null : availableTests.length}
+                readiness={checklistReadiness}
+                builtTests={loadingTests ? 'loading' : testsFailed ? 'unknown' : availableTests.length}
               />
             ) : (
               <AgentSelector
