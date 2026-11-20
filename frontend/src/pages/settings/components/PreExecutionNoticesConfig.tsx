@@ -223,7 +223,7 @@ export function PreExecutionNoticesConfig({ onStatusChange }: PreExecutionNotice
           </p>
         </div>
 
-        <div className="grid gap-4 sm:grid-cols-2">
+        <div className="grid gap-4 sm:grid-cols-3">
           <Input
             label="Lead time (minutes)"
             type="number"
@@ -234,7 +234,7 @@ export function PreExecutionNoticesConfig({ onStatusChange }: PreExecutionNotice
             helperText="Delay between the notice being accepted and tests starting (0–5)"
           />
           <Input
-            label="Max wait for delivery (minutes)"
+            label="Max wait (minutes)"
             type="number"
             min={15}
             max={1440}

@@ -33,7 +33,7 @@ The settings apply to your organization. Each organization has its own recipient
 | Setting | Default | Range | What it does |
 |---------|---------|-------|--------------|
 | **Lead time** | 5 minutes | 0 to 5 | Delay between the mail server accepting the notice and tests starting. The countdown starts at acceptance, so the engineers always get the full lead time. |
-| **Max wait for delivery** | 60 minutes | 15 to 1440 | How long a run may wait for the notice to be accepted. After that the run is marked **Not run**. |
+| **Max wait** | 60 minutes | 15 to 1440 | How long a run may wait for the notice to be accepted. After that the run is marked **Not run**. |
 | **Pickup window** | 120 minutes | 30 to 1440 | How long, after the tests are released, hosts may still pick them up. |
 | **Send finished email** | On | on/off | Sends a second email when the run is over. |
 
