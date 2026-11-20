@@ -7,6 +7,7 @@ const api = vi.hoisted(() => ({
   createToken: vi.fn(),
   revokeToken: vi.fn(),
   getConfig: vi.fn(),
+  getInstallReadiness: vi.fn(),
 }));
 vi.mock('@/services/api/agent', () => ({ agentApi: api }));
 
@@ -17,6 +18,8 @@ describe('EnrollmentSection install commands', () => {
     api.listTokens.mockResolvedValue([]);
     api.createToken.mockResolvedValue({ id: 'tok-1', token: 'acht_test0123' });
     api.getConfig.mockResolvedValue({ server_url: 'https://achilles.example.com' });
+    // Readiness unknown: the tabs behave as they did before the readiness check existed.
+    api.getInstallReadiness.mockRejectedValue(new Error('not available'));
   });
 
   async function generate() {

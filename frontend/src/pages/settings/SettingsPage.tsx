@@ -1,4 +1,5 @@
 import { useState } from 'react';
+import { useSearchParams } from 'react-router-dom';
 import { Plug, FlaskConical, Bot, Users, KeyRound, FingerprintPattern } from 'lucide-react';
 import { PageHeader } from '@/components/layout/PageHeader';
 import { pillClass } from '@/components/shared/ui/pillStyles';
@@ -35,7 +36,13 @@ export default function SettingsPage() {
 
   // Permissions can resolve after first render, so keep the choice as "unset"
   // until the user clicks and fall back to the first visible tab.
-  const [selectedTab, setActiveTab] = useState<SettingsTab | null>(null);
+  // A link can name the tab to open (`/settings?tab=agent`); a tab this user
+  // can't see, or an unknown name, falls back like no choice at all.
+  const [searchParams] = useSearchParams();
+  const [selectedTab, setActiveTab] = useState<SettingsTab | null>(() => {
+    const requested = searchParams.get('tab');
+    return ALL_TABS.find((t) => t.id === requested)?.id ?? null;
+  });
   const activeTab: SettingsTab =
     selectedTab && tabs.some((t) => t.id === selectedTab) ? selectedTab : (tabs[0]?.id ?? 'integrations');
 

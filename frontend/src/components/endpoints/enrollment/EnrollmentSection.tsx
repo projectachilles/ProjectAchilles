@@ -1,5 +1,7 @@
 import { useState, useEffect, useCallback } from 'react';
+import { Link } from 'react-router-dom';
 import { Plus, RefreshCw, Trash2, Key } from 'lucide-react';
+import { Alert } from '@/components/shared/ui/Alert';
 import { Card, CardHeader, CardTitle, CardContent } from '@/components/shared/ui/Card';
 import { Button } from '@/components/shared/ui/Button';
 import { CopyButton } from '@/components/shared/ui/CopyButton';
@@ -14,7 +16,8 @@ import {
   TableCell,
 } from '@/components/shared/ui/Table';
 import { agentApi } from '@/services/api/agent';
-import type { EnrollmentToken } from '@/types/agent';
+import type { EnrollmentToken, PlatformReadiness } from '@/types/agent';
+import { useInstallReadiness } from '@/hooks/useInstallReadiness';
 import { fieldLabelClass } from '@/components/shared/ui/formStyles';
 import { pillClass } from '@/components/shared/ui/pillStyles';
 import { buildInstallCommands, type InstallCommand } from './installCommands';
@@ -31,35 +34,100 @@ function getTokenStatus(token: EnrollmentToken): TokenStatus {
   return 'active';
 }
 
-function InstallCommands({ serverUrl, token }: { serverUrl: string; token: string }): React.ReactElement {
+/** Where an agent binary is built or uploaded. */
+const AGENT_SETTINGS_URL = '/settings?tab=agent';
+
+const buildLinkClass =
+  'inline-flex h-9 items-center rounded-md bg-primary px-3 text-sm font-medium text-primary-foreground transition-colors hover:bg-accent-hover';
+
+/** The readiness entry behind an install command: ids are `<os>` (amd64) or `<os>-<arch>`. */
+function readinessFor(
+  id: InstallCommand['id'],
+  platforms: PlatformReadiness[] | null,
+): PlatformReadiness | null {
+  if (!platforms) return null;
+  const [os, arch = 'amd64'] = id.split('-');
+  return platforms.find((p) => p.os === os && p.arch === arch) ?? null;
+}
+
+/** Shown in place of a command whose download would fail. */
+function MissingBinaryPanel({ label, platform }: { label: string; platform: PlatformReadiness }): React.ReactElement {
+  return (
+    <div role="tabpanel" aria-label={label} className="rounded-md border border-warning/40 bg-background">
+      <div className="border-b border-border px-3 py-2 text-xs font-medium text-warning">
+        No agent binary for {label}
+      </div>
+      <div className="space-y-3 p-3">
+        <p className="text-sm leading-relaxed">
+          {platform.reason === 'file missing'
+            ? `Agent ${platform.version} for ${label} is registered, but its file is gone from the server, so the download would fail. Build or upload it again.`
+            : `This server has no agent for ${label}, so the install command would stop at the download with a 404. The token above is fine and works for the other platforms.`}
+        </p>
+        <Link to={AGENT_SETTINGS_URL} className={buildLinkClass}>
+          Build for {label}
+        </Link>
+      </div>
+    </div>
+  );
+}
+
+function InstallCommands({
+  serverUrl,
+  token,
+  platforms,
+}: {
+  serverUrl: string;
+  token: string;
+  /** null while readiness is unknown: every command is then shown as before. */
+  platforms: PlatformReadiness[] | null;
+}): React.ReactElement {
   const commands = buildInstallCommands(serverUrl, token);
-  const [selected, setSelected] = useState<InstallCommand['id']>('windows');
+  // The user's choice wins; until they pick, start on the first platform whose download works.
+  const [picked, setPicked] = useState<InstallCommand['id'] | null>(null);
+  const firstReady = commands.find((c) => readinessFor(c.id, platforms)?.ready);
+  const selected = picked ?? firstReady?.id ?? commands[0].id;
   const current = commands.find((c) => c.id === selected) ?? commands[0];
+  const currentReadiness = readinessFor(current.id, platforms);
 
   return (
     <div className="mt-4 space-y-2">
       <div className={fieldLabelClass}>Install command</div>
       <div role="tablist" aria-label="Platform" className="flex flex-wrap gap-2">
-        {commands.map((c) => (
-          <button
-            key={c.id}
-            type="button"
-            role="tab"
-            aria-selected={c.id === selected}
-            className={pillClass(c.id === selected)}
-            onClick={() => setSelected(c.id)}
-          >
-            {c.label}
-          </button>
-        ))}
+        {commands.map((c) => {
+          const readiness = readinessFor(c.id, platforms);
+          return (
+            <button
+              key={c.id}
+              type="button"
+              role="tab"
+              aria-selected={c.id === selected}
+              className={pillClass(c.id === selected)}
+              onClick={() => setPicked(c.id)}
+            >
+              {c.label}
+              {readiness && (
+                <>
+                  {' '}
+                  <span className={`font-mono text-[11px] ${readiness.ready ? 'opacity-70' : 'text-warning'}`}>
+                    {readiness.ready ? readiness.version : 'no binary'}
+                  </span>
+                </>
+              )}
+            </button>
+          );
+        })}
       </div>
-      <div role="tabpanel" aria-label={current.label} className="rounded-md border border-border bg-background">
-        <div className="flex items-center justify-between gap-3 border-b border-border px-3 py-2">
-          <span className="text-xs text-muted">{current.hint}</span>
-          <CopyButton text={current.command} label="Copy command" variant="accent" />
+      {currentReadiness && !currentReadiness.ready ? (
+        <MissingBinaryPanel label={current.label} platform={currentReadiness} />
+      ) : (
+        <div role="tabpanel" aria-label={current.label} className="rounded-md border border-border bg-background">
+          <div className="flex items-center justify-between gap-3 border-b border-border px-3 py-2">
+            <span className="text-xs text-muted">{current.hint}</span>
+            <CopyButton text={current.command} label="Copy command" variant="accent" />
+          </div>
+          <pre className="whitespace-pre-wrap break-all p-3 font-mono text-xs leading-relaxed">{current.command}</pre>
         </div>
-        <pre className="whitespace-pre-wrap break-all p-3 font-mono text-xs leading-relaxed">{current.command}</pre>
-      </div>
+      )}
     </div>
   );
 }
@@ -71,6 +139,10 @@ export default function EnrollmentSection({ orgId }: EnrollmentSectionProps): Re
   const [maxUses, setMaxUses] = useState('1');
   const [creating, setCreating] = useState(false);
   const [newToken, setNewToken] = useState<string | null>(null);
+  const readiness = useInstallReadiness();
+  // Only a completed check counts: while loading or unknown, nothing changes.
+  const platforms = readiness.status === 'ready' ? readiness.data.platforms : null;
+  const noBinary = readiness.status === 'ready' && !readiness.data.any_ready;
 
   const fetchTokens = useCallback(async () => {
     setLoading(true);
@@ -133,6 +205,17 @@ export default function EnrollmentSection({ orgId }: EnrollmentSectionProps): Re
           </CardTitle>
         </CardHeader>
         <CardContent>
+          {noBinary && (
+            <Alert variant="warning" title="No agent binary on this server" className="mb-4">
+              <p className="text-foreground">
+                The install command downloads the agent from this server. None is registered yet, so the
+                command would fail at the download step on every platform.
+              </p>
+              <Link to={AGENT_SETTINGS_URL} className={`mt-3 ${buildLinkClass}`}>
+                Build or upload an agent
+              </Link>
+            </Alert>
+          )}
           <div className="flex flex-wrap gap-4 items-end">
             <Input
               label="TTL (hours)"
@@ -148,11 +231,16 @@ export default function EnrollmentSection({ orgId }: EnrollmentSectionProps): Re
               onChange={(e) => setMaxUses(e.target.value)}
               className="w-32"
             />
-            <Button onClick={handleCreate} disabled={creating}>
+            <Button onClick={handleCreate} disabled={creating} variant={noBinary ? 'outline' : undefined}>
               <Plus className="w-4 h-4 mr-2" />
-              {creating ? 'Generating...' : 'Generate Token'}
+              {creating ? 'Generating...' : noBinary ? 'Generate token anyway' : 'Generate Token'}
             </Button>
           </div>
+          {noBinary && (
+            <p className="mt-3 text-xs text-muted">
+              A token generated now stays valid for its TTL, so you can build the agent afterwards and install later.
+            </p>
+          )}
 
           {newToken && (
             <div className="mt-4 p-4 bg-primary/5 border border-primary/20 rounded-lg">
@@ -164,7 +252,7 @@ export default function EnrollmentSection({ orgId }: EnrollmentSectionProps): Re
                 {newToken}
               </code>
 
-              <InstallCommands serverUrl={serverUrl} token={newToken} />
+              <InstallCommands serverUrl={serverUrl} token={newToken} platforms={platforms} />
             </div>
           )}
         </CardContent>
