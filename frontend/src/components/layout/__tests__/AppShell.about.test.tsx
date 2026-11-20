@@ -8,6 +8,7 @@ const api = vi.hoisted(() => ({ get: vi.fn() }));
 vi.mock('@/hooks/useCapabilities', () => ({ useCapabilities: () => ({ about: state.about }) }));
 vi.mock('@/hooks/useAnalyticsAuth', () => ({ useAnalyticsAuth: () => ({ configured: true }) }));
 vi.mock('@/hooks/useAppRole', () => ({
+  useAppRole: () => 'admin',
   useCanAccessModule: (module: string) => (module === 'settings' ? state.settings : true),
   useHasPermission: () => true,
 }));

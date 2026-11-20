@@ -100,7 +100,6 @@ export default function AppRouter() {
       {/* Auth routes */}
       <Route path="/sign-in/*" element={<SignInPage />} />
       <Route path="/sign-up/*" element={<SignUpPage />} />
-      <Route path="/user-profile" element={<UserProfilePage />} />
 
       {/* CLI device flow authorization — authenticated but no app layout */}
       <Route path="/cli-auth" element={<RequireAuth><CliAuthPage /></RequireAuth>} />
@@ -122,6 +121,9 @@ export default function AppRouter() {
       <Route element={<RequireAuth><AppLayout /></RequireAuth>}>
         {/* Unified Security Dashboard */}
         <Route path="dashboard" element={<DashboardPage />} />
+
+        {/* Own account (Clerk profile), reached from the sidebar's account row */}
+        <Route path="user-profile" element={<UserProfilePage />} />
 
         {/* Tests */}
         <Route path="tests" element={<TestsPage />} />

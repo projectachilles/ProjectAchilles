@@ -2,7 +2,7 @@ import { UserProfile } from '@clerk/clerk-react';
 
 export default function UserProfilePage() {
   return (
-    <div className="min-h-screen flex items-center justify-center bg-gray-50 dark:bg-gray-900 p-8">
+    <div className="flex justify-center py-6">
       <UserProfile
         appearance={{
           elements: {
