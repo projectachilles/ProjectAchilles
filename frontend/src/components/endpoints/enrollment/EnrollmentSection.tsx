@@ -273,20 +273,24 @@ export default function EnrollmentSection({ orgId }: EnrollmentSectionProps): Re
             </Alert>
           )}
           <div className="flex flex-wrap gap-4 items-end">
-            <Input
-              label="TTL (hours)"
-              type="number"
-              value={ttlHours}
-              onChange={(e) => setTtlHours(e.target.value)}
-              className="w-32"
-            />
-            <Input
-              label="Max Uses"
-              type="number"
-              value={maxUses}
-              onChange={(e) => setMaxUses(e.target.value)}
-              className="w-32"
-            />
+            {/* Input's own wrapper is full width, so the width goes on a wrapper here:
+                on the input alone, each field took a whole row. */}
+            <div className="w-32">
+              <Input
+                label="TTL (hours)"
+                type="number"
+                value={ttlHours}
+                onChange={(e) => setTtlHours(e.target.value)}
+              />
+            </div>
+            <div className="w-32">
+              <Input
+                label="Max Uses"
+                type="number"
+                value={maxUses}
+                onChange={(e) => setMaxUses(e.target.value)}
+              />
+            </div>
             <Button onClick={handleCreate} disabled={creating} variant={noBinary ? 'outline' : undefined}>
               <Plus className="w-4 h-4 mr-2" />
               {creating ? 'Generating...' : noBinary ? 'Generate token anyway' : 'Generate Token'}
