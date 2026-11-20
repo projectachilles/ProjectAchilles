@@ -93,7 +93,7 @@ describe('EnrollmentSection Management tool tab', () => {
     expect(savedName).toBe('Install-AchillesAgent.ps1');
     const text = await savedBlob!.text();
     expect(text).toContain("$token = 'acht_test0123'");
-    expect(text).toContain('--enroll $token --server https://achilles.example.com --install');
+    expect(text).toContain("$server = 'https://achilles.example.com'");
     expect(text).toContain(`$fingerprint -ne '${FP}'`);
     expect(URL.revokeObjectURL).toHaveBeenCalledWith('blob:test');
   });
@@ -152,6 +152,22 @@ describe('EnrollmentSection Management tool tab', () => {
     expect(await savedBlob!.text()).not.toContain('Get-AuthenticodeSignature');
   });
 
+  it('warns when the server address is plain HTTP', async () => {
+    api.getConfig.mockResolvedValue({ server_url: 'http://192.168.1.10:3000' });
+    await openManagementTab();
+    expect(screen.getByRole('tabpanel').textContent).toContain('This server address is plain HTTP');
+  });
+
+  it('has no HTTP warning for an HTTPS server', async () => {
+    await openManagementTab();
+    expect(screen.getByRole('tabpanel').textContent).not.toContain('plain HTTP');
+  });
+
+  it('says what the certificate check does not cover', async () => {
+    await openManagementTab();
+    expect(screen.getByRole('tabpanel').textContent).toContain('It does not tell the agent from another binary signed with the same certificate');
+  });
+
   it('links the guide', async () => {
     await openManagementTab();
     expect(screen.getByRole('link', { name: 'Deploying with Intune' })).toHaveAttribute(
@@ -177,6 +193,18 @@ describe('EnrollmentSection Management tool tab', () => {
     api.listVersions.mockRejectedValue(new Error('403'));
     await openManagementTab();
     expect(screen.queryByRole('button', { name: /download install-achillesagent/i })).toBeNull();
+  });
+
+  it('offers no script when the version list and the download disagree about the Windows agent', async () => {
+    // A newer agent was registered after the list was read: its certificate may differ.
+    api.listVersions.mockResolvedValue([{ ...windowsVersion(true), version: '0.7.3' }]);
+    await openManagementTab();
+    expect(screen.queryByRole('button', { name: /download install-achillesagent/i })).toBeNull();
+  });
+
+  it('reads the registered versions again when a token is created', async () => {
+    await openManagementTab();
+    expect(api.listVersions).toHaveBeenCalledTimes(2); // on open, and on Generate
   });
 
   it('offers no script for a server address that cannot be embedded safely', async () => {

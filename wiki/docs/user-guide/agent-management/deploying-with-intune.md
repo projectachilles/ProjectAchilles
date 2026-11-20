@@ -40,6 +40,19 @@ expires or runs out of uses. Keep the file out of shared folders and tickets,
 give the token no more uses and time than the rollout needs, and revoke it in
 **Enroll agent → Active Tokens** when the rollout is done. Revoking a token
 does not affect agents that are already enrolled.
+
+The token can also be read in other places while it is valid:
+
+- **Where the tool stores the script.** In Intune, anyone who can read the
+  script policy. A Group Policy script lives in SYSVOL, which every domain
+  user can read ([Other tools](#other-tools)).
+- **PowerShell script block logging** (event 4104), where it is turned on,
+  records the whole script.
+- **The agent's command line.** The script passes the token to the agent as
+  `--enroll <token>`, so process-creation logging and EDR telemetry on the
+  endpoint show it. The paste-in install command has the same property.
+
+The script keeps the token out of its own log, `C:\F0\achilles-install.log`.
 :::
 
 ## What the script does
@@ -59,8 +72,7 @@ It runs unattended and needs SYSTEM or an administrator.
 
 It ends with exit code `0` when the agent is installed (or already was) and `1`
 on any failure. From step 3 on it writes what it did, and what the agent
-printed, to `C:\F0\achilles-install.log`. The token is never written to the
-log.
+printed, to `C:\F0\achilles-install.log`, with the token masked.
 
 ### The signature check
 
@@ -83,6 +95,18 @@ certificate and rebuild the agent, download a new script.
 The dialog tells you when there is no check: the registered agent is not
 signed, or the server could not read its certificate. The script then runs
 whatever the server returns, like the paste-in command does.
+
+What the check does not do:
+
+- **It does not tell the agent from another binary signed with the same
+  certificate.** The agent and every test binary share the active signing
+  certificate. Someone able to change the download in transit could serve a
+  test binary built on your server, or an older agent, and it would pass.
+  Use an HTTPS server address, so the download can't be changed on the way;
+  the dialog warns when the address is plain HTTP.
+- **It does not protect against a compromised server.** The server holds the
+  signing certificate and supplies the fingerprint.
+- **On plain HTTP the token is readable in transit**, whatever the check does.
 
 ### What has been verified
 
@@ -182,7 +206,11 @@ powershell.exe -NoProfile -ExecutionPolicy Bypass -File Install-AchillesAgent.ps
 
 - **Group Policy**: a computer **Startup** script
   (Computer Configuration → Policies → Windows Settings → Scripts). It runs at
-  every start; from the second time on the script ends at once.
+  every start; from the second time on the script ends at once. Startup
+  scripts are stored in SYSVOL, where every domain user can read them, and so
+  the token. Restrict the script file's permissions to **Domain Computers**
+  (and administrators), use a token with a short TTL, and revoke it as soon as
+  the endpoints have enrolled.
 - **Configuration Manager**: a script or a package that runs the line above as
   the system account.
 

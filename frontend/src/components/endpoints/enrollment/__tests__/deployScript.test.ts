@@ -33,7 +33,30 @@ describe('buildWindowsDeployScript', () => {
   it('holds the token in exactly one place, a variable the enroll call uses', () => {
     expect(text.split(TOKEN).length).toBe(2);
     expect(lines(text).find((l) => l.includes(TOKEN))).toBe(`  $token = '${TOKEN}'`);
-    expect(text).toContain(`& $exe --enroll $token --server ${SERVER} --install`);
+    expect(text).toContain('& $exe --enroll $token --server $server --install');
+  });
+
+  it('passes the server address as a variable, never as bare text on the command line', () => {
+    expect(text).toContain(`$server = '${SERVER}'`);
+    expect(text).not.toContain(`--server ${SERVER}`);
+  });
+
+  it('keeps a version it cannot trust out of the script', () => {
+    for (const version of ['1.0\r\nStart-Process calc', '1.0\nStart-Process calc', "1.0'; calc", '1.0 $(calc)', '']) {
+      const r = buildWindowsDeployScript({ ...base, version });
+      expect(r.text).not.toContain('calc');
+      expect(r.text).toContain('# Agent:     latest registered (Windows amd64)');
+    }
+    expect(buildWindowsDeployScript({ ...base, version: '0.7.4-rc.1_x' }).text).toContain('# Agent:     0.7.4-rc.1_x (Windows amd64)');
+  });
+
+  it('never lets a value break out of its line', () => {
+    // Every line of the script is one the builder wrote: same line count whatever the inputs.
+    const plain = buildWindowsDeployScript(base).text.split('\r\n').length;
+    const odd = buildWindowsDeployScript({
+      ...base, version: 'x\ny', signerSubject: '/CN=a\nb',
+    }).text.split('\r\n').length;
+    expect(odd).toBe(plain);
   });
 
   it('captures what the agent prints, stderr included, without letting stderr abort the script', () => {
@@ -176,7 +199,10 @@ describe('buildWindowsDeployScript', () => {
     for (const token of ["x'; calc", 'a`b', 'a$b', 'a b', 'a"b', '']) {
       expect(() => buildWindowsDeployScript({ ...base, token })).toThrow('unsafe value');
     }
-    for (const serverUrl of ['ftp://x.example.com', 'not a url', "https://x.example.com/'", 'https://x.example.com/$a']) {
+    for (const serverUrl of [
+      'ftp://x.example.com', 'not a url', "https://x.example.com/'", 'https://x.example.com/$a',
+      'https://a.example/?x=1&calc', 'https://a.example/?x=1', 'https://user@a.example', 'https://a.example;calc', 'https://a.example|calc',
+    ]) {
       expect(() => buildWindowsDeployScript({ ...base, serverUrl })).toThrow('unsafe value');
     }
   });

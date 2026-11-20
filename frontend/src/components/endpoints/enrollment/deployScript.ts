@@ -51,10 +51,14 @@ export interface DeployScript {
   signerName: string | null;
 }
 
-// Both values are written into single-quoted PowerShell strings and onto a
-// command line. Anything outside these sets could end the string or the
-// argument, so the builder refuses rather than escapes.
-const SAFE_VALUE = /^[A-Za-z0-9._~:/\-[\]@%+=?&]+$/;
+// Every value is written into the script as text, so each has an allow-list:
+// anything else could end a string, a line or a command, and this script runs
+// as SYSTEM. The builder refuses (or leaves the value out) rather than escapes.
+// The URL allows what an origin with an optional path prefix needs: no query,
+// no user info, no shell metacharacters.
+const SAFE_URL = /^[A-Za-z0-9._~:/\-[\]%+=]+$/;
+const SAFE_TOKEN = /^[A-Za-z0-9._~-]+$/;
+const SAFE_VERSION = /^[\w.-]+$/;
 const SAFE_COMMON_NAME = /^[A-Za-z0-9 ._,()&-]+$/;
 const FINGERPRINT = /^[0-9A-F]{64}$/;
 
@@ -77,8 +81,10 @@ function isHttpUrl(value: string): boolean {
 
 /** Throws Error('unsafe value') when serverUrl or token could not be embedded safely. */
 export function buildWindowsDeployScript(input: DeployScriptInput): DeployScript {
-  const { serverUrl, token, version } = input;
-  if (!SAFE_VALUE.test(token) || !SAFE_VALUE.test(serverUrl) || !isHttpUrl(serverUrl)) {
+  const { serverUrl, token } = input;
+  // Only a comment, but a line break in it would start a line of code.
+  const version = input.version && SAFE_VERSION.test(input.version) ? input.version : null;
+  if (!SAFE_TOKEN.test(token) || !SAFE_URL.test(serverUrl) || !isHttpUrl(serverUrl)) {
     throw new Error('unsafe value');
   }
 
@@ -169,10 +175,11 @@ export function buildWindowsDeployScript(input: DeployScriptInput): DeployScript
     '',
     "  Log 'Enrolling and installing the agent.'",
     `  $token = '${token}'`,
+    `  $server = '${serverUrl}'`,
     '  # Capture what the agent prints, stderr too. Under Stop, Windows PowerShell 5.1',
     '  # turns redirected stderr lines into terminating errors, so relax it for this call.',
     "  $ErrorActionPreference = 'Continue'",
-    `  $agentOutput = & $exe --enroll $token --server ${serverUrl} --install 2>&1 | ForEach-Object { "$_" }`,
+    '  $agentOutput = & $exe --enroll $token --server $server --install 2>&1 | ForEach-Object { "$_" }',
     '  $exitCode = $LASTEXITCODE',
     "  $ErrorActionPreference = 'Stop'",
     "  foreach ($line in $agentOutput) { Log \"agent: $($line.Replace($token, '[token]'))\" }",

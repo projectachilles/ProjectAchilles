@@ -152,8 +152,10 @@ function InstallCommands({
             serverUrl={serverUrl}
             token={token}
             tokenLimits={tokenLimits}
-            // Offer the script only for a Windows agent the server confirmed it can serve.
-            windowsVersion={windowsReadiness?.ready && windowsVersion
+            // Offer the script only for a Windows agent the server confirmed it can
+            // serve, and only when the version list describes that same agent: the
+            // pinned certificate is read from the list.
+            windowsVersion={windowsReadiness?.ready && windowsVersion && windowsVersion.version === windowsReadiness.version
               ? { version: windowsVersion.version, signed: windowsVersion.signed === true, signerSubject: windowsVersion.signer_subject ?? null, signerFingerprint: windowsVersion.signer_fingerprint ?? null }
               : null}
           />
@@ -183,13 +185,14 @@ export default function EnrollmentSection({ orgId }: EnrollmentSectionProps): Re
   const newToken = createdToken ? (createdToken.token ?? createdToken.id) : null;
   // The registered Windows agent, for the management-tool script's signature check.
   const [windowsVersion, setWindowsVersion] = useState<AgentVersion | null>(null);
-  useEffect(() => {
+  const loadWindowsVersion = useCallback(() => {
     agentApi.listVersions()
       .then((versions) => {
         setWindowsVersion(getLatestPerPlatform(versions).find((v) => v.os === 'windows' && v.arch === 'amd64') ?? null);
       })
       .catch(() => { /* unknown: the management tab then offers no script */ });
   }, []);
+  useEffect(() => { loadWindowsVersion(); }, [loadWindowsVersion]);
   const readiness = useInstallReadiness();
   // Only a completed check counts: while loading or unknown, nothing changes.
   const platforms = readiness.status === 'ready' ? readiness.data.platforms : null;
@@ -220,6 +223,8 @@ export default function EnrollmentSection({ orgId }: EnrollmentSectionProps): Re
         max_uses: parseInt(maxUses) || 1,
       });
       setCreatedToken(result);
+      // The script pins what is registered now, not when the dialog opened.
+      loadWindowsVersion();
       fetchTokens();
     } catch (err) {
       console.error('Failed to create token:', err);

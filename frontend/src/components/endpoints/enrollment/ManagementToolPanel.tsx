@@ -118,8 +118,17 @@ export function ManagementToolPanel({
               {script.verifiedFingerprint
                 ? `The script only runs an agent that carries this server's signing certificate (${script.signerName ? `"${script.signerName}", ` : ''}SHA-256 ending ${script.verifiedFingerprint.slice(-8)}).`
                 : 'The script cannot verify the agent it downloads: the registered Windows agent is not signed, or its certificate could not be read.'}
+              {script.verifiedFingerprint
+                && ' It does not tell the agent from another binary signed with the same certificate, and it does not protect against a compromised server.'}
               {' '}An agent that is already installed is left untouched, so the script is safe to run again.
             </p>
+
+            {serverUrl.toLowerCase().startsWith('http://') && (
+              <p className="rounded-md border border-warning/40 bg-warning-dim px-3 py-2 text-xs leading-relaxed text-foreground">
+                This server address is plain HTTP: the token and the download travel unprotected. Use it on a
+                network you trust, or give the server an HTTPS address first.
+              </p>
+            )}
 
             <div>
               <div className="mb-1.5 text-[11px] uppercase tracking-wider text-muted">Intune platform script settings</div>
