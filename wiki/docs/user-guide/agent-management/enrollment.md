@@ -109,7 +109,7 @@ The console checks this for you, because the install command downloads the agent
 
 The check runs again when you come back to the browser tab, so a build finished in another tab shows up without a reload. It is not available on `backend-serverless`, where the commands are shown as before.
 
-The **Create Task** dialog uses the same check: with no enrolled agent it lists what is still missing (agent binary, enrolled endpoint, built test) where the agent picker would be.
+The **Create Task** dialog uses the same check: with no enrolled agent it lists what is still missing (agent binary, enrolled endpoint, built test) in place of the form.
 
 ### Token Status Indicators
 
