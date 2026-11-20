@@ -361,6 +361,11 @@ export class TestsSettingsService {
         '-days', '1825',
         '-nodes',
         '-subj', subjectStr,
+        // An end-entity certificate. OpenSSL's default for `req -x509` is
+        // CA:TRUE, and Windows never reports a signature made with a
+        // self-signed CA certificate as Valid, even when it is trusted
+        // ("A certificate's basic constraint extension has not been observed").
+        '-addext', 'basicConstraints=critical,CA:FALSE',
         '-addext', 'extendedKeyUsage=codeSigning',
         '-addext', 'keyUsage=digitalSignature',
       ]);
