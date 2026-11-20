@@ -251,34 +251,42 @@ export function AlertsConfig({ onStatusChange }: AlertsConfigProps) {
           Enable alerting
         </label>
 
-        <Input
-          label="Defense Score minimum (%)"
-          type="number"
-          placeholder="70"
-          value={defenseScoreMin}
-          onChange={(e) => setDefenseScoreMin(e.target.value)}
-          helperText="Alert when the Defense Score drops below this value. It uses the dashboard's rule: the latest result of each test on each host, over the last 30 days, for the whole install."
-        />
-
-        <Input
-          label="Error Rate maximum (%)"
-          type="number"
-          placeholder="30"
-          value={errorRateMax}
-          onChange={(e) => setErrorRateMax(e.target.value)}
-          helperText="Alert when error rate exceeds this value"
-        />
-
-        {defenderConfigured && (
+        <div className="grid gap-4 sm:grid-cols-2">
           <Input
-            label="Secure Score minimum (%)"
+            label="Defense Score minimum (%)"
+            type="number"
+            placeholder="70"
+            value={defenseScoreMin}
+            onChange={(e) => setDefenseScoreMin(e.target.value)}
+            helperText="Alert when the Defense Score drops below this value. It uses the dashboard's rule: the latest result of each test on each host, over the last 30 days, for the whole install."
+          />
+          <Input
+            label="Error Rate maximum (%)"
+            type="number"
+            placeholder="30"
+            value={errorRateMax}
+            onChange={(e) => setErrorRateMax(e.target.value)}
+            helperText="Alert when error rate exceeds this value"
+          />
+          {defenderConfigured && (
+            <Input
+              label="Secure Score minimum (%)"
+              type="number"
+              placeholder="60"
+              value={secureScoreMin}
+              onChange={(e) => setSecureScoreMin(e.target.value)}
+              helperText="Alert when Microsoft Secure Score drops below this value"
+            />
+          )}
+          <Input
+            label="Cooldown (minutes)"
             type="number"
             placeholder="60"
-            value={secureScoreMin}
-            onChange={(e) => setSecureScoreMin(e.target.value)}
-            helperText="Alert when Microsoft Secure Score drops below this value"
+            value={cooldownMinutes}
+            onChange={(e) => setCooldownMinutes(e.target.value)}
+            helperText="Minimum time between consecutive alerts"
           />
-        )}
+        </div>
 
         {s1Configured && (
           <div className="space-y-3 rounded-lg bg-raised/50 p-4">
@@ -294,15 +302,6 @@ export function AlertsConfig({ onStatusChange }: AlertsConfigProps) {
             </div>
           </div>
         )}
-
-        <Input
-          label="Cooldown (minutes)"
-          type="number"
-          placeholder="60"
-          value={cooldownMinutes}
-          onChange={(e) => setCooldownMinutes(e.target.value)}
-          helperText="Minimum time between consecutive alerts"
-        />
       </div>
 
       {/* --- Slack Section --- */}
@@ -427,41 +426,40 @@ export function AlertsConfig({ onStatusChange }: AlertsConfigProps) {
           Enable agent alerts
         </label>
 
-        <Input
-          label="Offline Threshold (hours)"
-          type="number"
-          placeholder="4"
-          value={offlineHoursThreshold}
-          onChange={(e) => setOfflineHoursThreshold(e.target.value)}
-          helperText="Alert when any agent is offline longer than this"
-        />
-
-        <Input
-          label="Flapping Threshold (reconnects/24h)"
-          type="number"
-          placeholder="5"
-          value={flappingThreshold}
-          onChange={(e) => setFlappingThreshold(e.target.value)}
-          helperText="Alert when an agent reconnects more than this many times in 24 hours"
-        />
-
-        <Input
-          label="Fleet Online Minimum (%)"
-          type="number"
-          placeholder="80"
-          value={fleetOnlinePercentMin}
-          onChange={(e) => setFleetOnlinePercentMin(e.target.value)}
-          helperText="Alert when fleet online percentage drops below this value"
-        />
-
-        <Input
-          label="Cooldown (minutes)"
-          type="number"
-          placeholder="30"
-          value={agentAlertsCooldown}
-          onChange={(e) => setAgentAlertsCooldown(e.target.value)}
-          helperText="Minimum time between consecutive agent alerts"
-        />
+        <div className="grid gap-4 sm:grid-cols-2">
+          <Input
+            label="Offline Threshold (hours)"
+            type="number"
+            placeholder="4"
+            value={offlineHoursThreshold}
+            onChange={(e) => setOfflineHoursThreshold(e.target.value)}
+            helperText="Alert when any agent is offline longer than this"
+          />
+          <Input
+            label="Flapping Threshold (reconnects/24h)"
+            type="number"
+            placeholder="5"
+            value={flappingThreshold}
+            onChange={(e) => setFlappingThreshold(e.target.value)}
+            helperText="Alert when an agent reconnects more than this many times in 24 hours"
+          />
+          <Input
+            label="Fleet Online Minimum (%)"
+            type="number"
+            placeholder="80"
+            value={fleetOnlinePercentMin}
+            onChange={(e) => setFleetOnlinePercentMin(e.target.value)}
+            helperText="Alert when fleet online percentage drops below this value"
+          />
+          <Input
+            label="Cooldown (minutes)"
+            type="number"
+            placeholder="30"
+            value={agentAlertsCooldown}
+            onChange={(e) => setAgentAlertsCooldown(e.target.value)}
+            helperText="Minimum time between consecutive agent alerts"
+          />
+        </div>
       </div>
 
       {/* Test results */}
