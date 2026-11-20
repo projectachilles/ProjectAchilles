@@ -20,7 +20,13 @@ export interface ManagementToolPanelProps {
    * could not be established (readiness or the versions list did not load):
    * no script is offered then, because its signature check depends on it.
    */
-  windowsVersion: { version: string; signed: boolean; signerSubject: string | null } | null;
+  windowsVersion: {
+    version: string;
+    signed: boolean;
+    signerSubject: string | null;
+    /** SHA-256 of the certificate the registered binary carries; null when the server could not read it. */
+    signerFingerprint: string | null;
+  } | null;
 }
 
 /** Saves text as a file from the browser; the content goes nowhere else. */
@@ -79,6 +85,7 @@ export function ManagementToolPanel({
         token,
         version: windowsVersion.version,
         signerSubject: windowsVersion.signed ? windowsVersion.signerSubject : null,
+        signerFingerprint: windowsVersion.signed ? windowsVersion.signerFingerprint : null,
       });
     } catch {
       problem = 'This server address or token cannot be put in a script safely, so no script is offered.';
@@ -108,9 +115,9 @@ export function ManagementToolPanel({
             </div>
 
             <p className="text-xs leading-relaxed text-muted">
-              {script.verifiedSigner
-                ? `The script only runs an agent signed by "${script.verifiedSigner}". The certificate must be trusted on the endpoints.`
-                : 'The registered Windows agent is not signed, so the script cannot verify what it downloads.'}
+              {script.verifiedFingerprint
+                ? `The script only runs an agent that carries this server's signing certificate (${script.signerName ? `"${script.signerName}", ` : ''}SHA-256 ending ${script.verifiedFingerprint.slice(-8)}).`
+                : 'The script cannot verify the agent it downloads: the registered Windows agent is not signed, or its certificate could not be read.'}
               {' '}An agent that is already installed is left untouched, so the script is safe to run again.
             </p>
 

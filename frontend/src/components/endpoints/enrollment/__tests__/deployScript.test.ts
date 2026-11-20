@@ -15,12 +15,14 @@ const base = {
   token: TOKEN,
   version: '0.7.4',
   signerSubject: '/C=XX/O=Acme/CN=Acme Code Signing',
+  signerFingerprint: 'E179CFFEE84A26CE44F4F83180A721E1EF22934B4790047B02AA6032F7783A18',
 };
+const FP = base.signerFingerprint;
 
 const lines = (text: string) => text.split('\r\n');
 
 describe('buildWindowsDeployScript', () => {
-  const { text, verifiedSigner } = buildWindowsDeployScript(base);
+  const { text, verifiedFingerprint, signerName } = buildWindowsDeployScript(base);
 
   it('is ASCII with CRLF line endings', () => {
     expect(text).toMatch(/^[\x09\x0d\x0a\x20-\x7e]*$/);
@@ -73,11 +75,24 @@ describe('buildWindowsDeployScript', () => {
     for (const l of WINDOWS_FOLDER_LOCK_LINES) expect(text).toContain(l.trim());
   });
 
-  it('pins the signer common name when the binary is signed', () => {
-    expect(verifiedSigner).toBe('Acme Code Signing');
+  it('pins the SHA-256 fingerprint of the signer certificate', () => {
+    expect(verifiedFingerprint).toBe(FP);
+    expect(signerName).toBe('Acme Code Signing');
     expect(text).toContain('Get-AuthenticodeSignature -LiteralPath $exe');
-    expect(text).toContain("$signer -ne 'Acme Code Signing'");
-    expect(text).toContain("$sig.Status -ne 'Valid'");
+    expect(text).toContain('[Security.Cryptography.SHA256]::Create().ComputeHash($sig.SignerCertificate.RawData)');
+    expect(text).toContain(`$fingerprint -ne '${FP}'`);
+  });
+
+  it('accepts only an intact signature: Valid, or UnknownError for a certificate Windows does not chain', () => {
+    expect(text).toContain("@('Valid', 'UnknownError') -notcontains $sig.Status");
+    expect(text).not.toContain('HashMismatch'); // rejected by not being on the list, not by name
+  });
+
+  it('does not depend on the signer name', () => {
+    expect(text).not.toContain('GetNameInfo');
+    const other = buildWindowsDeployScript({ ...base, signerSubject: null });
+    expect(other.verifiedFingerprint).toBe(FP);
+    expect(other.signerName).toBeNull();
   });
 
   it('removes the download and fails when the signature check fails, before running it', () => {
@@ -86,27 +101,36 @@ describe('buildWindowsDeployScript', () => {
     const enroll = text.indexOf('--enroll');
     expect(remove).toBeGreaterThan(check);
     expect(enroll).toBeGreaterThan(remove);
-    expect(text).toContain('Endpoint prerequisites, step 2');
+    expect(text).toContain('download a new script');
   });
 
-  it('pins the signer from a comma-separated subject too', () => {
-    const r = buildWindowsDeployScript({ ...base, signerSubject: 'CN=Achilles MDM Test,O=Achilles Test,C=XX' });
-    expect(r.verifiedSigner).toBe('Achilles MDM Test');
-    expect(r.text).toContain("$signer -ne 'Achilles MDM Test'");
-  });
-
-  it('has no signature block for an unsigned binary and says so in the header', () => {
-    const unsigned = buildWindowsDeployScript({ ...base, signerSubject: null });
-    expect(unsigned.verifiedSigner).toBeNull();
+  it('has no signature block without a fingerprint and says so in the header', () => {
+    const unsigned = buildWindowsDeployScript({ ...base, signerFingerprint: null });
+    expect(unsigned.verifiedFingerprint).toBeNull();
     expect(unsigned.text).not.toContain('Get-AuthenticodeSignature');
     expect(lines(unsigned.text).slice(0, 15).join('\n')).toMatch(/# .*not verified/i);
   });
 
-  it('has no signature block when the subject has no usable common name', () => {
-    for (const signerSubject of ['/O=Acme', "/C=XX/CN=Bad'Name", '/CN=$(calc)']) {
-      const r = buildWindowsDeployScript({ ...base, signerSubject });
-      expect(r.verifiedSigner).toBeNull();
+  it('has no signature block for a fingerprint that is not 64 hex characters', () => {
+    for (const signerFingerprint of ['abc', `${FP}'; calc`, FP.slice(1), 'G'.repeat(64)]) {
+      const r = buildWindowsDeployScript({ ...base, signerFingerprint });
+      expect(r.verifiedFingerprint).toBeNull();
       expect(r.text).not.toContain('Get-AuthenticodeSignature');
+    }
+  });
+
+  it('accepts a lower-case fingerprint and pins it in upper case', () => {
+    const r = buildWindowsDeployScript({ ...base, signerFingerprint: FP.toLowerCase() });
+    expect(r.verifiedFingerprint).toBe(FP);
+  });
+
+  it('keeps an unusable signer name out of the script', () => {
+    for (const signerSubject of ["/C=XX/CN=Bad'Name", '/CN=$(calc)', '/CN=two\nlines']) {
+      const r = buildWindowsDeployScript({ ...base, signerSubject });
+      expect(r.signerName).toBeNull();
+      expect(r.text).not.toContain('calc');
+      expect(r.text).not.toContain("Bad'Name");
+      expect(r.verifiedFingerprint).toBe(FP);
     }
   });
 

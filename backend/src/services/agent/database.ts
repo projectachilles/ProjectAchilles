@@ -369,6 +369,12 @@ export function initializeTables(database: Database.Database): void {
   if (!versionColNames.has('signer_subject')) {
     database.exec(`ALTER TABLE agent_versions ADD COLUMN signer_subject TEXT DEFAULT NULL`);
   }
+  // SHA-256 fingerprint of the certificate a signed Windows binary carries
+  // (the management-tool install script pins it). NULL on older rows is
+  // filled in by listVersions().
+  if (!versionColNames.has('signer_fingerprint')) {
+    database.exec(`ALTER TABLE agent_versions ADD COLUMN signer_fingerprint TEXT DEFAULT NULL`);
+  }
 
   // Migration: expand os CHECK constraint to include 'darwin' for agents and agent_versions.
   // SQLite doesn't support ALTER COLUMN, so recreate tables if constraint rejects 'darwin'.

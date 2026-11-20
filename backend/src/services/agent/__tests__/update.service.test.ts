@@ -66,6 +66,10 @@ vi.mock('../signing.service.js', () => ({
   signHash: () => 'deadbeef'.repeat(16),
 }));
 
+// The signer's certificate fingerprint is read with osslsigncode + openssl; here it is a fixed answer.
+const { mockReadSignerFingerprint } = vi.hoisted(() => ({ mockReadSignerFingerprint: vi.fn() }));
+vi.mock('../signerFingerprint.js', () => ({ readSignerFingerprint: mockReadSignerFingerprint }));
+
 let testDb: Database.Database;
 vi.mock('../../agent/database.js', async (importOriginal) => {
   const actual = await importOriginal<typeof import('../../agent/database.js')>();
@@ -436,6 +440,75 @@ describe('update.service', () => {
     it('returns empty array when no versions', () => {
       const versions = listVersions();
       expect(versions).toEqual([]);
+    });
+
+    describe('signer certificate fingerprint', () => {
+      const FP = 'A'.repeat(64);
+      const exe = '/mock-home/.projectachilles/binaries/agent.exe';
+      const setUp = () => {
+        mockExistsSync.mockReturnValue(true);
+        mockStatSync.mockReturnValue({ isFile: () => true, size: 6 });
+        mockReadFileSync.mockReturnValue(agentBinary('1.0.0'));
+      };
+      beforeEach(() => { mockReadSignerFingerprint.mockReset(); });
+
+      it('is recorded when a signed Windows version is registered', () => {
+        setUp();
+        mockReadSignerFingerprint.mockReturnValue(FP);
+
+        const registered = registerVersion('1.0.0', 'windows', 'amd64', exe, 'v1', false, true, 'CN=Acme');
+
+        expect(registered.signer_fingerprint).toBe(FP);
+        expect(mockReadSignerFingerprint).toHaveBeenCalledWith(exe);
+        expect(listVersions()[0].signer_fingerprint).toBe(FP);
+      });
+
+      it('is not read for an unsigned version or another platform', () => {
+        setUp();
+        registerVersion('1.0.0', 'windows', 'amd64', exe, 'v1', false, false);
+        registerVersion('1.0.0', 'linux', 'amd64', '/mock-home/.projectachilles/binaries/agent', 'v1', false, true, 'x');
+
+        expect(mockReadSignerFingerprint).not.toHaveBeenCalled();
+        expect(listVersions().every((v) => v.signer_fingerprint === null)).toBe(true);
+      });
+
+      it('is filled in on the first list for a version registered before it was recorded', () => {
+        setUp();
+        mockReadSignerFingerprint.mockReturnValue(null);
+        registerVersion('1.0.0', 'windows', 'amd64', exe, 'v1', false, true, 'CN=Acme');
+        mockReadSignerFingerprint.mockReset();
+        mockReadSignerFingerprint.mockReturnValue(FP);
+
+        expect(listVersions()[0].signer_fingerprint).toBe(FP);
+        expect(listVersions()[0].signer_fingerprint).toBe(FP);
+        expect(mockReadSignerFingerprint).toHaveBeenCalledTimes(1); // stored, not read again
+      });
+
+      it('is not looked up again and again when it cannot be read', () => {
+        setUp();
+        // Its own version: the "could not be read" memory lives for the process, across tests.
+        mockReadFileSync.mockReturnValue(agentBinary('9.9.9'));
+        mockReadSignerFingerprint.mockReturnValue(null);
+        registerVersion('9.9.9', 'windows', 'amd64', exe, 'v1', false, true, 'CN=Acme');
+        mockReadSignerFingerprint.mockClear();
+
+        listVersions();
+        listVersions();
+        listVersions();
+
+        expect(mockReadSignerFingerprint.mock.calls.length).toBeLessThanOrEqual(1);
+      });
+
+      it('is not looked up when the file is gone', () => {
+        setUp();
+        mockReadSignerFingerprint.mockReturnValue(null);
+        registerVersion('1.0.0', 'windows', 'amd64', exe, 'v1', false, true, 'CN=Acme');
+        mockReadSignerFingerprint.mockClear();
+        mockExistsSync.mockReturnValue(false);
+
+        expect(listVersions()[0].signer_fingerprint).toBeNull();
+        expect(mockReadSignerFingerprint).not.toHaveBeenCalled();
+      });
     });
 
     it('returns the recorded signer of a signed version', () => {

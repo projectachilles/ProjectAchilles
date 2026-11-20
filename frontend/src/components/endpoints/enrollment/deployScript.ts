@@ -7,7 +7,8 @@
 //   - an agent that is already installed is left alone (Intune runs a
 //     device-assigned script again for each new user who signs in);
 //   - it refuses to run unelevated and says which Intune setting to change;
-//   - it can verify the downloaded binary's signer before running it as SYSTEM;
+//   - it can require the downloaded binary to carry the server's signing
+//     certificate (pinned by fingerprint) before running it as SYSTEM;
 //   - it exits 0 or 1, which is what the tool reports and retries on.
 // The C:\F0 checks and lock are the same lines as the one-liner's.
 
@@ -25,15 +26,22 @@ export interface DeployScriptInput {
   token: string;
   /** Registered Windows amd64 version, for the header comment. */
   version: string | null;
-  /** `signer_subject` of that version when it is signed, else null. */
+  /** `signer_subject` of that version, for display only (comment header, dialog). */
   signerSubject: string | null;
+  /**
+   * `signer_fingerprint` of that version: SHA-256 of the certificate the
+   * registered binary is signed with. null = no signature check.
+   */
+  signerFingerprint: string | null;
 }
 
 export interface DeployScript {
   /** CRLF line endings, ASCII only (Windows PowerShell 5.1 reads a BOM-less file as Windows-1252). */
   text: string;
-  /** Common name the script requires as signer, or null when it cannot verify the binary. */
-  verifiedSigner: string | null;
+  /** The certificate fingerprint the script pins, or null when it cannot verify the binary. */
+  verifiedFingerprint: string | null;
+  /** The signer's common name when it is safe to show, for display. */
+  signerName: string | null;
 }
 
 // Both values are written into single-quoted PowerShell strings and onto a
@@ -41,6 +49,7 @@ export interface DeployScript {
 // argument, so the builder refuses rather than escapes.
 const SAFE_VALUE = /^[A-Za-z0-9._~:/\-[\]@%+=?&]+$/;
 const SAFE_COMMON_NAME = /^[A-Za-z0-9 ._,()&-]+$/;
+const FINGERPRINT = /^[0-9A-F]{64}$/;
 
 /** CN from an OpenSSL one-line subject ("/C=XX/O=Acme/CN=Acme Code Signing"), or null. */
 export function signerCommonName(subject: string | null): string | null {
@@ -66,23 +75,33 @@ export function buildWindowsDeployScript(input: DeployScriptInput): DeployScript
     throw new Error('unsafe value');
   }
 
-  // No check rather than a broken one: a name we can't embed safely is not pinned.
+  // The pin is the certificate itself, not its name: anyone can issue
+  // themselves a certificate with the same name. No check rather than a
+  // broken one when the fingerprint is missing or malformed.
+  const candidate = input.signerFingerprint?.toUpperCase() ?? '';
+  const verifiedFingerprint = FINGERPRINT.test(candidate) ? candidate : null;
   const commonName = signerCommonName(input.signerSubject);
-  const verifiedSigner = commonName && SAFE_COMMON_NAME.test(commonName) ? commonName : null;
+  const signerName = commonName && SAFE_COMMON_NAME.test(commonName) ? commonName : null;
 
   const url = `${serverUrl}/api/agent/download?os=windows&arch=amd64`;
   const headers = isNgrokHost(serverUrl) ? ' -Headers @{"ngrok-skip-browser-warning"="true"}' : '';
 
-  const signatureBlock = verifiedSigner
+  // Windows reports a tampered file as HashMismatch and an unsigned one as
+  // NotSigned whatever the trust stores say. An intact signature is Valid, or
+  // UnknownError when Windows won't chain the certificate (not trusted on this
+  // computer, or a self-signed certificate marked as a CA). So: intact
+  // signature, and exactly the pinned certificate. The endpoint does not have
+  // to trust the certificate for this check.
+  const signatureBlock = verifiedFingerprint
     ? [
         '',
-        '  # Run only an agent signed by the expected certificate.',
+        "  # Run only an agent that carries the server's signing certificate.",
         '  $sig = Get-AuthenticodeSignature -LiteralPath $exe',
-        "  $signer = ''",
-        '  if ($sig.SignerCertificate) { $signer = $sig.SignerCertificate.GetNameInfo([Security.Cryptography.X509Certificates.X509NameType]::SimpleName, $false) }',
-        `  if ($sig.Status -ne 'Valid' -or $signer -ne '${verifiedSigner}') {`,
+        "  $fingerprint = ''",
+        "  if ($sig.SignerCertificate) { $fingerprint = [BitConverter]::ToString([Security.Cryptography.SHA256]::Create().ComputeHash($sig.SignerCertificate.RawData)).Replace('-', '') }",
+        `  if (@('Valid', 'UnknownError') -notcontains $sig.Status -or $fingerprint -ne '${verifiedFingerprint}') {`,
         '    Remove-Item -LiteralPath $exe -Force',
-        `    throw "The downloaded agent is not signed by '${verifiedSigner}' or its certificate is not trusted on this computer (status: $($sig.Status)). Distribute the signing certificate first: see Endpoint prerequisites, step 2."`,
+        '    throw "The downloaded agent does not carry the expected signing certificate (signature status: $($sig.Status); certificate: $fingerprint). If the signing certificate or the agent was changed on the server, download a new script."',
         '  }',
         "  Log 'Signature verified.'",
       ]
@@ -96,9 +115,10 @@ export function buildWindowsDeployScript(input: DeployScriptInput): DeployScript
     '#',
     `# Server:    ${serverUrl}`,
     `# Agent:     ${version ?? 'latest registered'} (Windows amd64)`,
-    verifiedSigner
-      ? `# Signature: verified, signer must be "${verifiedSigner}" and trusted on this computer`
-      : '# Signature: not verified (the registered agent is not signed, or its signer is not recorded)',
+    verifiedFingerprint
+      ? `# Signature: verified, the agent must carry the certificate${signerName ? ` "${signerName}"` : ''} with SHA-256`
+      : '# Signature: not verified (the registered agent is not signed, or its certificate could not be read)',
+    ...(verifiedFingerprint ? [`#            ${verifiedFingerprint}`] : []),
     '#',
     '# Safe to run again: an agent that is already installed is left untouched.',
     '# This file contains an enrollment token. Treat it as a secret.',
@@ -153,5 +173,5 @@ export function buildWindowsDeployScript(input: DeployScriptInput): DeployScript
     '',
   ];
 
-  return { text: lines.join('\r\n'), verifiedSigner };
+  return { text: lines.join('\r\n'), verifiedFingerprint, signerName };
 }

@@ -28,9 +28,11 @@ function readiness(windowsReady: boolean): InstallReadiness {
 const windowsVersion = (signed: boolean) => ({
   version: '0.7.4', os: 'windows', arch: 'amd64', binary_sha256: 'x', binary_size: 1, release_notes: '',
   mandatory: false, signed, signer_subject: signed ? '/C=XX/O=Acme/CN=Acme Code Signing' : null,
+  signer_fingerprint: signed ? FP : null,
   created_at: '2026-11-20T00:00:00.000Z',
 });
 
+const FP = 'E179CFFEE84A26CE44F4F83180A721E1EF22934B4790047B02AA6032F7783A18';
 const EXPIRES = '2026-12-20T15:00:00.000Z';
 
 // Capture what the download would save.
@@ -91,7 +93,7 @@ describe('EnrollmentSection Management tool tab', () => {
     expect(savedName).toBe('Install-AchillesAgent.ps1');
     const text = await savedBlob!.text();
     expect(text).toContain('--enroll acht_test0123 --server https://achilles.example.com --install');
-    expect(text).toContain("'Acme Code Signing'");
+    expect(text).toContain(`$fingerprint -ne '${FP}'`);
     expect(URL.revokeObjectURL).toHaveBeenCalledWith('blob:test');
   });
 
@@ -125,15 +127,25 @@ describe('EnrollmentSection Management tool tab', () => {
     expect(panel.textContent).toContain('revoke the token when the rollout is done');
   });
 
-  it('says which signer the script requires when the registered agent is signed', async () => {
+  it('says which certificate the script requires when the registered agent is signed', async () => {
     await openManagementTab();
-    expect(screen.getByRole('tabpanel').textContent).toContain('The script only runs an agent signed by "Acme Code Signing".');
+    const text = screen.getByRole('tabpanel').textContent;
+    expect(text).toContain('The script only runs an agent that carries this server\'s signing certificate ("Acme Code Signing", SHA-256 ending F7783A18).');
+    expect(text).not.toContain('must be trusted');
+  });
+
+  it('says the script cannot verify a signed agent whose certificate the server could not read', async () => {
+    api.listVersions.mockResolvedValue([{ ...windowsVersion(true), signer_fingerprint: null }]);
+    const user = await openManagementTab();
+    expect(screen.getByRole('tabpanel').textContent).toContain('The script cannot verify the agent it downloads');
+    await user.click(screen.getByRole('button', { name: 'Download Install-AchillesAgent.ps1' }));
+    expect(await savedBlob!.text()).not.toContain('Get-AuthenticodeSignature');
   });
 
   it('says the script cannot verify an unsigned agent, and the script has no check', async () => {
     api.listVersions.mockResolvedValue([windowsVersion(false)]);
     const user = await openManagementTab();
-    expect(screen.getByRole('tabpanel').textContent).toContain('so the script cannot verify what it downloads');
+    expect(screen.getByRole('tabpanel').textContent).toContain('The script cannot verify the agent it downloads');
     await user.click(screen.getByRole('button', { name: 'Download Install-AchillesAgent.ps1' }));
     expect(await savedBlob!.text()).not.toContain('Get-AuthenticodeSignature');
   });

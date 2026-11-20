@@ -154,7 +154,7 @@ function InstallCommands({
             tokenLimits={tokenLimits}
             // Offer the script only for a Windows agent the server confirmed it can serve.
             windowsVersion={windowsReadiness?.ready && windowsVersion
-              ? { version: windowsVersion.version, signed: windowsVersion.signed === true, signerSubject: windowsVersion.signer_subject ?? null }
+              ? { version: windowsVersion.version, signed: windowsVersion.signed === true, signerSubject: windowsVersion.signer_subject ?? null, signerFingerprint: windowsVersion.signer_fingerprint ?? null }
               : null}
           />
         )
