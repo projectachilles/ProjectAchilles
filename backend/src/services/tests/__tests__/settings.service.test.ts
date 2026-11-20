@@ -611,6 +611,20 @@ describe('TestsSettingsService', () => {
       expect(activeWriteCall).toBeUndefined();
     });
 
+    it('generates an end-entity certificate, not a CA', async () => {
+      await service.generateCertificate(validSubject);
+
+      // Without this OpenSSL marks a self-signed certificate as a CA, and
+      // Windows then never reports a signature made with it as Valid.
+      const req = mockExecFileAsync.mock.calls.find(([cmd, args]) => cmd === 'openssl' && args[0] === 'req');
+      expect(req).toBeDefined();
+      const args = req![1];
+      const ext = args.filter((_, i) => args[i - 1] === '-addext');
+      expect(ext).toContain('basicConstraints=critical,CA:FALSE');
+      expect(ext).toContain('extendedKeyUsage=codeSigning');
+      expect(ext).toContain('keyUsage=digitalSignature');
+    });
+
     it('stores encrypted password with enc: prefix', async () => {
       await service.generateCertificate(validSubject);
 
