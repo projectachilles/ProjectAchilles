@@ -30,10 +30,23 @@ describe('buildWindowsDeployScript', () => {
     expect(lines(text).length).toBeGreaterThan(20);
   });
 
-  it('uses the token exactly once, in the enroll call', () => {
+  it('holds the token in exactly one place, a variable the enroll call uses', () => {
     expect(text.split(TOKEN).length).toBe(2);
-    const line = lines(text).find((l) => l.includes(TOKEN));
-    expect(line).toContain(`--enroll ${TOKEN} --server ${SERVER} --install`);
+    expect(lines(text).find((l) => l.includes(TOKEN))).toBe(`  $token = '${TOKEN}'`);
+    expect(text).toContain(`& $exe --enroll $token --server ${SERVER} --install`);
+  });
+
+  it('captures what the agent prints, stderr included, without letting stderr abort the script', () => {
+    const run = lines(text).findIndex((l) => l.includes('--enroll $token'));
+    expect(lines(text)[run]).toContain('2>&1');
+    // Windows PowerShell 5.1 turns redirected stderr into terminating errors under Stop.
+    expect(lines(text)[run - 1]).toContain("$ErrorActionPreference = 'Continue'");
+    expect(lines(text).slice(run, run + 3).join('\n')).toContain("$ErrorActionPreference = 'Stop'");
+  });
+
+  it('logs the agent output with the token masked', () => {
+    expect(text).toContain(".Replace($token, '[token]')");
+    expect(text).toMatch(/Log "agent: /);
   });
 
   it('never logs the token or puts it in a comment', () => {
@@ -145,7 +158,8 @@ describe('buildWindowsDeployScript', () => {
   });
 
   it('fails when the agent installer exits non-zero', () => {
-    expect(text).toContain('if ($LASTEXITCODE -ne 0) { throw "The agent installer exited with code $LASTEXITCODE." }');
+    expect(text).toContain('$exitCode = $LASTEXITCODE');
+    expect(text).toContain('if ($exitCode -ne 0) { throw "The agent installer exited with code $exitCode." }');
   });
 
   it('exits 1 from one catch around everything', () => {
@@ -196,9 +210,10 @@ describe('signerCommonName', () => {
 });
 
 describe('what the management tool is told', () => {
-  it('names the script, the detection file and the uninstall command', () => {
+  it('names the script, the detection key and the uninstall command', () => {
     expect(DEPLOY_SCRIPT_FILENAME).toBe('Install-AchillesAgent.ps1');
-    expect(DETECTION_RULE).toEqual({ path: 'C:\\F0', file: 'achilles-agent.exe' });
+    // The service's registry key, not the binary: --uninstall cannot delete its own running exe.
+    expect(DETECTION_RULE).toEqual({ type: 'registry', key: 'HKEY_LOCAL_MACHINE\\SYSTEM\\CurrentControlSet\\Services\\AchillesAgent' });
     expect(UNINSTALL_COMMAND).toBe('C:\\F0\\achilles-agent.exe --uninstall');
   });
 });

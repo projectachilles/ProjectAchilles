@@ -20,10 +20,11 @@ shell script that Jamf, Ansible or a similar tool can run as it is.
 ## Before you start
 
 1. **Prepare the endpoints.** Do the
-   [endpoint prerequisites](../../deployment/endpoint-prerequisites) first: the
-   signing certificate on the endpoints and the Defender ASR per-rule exclusion
-   for `C:\F0`. The script checks the agent's signature, so an endpoint that
-   doesn't trust the certificate yet will not install.
+   [endpoint prerequisites](../../deployment/endpoint-prerequisites) first, in
+   particular the Defender ASR per-rule exclusion for `C:\F0`. The script
+   itself does not need the signing certificate on the endpoints (see
+   [the signature check](#the-signature-check)), but your application control
+   or EDR may.
 2. **Register a Windows agent** in **Settings → Agent**. Without one the dialog
    offers no script.
 3. **Create a token for the whole rollout.** In **Agents → Enroll agent**, set
@@ -52,20 +53,60 @@ It runs unattended and needs SYSTEM or an administrator.
 2. It checks `C:\F0`: an existing folder must be a plain folder owned by SYSTEM
    or Administrators. It then locks the folder to those two.
 3. It downloads the agent from your ProjectAchilles server into `C:\F0`.
-4. If the registered agent is signed, it checks that the downloaded file has a
-   valid signature from the same signer. If not, it deletes the file and stops.
+4. If the registered agent is signed, it checks the downloaded file's
+   signature. If the check fails, it deletes the file and stops.
 5. It enrolls the endpoint and installs the service.
 
 It ends with exit code `0` when the agent is installed (or already was) and `1`
-on any failure. From step 3 on it writes what it did to
-`C:\F0\achilles-install.log`. The token is never written to the log.
+on any failure. From step 3 on it writes what it did, and what the agent
+printed, to `C:\F0\achilles-install.log`. The token is never written to the
+log.
+
+### The signature check
+
+The script carries the SHA-256 fingerprint of the certificate your server
+signed the registered Windows agent with. On the endpoint it accepts the
+download only when both are true:
+
+- the file's signature is intact (Windows reports a changed file as
+  `HashMismatch` and an unsigned one as `NotSigned`, whatever the endpoint
+  trusts);
+- the signature was made with exactly that certificate.
+
+A certificate with the same name but another key does not pass. The endpoint
+does not have to trust the certificate for this check, so the script also works
+with a self-signed certificate that Windows reports as `UnknownError`.
+
+The script is tied to that certificate. After you change the signing
+certificate and rebuild the agent, download a new script.
+
+The dialog tells you when there is no check: the registered agent is not
+signed, or the server could not read its certificate. The script then runs
+whatever the server returns, like the paste-in command does.
+
+### What has been verified
+
+On Windows 11 with Windows PowerShell 5.1, run as SYSTEM through a scheduled
+task, against a server with a signed agent whose certificate was **not** trusted
+on the endpoint:
+
+| Case | Result |
+|------|--------|
+| Fresh computer | Installed; `C:\F0` locked to SYSTEM and Administrators; service running; agent seen by the server |
+| Second run on the installed agent | "Agent already installed; nothing to do.", exit 0, no token use spent |
+| Service registered but files missing | Installed |
+| Script pinned to a different certificate | Exit 1, download deleted, no token use spent |
+
+Not verified: a run as a standard (non-administrator) user, and anything inside
+Intune itself.
 
 ## Intune
 
 :::warning[Not yet validated on a tenant]
-The script has been checked for syntax and behaviour outside Intune. The steps
-below follow Microsoft's documentation but have not been run end to end on an
-Intune tenant yet. Try them on one test device before a wider rollout.
+The script has been run as SYSTEM outside Intune (see
+[What has been verified](#what-has-been-verified)). The steps below follow
+Microsoft's documentation but have not been run end to end on an Intune tenant
+yet. Try them on one test device before a wider rollout.
 :::
 
 Use route A unless you need Intune to report the install per device or to
@@ -119,10 +160,14 @@ an uninstall action.
    | Install command | `%SystemRoot%\Sysnative\WindowsPowerShell\v1.0\powershell.exe -ExecutionPolicy Bypass -File Install-AchillesAgent.ps1` |
    | Uninstall command | `C:\F0\achilles-agent.exe --uninstall` |
    | Install behavior | **System** |
-   | Detection rule | **File**: path `C:\F0`, file `achilles-agent.exe`, **File or folder exists** |
+   | Detection rule | **Registry**: key path `HKEY_LOCAL_MACHINE\SYSTEM\CurrentControlSet\Services\AchillesAgent`, **Key exists** |
 
    The `Sysnative` path makes Intune use 64-bit PowerShell; a plain
    `powershell.exe` there starts the 32-bit one.
+
+   Detect the service's registry key, not the agent file: the uninstall
+   command removes the service but cannot delete its own running program, so
+   `C:\F0\achilles-agent.exe` stays behind after an uninstall.
 
 Microsoft's guide:
 [Add, assign, and monitor a Win32 app](https://learn.microsoft.com/intune/app-management/deployment/add-win32).
@@ -151,9 +196,9 @@ management extension logs in
 |--------------|---------------|
 | "This script must run as SYSTEM or an administrator" | Route A: set **Run this script using the logged on credentials** to **No**. Route B: set **Install behavior** to **System**. |
 | "Could not download the agent from ..." | The endpoint can't reach your server as the SYSTEM account. SYSTEM does not use a signed-in user's proxy settings; allow the server's address directly or set a machine-wide proxy. |
-| "The downloaded agent is not signed by ..." | The endpoint doesn't trust the signing certificate yet, or the agent on the server was replaced by one signed with another certificate. Distribute the certificate ([prerequisites, step 2](../../deployment/endpoint-prerequisites#2-distribute-the-certificate)); after changing the certificate, download a new script. |
+| "The downloaded agent does not carry the expected signing certificate ..." | The agent on the server is now signed with another certificate than when the script was made, or the download was changed on the way. The message shows the signature status and the certificate it found. After changing the signing certificate, download a new script. |
 | "C:\F0 exists but is not a plain folder owned by SYSTEM or Administrators" | Someone created `C:\F0` before the install. Check what is in it, remove it, and let the script run again. |
-| "The agent installer exited with code ..." | Often the token: expired, revoked or out of uses. Check it in **Enroll agent → Active Tokens**. |
+| "The agent installer exited with code ..." | The lines starting with `agent:` just above it in the log are the agent's own message. Often the token: expired, revoked or out of uses. Check it in **Enroll agent → Active Tokens**. |
 | Nothing in the log, and no `C:\F0` | The script failed before step 3, or never ran. Check the device's script status in Intune and the management extension logs. |
 
 ## Removing the agent
@@ -161,6 +206,8 @@ management extension logs in
 Use **Uninstall** on the agent in the console
 ([remote uninstall](./remote-uninstall)), or run
 `C:\F0\achilles-agent.exe --uninstall` on the endpoint. With route B, the Win32
-app's uninstall action runs that command. With route A, remove the script's
+app's uninstall action runs that command. Run on the endpoint, the command
+removes the service but leaves `C:\F0\achilles-agent.exe` behind; delete the
+`C:\F0` folder afterwards if you want nothing left. With route A, remove the script's
 assignment as well, or a device that is reset will install the agent again
 while the token is still valid.

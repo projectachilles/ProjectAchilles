@@ -16,8 +16,15 @@ import { WINDOWS_FOLDER_LOCK_LINES, isNgrokHost } from './installCommands';
 
 export const DEPLOY_SCRIPT_FILENAME = 'Install-AchillesAgent.ps1';
 
-/** What a management tool's "is it installed" rule should look for. */
-export const DETECTION_RULE = { path: 'C:\\F0', file: 'achilles-agent.exe' } as const;
+/**
+ * What a management tool's "is it installed" rule should look for: the
+ * service's registry key. Not the binary: `--uninstall` removes the service
+ * but cannot delete its own running exe, so the file outlives an uninstall.
+ */
+export const DETECTION_RULE = {
+  type: 'registry',
+  key: 'HKEY_LOCAL_MACHINE\\SYSTEM\\CurrentControlSet\\Services\\AchillesAgent',
+} as const;
 
 export const UNINSTALL_COMMAND = 'C:\\F0\\achilles-agent.exe --uninstall';
 
@@ -161,8 +168,15 @@ export function buildWindowsDeployScript(input: DeployScriptInput): DeployScript
     ...signatureBlock,
     '',
     "  Log 'Enrolling and installing the agent.'",
-    `  & $exe --enroll ${token} --server ${serverUrl} --install`,
-    '  if ($LASTEXITCODE -ne 0) { throw "The agent installer exited with code $LASTEXITCODE." }',
+    `  $token = '${token}'`,
+    '  # Capture what the agent prints, stderr too. Under Stop, Windows PowerShell 5.1',
+    '  # turns redirected stderr lines into terminating errors, so relax it for this call.',
+    "  $ErrorActionPreference = 'Continue'",
+    `  $agentOutput = & $exe --enroll $token --server ${serverUrl} --install 2>&1 | ForEach-Object { "$_" }`,
+    '  $exitCode = $LASTEXITCODE',
+    "  $ErrorActionPreference = 'Stop'",
+    "  foreach ($line in $agentOutput) { Log \"agent: $($line.Replace($token, '[token]'))\" }",
+    '  if ($exitCode -ne 0) { throw "The agent installer exited with code $exitCode." }',
     '',
     "  Log 'Agent installed.'",
     '  exit 0',

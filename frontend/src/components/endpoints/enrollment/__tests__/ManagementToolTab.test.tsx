@@ -92,7 +92,8 @@ describe('EnrollmentSection Management tool tab', () => {
     await user.click(screen.getByRole('button', { name: 'Download Install-AchillesAgent.ps1' }));
     expect(savedName).toBe('Install-AchillesAgent.ps1');
     const text = await savedBlob!.text();
-    expect(text).toContain('--enroll acht_test0123 --server https://achilles.example.com --install');
+    expect(text).toContain("$token = 'acht_test0123'");
+    expect(text).toContain('--enroll $token --server https://achilles.example.com --install');
     expect(text).toContain(`$fingerprint -ne '${FP}'`);
     expect(URL.revokeObjectURL).toHaveBeenCalledWith('blob:test');
   });
@@ -102,13 +103,14 @@ describe('EnrollmentSection Management tool tab', () => {
     expect(screen.getByRole('tabpanel').textContent).not.toContain('acht_test0123');
   });
 
-  it('shows the Intune settings, the detection file and the uninstall command', async () => {
+  it('shows the Intune settings, the detection key and the uninstall command', async () => {
     await openManagementTab();
     const panel = screen.getByRole('tabpanel', { name: 'Management tool' });
     expect(panel.textContent).toContain('Run this script using the logged on credentials');
     expect(panel.textContent).toContain('Enforce script signature check');
     expect(panel.textContent).toContain('Run script in 64-bit PowerShell host');
-    expect(within(panel).getByText('C:\\F0\\achilles-agent.exe')).toBeInTheDocument();
+    expect(within(panel).getByText('HKEY_LOCAL_MACHINE\\SYSTEM\\CurrentControlSet\\Services\\AchillesAgent')).toBeInTheDocument();
+    expect(panel.textContent).toContain('this registry key exists');
     expect(within(panel).getByText('C:\\F0\\achilles-agent.exe --uninstall')).toBeInTheDocument();
   });
 

@@ -132,9 +132,9 @@ export function ManagementToolPanel({
 
             <div className="space-y-2">
               <CopyLine
-                label="Detection rule: this file exists"
-                text={`${DETECTION_RULE.path}\\${DETECTION_RULE.file}`}
-                ariaLabel="Copy detection path"
+                label="Detection rule: this registry key exists"
+                text={DETECTION_RULE.key}
+                ariaLabel="Copy detection key"
               />
               <CopyLine label="Uninstall command" text={UNINSTALL_COMMAND} ariaLabel="Copy uninstall command" />
             </div>
