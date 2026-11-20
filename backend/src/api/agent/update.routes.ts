@@ -11,6 +11,7 @@ import {
   registerVersionFromUpload,
   deleteVersion,
   BinaryPathError,
+  getInstallReadiness,
 } from '../../services/agent/update.service.js';
 import { validate } from '../../middleware/validation.js';
 import { SigningError } from '../../services/agent/binarySigning.service.js';
@@ -153,6 +154,20 @@ export function createAdminUpdateRouter(buildService: AgentBuildService | null):
     asyncHandler(async (_req, res) => {
       const versions = listVersions();
       res.json({ success: true, data: versions });
+    })
+  );
+
+  /**
+   * GET /admin/versions/readiness
+   * Per platform, whether the install command's download would succeed now
+   * (a registered version whose file is on disk). Feeds the console's
+   * warnings before a user copies an install command or creates a task.
+   */
+  router.get(
+    '/versions/readiness',
+    requirePermission('endpoints:versions:read'),
+    asyncHandler(async (_req, res) => {
+      res.json({ success: true, data: getInstallReadiness() });
     })
   );
 
