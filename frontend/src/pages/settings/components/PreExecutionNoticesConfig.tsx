@@ -223,33 +223,35 @@ export function PreExecutionNoticesConfig({ onStatusChange }: PreExecutionNotice
           </p>
         </div>
 
-        <Input
-          label="Lead time (minutes)"
-          type="number"
-          min={0}
-          max={5}
-          value={leadMinutes}
-          onChange={(e) => setLeadMinutes(e.target.value)}
-          helperText="Delay between the notice being accepted and tests starting (0–5)"
-        />
-        <Input
-          label="Max wait for delivery (minutes)"
-          type="number"
-          min={15}
-          max={1440}
-          value={maxWait}
-          onChange={(e) => setMaxWait(e.target.value)}
-          helperText="Give up and skip the run if the notice is not accepted in this time (15–1440)"
-        />
-        <Input
-          label="Pickup window (minutes)"
-          type="number"
-          min={30}
-          max={1440}
-          value={pickupWindow}
-          onChange={(e) => setPickupWindow(e.target.value)}
-          helperText="How long agents have to pick up tests after release (30–1440)"
-        />
+        <div className="grid gap-4 sm:grid-cols-2">
+          <Input
+            label="Lead time (minutes)"
+            type="number"
+            min={0}
+            max={5}
+            value={leadMinutes}
+            onChange={(e) => setLeadMinutes(e.target.value)}
+            helperText="Delay between the notice being accepted and tests starting (0–5)"
+          />
+          <Input
+            label="Max wait for delivery (minutes)"
+            type="number"
+            min={15}
+            max={1440}
+            value={maxWait}
+            onChange={(e) => setMaxWait(e.target.value)}
+            helperText="Give up and skip the run if the notice is not accepted in this time (15–1440)"
+          />
+          <Input
+            label="Pickup window (minutes)"
+            type="number"
+            min={30}
+            max={1440}
+            value={pickupWindow}
+            onChange={(e) => setPickupWindow(e.target.value)}
+            helperText="How long agents have to pick up tests after release (30–1440)"
+          />
+        </div>
 
         <label className="flex items-center gap-2 text-sm">
           <input
