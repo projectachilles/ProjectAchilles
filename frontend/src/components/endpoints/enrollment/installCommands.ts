@@ -11,13 +11,35 @@ export interface InstallCommand {
 }
 
 /** ngrok's browser-warning interstitial only exists on ngrok tunnels. */
-function isNgrokHost(serverUrl: string): boolean {
+export function isNgrokHost(serverUrl: string): boolean {
   try {
     return /(^|\.)ngrok(-free)?\.(app|io|dev)$/.test(new URL(serverUrl).hostname);
   } catch {
     return false;
   }
 }
+
+/**
+ * The C:\F0 part of a Windows install, shared by the paste-in one-liner and
+ * the management-tool script (deployScript.ts) so the two can't drift: refuse
+ * a C:\F0 that is a link or not owned by SYSTEM or Administrators, lock it,
+ * refuse foreign-owned items inside, and delete any old binary so the
+ * download creates a new file that inherits the lock. Defines $dir, $exe and
+ * $trusted. Lines are indented for a surrounding script block.
+ */
+export const WINDOWS_FOLDER_LOCK_LINES: readonly string[] = [
+    "  $dir = 'C:\\F0'; $exe = 'C:\\F0\\achilles-agent.exe'; $trusted = 'S-1-5-18', 'S-1-5-32-544'",
+    '  function Owner($p) { (Get-Acl -LiteralPath $p).GetOwner([Security.Principal.SecurityIdentifier]).Value }',
+    '  function Untrusted($i) { ($i.Attributes -band [IO.FileAttributes]::ReparsePoint) -or ($trusted -notcontains (Owner $i.FullName)) }',
+    '  if (Test-Path -LiteralPath $dir) {',
+    '    $item = Get-Item -LiteralPath $dir -Force',
+    '    if (-not $item.PSIsContainer -or (Untrusted $item)) { throw "$dir exists but is not a plain folder owned by SYSTEM or Administrators, so a non-administrator may have created it. Check what is in it, remove it, and run this again." }',
+    '  } else { New-Item -ItemType Directory -Path $dir | Out-Null }',
+    "  icacls $dir /setowner '*S-1-5-32-544' /L /Q | Out-Null; if ($LASTEXITCODE -ne 0) { throw \"Could not make Administrators the owner of $dir.\" }",
+    "  icacls $dir /inheritance:r /grant:r '*S-1-5-18:(OI)(CI)F' /grant:r '*S-1-5-32-544:(OI)(CI)F' /grant:r '*S-1-3-4:(OI)(CI)(RC)' /L /Q | Out-Null; if ($LASTEXITCODE -ne 0) { throw \"Could not lock $dir to SYSTEM and Administrators.\" }",
+    '  Get-ChildItem -LiteralPath $dir -Force | ForEach-Object { if (Untrusted $_) { throw "$($_.FullName) is a link or is not owned by SYSTEM or Administrators. Check it, remove it, and run this again." } }',
+    '  if (Test-Path -LiteralPath $exe) { Remove-Item -LiteralPath $exe -Force }',
+];
 
 export function buildInstallCommands(serverUrl: string, token: string): InstallCommand[] {
   const ngrok = isNgrokHost(serverUrl);
@@ -55,17 +77,7 @@ export function buildInstallCommands(serverUrl: string, token: string): InstallC
   const windows = [
     '& {',
     "  $ErrorActionPreference = 'Stop'; $ProgressPreference = 'SilentlyContinue'",
-    "  $dir = 'C:\\F0'; $exe = 'C:\\F0\\achilles-agent.exe'; $trusted = 'S-1-5-18', 'S-1-5-32-544'",
-    '  function Owner($p) { (Get-Acl -LiteralPath $p).GetOwner([Security.Principal.SecurityIdentifier]).Value }',
-    '  function Untrusted($i) { ($i.Attributes -band [IO.FileAttributes]::ReparsePoint) -or ($trusted -notcontains (Owner $i.FullName)) }',
-    '  if (Test-Path -LiteralPath $dir) {',
-    '    $item = Get-Item -LiteralPath $dir -Force',
-    '    if (-not $item.PSIsContainer -or (Untrusted $item)) { throw "$dir exists but is not a plain folder owned by SYSTEM or Administrators, so a non-administrator may have created it. Check what is in it, remove it, and run this again." }',
-    '  } else { New-Item -ItemType Directory -Path $dir | Out-Null }',
-    "  icacls $dir /setowner '*S-1-5-32-544' /L /Q | Out-Null; if ($LASTEXITCODE -ne 0) { throw \"Could not make Administrators the owner of $dir.\" }",
-    "  icacls $dir /inheritance:r /grant:r '*S-1-5-18:(OI)(CI)F' /grant:r '*S-1-5-32-544:(OI)(CI)F' /grant:r '*S-1-3-4:(OI)(CI)(RC)' /L /Q | Out-Null; if ($LASTEXITCODE -ne 0) { throw \"Could not lock $dir to SYSTEM and Administrators.\" }",
-    '  Get-ChildItem -LiteralPath $dir -Force | ForEach-Object { if (Untrusted $_) { throw "$($_.FullName) is a link or is not owned by SYSTEM or Administrators. Check it, remove it, and run this again." } }',
-    '  if (Test-Path -LiteralPath $exe) { Remove-Item -LiteralPath $exe -Force }',
+    ...WINDOWS_FOLDER_LOCK_LINES,
     `  Invoke-WebRequest -UseBasicParsing -Uri "${download('windows', 'amd64')}"${ngrok ? ' -Headers @{"ngrok-skip-browser-warning"="true"}' : ''} -OutFile $exe`,
     `  & $exe --enroll ${token} --server ${serverUrl} --install`,
     '}',
