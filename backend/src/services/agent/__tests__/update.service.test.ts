@@ -438,6 +438,19 @@ describe('update.service', () => {
       expect(versions).toEqual([]);
     });
 
+    it('returns the recorded signer of a signed version', () => {
+      mockExistsSync.mockReturnValue(true);
+      mockStatSync.mockReturnValue({ isFile: () => true, size: 6 });
+      mockReadFileSync.mockReturnValue(agentBinary('1.0.0'));
+      registerVersion('1.0.0', 'windows', 'amd64', '/mock-home/.projectachilles/binaries/agent.exe', 'v1', false);
+      testDb.prepare("UPDATE agent_versions SET signed = 1, signer_subject = 'CN=Acme Code Signing,O=Acme,C=XX'").run();
+
+      const [version] = listVersions();
+
+      expect(version.signed).toBe(true);
+      expect(version.signer_subject).toBe('CN=Acme Code Signing,O=Acme,C=XX');
+    });
+
     it('includes all metadata fields', () => {
       const buf = agentBinary('3.0.0', 'binary');
       mockExistsSync.mockReturnValue(true);

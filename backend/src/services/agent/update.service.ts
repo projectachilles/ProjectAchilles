@@ -238,7 +238,7 @@ export function getInstallReadiness(): InstallReadiness {
 export function listVersions(): AgentVersion[] {
   const db = getDatabase();
   const rows = db.prepare(`
-    SELECT version, os, arch, binary_path, binary_sha256, binary_size, release_notes, mandatory, signed, binary_signature, created_at
+    SELECT version, os, arch, binary_path, binary_sha256, binary_size, release_notes, mandatory, signed, signer_subject, binary_signature, created_at
     FROM agent_versions
     ORDER BY created_at DESC
   `).all() as VersionRow[];
