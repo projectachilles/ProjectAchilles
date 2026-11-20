@@ -101,6 +101,16 @@ When a token is generated, the **Install command** box shows one platform at a t
 
 **Copy command** copies exactly what is shown. A platform only works when an agent binary for it has been registered in **Settings → Agent** ([Deploying Agents](./deploying-agents)).
 
+The console checks this for you, because the install command downloads the agent from your own server:
+
+- **No agent binary on this server** -- shown above the token form when no platform has one. You can still generate a token (it stays valid for its TTL) and build the agent afterwards.
+- Each platform tab shows the agent version it would install, or **no binary**. A platform without one shows the reason and a link to **Settings → Agent** in place of the command, so there is nothing to copy that would fail at the download.
+- A version that is registered but whose file is no longer on the server is reported as such: build or upload it again.
+
+The check runs again when you come back to the browser tab, so a build finished in another tab shows up without a reload. It is not available on `backend-serverless`, where the commands are shown as before.
+
+The **Create Task** dialog uses the same check: with no enrolled agent it lists what is still missing (agent binary, enrolled endpoint, built test) where the agent picker would be.
+
 ### Token Status Indicators
 
 The token list table shows a status badge for each token:
