@@ -11,6 +11,11 @@ const api = vi.hoisted(() => ({
   getBuildInfo: vi.fn(),
 }));
 
+// Fixed capabilities: without this the hook asks whatever backend happens to
+// be listening on localhost, and the dialog takes a different path.
+vi.mock('@/hooks/useCapabilities', () => ({
+  useCapabilities: () => ({ randomizedOnce: false, testRunRecency: false }),
+}));
 vi.mock('@/hooks/useAppRole', () => ({
   useAppRole: () => 'operator',
   useHasPermission: () => false,
@@ -61,7 +66,7 @@ describe('TaskCreatorDialog with nothing to run on', () => {
     vi.clearAllMocks();
     api.listAgents.mockResolvedValue({ agents: [], total: 0 });
     api.getInstallReadiness.mockResolvedValue(readiness(0));
-    api.getTestRecency.mockResolvedValue({});
+    api.getTestRecency.mockResolvedValue({ testUuids: [], runs: [], agents: [] });
     api.getAllTests.mockResolvedValue([
       { uuid: 't-1', name: 'Test one' }, { uuid: 't-2', name: 'Test two' }, { uuid: 't-3', name: 'Not built' },
     ]);
@@ -75,6 +80,14 @@ describe('TaskCreatorDialog with nothing to run on', () => {
     expect(screen.getByText('Agent binary on this server')).toBeInTheDocument();
     expect(screen.getByText('Enrolled endpoint')).toBeInTheDocument();
     expect(screen.getByText('Built test')).toBeInTheDocument();
+  });
+
+  it('hides the rest of the form while the checklist is shown', async () => {
+    renderDialog();
+    await screen.findByText(NOTICE);
+    expect(screen.queryByPlaceholderText(/search tests|loading tests/i)).toBeNull();
+    expect(screen.queryByText('Run Now')).toBeNull();
+    expect(screen.getByRole('button', { name: 'Cancel' })).toBeInTheDocument();
   });
 
   it('keeps the create button disabled', async () => {
@@ -107,6 +120,7 @@ describe('TaskCreatorDialog with nothing to run on', () => {
     await new Promise((r) => setTimeout(r, 20));
     expect(screen.queryByText(NOTICE)).toBeNull();
     expect(screen.queryByText('Agent binary on this server')).toBeNull();
+    expect(screen.getByPlaceholderText(/search tests/i)).toBeInTheDocument();
   });
 
   it('counts the built tests', async () => {

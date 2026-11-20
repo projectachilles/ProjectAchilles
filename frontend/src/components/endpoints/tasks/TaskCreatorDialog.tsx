@@ -420,6 +420,10 @@ export default function TaskCreatorDialog({ open, onClose, selectedAgents = [], 
               />
             )}
 
+            {/* With nothing to run on, the checklist stands alone: the rest of
+                the form can't be used yet. */}
+            {!checklistReadiness && (
+            <>
             {/* === Task Mode Toggle (hidden unless the user may send commands) === */}
             {canSendCommand && (
             <div>
@@ -877,6 +881,8 @@ export default function TaskCreatorDialog({ open, onClose, selectedAgents = [], 
                 </div>
               </TabsContent>
             </Tabs>
+            </>
+            )}
           </div>
         )}
       </DialogContent>
