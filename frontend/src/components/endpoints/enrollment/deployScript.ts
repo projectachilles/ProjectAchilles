@@ -1,0 +1,198 @@
+// The unattended Windows install script offered for a management tool
+// (Intune platform script, Intune Win32 app, GPO, Configuration Manager).
+// It installs the standard registered agent: nothing is built per enrollment.
+//
+// Differences from the paste-in one-liner (installCommands.ts), all because
+// nobody is watching it run and the tool may run it more than once:
+//   - an agent that is already installed is left alone (Intune runs a
+//     device-assigned script again for each new user who signs in);
+//   - it refuses to run unelevated and says which Intune setting to change;
+//   - it can require the downloaded binary to carry the server's signing
+//     certificate (pinned by fingerprint) before running it as SYSTEM;
+//   - it exits 0 or 1, which is what the tool reports and retries on.
+// The C:\F0 checks and lock are the same lines as the one-liner's.
+
+import { WINDOWS_FOLDER_LOCK_LINES, isNgrokHost } from './installCommands';
+
+export const DEPLOY_SCRIPT_FILENAME = 'Install-AchillesAgent.ps1';
+
+/**
+ * What a management tool's "is it installed" rule should look for: the
+ * service's registry key. Not the binary: `--uninstall` removes the service
+ * but cannot delete its own running exe, so the file outlives an uninstall.
+ */
+export const DETECTION_RULE = {
+  type: 'registry',
+  key: 'HKEY_LOCAL_MACHINE\\SYSTEM\\CurrentControlSet\\Services\\AchillesAgent',
+} as const;
+
+export const UNINSTALL_COMMAND = 'C:\\F0\\achilles-agent.exe --uninstall';
+
+export interface DeployScriptInput {
+  serverUrl: string;
+  token: string;
+  /** Registered Windows amd64 version, for the header comment. */
+  version: string | null;
+  /** `signer_subject` of that version, for display only (comment header, dialog). */
+  signerSubject: string | null;
+  /**
+   * `signer_fingerprint` of that version: SHA-256 of the certificate the
+   * registered binary is signed with. null = no signature check.
+   */
+  signerFingerprint: string | null;
+}
+
+export interface DeployScript {
+  /** CRLF line endings, ASCII only (Windows PowerShell 5.1 reads a BOM-less file as Windows-1252). */
+  text: string;
+  /** The certificate fingerprint the script pins, or null when it cannot verify the binary. */
+  verifiedFingerprint: string | null;
+  /** The signer's common name when it is safe to show, for display. */
+  signerName: string | null;
+}
+
+// Every value is written into the script as text, so each has an allow-list:
+// anything else could end a string, a line or a command, and this script runs
+// as SYSTEM. The builder refuses (or leaves the value out) rather than escapes.
+// The URL allows what an origin with an optional path prefix needs: no query,
+// no user info, no shell metacharacters.
+const SAFE_URL = /^[A-Za-z0-9._~:/\-[\]%+=]+$/;
+const SAFE_TOKEN = /^[A-Za-z0-9._~-]+$/;
+const SAFE_VERSION = /^[\w.-]+$/;
+const SAFE_COMMON_NAME = /^[A-Za-z0-9 ._,()&-]+$/;
+const FINGERPRINT = /^[0-9A-F]{64}$/;
+
+/** CN from an OpenSSL one-line subject ("/C=XX/O=Acme/CN=Acme Code Signing"), or null. */
+export function signerCommonName(subject: string | null): string | null {
+  if (!subject) return null;
+  // Attributes are separated by '/' (older osslsigncode) or ',' (newer ones).
+  const match = subject.match(/(?:^|[\/,])\s*CN=([^\/,]+)/);
+  return match ? match[1].trim() : null;
+}
+
+function isHttpUrl(value: string): boolean {
+  try {
+    const { protocol } = new URL(value);
+    return protocol === 'http:' || protocol === 'https:';
+  } catch {
+    return false;
+  }
+}
+
+/** Throws Error('unsafe value') when serverUrl or token could not be embedded safely. */
+export function buildWindowsDeployScript(input: DeployScriptInput): DeployScript {
+  const { serverUrl, token } = input;
+  // Only a comment, but a line break in it would start a line of code.
+  const version = input.version && SAFE_VERSION.test(input.version) ? input.version : null;
+  if (!SAFE_TOKEN.test(token) || !SAFE_URL.test(serverUrl) || !isHttpUrl(serverUrl)) {
+    throw new Error('unsafe value');
+  }
+
+  // The pin is the certificate itself, not its name: anyone can issue
+  // themselves a certificate with the same name. No check rather than a
+  // broken one when the fingerprint is missing or malformed.
+  const candidate = input.signerFingerprint?.toUpperCase() ?? '';
+  const verifiedFingerprint = FINGERPRINT.test(candidate) ? candidate : null;
+  const commonName = signerCommonName(input.signerSubject);
+  const signerName = commonName && SAFE_COMMON_NAME.test(commonName) ? commonName : null;
+
+  const url = `${serverUrl}/api/agent/download?os=windows&arch=amd64`;
+  const headers = isNgrokHost(serverUrl) ? ' -Headers @{"ngrok-skip-browser-warning"="true"}' : '';
+
+  // Windows reports a tampered file as HashMismatch and an unsigned one as
+  // NotSigned whatever the trust stores say. An intact signature is Valid, or
+  // UnknownError when Windows won't chain the certificate (not trusted on this
+  // computer, or a self-signed certificate marked as a CA). So: intact
+  // signature, and exactly the pinned certificate. The endpoint does not have
+  // to trust the certificate for this check.
+  const signatureBlock = verifiedFingerprint
+    ? [
+        '',
+        "  # Run only an agent that carries the server's signing certificate.",
+        '  $sig = Get-AuthenticodeSignature -LiteralPath $exe',
+        "  $fingerprint = ''",
+        "  if ($sig.SignerCertificate) { $fingerprint = [BitConverter]::ToString([Security.Cryptography.SHA256]::Create().ComputeHash($sig.SignerCertificate.RawData)).Replace('-', '') }",
+        `  if (@('Valid', 'UnknownError') -notcontains $sig.Status -or $fingerprint -ne '${verifiedFingerprint}') {`,
+        '    Remove-Item -LiteralPath $exe -Force',
+        '    throw "The downloaded agent does not carry the expected signing certificate (signature status: $($sig.Status); certificate: $fingerprint). If the signing certificate or the agent was changed on the server, download a new script."',
+        '  }',
+        "  Log 'Signature verified.'",
+      ]
+    : [];
+
+  const lines = [
+    '# Install-AchillesAgent.ps1',
+    '# Installs and enrolls the ProjectAchilles agent on this computer, unattended.',
+    '# For a management tool: Intune platform script or Win32 app, Group Policy,',
+    '# Configuration Manager. Run it as SYSTEM or an administrator, in 64-bit PowerShell.',
+    '#',
+    `# Server:    ${serverUrl}`,
+    `# Agent:     ${version ?? 'latest registered'} (Windows amd64)`,
+    verifiedFingerprint
+      ? `# Signature: verified, the agent must carry the certificate${signerName ? ` "${signerName}"` : ''} with SHA-256`
+      : '# Signature: not verified (the registered agent is not signed, or its certificate could not be read)',
+    ...(verifiedFingerprint ? [`#            ${verifiedFingerprint}`] : []),
+    '#',
+    '# Safe to run again: an agent that is already installed is left untouched.',
+    '# This file contains an enrollment token. Treat it as a secret.',
+    '',
+    "$ErrorActionPreference = 'Stop'; $ProgressPreference = 'SilentlyContinue'",
+    '',
+    "$exe = 'C:\\F0\\achilles-agent.exe'",
+    "$config = 'C:\\F0\\achilles-agent.yaml'",
+    "$logFile = 'C:\\F0\\achilles-install.log'",
+    '# The log file is only written once C:\\F0 has been checked and locked below.',
+    '$logToFile = $false',
+    'function Log($message) {',
+    '  $line = "$(Get-Date -Format s) $message"',
+    '  Write-Output $line',
+    '  if ($logToFile) { Add-Content -LiteralPath $logFile -Value $line -Encoding ASCII }',
+    '}',
+    '',
+    'try {',
+    '  $identity = [Security.Principal.WindowsIdentity]::GetCurrent()',
+    '  $elevated = (New-Object Security.Principal.WindowsPrincipal($identity)).IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)',
+    '  if (-not $elevated) { throw \'This script must run as SYSTEM or an administrator. In Intune, set "Run this script using the logged on credentials" to No.\' }',
+    '',
+    '  # Already installed: leave it alone. A management tool may run this again.',
+    "  $service = Get-Service -Name 'AchillesAgent' -ErrorAction SilentlyContinue",
+    '  if ($service -and (Test-Path -LiteralPath $exe) -and (Test-Path -LiteralPath $config)) {',
+    "    if ($service.Status -ne 'Running') { Start-Service -Name 'AchillesAgent' }",
+    "    Log 'Agent already installed; nothing to do.'",
+    '    exit 0',
+    '  }',
+    '',
+    '  # C:\\F0 must be a plain folder owned by SYSTEM or Administrators, locked to them.',
+    ...WINDOWS_FOLDER_LOCK_LINES,
+    '  $logToFile = $true',
+    '',
+    "  Log 'Downloading the agent.'",
+    `  $url = '${url}'`,
+    '  [Net.ServicePointManager]::SecurityProtocol = [Net.ServicePointManager]::SecurityProtocol -bor [Net.SecurityProtocolType]::Tls12',
+    `  try { Invoke-WebRequest -UseBasicParsing -Uri $url${headers} -OutFile $exe }`,
+    '  catch { throw "Could not download the agent from $($url): $($_.Exception.Message) The SYSTEM account does not use per-user proxy settings." }',
+    ...signatureBlock,
+    '',
+    "  Log 'Enrolling and installing the agent.'",
+    `  $token = '${token}'`,
+    `  $server = '${serverUrl}'`,
+    '  # Capture what the agent prints, stderr too. Under Stop, Windows PowerShell 5.1',
+    '  # turns redirected stderr lines into terminating errors, so relax it for this call.',
+    "  $ErrorActionPreference = 'Continue'",
+    '  $agentOutput = & $exe --enroll $token --server $server --install 2>&1 | ForEach-Object { "$_" }',
+    '  $exitCode = $LASTEXITCODE',
+    "  $ErrorActionPreference = 'Stop'",
+    "  foreach ($line in $agentOutput) { Log \"agent: $($line.Replace($token, '[token]'))\" }",
+    '  if ($exitCode -ne 0) { throw "The agent installer exited with code $exitCode." }',
+    '',
+    "  Log 'Agent installed.'",
+    '  exit 0',
+    '} catch {',
+    '  Log "FAILED: $($_.Exception.Message)"',
+    '  exit 1',
+    '}',
+    '',
+  ];
+
+  return { text: lines.join('\r\n'), verifiedFingerprint, signerName };
+}

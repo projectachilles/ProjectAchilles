@@ -17,6 +17,7 @@ import type {
   PlatformReadiness,
 } from '../../types/agent.js';
 import { signHash } from './signing.service.js';
+import { readSignerFingerprint } from './signerFingerprint.js';
 
 const VERSION_REGEX = /^[\w.\-]+$/;
 
@@ -31,6 +32,7 @@ interface VersionRow {
   mandatory: number;
   signed: number;
   signer_subject: string | null;
+  signer_fingerprint: string | null;
   binary_signature: string | null;
   created_at: string;
 }
@@ -41,6 +43,7 @@ function toAgentVersion(row: VersionRow): AgentVersion {
     mandatory: row.mandatory === 1,
     signed: row.signed === 1,
     signer_subject: row.signer_subject ?? null,
+    signer_fingerprint: row.signer_fingerprint ?? null,
     binary_signature: row.binary_signature,
   };
 }
@@ -107,11 +110,14 @@ export function registerVersion(
   // Ed25519-sign the binary hash for update signature verification (M5)
   const binarySignature = signHash(sha256);
 
+  // Which certificate signed it, for the management-tool script to pin.
+  const signerFingerprint = signed && os === 'windows' ? readSignerFingerprint(resolvedPath) : null;
+
   const db = getDatabase();
   db.prepare(`
-    INSERT OR REPLACE INTO agent_versions (version, os, arch, binary_path, binary_sha256, binary_size, release_notes, mandatory, signed, binary_signature, signer_subject)
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-  `).run(version, os, arch, resolvedPath, sha256, stat.size, releaseNotes, mandatory ? 1 : 0, signed ? 1 : 0, binarySignature, signerSubject);
+    INSERT OR REPLACE INTO agent_versions (version, os, arch, binary_path, binary_sha256, binary_size, release_notes, mandatory, signed, binary_signature, signer_subject, signer_fingerprint)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+  `).run(version, os, arch, resolvedPath, sha256, stat.size, releaseNotes, mandatory ? 1 : 0, signed ? 1 : 0, binarySignature, signerSubject, signerFingerprint);
 
   return {
     version,
@@ -124,6 +130,7 @@ export function registerVersion(
     mandatory,
     signed,
     signer_subject: signerSubject,
+    signer_fingerprint: signerFingerprint,
     binary_signature: binarySignature,
     created_at: new Date().toISOString(),
   };
@@ -238,12 +245,37 @@ export function getInstallReadiness(): InstallReadiness {
 export function listVersions(): AgentVersion[] {
   const db = getDatabase();
   const rows = db.prepare(`
-    SELECT version, os, arch, binary_path, binary_sha256, binary_size, release_notes, mandatory, signed, binary_signature, created_at
+    SELECT version, os, arch, binary_path, binary_sha256, binary_size, release_notes, mandatory, signed, signer_subject, signer_fingerprint, binary_signature, created_at
     FROM agent_versions
     ORDER BY created_at DESC
   `).all() as VersionRow[];
 
+  for (const row of rows) backfillSignerFingerprint(row);
   return rows.map(toAgentVersion);
+}
+
+/** Versions whose fingerprint could not be read in this process: not tried again until a restart. */
+const unreadableSigners = new Set<string>();
+
+/**
+ * Signed Windows versions registered before the fingerprint was recorded get
+ * it the first time the list is read, so existing installs need no
+ * re-registration. One read per version; a failure is remembered.
+ */
+function backfillSignerFingerprint(row: VersionRow): void {
+  if (row.signed !== 1 || row.os !== 'windows' || row.signer_fingerprint) return;
+  const key = `${row.version}|${row.os}|${row.arch}|${row.binary_sha256}`;
+  if (unreadableSigners.has(key) || !fs.existsSync(row.binary_path)) return;
+
+  const fingerprint = readSignerFingerprint(row.binary_path);
+  if (!fingerprint) {
+    unreadableSigners.add(key);
+    return;
+  }
+  getDatabase()
+    .prepare('UPDATE agent_versions SET signer_fingerprint = ? WHERE version = ? AND os = ? AND arch = ?')
+    .run(fingerprint, row.version, row.os, row.arch);
+  row.signer_fingerprint = fingerprint;
 }
 
 /**

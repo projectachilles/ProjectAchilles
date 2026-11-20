@@ -345,6 +345,8 @@ export interface AgentVersion {
   signed?: boolean;
   /** Certificate subject the binary was signed with; 'ad-hoc' for macOS. */
   signer_subject?: string | null;
+  /** SHA-256 fingerprint (64 upper-case hex) of the certificate a signed Windows binary carries, when the server could read it. */
+  signer_fingerprint?: string | null;
   created_at: string;
 }
 
