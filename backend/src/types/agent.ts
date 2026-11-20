@@ -405,6 +405,25 @@ export interface VersionCheckResponse {
   signature?: string;
 }
 
+/** Why a platform's install command would fail at the download. */
+export type BinaryUnavailableReason = 'no version' | 'file missing';
+
+export interface PlatformReadiness {
+  os: AgentOS;
+  arch: AgentArch;
+  ready: boolean;
+  /** Newest registered version, also when its file is missing. */
+  version: string | null;
+  /** null when ready. */
+  reason: BinaryUnavailableReason | null;
+}
+
+/** One entry per platform the console offers an install command for. */
+export interface InstallReadiness {
+  any_ready: boolean;
+  platforms: PlatformReadiness[];
+}
+
 // ============================================================================
 // LIST / FILTER
 // ============================================================================

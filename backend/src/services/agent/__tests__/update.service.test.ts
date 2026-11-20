@@ -78,6 +78,8 @@ const {
   getLatestVersion,
   listVersions,
   streamUpdate,
+  resolveLatestBinary,
+  getInstallReadiness,
   deleteVersion,
   BinaryPathError,
 } = await import('../update.service.js');
@@ -559,6 +561,91 @@ describe('update.service', () => {
       streamUpdate('linux', 'amd64', res);
 
       expect(res.setHeader).toHaveBeenCalledWith('Content-Length', buf.length.toString());
+    });
+  });
+
+  // ── Group 5b: install readiness ───────────────────────────
+
+  describe('install readiness', () => {
+    const BIN = '/mock-home/.projectachilles/binaries';
+
+    /** Register a version whose file is at `file`; every path exists while registering. */
+    function register(version: string, os: 'windows' | 'linux' | 'darwin', arch: 'amd64' | 'arm64', file: string, createdAt?: string) {
+      mockExistsSync.mockReturnValue(true);
+      mockStatSync.mockReturnValue({ isFile: () => true, size: 42 });
+      mockReadFileSync.mockReturnValue(agentBinary(version, file));
+      registerVersion(version, os, arch, file, 'notes', false);
+      if (createdAt) {
+        testDb.prepare('UPDATE agent_versions SET created_at = ? WHERE version = ? AND os = ? AND arch = ?')
+          .run(createdAt, version, os, arch);
+      }
+    }
+
+    /** From now on only these paths exist on disk. */
+    function onDisk(...paths: string[]) {
+      mockExistsSync.mockImplementation((p: string) => paths.includes(p));
+    }
+
+    it('resolveLatestBinary: no row is "no version"', () => {
+      expect(resolveLatestBinary('linux', 'amd64')).toEqual({ ok: false, reason: 'no version', version: null });
+    });
+
+    it('resolveLatestBinary: a row with its file on disk is ok, with version, path and size', () => {
+      register('1.0.0', 'linux', 'amd64', `${BIN}/agent`);
+      onDisk(`${BIN}/agent`);
+      mockStatSync.mockReturnValue({ isFile: () => true, size: 1234 });
+
+      expect(resolveLatestBinary('linux', 'amd64')).toEqual({
+        ok: true, version: '1.0.0', path: `${BIN}/agent`, size: 1234,
+      });
+    });
+
+    it('resolveLatestBinary: a row whose file was deleted is "file missing", with the version', () => {
+      register('1.0.0', 'linux', 'amd64', `${BIN}/gone`);
+      onDisk();
+
+      expect(resolveLatestBinary('linux', 'amd64')).toEqual({ ok: false, reason: 'file missing', version: '1.0.0' });
+    });
+
+    it('resolveLatestBinary: only the newest row counts, even when an older one still has its file', () => {
+      register('1.0.0', 'linux', 'amd64', `${BIN}/old`, '2026-01-01T00:00:00.000Z');
+      register('1.1.0', 'linux', 'amd64', `${BIN}/new`, '2026-01-02T00:00:00.000Z');
+      onDisk(`${BIN}/old`);
+
+      expect(resolveLatestBinary('linux', 'amd64')).toEqual({ ok: false, reason: 'file missing', version: '1.1.0' });
+    });
+
+    it('getInstallReadiness: an empty table gives five platforms in install-command order, none ready', () => {
+      const readiness = getInstallReadiness();
+
+      expect(readiness.any_ready).toBe(false);
+      expect(readiness.platforms.map((p) => `${p.os}/${p.arch}`)).toEqual([
+        'windows/amd64', 'linux/amd64', 'linux/arm64', 'darwin/arm64', 'darwin/amd64',
+      ]);
+      for (const p of readiness.platforms) {
+        expect(p).toMatchObject({ ready: false, version: null, reason: 'no version' });
+      }
+    });
+
+    it('getInstallReadiness: one registered platform is ready, the other four are not', () => {
+      register('1.0.0', 'windows', 'amd64', `${BIN}/agent.exe`);
+      onDisk(`${BIN}/agent.exe`);
+
+      const readiness = getInstallReadiness();
+
+      expect(readiness.any_ready).toBe(true);
+      expect(readiness.platforms[0]).toEqual({ os: 'windows', arch: 'amd64', ready: true, version: '1.0.0', reason: null });
+      expect(readiness.platforms.slice(1).every((p) => !p.ready)).toBe(true);
+    });
+
+    it('getInstallReadiness: a registered version with no file reports "file missing" and its version', () => {
+      register('1.0.0', 'linux', 'arm64', `${BIN}/gone`);
+      onDisk();
+
+      const readiness = getInstallReadiness();
+
+      expect(readiness.any_ready).toBe(false);
+      expect(readiness.platforms[2]).toEqual({ os: 'linux', arch: 'arm64', ready: false, version: '1.0.0', reason: 'file missing' });
     });
   });
 
