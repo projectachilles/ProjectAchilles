@@ -39,9 +39,9 @@ RUN apt-get update && \
 # The toolchain matches the image's architecture (TARGETARCH, set by BuildKit),
 # so an arm64 image (Apple Silicon) runs `go` natively, not emulated.
 # Checksums: https://go.dev/dl/?mode=json&include=all
-ARG GO_VERSION=1.25.9
-ARG GO_SHA256_AMD64=00859d7bd6defe8bf84d9db9e57b9a4467b2887c18cd93ae7460e713db774bc1
-ARG GO_SHA256_ARM64=ec342e7389b7f489564ed5463c63b16cf8040023dabc7861256677165a8c0e2b
+ARG GO_VERSION=1.26.11
+ARG GO_SHA256_AMD64=9849f4e04ee35303714e34fbc3ac8ab44ea3e448a95aa182f91e3b9b79c710ec
+ARG GO_SHA256_ARM64=6c2f29b458b5add0835f18b776f69c8881a6d88428f1484a6da55755e620757e
 ARG TARGETARCH
 RUN case "${TARGETARCH:-amd64}" in \
       amd64) GO_SHA256="${GO_SHA256_AMD64}" ;; \
