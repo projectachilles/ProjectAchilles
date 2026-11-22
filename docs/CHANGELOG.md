@@ -19,6 +19,7 @@ This project uses two version streams:
 
 ### Changed
 - **The backend image bundles Go 1.26.11.** It shipped Go 1.25.9, which is older than the Go 1.26 the agent source requires and no longer receives fixes. With Go's default settings, building the agent from source then downloads a 1.26 toolchain first, which needs internet access and is not covered by the checksum the image pins for its own toolchain. The image now carries Go 1.26.11, checked against the official SHA-256 for amd64 and arm64, so the bundled toolchain builds the agent and the tests itself. Rebuild the backend image to get it; agents that are already installed are not affected. (#841)
+- **Released agent and installer binaries are built with Go 1.26.11.** The release, CI and appliance workflows take their Go version from `agent/go.mod` and `installer/go.mod`, which only named the minimum, Go 1.26.0, so that is what release binaries were compiled with. Both files now carry `toolchain go1.26.11`; the minimum stays Go 1.26.0. To check a download, run `go version -m <binary>`.
 - **Node.js 22 base images refreshed.** The backend and frontend Docker images pin newer digests of `node:22-slim` and `node:22-alpine`. (#830)
 
 ### Fixed
