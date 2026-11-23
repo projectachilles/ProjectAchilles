@@ -1,4 +1,5 @@
 import type { TestMetadata } from '@/types/test';
+import type { TestVersionRow, TestVersionStatus } from '@/types/testVersion';
 
 export type SortField = 'name' | 'createdDate' | 'score' | 'lastModifiedDate';
 export type SortDirection = 'asc' | 'desc';
@@ -14,6 +15,8 @@ export interface TestFilters {
   tacticSlug: string | null;
   notRunYet: boolean;
   hasBinary: boolean;
+  /** Version status; null = all. Needs ctx.versions. */
+  versionStatus: TestVersionStatus | null;
   view: ViewFilter;
   sortField: SortField;
   sortDirection: SortDirection;
@@ -27,6 +30,7 @@ export const DEFAULT_FILTERS: TestFilters = {
   tacticSlug: null,
   notRunYet: false,
   hasBinary: false,
+  versionStatus: null,
   view: 'all',
   sortField: 'createdDate',
   sortDirection: 'desc',
@@ -38,6 +42,8 @@ export interface FilterContext {
   recentUuids: string[];
   executedUuids: Set<string> | null;
   builtUuids: Set<string> | null;
+  /** Version rows by test uuid; absent when the backend has no version tracking. */
+  versions?: Record<string, TestVersionRow> | null;
 }
 
 /** Mode/view pre-filter, before facets — mirrors the legacy behavior. */
@@ -97,6 +103,10 @@ export function filterTests(
 
   if (filters.hasBinary && ctx.builtUuids) {
     filtered = filtered.filter((test) => ctx.builtUuids!.has(test.uuid));
+  }
+
+  if (filters.versionStatus && ctx.versions) {
+    filtered = filtered.filter((test) => ctx.versions![test.uuid]?.status === filters.versionStatus);
   }
 
   // Recent view keeps recency order unless the user explicitly sorts

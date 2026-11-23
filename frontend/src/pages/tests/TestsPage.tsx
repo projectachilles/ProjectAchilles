@@ -8,6 +8,10 @@ import {
   Play,
   X,
 } from 'lucide-react';
+import { useCapabilities } from '@/hooks/useCapabilities';
+import { useTestVersions } from '@/hooks/useTestVersions';
+import { VERSION_STATUS_LABEL } from '@/components/browser/VersionStatusChip';
+import type { TestVersionStatus } from '@/types/testVersion';
 import { browserApi } from '@/services/api/browser';
 import type { SyncStatus } from '@/types/test';
 import { formatRelativeTime } from '@/utils/dateFormatters';
@@ -36,6 +40,7 @@ import { TestListHeader, TestListRow } from './components/TestListRow';
 import { fleetResultText, type FleetState } from './components/fleetResult';
 import { FacetRail } from './components/FacetRail';
 import { SyncChip } from './components/SyncChip';
+import { VersionBanner, versionBannerVisible } from './components/VersionBanner';
 import {
   DEFAULT_FILTERS,
   computeFacetCounts,
@@ -88,6 +93,11 @@ export default function TestsPage() {
   const [sortDirection, setSortDirection] = useState<SortDirection>('desc');
   const [notRunYet, setNotRunYet] = useState(false);
   const [hasBinary, setHasBinary] = useState(false);
+  const [versionStatus, setVersionStatus] = useState<TestVersionStatus | null>(null);
+  const { testVersions: versionsEnabled } = useCapabilities();
+  const versionState = useTestVersions();
+  const reloadVersions = versionState.reload;
+  const versions = versionsEnabled ? versionState.data : null;
 
   const [executedUuids, setExecutedUuids] = useState<Set<string> | null>(null);
   const [builtUuids, setBuiltUuids] = useState<Set<string> | null>(null);
@@ -135,11 +145,12 @@ export default function TestsPage() {
       threatActor: searchParams.get('actor'),
       notRunYet,
       hasBinary,
+      versionStatus: versions ? versionStatus : null,
       view,
       sortField,
       sortDirection,
     }),
-    [query, category, tacticSlug, searchParams, notRunYet, hasBinary, view, sortField, sortDirection],
+    [query, category, tacticSlug, searchParams, notRunYet, hasBinary, versionStatus, versions, view, sortField, sortDirection],
   );
 
   const activeFacetCount =
@@ -149,7 +160,8 @@ export default function TestsPage() {
     (filters.threatActor ? 1 : 0) +
     (filters.tacticSlug ? 1 : 0) +
     (filters.notRunYet ? 1 : 0) +
-    (filters.hasBinary ? 1 : 0);
+    (filters.hasBinary ? 1 : 0) +
+    (filters.versionStatus ? 1 : 0);
 
   const handleFilterChange = useCallback(
     (patch: Partial<TestFilters>) => {
@@ -197,6 +209,7 @@ export default function TestsPage() {
       const result = await browserApi.syncTests();
       setSyncStatus(result.syncStatus);
       setTests(await browserApi.getAllTests());
+      void reloadVersions();
       browserApi
         .getBuiltTestUuids()
         .then((uuids) => setBuiltUuids(new Set(uuids)))
@@ -207,7 +220,7 @@ export default function TestsPage() {
     } finally {
       setSyncing(false);
     }
-  }, []);
+  }, [reloadVersions]);
 
   useEffect(() => {
     if (fetchedRef.current) return;
@@ -260,13 +273,18 @@ export default function TestsPage() {
       recentUuids: recentTests.map((r) => r.uuid),
       executedUuids,
       builtUuids,
+      versions: versions?.tests ?? null,
     }),
-    [favorites, recentTests, executedUuids, builtUuids],
+    [favorites, recentTests, executedUuids, builtUuids, versions],
   );
 
   const filtered = useMemo(() => filterTests(tests, filters, ctx), [tests, filters, ctx]);
   const counts = useMemo(() => computeFacetCounts(tests, filters, ctx), [tests, filters, ctx]);
   const groups = useMemo(() => groupByCategory(filtered), [filtered]);
+
+  const bannerVisible = versions != null && versionBannerVisible(versions.library);
+  // Check now sits in the banner when there is one, in the header otherwise.
+  const showCheckInHeader = versions != null && versions.library.gitEnabled && !bannerVisible;
 
   function openDrawer(drawerSet: TestMetadata[]) {
     setDrawerTests(drawerSet);
@@ -308,11 +326,29 @@ export default function TestsPage() {
           branch={syncStatus?.branch}
           commit={syncStatus?.commitHash ?? undefined}
           lastSyncedAgo={syncStatus?.lastSyncTime ? formatRelativeTime(syncStatus.lastSyncTime) : undefined}
+          checkedAgo={
+            versions?.library.gitEnabled && versions.library.checkedAt
+              ? formatRelativeTime(versions.library.checkedAt)
+              : undefined
+          }
           syncing={syncing}
           canSync={canSync}
           onSync={() => void handleSync()}
+          onCheck={showCheckInHeader ? () => void versionState.checkNow() : undefined}
+          checking={versionState.checking}
         />
       </PageHeader>
+
+      {versions && bannerVisible && (
+        <VersionBanner
+          library={versions.library}
+          canSync={canSync}
+          syncing={syncing}
+          checking={versionState.checking}
+          onSync={() => void handleSync()}
+          onCheck={() => void versionState.checkNow()}
+        />
+      )}
 
       <div className="mb-4 flex flex-wrap items-center gap-2">
         <Input
@@ -350,6 +386,21 @@ export default function TestsPage() {
         >
           {sortDirection === 'asc' ? <ArrowUpNarrowWide /> : <ArrowDownNarrowWide />}
         </Button>
+        {versions && (
+          <select
+            aria-label="Version status"
+            value={versionStatus ?? ''}
+            onChange={(e) => setVersionStatus((e.target.value || null) as TestVersionStatus | null)}
+            className="h-9 rounded-md border border-border bg-raised px-2 text-sm text-foreground"
+          >
+            <option value="">All versions</option>
+            {(Object.keys(VERSION_STATUS_LABEL) as TestVersionStatus[]).map((status) => (
+              <option key={status} value={status}>
+                {VERSION_STATUS_LABEL[status]}
+              </option>
+            ))}
+          </select>
+        )}
         {!isDesktop && (
           <Button
             variant={activeFacetCount > 0 ? 'secondary' : 'outline'}
@@ -449,7 +500,7 @@ export default function TestsPage() {
                   <div className="h-px flex-1 bg-border" />
                 </div>
                 <div className="overflow-hidden rounded-[10px] border border-border bg-surface">
-                  <TestListHeader />
+                  <TestListHeader showVersion={versions != null} />
                   <ul>
                     {group.tests.map((test) => (
                       <TestListRow
@@ -465,6 +516,8 @@ export default function TestsPage() {
                         isFavorite={isFavorite(test.uuid)}
                         onToggleFavorite={() => toggleFavorite(test.uuid)}
                         onExecute={canCreateTasks ? () => openDrawer([test]) : undefined}
+                        version={versions?.tests[test.uuid]}
+                        showVersion={versions != null}
                         selectMode={selectMode}
                         selected={selectedUuids.has(test.uuid)}
                         onToggleSelect={() => toggleSelect(test.uuid)}
