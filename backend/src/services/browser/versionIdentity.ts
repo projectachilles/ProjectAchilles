@@ -40,6 +40,8 @@ const DISK_BINARY_EXT: readonly string[] = ['.exe', '.dll', '.so', '.dylib', '.b
  *   auto-created go.mod/go.sum are removed afterwards);
  * - achilles_log_dir.go: synthesized LOG_DIR file, removed in `finally`.
  */
+// A deliberate edit to go.sum is not detected: `go mod tidy` can create it
+// during a build, so it cannot be told apart from a generated one.
 const DISK_GENERATED_NAMES: readonly string[] = ['go.sum', 'achilles_log_dir.go'];
 
 function sha256(data: string | Buffer): string {
@@ -126,7 +128,36 @@ export function identitiesFromTree(
   return result;
 }
 
-function isDiskGenerated(relPosix: string, uuid: string, generated: Set<string>): boolean {
+/** First bytes of ELF, PE/MZ and Mach-O (thin and fat) executables. */
+const BINARY_MAGICS: readonly number[][] = [
+  [0x7f, 0x45, 0x4c, 0x46],
+  [0x4d, 0x5a],
+  [0xfe, 0xed, 0xfa, 0xce],
+  [0xfe, 0xed, 0xfa, 0xcf],
+  [0xce, 0xfa, 0xed, 0xfe],
+  [0xcf, 0xfa, 0xed, 0xfe],
+  [0xca, 0xfe, 0xba, 0xbe],
+];
+
+/** True when the file starts with a compiled-executable magic (reads 4 bytes). */
+function hasBinaryMagic(fullPath: string): boolean {
+  const buf = Buffer.alloc(4);
+  let n = 0;
+  const fd = fs.openSync(fullPath, 'r');
+  try {
+    n = fs.readSync(fd, buf, 0, 4, 0);
+  } finally {
+    fs.closeSync(fd);
+  }
+  return BINARY_MAGICS.some(m => n >= m.length && m.every((b, i) => buf[i] === b));
+}
+
+function isDiskGenerated(
+  relPosix: string,
+  uuid: string,
+  generated: Set<string>,
+  fullPath: string,
+): boolean {
   if (generated.has(relPosix)) return true;
   if (relPosix === 'build' || relPosix.startsWith('build/')) return true;
   const ext = extOf(relPosix);
@@ -136,7 +167,8 @@ function isDiskGenerated(relPosix: string, uuid: string, generated: Set<string>)
     // Extensionless orchestrator / stage binaries: `<uuid>` or `<uuid>-<stage>`
     if (relPosix === uuid || (relPosix.startsWith(`${uuid}-`) && ext === '')) return true;
   }
-  return false;
+  // Compiled output under any name (source-built validators, stage binaries)
+  return hasBinaryMagic(fullPath);
 }
 
 function walkFiles(root: string, rel: string, out: string[]): void {
@@ -155,6 +187,10 @@ function walkFiles(root: string, rel: string, out: string[]): void {
 export function identityFromDisk(
   testDir: string,
   uuid: string,
+  /**
+   * Paths relative to `testDir`, '/' separators (e.g. 'validator.dat'), that
+   * are not source: uploaded embed dependencies, tracked by a separate deps hash.
+   */
   generatedFiles: string[] = [],
 ): TestVersionIdentity {
   const generated = new Set(generatedFiles.map(f => f.split(path.sep).join('/')));
@@ -162,7 +198,7 @@ export function identityFromDisk(
   walkFiles(testDir, '', files);
 
   const lines = files
-    .filter(f => isBuildInput(f) && !isDiskGenerated(f, uuid, generated))
+    .filter(f => isBuildInput(f) && !isDiskGenerated(f, uuid, generated, path.join(testDir, f)))
     .map(f => ({ path: f, hash: sha256(fs.readFileSync(path.join(testDir, f))) }));
 
   const sourceHash = hashLines(lines);

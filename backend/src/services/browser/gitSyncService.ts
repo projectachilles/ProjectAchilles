@@ -402,9 +402,6 @@ export class GitSyncService {
   }
 
   /**
-   * Get current sync status
-   */
-  /**
    * Every blob and tree at `ref`, in one `git ls-tree -r -t`. Needs trees
    * only, so it works for paths outside the sparse checkout. Lazy fetching is
    * off so a missing object fails instead of downloading blobs.
@@ -461,6 +458,9 @@ export class GitSyncService {
     return `origin/${branch}`;
   }
 
+  /**
+   * Get current sync status
+   */
   public getStatus(): SyncStatus {
     return { ...this.syncStatus };
   }

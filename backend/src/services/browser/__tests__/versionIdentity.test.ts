@@ -79,6 +79,7 @@ describe('identitiesFromTree', () => {
     `${REL_A}/README.md`,
     `${REL_A}/info.html`,
     `${REL_A}/rules.kql`,
+    `${REL_A}/x.yar`,
     `${REL_A}/x.yara`,
     `${REL_A}/x.ndjson`,
   ])('a change to %s keeps fingerprint, changes test_tree', (p) => {
@@ -202,6 +203,24 @@ describe('identityFromDisk', () => {
     write('go.sum', 'sum');
     write('achilles_log_dir.go', 'package main');
     expect(identityFromDisk(dir, UUID_A)).toEqual(before);
+  });
+
+  it('ignores extensionless ELF and Mach-O binaries but sees a plain text file', () => {
+    const before = identityFromDisk(dir, UUID_A);
+    fs.writeFileSync(path.join(dir, 'validator-defender'), Buffer.from([0x7f, 0x45, 0x4c, 0x46, 1, 2]));
+    fs.writeFileSync(path.join(dir, 'helper'), Buffer.from([0xcf, 0xfa, 0xed, 0xfe, 7]));
+    fs.writeFileSync(path.join(dir, 'tiny'), Buffer.from([0x4d, 0x5a]));
+    expect(identityFromDisk(dir, UUID_A)).toEqual(before);
+    write('Makefile', 'all:\n\tgo build');
+    expect(identityFromDisk(dir, UUID_A).source_hash).not.toBe(before.source_hash);
+  });
+
+  it('excludes files named in generatedFiles (zip, extensionless) and only those', () => {
+    const before = identityFromDisk(dir, UUID_A);
+    write('payload.zip', 'PK data');
+    write('sub/blob', 'text dep');
+    expect(identityFromDisk(dir, UUID_A).source_hash).not.toBe(before.source_hash);
+    expect(identityFromDisk(dir, UUID_A, ['payload.zip', 'sub/blob'])).toEqual(before);
   });
 
   it('still sees source changes, including a .go file and go.mod', () => {
