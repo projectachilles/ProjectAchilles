@@ -544,6 +544,33 @@ describe('GitSyncService', () => {
       expect(mockGitInstance.clean).not.toHaveBeenCalled();
     });
 
+    it('fetchPublished points origin at the configured repository before fetching', async () => {
+      await service.fetchPublished();
+
+      expect(mockGitInstance.remote).toHaveBeenCalledWith(['set-url', 'origin', REPO_URL]);
+      expect(mockGitInstance.remote.mock.invocationCallOrder[0])
+        .toBeLessThan(mockGitInstance.fetch.mock.invocationCallOrder[0]);
+    });
+
+    it('fetchPublished with a token: set-url once, then the anonymous fetch and the token retry', async () => {
+      const withToken = createService('tok-placeholder');
+      mockGitInstance.fetch
+        .mockRejectedValueOnce(new Error('auth required'))
+        .mockResolvedValueOnce(undefined);
+
+      await withToken.fetchPublished();
+
+      expect(mockGitInstance.remote).toHaveBeenCalledTimes(1);
+      expect(mockGitInstance.fetch).toHaveBeenCalledTimes(2);
+      expect(mockGitInstance.remote.mock.invocationCallOrder[0])
+        .toBeLessThan(mockGitInstance.fetch.mock.invocationCallOrder[0]);
+    });
+
+    it('publishedRef names the remote-tracking ref that fetchPublished and pull update', async () => {
+      expect(service.publishedRef()).toBe('origin/main');
+      expect(await service.fetchPublished()).toBe(service.publishedRef());
+    });
+
     it('listTree parses mode/type/hash/path lines including paths with spaces', async () => {
       mockGitInstance.raw.mockResolvedValueOnce(
         [

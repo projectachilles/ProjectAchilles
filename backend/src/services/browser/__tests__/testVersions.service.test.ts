@@ -37,6 +37,7 @@ interface Fake {
   modifiedTrackedPaths: ReturnType<typeof vi.fn>;
   isSyncing: ReturnType<typeof vi.fn>;
   getRepoPath: ReturnType<typeof vi.fn>;
+  publishedRef: ReturnType<typeof vi.fn>;
   pull: ReturnType<typeof vi.fn>;
   sync: ReturnType<typeof vi.fn>;
 }
@@ -46,6 +47,7 @@ describe('TestVersionsService', () => {
   let repo: string;
   let fake: Fake;
   let customDir: string;
+  let warn: ReturnType<typeof vi.spyOn>;
 
   function makeService(opts: { git?: boolean; embed?: (uuid: string) => string[]; jitter?: number } = {}): TestVersionsService {
     return new TestVersionsService({
@@ -78,13 +80,16 @@ describe('TestVersionsService', () => {
       modifiedTrackedPaths: vi.fn().mockResolvedValue([]),
       isSyncing: vi.fn().mockReturnValue(false),
       getRepoPath: vi.fn().mockReturnValue(repo),
+      publishedRef: vi.fn().mockReturnValue('origin/main'),
       pull: vi.fn(),
       sync: vi.fn(),
     };
     delete process.env.TESTS_UPDATE_CHECK;
+    warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
   });
 
   afterEach(() => {
+    warn.mockRestore();
     vi.useRealTimers();
     delete process.env.TESTS_UPDATE_CHECK;
     fs.rmSync(tmp, { recursive: true, force: true });
@@ -113,9 +118,178 @@ describe('TestVersionsService', () => {
     const state = await svc.check();
     expect(state.commit).toBe('beef01');
     expect(state.byTest.has(UUID_A)).toBe(true);
-    expect(state.error).toContain('fetch failed');
-    expect(state.error).not.toContain('s3cret');
+    expect(state.error).toBe('The update check failed');
     expect(state.errorAt).not.toBeNull();
+  });
+
+  describe('check error text', () => {
+    it.each([
+      ["fatal: unable to access 'https://example.invalid/lib.git/': Could not resolve host: example.invalid", 'Could not reach the test repository'],
+      ["fatal: unable to access 'https://example.invalid/lib.git/': Failed to connect to example.invalid port 443: Connection timed out", 'Could not reach the test repository'],
+      ['getaddrinfo EAI_AGAIN example.invalid', 'Could not reach the test repository'],
+      ["fatal: unable to access 'https://example.invalid/lib.git/': The requested URL returned error: 403", 'The test repository rejected the credentials'],
+      ["remote: Invalid username or token.\nfatal: Authentication failed for 'https://example.invalid/lib.git/'", 'The test repository rejected the credentials'],
+      ["fatal: could not read Username for 'https://example.invalid': terminal prompts disabled", 'The test repository rejected the credentials'],
+      ["fatal: Unable to create '/srv/clone/.git/shallow.lock': File exists.", 'The update check failed'],
+      ['fatal: bad object refs/remotes/origin/main', 'The update check failed'],
+    ])('%s -> %s', async (message, expected) => {
+      fake.fetchPublished.mockRejectedValue(new Error(message));
+      const state = await makeService().check();
+      expect(state.error).toBe(expected);
+      expect(makeService().published().error).toBe(expected);
+    });
+
+    it('stores no repository URL, path or credential, and logs the sanitized detail once', async () => {
+      fake.fetchPublished.mockRejectedValue(
+        new Error("fatal: unable to access 'https://user:s3cret@example.invalid/lib.git/': Could not resolve host"),
+      );
+      const state = await makeService().check();
+      expect(state.error).toBe('Could not reach the test repository');
+      expect(fs.readFileSync(path.join(tmp, 'state', 'published.json'), 'utf8')).not.toContain('example.invalid');
+      expect(warn).toHaveBeenCalledTimes(1);
+      const logged = warn.mock.calls[0].map(String).join(' ');
+      expect(logged).toContain('Could not resolve host');
+      expect(logged).not.toContain('s3cret');
+    });
+  });
+
+  it('a failed check keeps a newer good result another process wrote while it ran', async () => {
+    vi.useFakeTimers({ toFake: ['Date'] });
+    vi.setSystemTime(new Date('2026-11-23T10:00:00Z'));
+    const a = makeService();
+    let fail: (e: Error) => void = () => undefined;
+    fake.fetchPublished.mockReturnValueOnce(new Promise<string>((_r, reject) => { fail = reject; }));
+    const running = a.check();
+
+    vi.setSystemTime(new Date('2026-11-23T10:00:05Z'));
+    await makeService().check(); // another process, same state file: succeeds
+
+    vi.setSystemTime(new Date('2026-11-23T10:00:10Z'));
+    fail(new Error('Could not resolve host'));
+    const state = await running;
+
+    expect(state.error).toBeNull();
+    expect(state.commit).toBe('beef01');
+    expect(state.checkedAt).toBe('2026-11-23T10:00:05.000Z');
+    const shared = makeService().published();
+    expect(shared.error).toBeNull();
+    expect(shared.errorAt).toBeNull();
+    expect(shared.checkedAt).toBe('2026-11-23T10:00:05.000Z');
+  });
+
+  it('a failed check after an older good result still records the error', async () => {
+    vi.useFakeTimers({ toFake: ['Date'] });
+    vi.setSystemTime(new Date('2026-11-23T10:00:00Z'));
+    await makeService().check();
+    vi.setSystemTime(new Date('2026-11-23T11:00:00Z'));
+    fake.fetchPublished.mockRejectedValue(new Error('Could not resolve host'));
+    const state = await makeService().check();
+    expect(state.error).toBe('Could not reach the test repository');
+    expect(state.checkedAt).toBe('2026-11-23T10:00:00.000Z');
+    expect(makeService().published().error).toBe('Could not reach the test repository');
+  });
+
+  describe('recordPublishedFromLocal (after a Sync)', () => {
+    it('records what the sync fetched as the published version, without a network call', async () => {
+      const svc = makeService();
+      await svc.check(); // published = beef01
+      // Sync: the remote moved on, pull() fetched it and reset HEAD to it.
+      const synced = { hash: 'beef99', date: '2026-11-23T09:00:00+00:00' };
+      fake.commitInfo.mockImplementation(async () => synced);
+      fake.listTree.mockImplementation(async () => treeFor(UUID_A, 'h9'));
+      fake.fetchPublished.mockClear();
+
+      await svc.recordPublishedFromLocal();
+
+      expect(fake.fetchPublished).not.toHaveBeenCalled();
+      expect(fake.listTree).toHaveBeenCalledWith('origin/main');
+      expect(fake.commitInfo).toHaveBeenCalledWith('origin/main');
+      const state = svc.published();
+      expect(state.commit).toBe((await svc.syncedCommit())!.hash);
+      expect(state.commit).toBe('beef99');
+      expect(state.error).toBeNull();
+      expect(state.newTests).toBe(0);
+      expect(state.byTest.get(UUID_A)?.fingerprint).toBe((await svc.synced()).get(UUID_A)?.fingerprint);
+      // persisted for the other processes
+      expect(makeService().published().commit).toBe('beef99');
+    });
+
+    it('drops the synced caches', async () => {
+      const svc = makeService();
+      await svc.synced();
+      const headCalls = () => fake.listTree.mock.calls.filter(c => c[0] === 'HEAD').length;
+      expect(headCalls()).toBe(1);
+      await svc.recordPublishedFromLocal();
+      await svc.synced();
+      expect(headCalls()).toBe(2);
+    });
+
+    it('does nothing without git', async () => {
+      const svc = makeService({ git: false });
+      await svc.recordPublishedFromLocal();
+      expect(svc.published().checkedAt).toBeNull();
+      expect(fake.listTree).not.toHaveBeenCalled();
+    });
+
+    it('while a check runs, it records again from the local ref once that check ends', async () => {
+      const svc = makeService();
+      let release: (ref: string) => void = () => undefined;
+      fake.fetchPublished.mockReturnValueOnce(new Promise<string>(r => { release = r; }));
+      const running = svc.check();
+      await svc.recordPublishedFromLocal();
+      const localReads = () => fake.listTree.mock.calls.filter(c => c[0] === 'origin/main').length;
+      expect(localReads()).toBe(1);
+      release('origin/main');
+      await running;
+      expect(localReads()).toBe(3); // the check's own read, then the local re-read
+      expect(fake.fetchPublished).toHaveBeenCalledTimes(1);
+    });
+  });
+
+  it('with TESTS_UPDATE_CHECK=off, afterSync() only drops the caches', async () => {
+    process.env.TESTS_UPDATE_CHECK = 'off';
+    const svc = makeService();
+    svc.afterSync();
+    await new Promise(r => setTimeout(r, 20));
+    expect(fake.fetchPublished).not.toHaveBeenCalled();
+  });
+
+  it('a git test whose HEAD tree cannot be read gets no identity; custom tests keep theirs', async () => {
+    fake.listTree.mockRejectedValue(new Error('fatal: bad object HEAD'));
+    const svc = makeService();
+    const synced = await svc.synced();
+    expect(synced.has(UUID_A)).toBe(false);
+    expect(synced.get(UUID_CUSTOM)?.provenance).toBe('custom');
+    await expect(svc.current(UUID_A)).rejects.toThrow('bad object');
+  });
+
+  it('a git test missing from the HEAD tree gets no identity and no stamp', async () => {
+    fake.listTree.mockResolvedValue([]);
+    const svc = makeService();
+    expect((await svc.synced()).has(UUID_A)).toBe(false);
+    expect(await svc.current(UUID_A)).toBeNull();
+  });
+
+  it('current() of a custom test reads only that test, and never git', async () => {
+    const embed = vi.fn(() => [] as string[]);
+    const svc = makeService({ embed });
+    const cur = await svc.current(UUID_CUSTOM);
+    expect(cur?.identity.provenance).toBe('custom');
+    expect(cur?.modified).toBe(false);
+    expect(embed.mock.calls).toEqual([[UUID_CUSTOM]]);
+    expect(fake.listTree).not.toHaveBeenCalled();
+    expect(fake.commitInfo).not.toHaveBeenCalled();
+  });
+
+  it('current() of a git test uses the cached tree identities and reads no folder', async () => {
+    const embed = vi.fn(() => [] as string[]);
+    const svc = makeService({ embed });
+    const first = await svc.current(UUID_A);
+    const second = await svc.current(UUID_A);
+    expect(first?.identity.commit).toBe('c0ffee');
+    expect(second?.identity).toEqual(first?.identity);
+    expect(fake.listTree.mock.calls.filter(c => c[0] === 'HEAD')).toHaveLength(1);
+    expect(embed).not.toHaveBeenCalled();
   });
 
   it('check() while another check runs, or while gitSync.isSyncing(), rejects with CheckBusyError', async () => {
@@ -255,7 +429,7 @@ describe('TestVersionsService', () => {
       fake.fetchPublished.mockRejectedValue(new Error('lock held'));
       await first.check();
       const state = makeService().published();
-      expect(state.error).toContain('lock held');
+      expect(state.error).toBe('The update check failed');
       expect(state.errorAt).not.toBeNull();
       expect(state.byTest.has(UUID_A)).toBe(true);
       expect(state.commit).toBe('beef01');

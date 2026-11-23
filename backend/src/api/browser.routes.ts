@@ -49,6 +49,9 @@ export function createBrowserRouter(options: {
   const OVERVIEW_MEMO_MAX = 200;
   const overviewMemo = new Map<string, TestOverview>();
 
+  // The versions service of this router (tests pass one), else the process-wide one.
+  const versionsService = (): TestVersionsService | undefined => options.testVersions ?? getTestVersionsService();
+
   // Protect all browser routes with Clerk authentication + library read permission
   router.use(requireClerkAuth());
   router.use(requirePermission('tests:library:read'));
@@ -101,7 +104,16 @@ export function createBrowserRouter(options: {
       // Re-scan tests after sync
       const tests = testIndexer?.refresh() || [];
       overviewMemo.clear();
-      getTestVersionsService()?.afterSync();
+
+      // The pull just fetched the published branch: record it as the
+      // published version before answering, so the page never compares the
+      // new synced commit with an older published one.
+      try {
+        await versionsService()?.recordPublishedFromLocal();
+      } catch (err) {
+        console.warn('Could not record the published test versions after the sync: %s',
+          sanitizeGitError(err instanceof Error ? err.message : String(err), process.env.GITHUB_TOKEN));
+      }
 
       // Reload agent test catalog so new tests are available for enrichment
       initCatalog(options.testSources);
@@ -614,7 +626,7 @@ export function createBrowserRouter(options: {
     console.log('Refreshing test index...');
     const tests = testIndexer.refresh();
     overviewMemo.clear();
-    getTestVersionsService()?.afterSync();
+    versionsService()?.afterSync();
 
     res.json({
       success: true,

@@ -54,6 +54,26 @@ const DISK_CACHE_MS = 30_000;
 const MIN_TIMED_GAP_MS = 10 * 60_000;
 const CHECK_INTERVAL_MS = 6 * 60 * 60_000;
 
+/** The timed and after-refresh checks are on unless TESTS_UPDATE_CHECK=off. */
+function timedCheckEnabled(): boolean {
+  return process.env.TESTS_UPDATE_CHECK !== 'off';
+}
+
+/**
+ * What a failed check stores and shows: a short category, never git's own
+ * text (it names the repository URL and local paths, and the versions route
+ * is readable by every library reader).
+ */
+export function checkErrorCategory(message: string): string {
+  if (/\b40[13]\b|authentication|could not read (username|password)|invalid (username|credentials)|bad credentials|terminal prompts disabled|permission denied \(publickey/i.test(message)) {
+    return 'The test repository rejected the credentials';
+  }
+  if (/could not resolve|name resolution|timed out|timeout|failed to connect|couldn't connect|connection (refused|reset|closed)|network is unreachable|no route to host|remote end hung up|ENOTFOUND|EAI_AGAIN|ECONNREFUSED|ECONNRESET|ETIMEDOUT|EHOSTUNREACH|ENETUNREACH/i.test(message)) {
+    return 'Could not reach the test repository';
+  }
+  return 'The update check failed';
+}
+
 function emptyState(): PublishedState {
   return {
     checkedAt: null, commit: null, commitDate: null,
@@ -85,6 +105,8 @@ export class TestVersionsService implements BuildVersionSource {
   private loadedMtimeMs = -1;
   private readonly startJitterMs: number;
   private rerunWanted = false;
+  /** recordPublishedFromLocal() ran during a check: read the local ref again once it ends. */
+  private localRecordWanted = false;
   private state: PublishedState = emptyState();
   private checking = false;
   private firstTimer: NodeJS.Timeout | undefined;
@@ -114,15 +136,25 @@ export class TestVersionsService implements BuildVersionSource {
     return { ...identityFromDisk(dir, uuid, this.embedDependencyFiles(uuid)), provenance };
   }
 
-  /** Git tests at HEAD, cached by the HEAD hash so another process's sync is noticed. */
+  /** Where a test is in the repository when its version comes from git; null when it comes from its folder. */
+  private gitRelPath(t: { dir: string; provenance: 'upstream' | 'custom' }): string | null {
+    return t.provenance === 'upstream' ? this.repoRelPath(t.dir) : null;
+  }
+
+  /**
+   * Git tests at HEAD, cached by the HEAD hash so another process's sync is
+   * noticed. `error` is set when HEAD can't be read: those tests then have no
+   * identity at all (never one from their folder, which would compare as a
+   * different version).
+   */
   private async gitIdentities(
     tests: ReturnType<TestVersionsOptions['listTests']>,
-  ): Promise<{ ids: Map<string, TestVersionIdentity>; commit: { hash: string; date: string } | null }> {
+  ): Promise<{ ids: Map<string, TestVersionIdentity>; commit: { hash: string; date: string } | null; error?: unknown }> {
     const none = { ids: new Map<string, TestVersionIdentity>(), commit: null };
     if (!this.gitSync) return none;
     const gitTests: TestLocation[] = [];
     for (const t of tests) {
-      const relPath = t.provenance === 'upstream' ? this.repoRelPath(t.dir) : null;
+      const relPath = this.gitRelPath(t);
       if (relPath) gitTests.push({ uuid: t.uuid, relPath });
     }
     if (gitTests.length === 0) return none;
@@ -132,9 +164,8 @@ export class TestVersionsService implements BuildVersionSource {
       const entries = await this.gitSync.listTree('HEAD');
       this.gitCache = { commit, ids: identitiesFromTree(entries, gitTests, commit) };
       return this.gitCache;
-    } catch {
-      // No readable HEAD: the tests fall back to their folders.
-      return none;
+    } catch (error) {
+      return { ...none, error };
     }
   }
 
@@ -147,9 +178,10 @@ export class TestVersionsService implements BuildVersionSource {
     }
     const identities = new Map<string, TestVersionIdentity>();
     for (const t of tests) {
-      const fromGit = gitIds.get(t.uuid);
-      if (fromGit) {
-        identities.set(t.uuid, fromGit);
+      if (this.gitRelPath(t) !== null) {
+        // A git test: its tree identity or none (status: unknown build).
+        const fromGit = gitIds.get(t.uuid);
+        if (fromGit) identities.set(t.uuid, fromGit);
         continue;
       }
       let id = this.diskCache.ids.get(t.uuid);
@@ -162,7 +194,10 @@ export class TestVersionsService implements BuildVersionSource {
     return { identities, commit };
   }
 
-  /** Version of every test as it is synced: git tests at HEAD, the others from their folders. */
+  /**
+   * Version of every test as it is synced: git tests at HEAD (none when HEAD
+   * can't be read), the others from their folders.
+   */
   async synced(): Promise<Map<string, TestVersionIdentity>> {
     return (await this.loadSynced()).identities;
   }
@@ -216,15 +251,25 @@ export class TestVersionsService implements BuildVersionSource {
     }
   }
 
+  /**
+   * The version a build of `uuid` starts from. A folder test: its folder now
+   * (that test only). A git test: its tree identity at HEAD (cached) and
+   * whether its build inputs differ from HEAD; null when the test is not in
+   * the HEAD tree, and a rejection when HEAD can't be read.
+   */
   async current(uuid: string): Promise<{ identity: TestVersionIdentity; modified: boolean } | null> {
-    const test = this.listTests().find(t => t.uuid === uuid);
+    const tests = this.listTests();
+    const test = tests.find(t => t.uuid === uuid);
     if (!test) return null;
-    const relPath = test.provenance === 'upstream' ? this.repoRelPath(test.dir) : null;
-    const identity = (await this.synced()).get(uuid);
-    if (!relPath || !this.gitSync || !identity || identity.test_tree === null) {
+    const relPath = this.gitRelPath(test);
+    if (!relPath || !this.gitSync) {
       // From the folder: the identity already is the current state.
       return { identity: this.diskIdentity(uuid, test.dir, test.provenance), modified: false };
     }
+    const { ids, error } = await this.gitIdentities(tests);
+    if (error !== undefined) throw error;
+    const identity = ids.get(uuid);
+    if (!identity) return null;
     const shared = sharedInputPrefixes(relPath);
     const changed = await this.gitSync.modifiedTrackedPaths([relPath, ...shared]);
     const dirPrefix = `${relPath}/`;
@@ -249,6 +294,27 @@ export class TestVersionsService implements BuildVersionSource {
     return out;
   }
 
+  /** Read the published version from the fetched ref `ref`; the state as a successful check leaves it. */
+  private async readPublished(gitSync: GitSyncService, ref: string): Promise<void> {
+    const [entries, commit] = await Promise.all([
+      gitSync.listTree(ref),
+      gitSync.commitInfo(ref),
+    ]);
+    const byTest = identitiesFromTree(entries, this.publishedLocations(entries), commit);
+    const local = new Set(this.listTests().map(t => t.uuid));
+    let newTests = 0;
+    for (const uuid of byTest.keys()) if (!local.has(uuid)) newTests++;
+    this.state = {
+      checkedAt: new Date().toISOString(),
+      commit: commit.hash,
+      commitDate: commit.date,
+      error: null,
+      errorAt: null,
+      byTest,
+      newTests,
+    };
+  }
+
   /**
    * Fetch the published branch and compare. Resolves with the (possibly
    * unchanged) state; a git failure is recorded in `error`, not thrown.
@@ -257,37 +323,38 @@ export class TestVersionsService implements BuildVersionSource {
     if (!this.gitSync) return this.state;
     if (this.checking || this.gitSync.isSyncing()) throw new CheckBusyError();
     this.checking = true;
+    const startedAt = Date.now();
     this.published(); // start from the latest shared result
+    let keepShared = false;
     try {
       const ref = await this.gitSync.fetchPublished();
-      const [entries, commit] = await Promise.all([
-        this.gitSync.listTree(ref),
-        this.gitSync.commitInfo(ref),
-      ]);
-      const byTest = identitiesFromTree(entries, this.publishedLocations(entries), commit);
-      const local = new Set(this.listTests().map(t => t.uuid));
-      let newTests = 0;
-      for (const uuid of byTest.keys()) if (!local.has(uuid)) newTests++;
-      this.state = {
-        checkedAt: new Date().toISOString(),
-        commit: commit.hash,
-        commitDate: commit.date,
-        error: null,
-        errorAt: null,
-        byTest,
-        newTests,
-      };
+      await this.readPublished(this.gitSync, ref);
     } catch (err) {
-      const raw = err instanceof Error ? err.message : String(err);
-      this.state = {
-        ...this.state,
-        error: sanitizeGitError(raw, process.env.GITHUB_TOKEN),
-        errorAt: new Date().toISOString(),
-      };
+      const detail = sanitizeGitError(err instanceof Error ? err.message : String(err), process.env.GITHUB_TOKEN);
+      console.warn('Published test version check failed: %s', detail);
+      // Another process (or a Sync here) may have recorded a good result
+      // since this check started: a late failure must not overwrite it.
+      const latest = this.published();
+      if (latest.checkedAt !== null && Date.parse(latest.checkedAt) > startedAt) {
+        keepShared = true;
+      } else {
+        this.state = {
+          ...latest,
+          error: checkErrorCategory(detail),
+          errorAt: new Date().toISOString(),
+        };
+      }
     } finally {
       this.checking = false;
     }
-    this.persist();
+    if (!keepShared) this.persist();
+    if (this.localRecordWanted) {
+      this.localRecordWanted = false;
+      await this.recordPublishedFromLocal().catch((err: unknown) => {
+        console.warn('Could not record the synced published version: %s',
+          sanitizeGitError(err instanceof Error ? err.message : String(err), process.env.GITHUB_TOKEN));
+      });
+    }
     if (this.rerunWanted) {
       this.rerunWanted = false;
       this.check().catch(() => { /* busy: the next timer tick checks again */ });
@@ -295,11 +362,33 @@ export class TestVersionsService implements BuildVersionSource {
     return this.state;
   }
 
-  /** After a sync or index refresh: the synced versions are stale, and the published check may have changed. */
-  afterSync(): void {
+  private dropSyncedCaches(): void {
     this.gitCache = null;
     this.diskCache = null;
-    if (!this.gitEnabled) return;
+  }
+
+  /**
+   * After a Sync: record what the sync's own fetch brought (the remote-tracking
+   * ref pull() reset to) as the published version, with no network call, so
+   * the page never shows the synced commit as older than the published one.
+   * Also drops the synced caches. Rejects on a git error.
+   */
+  async recordPublishedFromLocal(): Promise<void> {
+    this.dropSyncedCaches();
+    if (!this.gitSync) return;
+    // A running check may have fetched before the sync: read again after it.
+    if (this.checking) this.localRecordWanted = true;
+    await this.readPublished(this.gitSync, this.gitSync.publishedRef());
+    this.persist();
+  }
+
+  /**
+   * After an index refresh: the synced versions are stale, and the published
+   * check may have changed. Starts a check unless TESTS_UPDATE_CHECK=off.
+   */
+  afterSync(): void {
+    this.dropSyncedCaches();
+    if (!this.gitEnabled || !timedCheckEnabled()) return;
     if (this.checking) {
       // The running check may have fetched before the sync: run once more after it.
       this.rerunWanted = true;
@@ -324,7 +413,7 @@ export class TestVersionsService implements BuildVersionSource {
   }
 
   start(): void {
-    if (!this.gitEnabled || process.env.TESTS_UPDATE_CHECK === 'off') return;
+    if (!this.gitEnabled || !timedCheckEnabled()) return;
     this.stop();
     const run = (): void => { void this.timedCheck(); };
     const delay = FIRST_CHECK_MS + (this.startJitterMs > 0 ? Math.floor(Math.random() * this.startJitterMs) : 0);

@@ -76,6 +76,8 @@ function makeService(over: Record<string, unknown> = {}) {
     syncedCommit: vi.fn(async () => ({ hash: 'sync1', date: '2026-11-01T00:00:00Z' })),
     published: vi.fn(() => published()),
     check: vi.fn(async () => published()),
+    recordPublishedFromLocal: vi.fn(async () => undefined),
+    afterSync: vi.fn(),
     ...over,
   };
 }
@@ -248,6 +250,109 @@ describe('POST /api/browser/tests/updates/check', () => {
   it('answers 503 when the services are not provided', async () => {
     const res = await request(makeApp('none')).post('/api/browser/tests/updates/check');
     expect(res.status).toBe(503);
+  });
+});
+
+describe('POST /api/browser/tests/sync then GET /api/browser/tests/versions', () => {
+  let tmp: string;
+  beforeEach(async () => {
+    allowCheck = true;
+    delete process.env.TESTS_UPDATE_CHECK;
+    const fs = await import('fs');
+    const os = await import('os');
+    tmp = fs.mkdtempSync(`${os.tmpdir()}/tv-route-`);
+  });
+  afterEach(async () => {
+    const fs = await import('fs');
+    fs.rmSync(tmp, { recursive: true, force: true });
+  });
+
+  it('a sync that moves HEAD past the last check reports no update available, before any new check finishes', async () => {
+    const { TestVersionsService } = await import('../../services/browser/testVersions.service.js');
+    const repo = `${tmp}/repo`;
+    const rel = `tests_source/intel-driven/${U_UPDATE}`;
+    const commits: Record<string, { hash: string; date: string }> = {
+      c1: { hash: 'c1', date: '2026-11-01T00:00:00Z' },
+      c2: { hash: 'c2', date: '2026-11-20T00:00:00Z' },
+    };
+    const treeAt = (c: string) => [
+      { type: 'tree' as const, hash: `tree-${c}`, path: rel },
+      { type: 'blob' as const, hash: `main-${c}`, path: `${rel}/${U_UPDATE}.go` },
+    ];
+    // What HEAD and origin/main point at in the clone, and what is upstream.
+    let head = 'c1';
+    let originRef = 'c1';
+    let upstream = 'c1';
+    let fetches = 0;
+    const git = {
+      isSyncing: () => false,
+      getStatus: () => ({ status: 'synced', branch: 'main', commitHash: head, lastSyncTime: null }),
+      getRepoUrl: () => 'https://git.example.org/acme/lib.git',
+      getRepoPath: () => repo,
+      publishedRef: () => 'origin/main',
+      // The first check completes; any later one never does (it loses every race).
+      fetchPublished: vi.fn(async () => {
+        fetches++;
+        if (fetches > 1) return new Promise<string>(() => undefined);
+        originRef = upstream;
+        return 'origin/main';
+      }),
+      sync: vi.fn(async () => { originRef = upstream; head = upstream; }),
+      listTree: vi.fn(async (ref: string) => treeAt(ref === 'HEAD' ? head : originRef)),
+      commitInfo: vi.fn(async (ref: string) => commits[ref === 'HEAD' ? head : originRef]),
+      modifiedTrackedPaths: vi.fn(async () => []),
+    };
+    const versions = new TestVersionsService({
+      gitSync: git as never,
+      sourceSubdir: 'tests_source',
+      listTests: () => [{ uuid: U_UPDATE, dir: `${repo}/${rel}`, provenance: 'upstream' }],
+      stateFile: `${tmp}/published.json`,
+    });
+    const builds = {
+      getBuildInfo: vi.fn((uuid: string) => (uuid === U_UPDATE
+        ? { exists: true, source: 'built', builtAt: '2026-11-02T00:00:00Z', signed: true, version: undefined as unknown }
+        : { exists: false })),
+      currentDepsHash: vi.fn(() => null),
+    };
+    const app = makeApp({ testVersions: versions as never, buildService: builds as never, gitSync: git as never });
+
+    await versions.check(); // published = c1 = synced
+    const stamped = (await versions.current(U_UPDATE))!;
+    builds.getBuildInfo.mockImplementation(((uuid: string) => (uuid === U_UPDATE
+      ? { exists: true, source: 'built', builtAt: '2026-11-02T00:00:00Z', signed: true,
+          version: { ...stamped.identity, deps_hash: null, modified: false, binaries: {} } }
+      : { exists: false })) as never);
+    const before = await request(app).get('/api/browser/tests/versions');
+    expect(before.body.data.tests[U_UPDATE].status).toBe('up_to_date');
+
+    upstream = 'c2';
+    const synced = await request(app).post('/api/browser/tests/sync');
+    expect(synced.status).toBe(200);
+
+    const after = await request(app).get('/api/browser/tests/versions');
+    expect(after.body.data.library.syncedCommit).toBe('c2');
+    expect(after.body.data.library.publishedCommit).toBe('c2');
+    expect(after.body.data.library.updatesAvailable).toBe(0);
+    expect(after.body.data.tests[U_UPDATE].status).toBe('rebuild_needed');
+  });
+
+  it('a failure recording the published version is logged and does not fail the sync', async () => {
+    const error = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    const svc = makeService({ recordPublishedFromLocal: vi.fn(async () => { throw new Error('bad ref'); }) });
+    const git = {
+      isSyncing: () => false,
+      sync: vi.fn(async () => undefined),
+      getStatus: () => ({ status: 'synced', branch: 'main', commitHash: 'x', lastSyncTime: null }),
+      getRepoUrl: () => 'https://git.example.org/acme/lib.git',
+    };
+    try {
+      const res = await request(makeApp({ testVersions: svc as never, gitSync: git as never })).post('/api/browser/tests/sync');
+      expect(res.status).toBe(200);
+      expect(svc.recordPublishedFromLocal).toHaveBeenCalledTimes(1);
+      expect(error).toHaveBeenCalled();
+    } finally {
+      error.mockRestore();
+    }
   });
 });
 

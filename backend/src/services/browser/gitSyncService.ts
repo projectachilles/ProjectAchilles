@@ -219,6 +219,21 @@ export class GitSyncService {
   }
 
   /**
+   * Point `origin` at the configured repository. Removes credentials
+   * persisted by older versions, and follows a changed TESTS_REPO_URL on an
+   * existing clone, so every fetch goes to the repository that is configured
+   * now. Runs before each fetch.
+   */
+  private async pointOriginAtConfiguredRepo(): Promise<void> {
+    await createGit(this.config.localPath).remote(['set-url', 'origin', this.config.repoUrl]);
+  }
+
+  /** The remote-tracking ref of the configured branch: what pull() resets to and fetchPublished() updates. */
+  public publishedRef(): string {
+    return `origin/${this.config.branch}`;
+  }
+
+  /**
    * Clone the repository using sparse checkout (tests_source + shared libraries)
    */
   public async clone(): Promise<void> {
@@ -281,16 +296,14 @@ export class GitSyncService {
       // Initialize git for the local repo
       const repoGit = createGit(this.config.localPath);
 
-      // Remove credentials persisted by older versions and keep the remote
-      // suitable for status output and future diagnostics.
-      await repoGit.remote(['set-url', 'origin', this.config.repoUrl]);
+      await this.pointOriginAtConfiguredRepo();
 
       // Fetch and reset to handle force pushes. The reset downloads the
       // changed files (partial clone), so it needs the same access as the fetch.
       await this.withTokenFallback(async (token) => {
         const remoteGit = createGit(this.config.localPath, token);
         await remoteGit.fetch(['--depth', '1']);
-        await remoteGit.reset(['--hard', `origin/${this.config.branch}`]);
+        await remoteGit.reset(['--hard', this.publishedRef()]);
       });
 
       // Clean untracked files
@@ -456,11 +469,12 @@ export class GitSyncService {
    */
   public async fetchPublished(): Promise<string> {
     const branch = this.config.branch;
+    await this.pointOriginAtConfiguredRepo();
     await this.withTokenFallback(async (token) => {
       const git = createGit(this.config.localPath, token);
       await git.fetch(['--depth', '1', 'origin', branch]);
     });
-    return `origin/${branch}`;
+    return this.publishedRef();
   }
 
   /**
