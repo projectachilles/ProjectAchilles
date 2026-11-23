@@ -18,6 +18,12 @@ const mockUnlinkSync = vi.fn();
 const mockCopyFileSync = vi.fn();
 const mockRenameSync = vi.fn();
 const mockSymlinkSync = vi.fn();
+// hashFiles (deps hash) resolves and lstat()s each entry: follow existsSync.
+const mockRealpathSync = vi.fn((p: string) => p);
+const mockLstatSync = vi.fn((p: string) => {
+  if (!mockExistsSync(p)) throw Object.assign(new Error(`ENOENT: ${p}`), { code: 'ENOENT' });
+  return { isSymbolicLink: () => false, isFile: () => true, isDirectory: () => false };
+});
 
 vi.mock('fs', async () => {
   const actual = await vi.importActual<typeof import('fs')>('fs');
@@ -33,6 +39,8 @@ vi.mock('fs', async () => {
     copyFileSync: mockCopyFileSync,
     renameSync: mockRenameSync,
     symlinkSync: mockSymlinkSync,
+    realpathSync: mockRealpathSync,
+    lstatSync: mockLstatSync,
   };
   return { ...actual, ...overrides, default: { ...actual, ...overrides } };
 });

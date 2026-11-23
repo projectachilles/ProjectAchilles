@@ -39,9 +39,10 @@ const DISK_BINARY_EXT: readonly string[] = ['.exe', '.dll', '.so', '.dylib', '.b
  * - go.sum: `go mod tidy` writes it when go.mod exists without one (the
  *   auto-created go.mod/go.sum are removed afterwards);
  * - achilles_log_dir.go: synthesized LOG_DIR file, removed in `finally`.
+ *
+ * A deliberate edit to go.sum is not detected: `go mod tidy` can create it
+ * during a build, so it cannot be told apart from a generated one.
  */
-// A deliberate edit to go.sum is not detected: `go mod tidy` can create it
-// during a build, so it cannot be told apart from a generated one.
 const DISK_GENERATED_NAMES: readonly string[] = ['go.sum', 'achilles_log_dir.go'];
 
 function sha256(data: string | Buffer): string {
@@ -158,7 +159,10 @@ function isDiskGenerated(
   generated: Set<string>,
   fullPath: string,
 ): boolean {
-  if (generated.has(relPosix)) return true;
+  // An entry names a file, or a folder and everything under it.
+  for (const name of generated) {
+    if (relPosix === name || relPosix.startsWith(`${name}/`)) return true;
+  }
   if (relPosix === 'build' || relPosix.startsWith('build/')) return true;
   const ext = extOf(relPosix);
   if (DISK_BINARY_EXT.includes(ext)) return true;
@@ -188,12 +192,19 @@ export function identityFromDisk(
   testDir: string,
   uuid: string,
   /**
-   * Paths relative to `testDir`, '/' separators (e.g. 'validator.dat'), that
-   * are not source: uploaded embed dependencies, tracked by a separate deps hash.
+   * Paths relative to `testDir`, '/' separators, that are not source: every
+   * embed dependency of the test, whether it is there yet or not. A file
+   * ('validator.dat', '<uuid>-T1.exe.gz') is left out itself; a folder
+   * ('generated') is left out with everything under it. Uploaded ones are
+   * tracked by the build's deps hash, build-made ones are build output.
    */
   generatedFiles: string[] = [],
 ): TestVersionIdentity {
-  const generated = new Set(generatedFiles.map(f => f.split(path.sep).join('/')));
+  const generated = new Set(
+    generatedFiles
+      .map(f => f.split(path.sep).join('/').replace(/\/+$/, ''))
+      .filter(f => f !== ''),
+  );
   const files: string[] = [];
   walkFiles(testDir, '', files);
 
@@ -215,16 +226,68 @@ export function identityFromDisk(
 }
 
 /**
- * sha256 over the named files of a directory (name and content). Missing files
- * are skipped. Returns null when the list is empty.
+ * Add the regular files at `full` to `out`: the file itself, or every regular
+ * file under a folder. Links, FIFOs, devices and sockets are skipped, and so
+ * is anything that can't be read.
+ */
+function collectRegularFiles(full: string, relPosix: string, out: Map<string, string>): void {
+  let st: fs.Stats;
+  try {
+    st = fs.lstatSync(full);
+  } catch {
+    return;
+  }
+  if (st.isSymbolicLink()) return;
+  if (st.isFile()) {
+    try {
+      out.set(relPosix, sha256(fs.readFileSync(full)));
+    } catch {
+      // unreadable: contributes nothing
+    }
+    return;
+  }
+  if (!st.isDirectory()) return;
+  let names: string[];
+  try {
+    names = fs.readdirSync(full);
+  } catch {
+    return;
+  }
+  for (const name of names.sort()) {
+    collectRegularFiles(path.join(full, name), `${relPosix}/${name}`, out);
+  }
+}
+
+/**
+ * sha256 over what the named entries of a directory hold (relative path and
+ * content of each regular file). A name can be a file or a folder (walked
+ * recursively). Only regular files that are really inside `dir` count:
+ * links (the entry, a folder above it, or anything in a walked folder), FIFOs,
+ * devices and names that leave `dir` are skipped, and so is a name that
+ * matches nothing. Never throws. Returns null when the list is empty.
  */
 export function hashFiles(dir: string, filenames: string[]): string | null {
   if (filenames.length === 0) return null;
-  const lines: Array<{ path: string; hash: string }> = [];
-  for (const name of filenames) {
-    const full = path.join(dir, name);
-    if (!fs.existsSync(full)) continue;
-    lines.push({ path: name, hash: sha256(fs.readFileSync(full)) });
+  const files = new Map<string, string>();
+  const toLines = () => hashLines([...files].map(([p, hash]) => ({ path: p, hash })));
+  const root = path.resolve(dir);
+  let realRoot: string;
+  try {
+    realRoot = fs.realpathSync(root);
+  } catch {
+    return toLines();
   }
-  return hashLines(lines);
+  for (const name of filenames) {
+    const full = path.resolve(root, name);
+    const rel = path.relative(root, full);
+    if (rel === '' || rel.startsWith('..') || path.isAbsolute(rel)) continue;
+    try {
+      // A link anywhere between `dir` and the entry resolves somewhere else.
+      if (fs.realpathSync(full) !== path.join(realRoot, rel)) continue;
+    } catch {
+      continue; // not there
+    }
+    collectRegularFiles(full, rel.split(path.sep).join('/'), files);
+  }
+  return toLines();
 }

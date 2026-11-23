@@ -359,11 +359,11 @@ async function startServer() {
     gitSync: gitSyncService,
     sourceSubdir: 'tests_source',
     listTests: () => versionIndexer.listLocations(),
-    // Uploaded embed dependencies are tracked by the build's deps hash, not the version.
+    // A cluster worker spreads its first timed check over a minute.
     startJitterMs: cluster.isWorker ? 60_000 : undefined,
-    embedDependencyFiles: (uuid) => buildService.getEmbedDependencies(uuid)
-      .filter(d => d.exists && !d.sourceBuilt)
-      .map(d => d.filename),
+    // Every embed dependency is left out of a folder's content fingerprint:
+    // build-made ones are output, uploaded ones are tracked by the deps hash.
+    embedDependencyFiles: (uuid) => buildService.embedDependencyNames(uuid),
   });
   const buildService: BuildService = new BuildService(
     new TestsSettingsService(),

@@ -2,6 +2,7 @@ import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import * as fs from 'fs';
 import * as os from 'os';
 import * as path from 'path';
+import { execFileSync } from 'child_process';
 import {
   identitiesFromTree,
   identityFromDisk,
@@ -239,6 +240,28 @@ describe('identityFromDisk', () => {
     expect(identityFromDisk(dir, UUID_A, ['payload.zip', 'sub/blob'])).toEqual(before);
   });
 
+  it('a generatedFiles entry that is a folder excludes everything under it, and only that', () => {
+    const before = identityFromDisk(dir, UUID_A, ['generated']);
+    write('generated/x.pem', 'cert');
+    write('generated/deep/y.txt', 'text');
+    expect(identityFromDisk(dir, UUID_A, ['generated'])).toEqual(before);
+    // A sibling whose name only starts with the folder name is still source
+    write('generated-notes.txt', 'source');
+    expect(identityFromDisk(dir, UUID_A, ['generated']).source_hash).not.toBe(before.source_hash);
+  });
+
+  it('a generatedFiles entry with a trailing slash is the same folder; a file entry excludes that file only', () => {
+    const before = identityFromDisk(dir, UUID_A, ['generated/']);
+    write('generated/x.pem', 'cert');
+    expect(identityFromDisk(dir, UUID_A, ['generated/'])).toEqual(before);
+    write('other/x.pem', 'cert');
+    write('other/y.pem', 'source');
+    const withOther = identityFromDisk(dir, UUID_A, ['generated', 'other/x.pem/']);
+    expect(withOther.source_hash).not.toBe(before.source_hash); // other/y.pem is source
+    fs.rmSync(path.join(dir, 'other', 'y.pem'));
+    expect(identityFromDisk(dir, UUID_A, ['generated', 'other/x.pem/'])).toEqual(before);
+  });
+
   it('still sees source changes, including a .go file and go.mod', () => {
     const before = identityFromDisk(dir, UUID_A);
     write(`${UUID_A}.go`, 'package main // edited');
@@ -254,6 +277,70 @@ describe('identityFromDisk', () => {
     write('README.md', 'docs');
     write('rules.kql', 'q');
     expect(identityFromDisk(dir, UUID_A)).toEqual(before);
+  });
+
+  describe('hashFiles on what a //go:embed token can name', () => {
+    let outside: string;
+    beforeEach(() => {
+      outside = fs.mkdtempSync(path.join(os.tmpdir(), 'ver-outside-'));
+      fs.writeFileSync(path.join(outside, 'secret.txt'), 'outside content');
+    });
+    afterEach(() => {
+      fs.rmSync(outside, { recursive: true, force: true });
+    });
+    const nothing = () => hashFiles(dir, ['no-such-file']);
+
+    it('walks a named folder recursively and sees a change deep inside it', () => {
+      write('assets/a.txt', 'a');
+      write('assets/sub/b.txt', 'b');
+      const h = hashFiles(dir, ['assets']);
+      expect(h).toMatch(/^[0-9a-f]{64}$/);
+      expect(h).not.toBe(nothing());
+      expect(hashFiles(dir, ['assets/'])).toBe(h);
+      write('assets/sub/b.txt', 'b2');
+      expect(hashFiles(dir, ['assets'])).not.toBe(h);
+    });
+
+    it('ignores a name that leaves the folder', () => {
+      fs.writeFileSync(path.join(path.dirname(dir), 'sibling.txt'), 'x');
+      try {
+        expect(hashFiles(dir, ['../sibling.txt'])).toBe(nothing());
+        expect(hashFiles(dir, [path.join(outside, 'secret.txt')])).toBe(nothing());
+      } finally {
+        fs.rmSync(path.join(path.dirname(dir), 'sibling.txt'), { force: true });
+      }
+    });
+
+    it('ignores symlinks, named directly, inside a walked folder, or as a parent folder', () => {
+      fs.symlinkSync(path.join(outside, 'secret.txt'), path.join(dir, 'link.dat'));
+      expect(hashFiles(dir, ['link.dat'])).toBe(nothing());
+
+      write('assets/a.txt', 'a');
+      const plain = hashFiles(dir, ['assets']);
+      fs.symlinkSync(path.join(outside, 'secret.txt'), path.join(dir, 'assets', 'link.txt'));
+      fs.symlinkSync(outside, path.join(dir, 'assets', 'linkdir'));
+      expect(hashFiles(dir, ['assets'])).toBe(plain);
+
+      fs.symlinkSync(outside, path.join(dir, 'outdir'));
+      expect(hashFiles(dir, ['outdir/secret.txt'])).toBe(nothing());
+      expect(hashFiles(dir, ['outdir'])).toBe(nothing());
+    });
+
+    it.skipIf(process.platform === 'win32')('skips a FIFO instead of blocking on it', () => {
+      execFileSync('mkfifo', [path.join(dir, 'pipe.dat')]);
+      expect(hashFiles(dir, ['pipe.dat'])).toBe(nothing());
+      write('assets/a.txt', 'a');
+      const plain = hashFiles(dir, ['assets']);
+      execFileSync('mkfifo', [path.join(dir, 'assets', 'pipe')]);
+      expect(hashFiles(dir, ['assets'])).toBe(plain);
+    });
+
+    it('never throws, and a name that matches nothing contributes nothing', () => {
+      write('dep.dat', 'payload');
+      const one = hashFiles(dir, ['dep.dat']);
+      expect(() => hashFiles(dir, ['dep.dat', 'missing', 'assets-missing/', '', '.'])).not.toThrow();
+      expect(hashFiles(dir, ['dep.dat', 'missing'])).toBe(one);
+    });
   });
 
   it('hashFiles returns null for an empty list and a stable hash otherwise', () => {

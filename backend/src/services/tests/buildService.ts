@@ -576,6 +576,15 @@ const ARTIFACT_DIR = \`${artifactDir}\`
   }
 
   /**
+   * Every embed dependency name of a test (relative to its folder), whether
+   * it exists yet or not and whether build_all.sh makes it or it is
+   * uploaded: none of them is source of the test's content fingerprint.
+   */
+  embedDependencyNames(uuid: string): string[] {
+    return this.getEmbedDependencies(uuid).map(d => d.filename);
+  }
+
+  /**
    * Hash of the embed dependencies that are on disk and not built from source
    * (uploaded payloads: they are not in git, so they are not in the source
    * identity). null when the test has none.
