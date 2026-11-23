@@ -50,15 +50,11 @@ describe('VersionStatusChip', () => {
     expect(screen.queryByText(/^[0-9a-f]{7}$/)).toBeNull();
   });
 
-  it('drops the commit when compact', () => {
-    render(<VersionStatusChip row={row()} compact />);
-    expect(screen.queryByText('2222222')).toBeNull();
-    expect(screen.getByText('Up to date')).toBeTruthy();
-  });
-
   it('puts the reason in the title', () => {
     render(<VersionStatusChip row={row({ status: 'rebuild_needed', reason: 'shared_changed' })} />);
-    expect(screen.getByText('Rebuild needed').getAttribute('title')).toBe('shared libraries changed');
+    const chip = screen.getByText('Rebuild needed');
+    expect(chip.getAttribute('title')).toBe('shared libraries changed');
+    expect(chip.getAttribute('aria-label')).toBe('Rebuild needed: shared libraries changed');
   });
 
   it('labels every reason', () => {

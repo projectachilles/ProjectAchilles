@@ -38,19 +38,19 @@ export function shortCommit(row: TestVersionRow): string | null {
 
 interface VersionStatusChipProps {
   row: TestVersionRow | undefined;
-  /** Status only, without the commit (narrow cells). */
-  compact?: boolean;
 }
 
-export function VersionStatusChip({ row, compact }: VersionStatusChipProps) {
+/** Status chip with the short commit (hidden below `sm`) and the update / Custom notes. */
+export function VersionStatusChip({ row }: VersionStatusChipProps) {
   if (!row) return null;
-  const commit = compact ? null : shortCommit(row);
+  const commit = shortCommit(row);
   const reason = row.reason ? VERSION_REASON_LABEL[row.reason] : undefined;
 
   return (
     <span className="flex min-w-0 flex-wrap items-center gap-x-1.5 gap-y-1">
       <span
         title={reason}
+        aria-label={reason ? `${VERSION_STATUS_LABEL[row.status]}: ${reason}` : undefined}
         className={cn(
           'inline-flex h-5 shrink-0 items-center whitespace-nowrap rounded border px-1.5 text-[11px] font-medium',
           TONE[row.status],
@@ -60,7 +60,7 @@ export function VersionStatusChip({ row, compact }: VersionStatusChipProps) {
       </span>
       {row.updateNote && <span className="whitespace-nowrap text-[11px] text-warning">update available</span>}
       {row.custom && <span className="whitespace-nowrap text-[11px] text-faint">Custom</span>}
-      {commit && <span className="font-mono text-[11px] text-muted">{commit}</span>}
+      {commit && <span className="font-mono text-[11px] text-muted max-sm:hidden">{commit}</span>}
     </span>
   );
 }

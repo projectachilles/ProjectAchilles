@@ -17,6 +17,8 @@ const state = vi.hoisted(() => ({
   testVersions: true,
   granted: new Set<string>(),
   data: null as unknown,
+  checkError: null as string | null,
+  desktop: true,
   checkNow: vi.fn(async () => {}),
   reload: vi.fn(async () => {}),
 }));
@@ -27,6 +29,7 @@ vi.mock('@/hooks/useTestVersions', () => ({
     data: state.testVersions ? state.data : null,
     loading: false,
     checking: false,
+    checkError: state.checkError,
     checkNow: state.checkNow,
     reload: state.reload,
   }),
@@ -62,7 +65,7 @@ vi.mock('@/hooks/useTestPreferences', () => ({
 }));
 vi.mock('@/hooks/useAppRole', () => ({ useHasPermission: (p: string) => state.granted.has(p) }));
 vi.mock('@/hooks/useAnalyticsAuth', () => ({ useAnalyticsAuth: () => ({ configured: false }) }));
-vi.mock('@/hooks/useMediaQuery', () => ({ useIsDesktop: () => true }));
+vi.mock('@/hooks/useMediaQuery', () => ({ useIsDesktop: () => state.desktop }));
 vi.mock('@/components/browser/execution', () => ({ ExecutionDrawer: () => null }));
 
 import TestsPage from '../TestsPage';
@@ -121,15 +124,51 @@ describe('TestsPage version status', () => {
     state.testVersions = true;
     state.granted = new Set(['tests:sync:execute']);
     state.data = response();
+    state.checkError = null;
+    state.desktop = true;
   });
 
-  it('shows the Version column and a chip per row when the capability is on', async () => {
+  it('shows a version chip under each test name when the capability is on', async () => {
     await renderPage();
     const list = within(screen.getByRole('region', { name: 'intel-driven' }));
-    expect(list.getByText('Version')).toBeTruthy();
+    expect(list.queryByText('Version')).toBeNull();
     expect(list.getByText('Up to date')).toBeTruthy();
     expect(list.getByText('Rebuild needed')).toBeTruthy();
     expect(list.getByText('Not built')).toBeTruthy();
+  });
+
+  it('keeps the list when the versions could not be loaded', async () => {
+    state.data = null;
+    await renderPage();
+    expect(screen.getByRole('button', { name: 'test b' })).toBeTruthy();
+    expect(screen.queryByText('Rebuild needed')).toBeNull();
+    expect(screen.queryByRole('status')).toBeNull();
+  });
+
+  it('shows a failed update check as an alert in the banner', async () => {
+    state.data = response({ updatesAvailable: 1 });
+    state.checkError = 'Could not check for updates: boom';
+    await renderPage();
+    expect(screen.getByRole('alert').textContent).toBe('Could not check for updates: boom');
+    expect(screen.getByRole('button', { name: 'Check now' }).hasAttribute('disabled')).toBe(false);
+  });
+
+  it('shows a failed update check in the header when there is no banner', async () => {
+    state.checkError = "You don't have permission to check for updates";
+    await renderPage();
+    expect(screen.getByRole('alert').textContent).toBe("You don't have permission to check for updates");
+  });
+
+  it('shows a removable chip for the version filter on mobile', async () => {
+    state.desktop = false;
+    await renderPage();
+    fireEvent.change(screen.getByRole('combobox', { name: 'Version status' }), {
+      target: { value: 'rebuild_needed' },
+    });
+    const chip = await screen.findByRole('button', { name: /^Rebuild needed/ , hidden: false });
+    expect(screen.queryByRole('button', { name: 'test a' })).toBeNull();
+    fireEvent.click(chip);
+    expect(await screen.findByRole('button', { name: 'test a' })).toBeTruthy();
   });
 
   it('renders nothing new when the capability is off', async () => {

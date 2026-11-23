@@ -22,11 +22,13 @@ interface VersionBannerProps {
   canSync: boolean;
   syncing: boolean;
   checking: boolean;
+  /** Why the last Check now failed. */
+  actionError?: string | null;
   onSync: () => void;
   onCheck: () => void;
 }
 
-export function VersionBanner({ library, canSync, syncing, checking, onSync, onCheck }: VersionBannerProps) {
+export function VersionBanner({ library, canSync, syncing, checking, actionError, onSync, onCheck }: VersionBannerProps) {
   const lines: string[] = [];
   const { updatesAvailable: updates, rebuildsNeeded: rebuilds, newTests } = library;
   if (updates > 0) {
@@ -59,6 +61,11 @@ export function VersionBanner({ library, canSync, syncing, checking, onSync, onC
         {library.checkError != null && (
           <span className="text-warning" title={library.checkError}>
             Could not check for updates
+          </span>
+        )}
+        {actionError && (
+          <span role="alert" className="text-danger">
+            {actionError}
           </span>
         )}
       </div>

@@ -18,9 +18,6 @@ import { techniqueIds } from './techniqueIds';
  */
 const ROW_GRID =
   'grid grid-cols-[minmax(0,1fr)_auto_auto] gap-x-3 gap-y-1.5 px-3 xl:grid-cols-[minmax(0,1fr)_120px_180px_48px_72px] xl:px-4 2xl:grid-cols-[minmax(0,1fr)_180px_120px_56px_160px_48px_72px]';
-/** Same grid with a Version track (after Platform / Stages) when version tracking is on. */
-const ROW_GRID_VERSIONS =
-  'grid grid-cols-[minmax(0,1fr)_auto_auto] gap-x-3 gap-y-1.5 px-3 xl:grid-cols-[minmax(0,1fr)_120px_130px_180px_48px_72px] xl:px-4 2xl:grid-cols-[minmax(0,1fr)_180px_120px_56px_190px_160px_48px_72px]';
 
 /** Cells that only exist from xl (platform) or 2xl (techniques, stages). */
 const FROM_XL = 'hidden xl:block';
@@ -40,9 +37,8 @@ interface TestListRowProps {
   selectMode: boolean;
   selected: boolean;
   onToggleSelect: () => void;
-  /** Version row; the Version cell renders only when `showVersion` is set. */
+  /** Version row; the chip shows under the name when set. */
   version?: TestVersionRow;
-  showVersion?: boolean;
 }
 
 function actorLine(test: TestMetadata): string {
@@ -52,11 +48,11 @@ function actorLine(test: TestMetadata): string {
 }
 
 /** Column labels for a group's list; hidden below `xl`, where the row stacks. */
-export function TestListHeader({ showVersion }: { showVersion?: boolean }) {
+export function TestListHeader() {
   return (
     <div
       className={cn(
-        showVersion ? ROW_GRID_VERSIONS : ROW_GRID,
+        ROW_GRID,
         'hidden border-b border-border py-2.5 text-[11px] uppercase tracking-wider text-faint xl:grid',
       )}
     >
@@ -64,7 +60,6 @@ export function TestListHeader({ showVersion }: { showVersion?: boolean }) {
       <span className={FROM_2XL}>Techniques</span>
       <span>Platform</span>
       <span className={FROM_2XL}>Stages</span>
-      {showVersion && <span>Version</span>}
       <span>Fleet result</span>
       <span>Score</span>
       <span />
@@ -83,7 +78,6 @@ export function TestListRow({
   selected,
   onToggleSelect,
   version,
-  showVersion,
 }: TestListRowProps) {
   const primary = selectMode ? onToggleSelect : onOpen;
   const stageCount = test.stageCount ?? test.stages.length;
@@ -95,7 +89,7 @@ export function TestListRow({
     <li
       onClick={primary}
       className={cn(
-        showVersion ? ROW_GRID_VERSIONS : ROW_GRID,
+        ROW_GRID,
         'group cursor-pointer items-center border-b border-border py-3 transition-colors last:border-b-0 hover:bg-raised',
         selected && 'bg-accent-dim/40 hover:bg-accent-dim/60',
       )}
@@ -126,6 +120,7 @@ export function TestListRow({
             {test.name}
           </button>
           <span className="truncate text-xs text-muted">{actorLine(test)}</span>
+          {version && <VersionStatusChip row={version} />}
         </div>
       </div>
 
@@ -145,12 +140,6 @@ export function TestListRow({
       <span className={cn(FROM_2XL, 'font-mono text-xs text-muted')}>
         {stageCount > 0 ? stageCount : '—'}
       </span>
-
-      {showVersion && (
-        <div className="min-w-0 max-xl:col-start-1 max-xl:row-start-3">
-          {version ? <VersionStatusChip row={version} /> : <span className="text-xs text-faint">—</span>}
-        </div>
-      )}
 
       <div
         title={fleet.title}

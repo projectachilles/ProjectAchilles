@@ -322,6 +322,11 @@ export default function TestsPage() {
             Sync failed
           </span>
         )}
+        {!bannerVisible && versionState.checkError && (
+          <span role="alert" className="text-sm text-danger">
+            {versionState.checkError}
+          </span>
+        )}
         <SyncChip
           branch={syncStatus?.branch}
           commit={syncStatus?.commitHash ?? undefined}
@@ -345,6 +350,7 @@ export default function TestsPage() {
           canSync={canSync}
           syncing={syncing}
           checking={versionState.checking}
+          actionError={versionState.checkError}
           onSync={() => void handleSync()}
           onCheck={() => void versionState.checkNow()}
         />
@@ -459,6 +465,12 @@ export default function TestsPage() {
           {!isDesktop && filters.notRunYet && (
             <FacetChip label="not run yet" onClear={() => handleFilterChange({ notRunYet: false })} />
           )}
+          {!isDesktop && filters.versionStatus && (
+            <FacetChip
+              label={VERSION_STATUS_LABEL[filters.versionStatus]}
+              onClear={() => setVersionStatus(null)}
+            />
+          )}
           {!isDesktop && filters.hasBinary && (
             <FacetChip label="has binary" onClear={() => handleFilterChange({ hasBinary: false })} />
           )}
@@ -500,7 +512,7 @@ export default function TestsPage() {
                   <div className="h-px flex-1 bg-border" />
                 </div>
                 <div className="overflow-hidden rounded-[10px] border border-border bg-surface">
-                  <TestListHeader showVersion={versions != null} />
+                  <TestListHeader />
                   <ul>
                     {group.tests.map((test) => (
                       <TestListRow
@@ -517,7 +529,6 @@ export default function TestsPage() {
                         onToggleFavorite={() => toggleFavorite(test.uuid)}
                         onExecute={canCreateTasks ? () => openDrawer([test]) : undefined}
                         version={versions?.tests[test.uuid]}
-                        showVersion={versions != null}
                         selectMode={selectMode}
                         selected={selectedUuids.has(test.uuid)}
                         onToggleSelect={() => toggleSelect(test.uuid)}
