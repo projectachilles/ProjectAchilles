@@ -36,4 +36,11 @@ describe('useBuildInfo', () => {
     act(() => result.current.requestBuild());
     expect(result.current.buildRequest).toBe(2);
   });
+
+  it('keeps what the build panel reports', () => {
+    const { result } = renderHook(() => useBuildInfo(null));
+    expect(result.current.panel).toEqual({ building: false, missingDeps: false });
+    act(() => result.current.reportPanel({ building: true, missingDeps: true }));
+    expect(result.current.panel).toEqual({ building: true, missingDeps: true });
+  });
 });

@@ -118,16 +118,6 @@ export default function BuildSection({ uuid, build }: BuildSectionProps) {
     await followBuild(true);
   }
 
-  // A build asked for from outside (the Version card's Build & Sign) runs here,
-  // so the progress, errors and result show in this panel.
-  const buildRequest = build?.buildRequest ?? 0;
-  const lastBuildRequest = useRef(buildRequest);
-  useEffect(() => {
-    if (buildRequest === lastBuildRequest.current) return;
-    lastBuildRequest.current = buildRequest;
-    void followBuild(true);
-  }, [buildRequest, followBuild]);
-
   async function handleDelete() {
     try {
       await testsApi.deleteBuild(uuid);
@@ -208,6 +198,25 @@ export default function BuildSection({ uuid, build }: BuildSectionProps) {
   const hasMissingDeps = missingExternalDeps.length > 0;
   const canBuild = capabilities.build;
   const canUpload = capabilities.buildUpload;
+  // The one rule for starting a build, used by the Build button and by requests
+  // from outside (the Version card).
+  const canStartBuild = canBuild && !loading && !building && !hasMissingDeps;
+
+  // A build asked for from outside (the Version card's Build & Sign) runs here,
+  // so the progress, errors and result show in this panel. The request is
+  // consumed either way; one the panel would not allow is dropped.
+  const buildRequest = build?.buildRequest ?? 0;
+  const lastBuildRequest = useRef(buildRequest);
+  useEffect(() => {
+    if (buildRequest === lastBuildRequest.current) return;
+    lastBuildRequest.current = buildRequest;
+    if (canStartBuild && !followRef.current) void followBuild(true);
+  }, [buildRequest, canStartBuild, followBuild]);
+
+  const reportPanel = build?.reportPanel;
+  useEffect(() => {
+    reportPanel?.({ building, missingDeps: hasMissingDeps });
+  }, [reportPanel, building, hasMissingDeps]);
 
   if (loading) {
     return (
@@ -322,7 +331,7 @@ export default function BuildSection({ uuid, build }: BuildSectionProps) {
               variant="primary"
               size="sm"
               onClick={handleBuild}
-              disabled={hasMissingDeps}
+              disabled={!canStartBuild}
               className="w-full"
             >
               Build & Sign

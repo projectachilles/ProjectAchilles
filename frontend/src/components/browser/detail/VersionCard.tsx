@@ -3,13 +3,19 @@ import { Link } from 'react-router-dom';
 import { Button } from '@/components/ui/button';
 import { VERSION_REASON_LABEL, VERSION_STATUS_LABEL } from '@/components/browser/VersionStatusChip';
 import { useHasPermission } from '@/hooks/useAppRole';
-import { useTestVersions } from '@/hooks/useTestVersions';
+import type { UseTestVersions } from '@/hooks/useTestVersions';
 import { formatFullDate, formatRelativeDate } from '@/utils/dateFormatters';
 import type { BuildInfo } from '@/types/test';
 import type { TestVersionRow, TestVersionsResponse, VersionRef } from '@/types/testVersion';
 
 interface VersionCardProps {
   uuid: string;
+  /** The page's single `useTestVersions()` result. */
+  versions: UseTestVersions;
+  /** The build panel is building: Build & Sign waits. */
+  building?: boolean;
+  /** The build panel refuses to build until external dependencies are uploaded. */
+  missingDeps?: boolean;
   /** Starts the page's build. The Build & Sign button needs this and `canBuild`. */
   onBuild?: () => void;
   /** `tests:builds:create` on a test with source. */
@@ -61,8 +67,8 @@ function comparison(row: TestVersionRow): [string, string] | null {
 }
 
 /** Published / synced / built version of one test, with the next step. Read-only for everyone who can see the test. */
-export default function VersionCard({ uuid, onBuild, canBuild, buildInfo }: VersionCardProps) {
-  const { data, checking, checkNow, checkError, reload } = useTestVersions();
+export default function VersionCard({ uuid, versions, building, missingDeps, onBuild, canBuild, buildInfo }: VersionCardProps) {
+  const { data, checking, checkNow, checkError, reload } = versions;
   // The first load of the build state (null -> loaded) is not a change.
   const lastBuildInfo = useRef(buildInfo);
   useEffect(() => {
@@ -127,7 +133,14 @@ export default function VersionCard({ uuid, onBuild, canBuild, buildInfo }: Vers
         {(checkError || range || wantsBuild || status === 'update_available' || status === 'not_checked') && (
           <div className="flex flex-wrap items-center gap-x-4 gap-y-2">
             {wantsBuild && canBuild && onBuild && (
-              <Button size="sm" onClick={onBuild}>Build &amp; Sign</Button>
+              <div className="flex flex-col gap-1">
+                <Button size="sm" onClick={onBuild} disabled={building || missingDeps}>
+                  {building ? 'Building…' : 'Build & Sign'}
+                </Button>
+                {missingDeps && !building && (
+                  <span className="text-xs text-muted">Upload the missing dependencies in the Deploy panel first.</span>
+                )}
+              </div>
             )}
             {status === 'update_available' && (
               <Link to="/tests" className="text-xs text-accent hover:underline">Sync in Test Library</Link>

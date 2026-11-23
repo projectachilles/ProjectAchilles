@@ -11,7 +11,6 @@ const { hook, perms } = vi.hoisted(() => ({
   perms: { granted: new Set<string>() },
 }));
 
-vi.mock('@/hooks/useTestVersions', () => ({ useTestVersions: () => hook.value }));
 vi.mock('@/hooks/useAppRole', () => ({
   useHasPermission: (...p: string[]) => p.every((x) => perms.granted.has(x)),
 }));
@@ -54,10 +53,18 @@ function setHook(r: TestVersionRow | undefined, extra: Partial<UseTestVersions> 
   hook.value = { data, loading: false, checking: false, checkError: null, checkNow, reload, ...extra };
 }
 
-function renderCard(props: Partial<{ onBuild: () => void; canBuild: boolean; buildInfo: BuildInfo | null }> = {}) {
+function renderCard(props: Partial<{ onBuild: () => void; canBuild: boolean; buildInfo: BuildInfo | null; building: boolean; missingDeps: boolean }> = {}) {
   const ui = (p: typeof props) => (
     <MemoryRouter>
-      <VersionCard uuid={UUID} canBuild={p.canBuild ?? true} onBuild={p.onBuild} buildInfo={p.buildInfo} />
+      <VersionCard
+        uuid={UUID}
+        versions={hook.value as UseTestVersions}
+        canBuild={p.canBuild ?? true}
+        onBuild={p.onBuild}
+        buildInfo={p.buildInfo}
+        building={p.building}
+        missingDeps={p.missingDeps}
+      />
     </MemoryRouter>
   );
   const result = render(ui(props));
@@ -245,6 +252,32 @@ describe('VersionCard visibility', () => {
     setHook(undefined);
     const b = renderCard();
     expect(b.container).toBeEmptyDOMElement();
+  });
+});
+
+describe('VersionCard build guards', () => {
+  it('disables the button and reads Building… while building', () => {
+    setHook(row({ status: 'rebuild_needed' }));
+    renderCard({ onBuild: vi.fn(), building: true });
+    expect(screen.getByRole('button', { name: 'Building…' })).toBeDisabled();
+    expect(screen.queryByRole('button', { name: 'Build & Sign' })).not.toBeInTheDocument();
+  });
+
+  it('shows the missing-dependencies line and a disabled button', async () => {
+    setHook(row({ status: 'not_built', built: null }));
+    const onBuild = vi.fn();
+    renderCard({ onBuild, missingDeps: true });
+    const button = screen.getByRole('button', { name: 'Build & Sign' });
+    expect(button).toBeDisabled();
+    expect(screen.getByText('Upload the missing dependencies in the Deploy panel first.')).toBeInTheDocument();
+    await userEvent.click(button);
+    expect(onBuild).not.toHaveBeenCalled();
+  });
+
+  it('shows no dependency line when nothing is missing', () => {
+    setHook(row({ status: 'not_built', built: null }));
+    renderCard({ onBuild: vi.fn() });
+    expect(screen.queryByText(/missing dependencies/)).not.toBeInTheDocument();
   });
 });
 

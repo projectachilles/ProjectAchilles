@@ -17,7 +17,7 @@ import TechniqueBadge from '@/components/browser/TechniqueBadge';
 import { hosts } from '../plural';
 import { mapFleetToPills } from './fleetPills';
 import { useTestFleet } from '../useTestFleet';
-import { useCapabilities } from '@/hooks/useCapabilities';
+import { useTestVersions } from '@/hooks/useTestVersions';
 import VersionCard from '../VersionCard';
 import ShipsWithPanel from './ShipsWithPanel';
 
@@ -44,7 +44,9 @@ export default function OverviewTab({ test, canBuild, build, onOpenFile }: Overv
     pills[s.stage] = { lab: `${s.outcome} in lab` };
   }
 
-  const { testVersions } = useCapabilities();
+  // One versions request for the page; the card only renders it.
+  const versions = useTestVersions();
+  const showVersion = !!versions.data?.tests[test.uuid];
   const { data: fleet } = useTestFleet(test.uuid);
   const hasFleet = !!fleet && fleet.headline.pairCount > 0;
   const isHygiene = test.category === 'cyber-hygiene';
@@ -135,15 +137,18 @@ export default function OverviewTab({ test, canBuild, build, onOpenFile }: Overv
   const showFleet = hasFleet;
   const showQuality = !!ov.quality;
   const showSource = !!ov.primarySource;
-  if (!testVersions && !showFleet && !showDeploy && !showShipsWith && !showQuality && !showSource) return main;
+  if (!showVersion && !showFleet && !showDeploy && !showShipsWith && !showQuality && !showSource) return main;
 
   return (
     <div className="grid gap-6 lg:grid-cols-[minmax(0,1fr)_20rem]">
       {main}
       <aside className="min-w-0 space-y-4">
-        {testVersions && (
+        {showVersion && (
           <VersionCard
             uuid={test.uuid}
+            versions={versions}
+            building={build.panel?.building}
+            missingDeps={build.panel?.missingDeps}
             canBuild={showDeploy}
             onBuild={showDeploy ? build.requestBuild : undefined}
             buildInfo={build.buildInfo}

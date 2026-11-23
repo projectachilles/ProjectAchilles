@@ -6,8 +6,11 @@ import type { BuildInfoState } from '../useBuildInfo';
 
 vi.mock('../overview/DeployPanel', () => ({ default: () => <div>deploy-panel</div> }));
 // No fleet support: keeps the suite off the network (useTestFleet never fetches).
-const caps = vi.hoisted(() => ({ testVersions: false }));
-vi.mock('@/hooks/useCapabilities', () => ({ useCapabilities: () => ({ loaded: true, testFleet: false, testVersions: caps.testVersions }) }));
+const ver = vi.hoisted(() => ({ hasRow: false }));
+vi.mock('@/hooks/useCapabilities', () => ({ useCapabilities: () => ({ loaded: true, testFleet: false }) }));
+vi.mock('@/hooks/useTestVersions', () => ({
+  useTestVersions: () => ({ data: ver.hasRow ? { library: {}, tests: { 'u-1': { status: 'up_to_date' } } } : null }),
+}));
 vi.mock('../VersionCard', () => ({
   default: ({ uuid, canBuild, onBuild }: { uuid: string; canBuild: boolean; onBuild?: () => void }) => (
     <button type="button" onClick={onBuild}>{`version-card ${uuid} canBuild=${canBuild} onBuild=${onBuild ? 'yes' : 'no'}`}</button>
@@ -64,14 +67,14 @@ const renderTab = (test: TestDetails, onOpenFile = vi.fn()) =>
   render(<OverviewTab test={test} canBuild build={build} onOpenFile={onOpenFile} />);
 
 describe('OverviewTab version card', () => {
-  it('is not rendered without the testVersions capability', () => {
-    caps.testVersions = false;
+  it('is not rendered without a version row', () => {
+    ver.hasRow = false;
     renderTab(make());
     expect(screen.queryByText(/version-card/)).not.toBeInTheDocument();
   });
 
   it('is rendered right before the Deploy panel and starts the shared build', async () => {
-    caps.testVersions = true;
+    ver.hasRow = true;
     const requestBuild = vi.fn();
     const state = { requestBuild, buildRequest: 0 } as unknown as BuildInfoState;
     render(<OverviewTab test={make()} canBuild build={state} onOpenFile={vi.fn()} />);
@@ -79,14 +82,31 @@ describe('OverviewTab version card', () => {
     expect(card.compareDocumentPosition(screen.getByText('deploy-panel')) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
     await userEvent.click(card);
     expect(requestBuild).toHaveBeenCalledTimes(1);
-    caps.testVersions = false;
+    ver.hasRow = false;
   });
 
   it('is shown to a user who cannot build, without a build action', () => {
-    caps.testVersions = true;
+    ver.hasRow = true;
     render(<OverviewTab test={make()} canBuild={false} build={build} onOpenFile={vi.fn()} />);
     expect(screen.getByText('version-card u-1 canBuild=false onBuild=no')).toBeInTheDocument();
-    caps.testVersions = false;
+    ver.hasRow = false;
+  });
+});
+
+describe('OverviewTab aside', () => {
+  it('reserves no aside column when no panel has content, including the version card', () => {
+    ver.hasRow = false;
+    const bare = make({ overview: {}, files: [{ name: 'x.go', path: 'x.go', type: 'go', size: 1, category: 'documentation' }] });
+    const { container } = render(<OverviewTab test={bare} canBuild={false} build={build} onOpenFile={vi.fn()} />);
+    expect(container.querySelector('aside')).toBeNull();
+  });
+
+  it('has an aside when only the version row has content', () => {
+    ver.hasRow = true;
+    const bare = make({ overview: {}, files: [{ name: 'x.go', path: 'x.go', type: 'go', size: 1, category: 'documentation' }] });
+    const { container } = render(<OverviewTab test={bare} canBuild={false} build={build} onOpenFile={vi.fn()} />);
+    expect(container.querySelector('aside')).not.toBeNull();
+    ver.hasRow = false;
   });
 });
 
