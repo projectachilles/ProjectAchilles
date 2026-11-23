@@ -43,9 +43,19 @@ export function gitChildEnv(source: NodeJS.ProcessEnv = process.env): Record<str
 const AUTH_ENV_KEYS = ['GIT_CONFIG_COUNT', 'GIT_CONFIG_KEY_0', 'GIT_CONFIG_VALUE_0'];
 
 /** Every simple-git instance this service uses goes through here. */
-export function createGit(baseDir?: string, githubToken?: string): SimpleGit {
+export function createGit(
+  baseDir?: string,
+  githubToken?: string,
+  extraEnv: Record<string, string> = {},
+): SimpleGit {
   const env = gitChildEnv();
   const allowEnvironment = ['GIT_TERMINAL_PROMPT'];
+
+  // Callers' own, fixed variables (e.g. GIT_NO_LAZY_FETCH). Never ambient ones.
+  for (const [key, value] of Object.entries(extraEnv)) {
+    env[key] = value;
+    allowEnvironment.push(key);
+  }
 
   if (!githubToken) {
     return simpleGit({ baseDir, allowEnvironment }).env(env);
@@ -110,6 +120,13 @@ function sanitizeGitError(message: string, githubToken?: string): string {
   // or supplied directly in the configured repository URL.
   sanitized = sanitized.replace(/(https?:\/\/)[^\s/@]+@/gi, `$1${marker}@`);
   return sanitized.split(marker).join('[TOKEN]');
+}
+
+/** One line of `git ls-tree -r -t`: blobs and trees only (submodule commits are skipped). */
+export interface GitTreeEntry {
+  type: 'blob' | 'tree';
+  hash: string;
+  path: string;
 }
 
 export interface SyncStatus {
@@ -387,6 +404,63 @@ export class GitSyncService {
   /**
    * Get current sync status
    */
+  /**
+   * Every blob and tree at `ref`, in one `git ls-tree -r -t`. Needs trees
+   * only, so it works for paths outside the sparse checkout. Lazy fetching is
+   * off so a missing object fails instead of downloading blobs.
+   */
+  public async listTree(ref: string): Promise<GitTreeEntry[]> {
+    const git = createGit(this.config.localPath, undefined, { GIT_NO_LAZY_FETCH: '1' });
+    const output = await git.raw(['ls-tree', '-r', '-t', '-z', ref]);
+    // -z keeps paths unquoted; tolerate newline-separated output as well.
+    const lines = output.includes('\0') ? output.split('\0') : output.split('\n');
+    const entries: GitTreeEntry[] = [];
+    for (const line of lines) {
+      // <mode> SP <type> SP <hash> TAB <path>
+      const match = /^\d+ (blob|tree) ([0-9a-f]+)\t(.+)$/.exec(line);
+      if (match) {
+        entries.push({ type: match[1] as 'blob' | 'tree', hash: match[2], path: match[3] });
+      }
+    }
+    return entries;
+  }
+
+  /** Hash and committer date (ISO 8601) of the commit `ref` points at. */
+  public async commitInfo(ref: string): Promise<{ hash: string; date: string }> {
+    const git = createGit(this.config.localPath);
+    const output = await git.raw(['log', '-1', '--format=%H %cI', ref]);
+    const [hash, date] = output.trim().split(' ');
+    if (!hash || !date) {
+      throw new Error(`Could not read commit info for ${ref}`);
+    }
+    return { hash, date };
+  }
+
+  /** Tracked files under `paths` that differ from HEAD (staged or not). Untracked files are ignored. */
+  public async modifiedTrackedPaths(paths: string[]): Promise<string[]> {
+    if (paths.length === 0) return [];
+    const git = createGit(this.config.localPath);
+    const output = await git.raw(['status', '--porcelain', '--untracked-files=no', '--', ...paths]);
+    return output
+      .split('\n')
+      .filter(line => line.length > 3)
+      .map(line => line.slice(3).replace(/^.* -> /, '').replace(/^"(.*)"$/, '$1'));
+  }
+
+  /**
+   * Fetch the published branch and nothing else: no reset, no clean, so the
+   * working tree (and any custom tests in it) stays as it is. Returns the ref
+   * to read it from.
+   */
+  public async fetchPublished(): Promise<string> {
+    const branch = this.config.branch;
+    await this.withTokenFallback(async (token) => {
+      const git = createGit(this.config.localPath, token);
+      await git.fetch(['--depth', '1', 'origin', branch]);
+    });
+    return `origin/${branch}`;
+  }
+
   public getStatus(): SyncStatus {
     return { ...this.syncStatus };
   }
