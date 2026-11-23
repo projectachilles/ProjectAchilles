@@ -56,6 +56,7 @@ describe('TestVersionsService', () => {
         { uuid: UUID_CUSTOM, dir: customDir, provenance: 'custom' },
       ],
       embedDependencyFiles: opts.embed,
+      stateFile: path.join(tmp, 'state', 'published.json'),
     });
   }
 
@@ -232,6 +233,89 @@ describe('TestVersionsService', () => {
     const svc = makeService();
     svc.afterSync();
     await vi.waitFor(() => expect(svc.published().commit).toBe('beef01'));
+  });
+
+  describe('shared state across processes', () => {
+    const stateFile = () => path.join(tmp, 'state', 'published.json');
+
+    it('a second service instance pointed at the same state file returns the first instance\'s check result from published()', async () => {
+      await makeService().check();
+      const other = makeService();
+      const state = other.published();
+      expect(state.commit).toBe('beef01');
+      expect(state.newTests).toBe(1);
+      expect(state.byTest.get(UUID_NEW)?.commit).toBe('beef01');
+      expect(fs.statSync(stateFile()).mode & 0o777).toBe(0o600);
+    });
+
+    it('a failed check is persisted with its error and keeps the previous byTest', async () => {
+      const first = makeService();
+      await first.check();
+      fake.fetchPublished.mockRejectedValue(new Error('lock held'));
+      await first.check();
+      const state = makeService().published();
+      expect(state.error).toContain('lock held');
+      expect(state.errorAt).not.toBeNull();
+      expect(state.byTest.has(UUID_A)).toBe(true);
+      expect(state.commit).toBe('beef01');
+    });
+
+    it('an unparseable or missing state file leaves published() at its current state and does not throw', async () => {
+      const svc = makeService();
+      expect(() => svc.published()).not.toThrow();
+      expect(svc.published().checkedAt).toBeNull();
+      await svc.check();
+      fs.writeFileSync(stateFile(), '{not json');
+      expect(svc.published().commit).toBe('beef01');
+      fs.rmSync(stateFile());
+      expect(svc.published().commit).toBe('beef01');
+    });
+
+    it('the state file is written with a temp-file-then-rename', async () => {
+      const svc = makeService();
+      await svc.check();
+      // A half-written temp file left by a crashed writer is never read as the state.
+      fs.writeFileSync(`${stateFile()}.9999.tmp`, '{"commit": "tru');
+      const before = JSON.parse(fs.readFileSync(stateFile(), 'utf8'));
+      expect(before.commit).toBe('beef01');
+      fake.commitInfo.mockImplementation(async (ref: string) =>
+        ref === 'HEAD' ? COMMIT : { hash: 'beef02', date: REMOTE.date });
+      await svc.check();
+      expect(JSON.parse(fs.readFileSync(stateFile(), 'utf8')).commit).toBe('beef02');
+      expect(fs.readdirSync(path.dirname(stateFile())).filter(f => f.includes(String(process.pid)))).toEqual([]);
+      expect(makeService().published().commit).toBe('beef02');
+    });
+  });
+
+  describe('synced cache', () => {
+    const headCalls = () => fake.listTree.mock.calls.filter(c => c[0] === 'HEAD').length;
+
+    it('synced() recomputes when HEAD changes without afterSync() being called', async () => {
+      const svc = makeService();
+      expect((await svc.synced()).get(UUID_A)?.commit).toBe('c0ffee');
+      fake.commitInfo.mockImplementation(async (ref: string) =>
+        ref === 'HEAD' ? { hash: 'newhead', date: COMMIT.date } : REMOTE);
+      expect((await svc.synced()).get(UUID_A)?.commit).toBe('newhead');
+      expect(headCalls()).toBe(2);
+    });
+
+    it('does not call listTree again when HEAD is unchanged', async () => {
+      const svc = makeService();
+      await svc.synced();
+      await svc.synced();
+      expect(headCalls()).toBe(1);
+    });
+
+    it('disk identities are reused within 30 s and recomputed after', async () => {
+      vi.useFakeTimers();
+      const svc = makeService({ git: false });
+      const first = (await svc.synced()).get(UUID_CUSTOM)!.fingerprint;
+      fs.writeFileSync(path.join(customDir, 'main.go'), 'package main\n// changed\n');
+      await vi.advanceTimersByTimeAsync(29_000);
+      expect((await svc.synced()).get(UUID_CUSTOM)!.fingerprint).toBe(first);
+      await vi.advanceTimersByTimeAsync(2_000);
+      expect((await svc.synced()).get(UUID_CUSTOM)!.fingerprint).not.toBe(first);
+    });
   });
 
   it('set/get registry', () => {

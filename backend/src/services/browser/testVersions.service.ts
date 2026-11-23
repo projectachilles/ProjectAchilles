@@ -3,6 +3,8 @@
 // pulls, resets or cleans, so the working tree (and custom tests in it) stays
 // as it is.
 
+import * as fs from 'fs';
+import * as os from 'os';
 import * as path from 'path';
 import type { TestVersionIdentity } from '../../types/testVersion.js';
 import type { BuildVersionSource } from '../tests/buildService.js';
@@ -33,6 +35,8 @@ export interface TestVersionsOptions {
   listTests: () => Array<{ uuid: string; dir: string; provenance: 'upstream' | 'custom' }>;
   /** Uploaded embed dependencies of a test (relative to its folder): not source. */
   embedDependencyFiles?: (uuid: string) => string[];
+  /** Where the published state is shared between processes (default: the settings directory). */
+  stateFile?: string;
 }
 
 export class CheckBusyError extends Error {
@@ -44,6 +48,7 @@ export class CheckBusyError extends Error {
 
 const UUID_PATTERN = /^[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}$/i;
 const FIRST_CHECK_MS = 2 * 60_000;
+const DISK_CACHE_MS = 30_000;
 const CHECK_INTERVAL_MS = 6 * 60 * 60_000;
 
 function emptyState(): PublishedState {
@@ -57,6 +62,8 @@ function matchesPrefix(p: string, prefix: string): boolean {
   return prefix.endsWith('/') ? p.startsWith(prefix) : p === prefix;
 }
 
+type StoredState = Omit<PublishedState, 'byTest'> & { byTest: Record<string, TestVersionIdentity> };
+
 interface SyncedSnapshot {
   identities: Map<string, TestVersionIdentity>;
   commit: { hash: string; date: string } | null;
@@ -69,7 +76,10 @@ export class TestVersionsService implements BuildVersionSource {
   private readonly listTests: TestVersionsOptions['listTests'];
   private readonly embedDependencyFiles: (uuid: string) => string[];
 
-  private syncedCache: Promise<SyncedSnapshot> | null = null;
+  private gitCache: { commit: { hash: string; date: string }; ids: Map<string, TestVersionIdentity> } | null = null;
+  private diskCache: { at: number; ids: Map<string, TestVersionIdentity> } | null = null;
+  private readonly stateFile: string;
+  private loadedMtimeMs = -1;
   private state: PublishedState = emptyState();
   private checking = false;
   private firstTimer: NodeJS.Timeout | undefined;
@@ -81,6 +91,8 @@ export class TestVersionsService implements BuildVersionSource {
     this.sourceSubdir = opts.sourceSubdir;
     this.listTests = opts.listTests;
     this.embedDependencyFiles = opts.embedDependencyFiles ?? (() => []);
+    this.stateFile = opts.stateFile
+      ?? path.join(os.homedir(), '.projectachilles', 'test-versions-published.json');
   }
 
   /** Repo-relative path ('/' separators) of a test folder, or null when it is not in the repository's library. */
@@ -96,42 +108,50 @@ export class TestVersionsService implements BuildVersionSource {
     return { ...identityFromDisk(dir, uuid, this.embedDependencyFiles(uuid)), provenance };
   }
 
-  private loadSynced(): Promise<SyncedSnapshot> {
-    if (!this.syncedCache) {
-      const pending = this.computeSynced();
-      this.syncedCache = pending;
-      // A failed read is not kept: the next call tries again.
-      pending.catch(() => {
-        if (this.syncedCache === pending) this.syncedCache = null;
-      });
+  /** Git tests at HEAD, cached by the HEAD hash so another process's sync is noticed. */
+  private async gitIdentities(
+    tests: ReturnType<TestVersionsOptions['listTests']>,
+  ): Promise<{ ids: Map<string, TestVersionIdentity>; commit: { hash: string; date: string } | null }> {
+    const none = { ids: new Map<string, TestVersionIdentity>(), commit: null };
+    if (!this.gitSync) return none;
+    const gitTests: TestLocation[] = [];
+    for (const t of tests) {
+      const relPath = t.provenance === 'upstream' ? this.repoRelPath(t.dir) : null;
+      if (relPath) gitTests.push({ uuid: t.uuid, relPath });
     }
-    return this.syncedCache;
+    if (gitTests.length === 0) return none;
+    try {
+      const commit = await this.gitSync.commitInfo('HEAD');
+      if (this.gitCache && this.gitCache.commit.hash === commit.hash) return this.gitCache;
+      const entries = await this.gitSync.listTree('HEAD');
+      this.gitCache = { commit, ids: identitiesFromTree(entries, gitTests, commit) };
+      return this.gitCache;
+    } catch {
+      // No readable HEAD: the tests fall back to their folders.
+      return none;
+    }
   }
 
-  private async computeSynced(): Promise<SyncedSnapshot> {
+  private async loadSynced(): Promise<SyncedSnapshot> {
     const tests = this.listTests();
+    const { ids: gitIds, commit } = await this.gitIdentities(tests);
+    const now = Date.now();
+    if (!this.diskCache || now - this.diskCache.at >= DISK_CACHE_MS) {
+      this.diskCache = { at: now, ids: new Map() };
+    }
     const identities = new Map<string, TestVersionIdentity>();
-    let commit: { hash: string; date: string } | null = null;
-
-    const gitTests: Array<TestLocation & { dir: string }> = [];
-    if (this.gitSync) {
-      for (const t of tests) {
-        const relPath = t.provenance === 'upstream' ? this.repoRelPath(t.dir) : null;
-        if (relPath) gitTests.push({ uuid: t.uuid, relPath, dir: t.dir });
-      }
-    }
-    if (this.gitSync && gitTests.length > 0) {
-      try {
-        commit = await this.gitSync.commitInfo('HEAD');
-        const entries = await this.gitSync.listTree('HEAD');
-        for (const [uuid, id] of identitiesFromTree(entries, gitTests, commit)) identities.set(uuid, id);
-      } catch {
-        // No readable HEAD: the tests fall back to their folders below.
-      }
-    }
     for (const t of tests) {
-      if (identities.has(t.uuid)) continue;
-      identities.set(t.uuid, this.diskIdentity(t.uuid, t.dir, t.provenance));
+      const fromGit = gitIds.get(t.uuid);
+      if (fromGit) {
+        identities.set(t.uuid, fromGit);
+        continue;
+      }
+      let id = this.diskCache.ids.get(t.uuid);
+      if (!id) {
+        id = this.diskIdentity(t.uuid, t.dir, t.provenance);
+        this.diskCache.ids.set(t.uuid, id);
+      }
+      identities.set(t.uuid, id);
     }
     return { identities, commit };
   }
@@ -153,8 +173,41 @@ export class TestVersionsService implements BuildVersionSource {
     }
   }
 
+  /** The last check's result; reloaded from the shared file when another process wrote a newer one. */
   published(): PublishedState {
+    if (!this.gitEnabled) return this.state;
+    try {
+      const mtime = fs.statSync(this.stateFile).mtimeMs;
+      if (mtime !== this.loadedMtimeMs) {
+        const raw = JSON.parse(fs.readFileSync(this.stateFile, 'utf8')) as Partial<StoredState>;
+        this.state = {
+          checkedAt: raw.checkedAt ?? null,
+          commit: raw.commit ?? null,
+          commitDate: raw.commitDate ?? null,
+          error: raw.error ?? null,
+          errorAt: raw.errorAt ?? null,
+          byTest: new Map(Object.entries(raw.byTest ?? {})),
+          newTests: raw.newTests ?? 0,
+        };
+        this.loadedMtimeMs = mtime;
+      }
+    } catch {
+      // Missing or unparseable: keep what is in memory.
+    }
     return this.state;
+  }
+
+  private persist(): void {
+    try {
+      const stored: StoredState = { ...this.state, byTest: Object.fromEntries(this.state.byTest) };
+      fs.mkdirSync(path.dirname(this.stateFile), { recursive: true });
+      const tmp = `${this.stateFile}.${process.pid}.tmp`;
+      fs.writeFileSync(tmp, JSON.stringify(stored), { mode: 0o600 });
+      fs.renameSync(tmp, this.stateFile);
+      this.loadedMtimeMs = fs.statSync(this.stateFile).mtimeMs;
+    } catch {
+      // Not persisted: this process still has the result.
+    }
   }
 
   async current(uuid: string): Promise<{ identity: TestVersionIdentity; modified: boolean } | null> {
@@ -198,6 +251,7 @@ export class TestVersionsService implements BuildVersionSource {
     if (!this.gitSync) return this.state;
     if (this.checking || this.gitSync.isSyncing()) throw new CheckBusyError();
     this.checking = true;
+    this.published(); // start from the latest shared result
     try {
       const ref = await this.gitSync.fetchPublished();
       const [entries, commit] = await Promise.all([
@@ -227,12 +281,14 @@ export class TestVersionsService implements BuildVersionSource {
     } finally {
       this.checking = false;
     }
+    this.persist();
     return this.state;
   }
 
   /** After a sync or index refresh: the synced versions are stale, and the published check may have changed. */
   afterSync(): void {
-    this.syncedCache = null;
+    this.gitCache = null;
+    this.diskCache = null;
     if (!this.gitEnabled) return;
     this.check().catch(() => { /* busy: the next timer tick checks again */ });
   }
