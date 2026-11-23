@@ -888,6 +888,21 @@ const ARTIFACT_DIR = \`${artifactDir}\`
       // ships no platform-specific test_logger_<os>.go. See issue #202.
       const injectedLogDirPath = this.injectLogDirIfMissing(testDir, platform.os);
 
+      // `go mod tidy` can rewrite a test's own go.mod and create a go.sum.
+      // Keep the originals so the synced clone is left exactly as found:
+      // a dirty tree would read as modified source on the next build.
+      let original: { goMod: Buffer; goSum: Buffer | null } | null = null;
+      if (hadGoMod) {
+        try {
+          original = {
+            goMod: fs.readFileSync(goModPath),
+            goSum: fs.existsSync(goSumPath) ? fs.readFileSync(goSumPath) : null,
+          };
+        } catch (err) {
+          console.warn(`Could not snapshot go.mod/go.sum for ${uuid}; they will not be restored:`, err);
+        }
+      }
+
       try {
         if (!hadGoMod) {
           // Auto-init a temporary module so "go build ." works in package mode
@@ -914,6 +929,18 @@ const ARTIFACT_DIR = \`${artifactDir}\`
         if (!hadGoMod) {
           if (fs.existsSync(goModPath)) fs.unlinkSync(goModPath);
           if (fs.existsSync(goSumPath)) fs.unlinkSync(goSumPath);
+        }
+        // Restore a test's own go.mod / go.sum after the compile (the compile
+        // already used the tidied files). A failure here is logged, never
+        // allowed to fail or mask the build result.
+        if (original) {
+          try {
+            fs.writeFileSync(goModPath, original.goMod);
+            if (original.goSum) fs.writeFileSync(goSumPath, original.goSum);
+            else if (fs.existsSync(goSumPath)) fs.unlinkSync(goSumPath);
+          } catch (err) {
+            console.warn(`Could not restore go.mod/go.sum for ${uuid}:`, err);
+          }
         }
         // Clean up the synthesized LOG_DIR file. Cleanup runs even if the
         // build above throws, so the source tree never holds the auto-file.

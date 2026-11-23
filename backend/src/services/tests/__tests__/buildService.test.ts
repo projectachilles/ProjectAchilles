@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach, vi } from 'vitest';
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { promisify } from 'util';
 import { createHash } from 'crypto';
 import type { BuildInfo } from '../../../types/tests.js';
@@ -1889,6 +1889,102 @@ var data string
       // The metadata is rewritten whole, so a stamp from an earlier build is gone
       expect(writtenMeta()).not.toHaveProperty('version');
       expect(writtenMeta().source).toBe('uploaded');
+    });
+  });
+  // ── go.mod restore ────────────────────────────────────────
+
+  describe('buildAndSign — pre-existing go.mod', () => {
+    const testDir = `${TESTS_SOURCE}/cyber-hygiene/${VALID_UUID}`;
+    const goMod = `${testDir}/go.mod`;
+    const goSum = `${testDir}/go.sum`;
+    const originalMod = Buffer.from('module original\n');
+    const originalSum = Buffer.from('original sum\n');
+    let files: Map<string, Buffer>;
+
+    beforeEach(() => {
+      files = new Map([[goMod, originalMod]]);
+      mockExistsSync.mockImplementation((p: string) => p === testDir || files.has(p));
+      mockStatSync.mockImplementation((p: string) =>
+        p === testDir ? { isDirectory: () => true } : { size: 2048 });
+      mockReaddirSync.mockReturnValue(['main.go']);
+      mockReadFileSync.mockImplementation((p: string) => {
+        if (p.endsWith('.go')) return 'package main';
+        const f = files.get(p);
+        if (!f) throw new Error(`unexpected read ${p}`);
+        return f;
+      });
+      mockWriteFileSync.mockImplementation((p: string, data: Buffer | string) => {
+        files.set(p, Buffer.from(data));
+      });
+      mockUnlinkSync.mockImplementation((p: string) => { files.delete(p); });
+      // tidy rewrites go.mod and creates/rewrites go.sum
+      mockExecFileAsync.mockImplementation(async (_c: string, args: string[]) => {
+        if (args.includes('tidy')) {
+          files.set(goMod, Buffer.from('module tidied\n'));
+          files.set(goSum, Buffer.from('tidy sum\n'));
+        }
+        return { stdout: '', stderr: '' };
+      });
+    });
+
+    afterEach(() => {
+      mockWriteFileSync.mockReset();
+      mockUnlinkSync.mockReset();
+    });
+
+    it('a build of a test with its own go.mod restores go.mod to its original content afterwards', async () => {
+      const seenByCompile: string[] = [];
+      mockExecFileAsync.mockImplementation(async (_c: string, args: string[]) => {
+        if (args.includes('tidy')) files.set(goMod, Buffer.from('module tidied\n'));
+        if (args[0] === 'build') seenByCompile.push(files.get(goMod)!.toString());
+        return { stdout: '', stderr: '' };
+      });
+
+      await service.buildAndSign(VALID_UUID);
+
+      expect(seenByCompile).toEqual(['module tidied\n']); // compile used the tidied file
+      expect(files.get(goMod)).toEqual(originalMod);
+    });
+
+    it('a go.sum created by the build is removed when none existed, and restored when one did', async () => {
+      await service.buildAndSign(VALID_UUID);
+      expect(files.has(goSum)).toBe(false);
+
+      files.set(goMod, originalMod);
+      files.set(goSum, originalSum);
+      await service.buildAndSign(VALID_UUID);
+      expect(files.get(goSum)).toEqual(originalSum);
+      expect(files.get(goMod)).toEqual(originalMod);
+    });
+
+    it('the restore also happens when the compile fails', async () => {
+      mockExecFileAsync.mockImplementation(async (_c: string, args: string[]) => {
+        if (args.includes('tidy')) {
+          files.set(goMod, Buffer.from('module tidied\n'));
+          files.set(goSum, Buffer.from('tidy sum\n'));
+        }
+        if (args[0] === 'build') throw new Error('compile failed');
+        return { stdout: '', stderr: '' };
+      });
+
+      await expect(service.buildAndSign(VALID_UUID)).rejects.toThrow();
+
+      expect(files.get(goMod)).toEqual(originalMod);
+      expect(files.has(goSum)).toBe(false);
+    });
+
+    it('a restore failure is logged and does not fail the build', async () => {
+      const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+      mockWriteFileSync.mockImplementation((p: string, data: Buffer | string) => {
+        if (p === goMod) throw new Error('disk full');
+        files.set(p, Buffer.from(data));
+      });
+
+      const info = await service.buildAndSign(VALID_UUID);
+
+      expect(info.exists).toBe(true);
+      expect(warn).toHaveBeenCalled();
+      warn.mockRestore();
     });
   });
 });
