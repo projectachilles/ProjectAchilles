@@ -205,6 +205,22 @@ describe('identityFromDisk', () => {
     expect(identityFromDisk(dir, UUID_A)).toEqual(before);
   });
 
+  it('keeps the same fingerprint for a custom test folder when a build leaves its files behind, given the embed dependency names', () => {
+    write('validator.dat', 'uploaded dependency');
+    const embedDeps = ['validator.dat'];
+    const before = identityFromDisk(dir, UUID_A, embedDeps);
+
+    // What a build leaves behind: output dir, compiled binaries, generated go.sum
+    write(`build/${UUID_A}/${UUID_A}.exe`, 'MZ built');
+    write(`${UUID_A}.exe`, 'MZ compiled');
+    write(UUID_A, 'linux orchestrator');
+    write('go.sum', 'sum');
+    // The dependency itself changing is tracked by deps_hash, not the fingerprint
+    write('validator.dat', 'uploaded dependency, replaced');
+
+    expect(identityFromDisk(dir, UUID_A, embedDeps)).toEqual(before);
+  });
+
   it('ignores extensionless ELF and Mach-O binaries but sees a plain text file', () => {
     const before = identityFromDisk(dir, UUID_A);
     fs.writeFileSync(path.join(dir, 'validator-defender'), Buffer.from([0x7f, 0x45, 0x4c, 0x46, 1, 2]));

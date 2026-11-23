@@ -1,6 +1,9 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest';
 import { promisify } from 'util';
+import { createHash } from 'crypto';
 import type { BuildInfo } from '../../../types/tests.js';
+import type { TestVersionIdentity } from '../../../types/testVersion.js';
+import type { BuildVersionSource } from '../buildService.js';
 
 // ── Mock setup ──────────────────────────────────────────────────────
 
@@ -1748,6 +1751,144 @@ var data string
       // The second build ran only after the first released the slot.
       expect(spy).toHaveBeenCalledTimes(2);
       expect(spy).toHaveBeenCalledWith(otherUuid);
+    });
+  });
+  // ── Version stamp ─────────────────────────────────────────
+
+  describe('version stamp', () => {
+    const testDir = `${TESTS_SOURCE}/cyber-hygiene/${VALID_UUID}`;
+    const binaryPath = `${BUILDS_DIR}/${VALID_UUID}/${VALID_UUID}.exe`;
+    const binaryBytes = Buffer.from('built binary bytes');
+    const binarySha = createHash('sha256').update(binaryBytes).digest('hex');
+    const depBytes = Buffer.from('embedded dependency');
+    const identity: TestVersionIdentity = {
+      fingerprint: 'f'.repeat(64),
+      source_hash: 's'.repeat(64),
+      shared_hash: 'h'.repeat(64),
+      test_tree: 'tree123',
+      commit: 'abc1234',
+      commit_date: '2026-11-01T00:00:00Z',
+      provenance: 'upstream',
+    };
+
+    function stampedService(current: BuildVersionSource['current']) {
+      return new BuildService(
+        createMockSettingsService(), TESTS_SOURCE, { current },
+      );
+    }
+
+    function writtenMeta() {
+      const write = mockWriteFileSync.mock.calls.find(
+        (c) => typeof c[0] === 'string' && c[0].endsWith('build-meta.json'),
+      );
+      expect(write).toBeDefined();
+      return JSON.parse(write![1] as string);
+    }
+
+    beforeEach(() => {
+      mockExistsSync.mockImplementation((p: string) => p === testDir || p === `${testDir}/dep.dat`);
+      mockStatSync.mockImplementation((p: string) =>
+        p === testDir ? { isDirectory: () => true } : { size: 2048 });
+      mockReaddirSync.mockReturnValue(['main.go']);
+      mockReadFileSync.mockImplementation((p: string) => {
+        if (p === binaryPath) return binaryBytes;
+        if (p === `${testDir}/main.go`) return '//go:embed dep.dat\nvar dep []byte\n';
+        if (p === `${testDir}/dep.dat`) return depBytes;
+        throw new Error(`unexpected read ${p}`);
+      });
+    });
+
+    it('a successful build writes version with fingerprint, commit, modified:false, deps_hash and a sha256 for every file in binaries', async () => {
+      const svc = stampedService(async () => ({ identity, modified: false }));
+
+      const info = await svc.buildAndSign(VALID_UUID);
+
+      const meta = writtenMeta();
+      expect(meta.version).toEqual({
+        ...identity,
+        deps_hash: svc.currentDepsHash(VALID_UUID),
+        modified: false,
+        binaries: { [`${VALID_UUID}.exe`]: binarySha },
+      });
+      expect(meta.version.deps_hash).toMatch(/^[0-9a-f]{64}$/);
+      expect(Object.keys(meta.version.binaries)).toEqual(
+        Object.values(meta.binaries as Record<string, { filename: string }>).map(b => b.filename),
+      );
+      // getBuildInfo hands the stamp back
+      mockExistsSync.mockImplementation((p: string) => p.endsWith('build-meta.json') || p === binaryPath);
+      mockReadFileSync.mockReturnValue(JSON.stringify(meta));
+      expect(svc.getBuildInfo(VALID_UUID).version).toEqual(meta.version);
+      expect(info.exists).toBe(true);
+    });
+
+    it('currentDepsHash is null without embed dependencies and changes with their content', () => {
+      mockReadFileSync.mockImplementation((p: string) =>
+        p === `${testDir}/main.go` ? 'package main' : Buffer.from('x'));
+      expect(createService().currentDepsHash(VALID_UUID)).toBeNull();
+
+      const first = (() => {
+        mockReadFileSync.mockImplementation((p: string) =>
+          p === `${testDir}/main.go` ? '//go:embed dep.dat\nvar d []byte' : depBytes);
+        return createService().currentDepsHash(VALID_UUID);
+      })();
+      mockReadFileSync.mockImplementation((p: string) =>
+        p === `${testDir}/main.go` ? '//go:embed dep.dat\nvar d []byte' : Buffer.from('other'));
+      expect(first).toMatch(/^[0-9a-f]{64}$/);
+      expect(createService().currentDepsHash(VALID_UUID)).not.toBe(first);
+    });
+
+    it('versionSource.current is called before the compile step', async () => {
+      const order: string[] = [];
+      mockExecFileAsync.mockImplementation(async (cmd: string, args: string[]) => {
+        order.push(`exec:${cmd} ${args[0]}`);
+        return { stdout: '', stderr: '' };
+      });
+      const svc = stampedService(async () => {
+        order.push('current');
+        return { identity, modified: false };
+      });
+
+      await svc.buildAndSign(VALID_UUID);
+
+      expect(order[0]).toBe('current');
+      expect(order.some(o => o.startsWith('exec:go build'))).toBe(true);
+    });
+
+    it('modified source gives version.modified === true', async () => {
+      const svc = stampedService(async () => ({ identity, modified: true }));
+      await svc.buildAndSign(VALID_UUID);
+      expect(writtenMeta().version.modified).toBe(true);
+    });
+
+    it.each([
+      ['throws', async () => { throw new Error('git unavailable'); }],
+      ['returns null', async () => null],
+    ])('versionSource.current %s: the build still succeeds with no version', async (_label, current) => {
+      const svc = stampedService(current);
+
+      const info = await svc.buildAndSign(VALID_UUID);
+
+      expect(info.exists).toBe(true);
+      expect(writtenMeta()).not.toHaveProperty('version');
+    });
+
+    it('no versionSource passed: build works, no version', async () => {
+      const info = await createService().buildAndSign(VALID_UUID);
+
+      expect(info.exists).toBe(true);
+      expect(writtenMeta()).not.toHaveProperty('version');
+      expect(info).not.toHaveProperty('version');
+    });
+
+    it('uploadBinary writes no version, and removes one left by an earlier build', () => {
+      const svc = stampedService(async () => ({ identity, modified: false }));
+      const peBytes = Buffer.concat([Buffer.from([0x4D, 0x5A]), Buffer.alloc(10)]);
+
+      svc.uploadBinary(VALID_UUID, peBytes);
+
+      // The metadata is rewritten whole, so a stamp from an earlier build is gone
+      expect(writtenMeta()).not.toHaveProperty('version');
+      expect(writtenMeta().source).toBe('uploaded');
     });
   });
 });

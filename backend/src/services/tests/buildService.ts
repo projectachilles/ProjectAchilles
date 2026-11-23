@@ -1,6 +1,7 @@
 // Build service: Go cross-compilation, build_all.sh execution, osslsigncode signing
 
 import * as fs from 'fs';
+import * as crypto from 'crypto';
 import * as path from 'path';
 import * as os from 'os';
 import { execFile } from 'child_process';
@@ -11,10 +12,18 @@ import { BuildJobs } from './buildJobs.js';
 import { describeCommandFailure } from '../shared/commandFailure.js';
 import { buildSubprocessEnv } from './buildEnv.js';
 import { isUsableSourceRoot } from '../browser/repositoryRoot.js';
+import { hashFiles } from '../browser/versionIdentity.js';
+import type { BuildVersionStamp, TestVersionIdentity } from '../../types/testVersion.js';
 
 const execFileAsync = promisify(execFile);
 
 /** Thrown when a build command fails — carries the stderr output for the user */
+/** Where a build learns which source version it is compiling. */
+export interface BuildVersionSource {
+  /** Identity of the test as it is on disk now, plus whether its build inputs differ from HEAD. */
+  current(uuid: string): Promise<{ identity: TestVersionIdentity; modified: boolean } | null>;
+}
+
 export class BuildError extends Error {
   constructor(message: string) {
     super(message);
@@ -152,8 +161,15 @@ export class BuildService {
   private jobs = new BuildJobs<BuildInfo>();
   private buildSlot = new BuildSlot();
 
-  constructor(settingsService: TestsSettingsService, testSourcePaths: string[] | string) {
+  private versionSource?: BuildVersionSource;
+
+  constructor(
+    settingsService: TestsSettingsService,
+    testSourcePaths: string[] | string,
+    versionSource?: BuildVersionSource,
+  ) {
     this.settingsService = settingsService;
+    this.versionSource = versionSource;
     this.testSourcePaths = typeof testSourcePaths === 'string'
       ? [testSourcePaths]
       : testSourcePaths;
@@ -472,6 +488,7 @@ const ARTIFACT_DIR = \`${artifactDir}\`
         builtAt: meta.builtAt,
         filename: meta.filename,
         source: meta.source,
+        ...(meta.version ? { version: meta.version } : {}),
       };
     } catch {
       return { exists: false };
@@ -558,6 +575,20 @@ const ARTIFACT_DIR = \`${artifactDir}\`
     return deps;
   }
 
+  /**
+   * Hash of the embed dependencies that are on disk and not built from source
+   * (uploaded payloads: they are not in git, so they are not in the source
+   * identity). null when the test has none.
+   */
+  currentDepsHash(uuid: string): string | null {
+    const testDir = this.findTestDir(uuid);
+    if (!testDir) return null;
+    const names = this.getEmbedDependencies(uuid)
+      .filter(d => d.exists && !d.sourceBuilt)
+      .map(d => d.filename);
+    return hashFiles(testDir, names);
+  }
+
   saveUploadedFile(uuid: string, filename: string, buffer: Buffer): void {
     const testDir = this.findTestDir(uuid);
     if (!testDir) {
@@ -639,6 +670,21 @@ const ARTIFACT_DIR = \`${artifactDir}\`
     const testDir = this.findTestDir(uuid);
     if (!testDir) {
       throw new Error('Test directory not found');
+    }
+
+    // Read the version identity BEFORE compiling: the build compiles the
+    // working tree as it is now, and a sync could change it mid-build. A
+    // failure here only costs the stamp, never the build.
+    let versionBefore: { identity: TestVersionIdentity; modified: boolean; depsHash: string | null } | null = null;
+    if (this.versionSource) {
+      try {
+        const current = await this.versionSource.current(uuid);
+        if (current) {
+          versionBefore = { ...current, depsHash: this.currentDepsHash(uuid) };
+        }
+      } catch {
+        versionBefore = null;
+      }
     }
 
     // 2. Resolve platform: auto-detect OS from build tags, arch from global setting
@@ -928,6 +974,9 @@ const ARTIFACT_DIR = \`${artifactDir}\`
       ...extraBinaries,
       [platform.os]: { filename, fileSize: stats.size, signed },
     };
+    const version = versionBefore
+      ? this.stampVersion(versionBefore, buildDir, binaries)
+      : undefined;
     const meta: BuildMetadata = {
       platform: { os: platform.os, arch: platform.arch },
       builtAt: new Date().toISOString(),
@@ -936,6 +985,7 @@ const ARTIFACT_DIR = \`${artifactDir}\`
       filename,
       binaries,
       source: 'built',
+      ...(version ? { version } : {}),
     };
     fs.writeFileSync(this.metaPath(uuid), JSON.stringify(meta, null, 2));
 
@@ -947,6 +997,30 @@ const ARTIFACT_DIR = \`${artifactDir}\`
       builtAt: meta.builtAt,
       filename: meta.filename,
       source: 'built',
+      ...(version ? { version } : {}),
     };
+  }
+
+  /**
+   * Final stamp: the identity read before the build plus the SHA-256 of every
+   * artifact as it is now (after signing, which rewrites the file). null when
+   * an artifact can't be read: no stamp is better than a wrong one.
+   */
+  private stampVersion(
+    before: { identity: TestVersionIdentity; modified: boolean; depsHash: string | null },
+    buildDir: string,
+    artifacts: NonNullable<BuildMetadata['binaries']>,
+  ): BuildVersionStamp | null {
+    try {
+      const binaries: Record<string, string> = {};
+      for (const artifact of Object.values(artifacts)) {
+        if (!artifact) continue;
+        const bytes = fs.readFileSync(path.join(buildDir, path.basename(artifact.filename)));
+        binaries[artifact.filename] = crypto.createHash('sha256').update(bytes).digest('hex');
+      }
+      return { ...before.identity, deps_hash: before.depsHash, modified: before.modified, binaries };
+    } catch {
+      return null;
+    }
   }
 }

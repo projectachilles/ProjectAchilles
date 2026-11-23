@@ -1,3 +1,5 @@
+import type { BuildVersionStamp } from './testVersion.js';
+
 // Tests module types
 
 export interface PlatformSettings {
@@ -59,6 +61,8 @@ export interface BuildInfo {
   filename?: string;
   source?: 'built' | 'uploaded';
   job?: BuildJob;
+  /** Source version this binary was built from; absent on uploads and older builds. */
+  version?: BuildVersionStamp;
 }
 
 /** One built artifact for a single OS, within a BuildMetadata.binaries map. */
@@ -82,6 +86,7 @@ export interface BuildMetadata {
    */
   binaries?: Partial<Record<'windows' | 'linux' | 'darwin', BuildArtifact>>;
   source?: 'built' | 'uploaded';
+  version?: BuildVersionStamp;
 }
 
 export interface EmbedDependency {
