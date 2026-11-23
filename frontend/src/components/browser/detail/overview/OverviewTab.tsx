@@ -17,6 +17,8 @@ import TechniqueBadge from '@/components/browser/TechniqueBadge';
 import { hosts } from '../plural';
 import { mapFleetToPills } from './fleetPills';
 import { useTestFleet } from '../useTestFleet';
+import { useCapabilities } from '@/hooks/useCapabilities';
+import VersionCard from '../VersionCard';
 import ShipsWithPanel from './ShipsWithPanel';
 
 interface OverviewTabProps {
@@ -42,6 +44,7 @@ export default function OverviewTab({ test, canBuild, build, onOpenFile }: Overv
     pills[s.stage] = { lab: `${s.outcome} in lab` };
   }
 
+  const { testVersions } = useCapabilities();
   const { data: fleet } = useTestFleet(test.uuid);
   const hasFleet = !!fleet && fleet.headline.pairCount > 0;
   const isHygiene = test.category === 'cyber-hygiene';
@@ -132,12 +135,20 @@ export default function OverviewTab({ test, canBuild, build, onOpenFile }: Overv
   const showFleet = hasFleet;
   const showQuality = !!ov.quality;
   const showSource = !!ov.primarySource;
-  if (!showFleet && !showDeploy && !showShipsWith && !showQuality && !showSource) return main;
+  if (!testVersions && !showFleet && !showDeploy && !showShipsWith && !showQuality && !showSource) return main;
 
   return (
     <div className="grid gap-6 lg:grid-cols-[minmax(0,1fr)_20rem]">
       {main}
       <aside className="min-w-0 space-y-4">
+        {testVersions && (
+          <VersionCard
+            uuid={test.uuid}
+            canBuild={showDeploy}
+            onBuild={showDeploy ? build.requestBuild : undefined}
+            buildInfo={build.buildInfo}
+          />
+        )}
         <DeployPanel uuid={test.uuid} canBuild={canBuild} hasSource={hasSource} build={build} />
         {hasFleet && <FleetPanel testName={test.name} headline={fleet.headline} kind={fleetKind} />}
         <QualityPanel quality={ov.quality} />

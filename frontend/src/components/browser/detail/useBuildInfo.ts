@@ -7,6 +7,9 @@ export interface BuildInfoState {
   setBuildInfo: (info: BuildInfo | null) => void;
   loading: boolean;
   download: () => Promise<void>;
+  /** Counts requests to start a build from outside the build panel (the Version card). */
+  buildRequest: number;
+  requestBuild: () => void;
 }
 
 interface Loaded {
@@ -22,6 +25,8 @@ interface Loaded {
  */
 export function useBuildInfo(uuid: string | null): BuildInfoState {
   const [loaded, setLoaded] = useState<Loaded | null>(null);
+  const [buildRequest, setBuildRequest] = useState(0);
+  const requestBuild = useCallback(() => setBuildRequest((n) => n + 1), []);
 
   useEffect(() => {
     if (uuid === null) return;
@@ -52,5 +57,5 @@ export function useBuildInfo(uuid: string | null): BuildInfoState {
     }
   }, [uuid]);
 
-  return { buildInfo, setBuildInfo, loading, download };
+  return { buildInfo, setBuildInfo, loading, download, buildRequest, requestBuild };
 }

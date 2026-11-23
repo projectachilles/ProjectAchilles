@@ -6,7 +6,13 @@ import type { BuildInfoState } from '../useBuildInfo';
 
 vi.mock('../overview/DeployPanel', () => ({ default: () => <div>deploy-panel</div> }));
 // No fleet support: keeps the suite off the network (useTestFleet never fetches).
-vi.mock('@/hooks/useCapabilities', () => ({ useCapabilities: () => ({ loaded: true, testFleet: false }) }));
+const caps = vi.hoisted(() => ({ testVersions: false }));
+vi.mock('@/hooks/useCapabilities', () => ({ useCapabilities: () => ({ loaded: true, testFleet: false, testVersions: caps.testVersions }) }));
+vi.mock('../VersionCard', () => ({
+  default: ({ uuid, canBuild, onBuild }: { uuid: string; canBuild: boolean; onBuild?: () => void }) => (
+    <button type="button" onClick={onBuild}>{`version-card ${uuid} canBuild=${canBuild} onBuild=${onBuild ? 'yes' : 'no'}`}</button>
+  ),
+}));
 
 const { default: OverviewTab } = await import('../overview/OverviewTab');
 
@@ -56,6 +62,33 @@ function make(over: Partial<TestDetails> = {}): TestDetails {
 
 const renderTab = (test: TestDetails, onOpenFile = vi.fn()) =>
   render(<OverviewTab test={test} canBuild build={build} onOpenFile={onOpenFile} />);
+
+describe('OverviewTab version card', () => {
+  it('is not rendered without the testVersions capability', () => {
+    caps.testVersions = false;
+    renderTab(make());
+    expect(screen.queryByText(/version-card/)).not.toBeInTheDocument();
+  });
+
+  it('is rendered right before the Deploy panel and starts the shared build', async () => {
+    caps.testVersions = true;
+    const requestBuild = vi.fn();
+    const state = { requestBuild, buildRequest: 0 } as unknown as BuildInfoState;
+    render(<OverviewTab test={make()} canBuild build={state} onOpenFile={vi.fn()} />);
+    const card = screen.getByText('version-card u-1 canBuild=true onBuild=yes');
+    expect(card.compareDocumentPosition(screen.getByText('deploy-panel')) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    await userEvent.click(card);
+    expect(requestBuild).toHaveBeenCalledTimes(1);
+    caps.testVersions = false;
+  });
+
+  it('is shown to a user who cannot build, without a build action', () => {
+    caps.testVersions = true;
+    render(<OverviewTab test={make()} canBuild={false} build={build} onOpenFile={vi.fn()} />);
+    expect(screen.getByText('version-card u-1 canBuild=false onBuild=no')).toBeInTheDocument();
+    caps.testVersions = false;
+  });
+});
 
 describe('OverviewTab panels', () => {
   it('renders all seven panels for a full overview', () => {

@@ -118,6 +118,16 @@ export default function BuildSection({ uuid, build }: BuildSectionProps) {
     await followBuild(true);
   }
 
+  // A build asked for from outside (the Version card's Build & Sign) runs here,
+  // so the progress, errors and result show in this panel.
+  const buildRequest = build?.buildRequest ?? 0;
+  const lastBuildRequest = useRef(buildRequest);
+  useEffect(() => {
+    if (buildRequest === lastBuildRequest.current) return;
+    lastBuildRequest.current = buildRequest;
+    void followBuild(true);
+  }, [buildRequest, followBuild]);
+
   async function handleDelete() {
     try {
       await testsApi.deleteBuild(uuid);

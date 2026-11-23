@@ -119,6 +119,8 @@ describe('BuildSection with shared build state', () => {
       setBuildInfo,
       loading: false,
       download: vi.fn(),
+      buildRequest: 0,
+      requestBuild: vi.fn(),
     };
     testsApiMock.deleteBuild.mockResolvedValue(undefined);
     render(<BuildSection uuid={UUID_A} build={build} />);
@@ -129,5 +131,26 @@ describe('BuildSection with shared build state', () => {
     const del = screen.getAllByRole('button').find((b) => /delete|remove|trash/i.test(b.getAttribute('title') ?? b.textContent ?? '') ) ?? screen.getAllByRole('button').at(-1)!;
     fireEvent.click(del);
     await waitFor(() => expect(setBuildInfo).toHaveBeenCalledWith({ exists: false }));
+  });
+});
+
+describe('BuildSection build requests', () => {
+  it('starts a build when the shared state asks for one, not on mount', async () => {
+    testsApiMock.buildTest.mockImplementation(() => new Promise<BuildInfo>(() => {}));
+    const state = (buildRequest: number) => ({
+      buildInfo: { exists: false } as BuildInfo,
+      setBuildInfo: vi.fn(),
+      loading: false,
+      download: vi.fn(),
+      buildRequest,
+      requestBuild: vi.fn(),
+    });
+    const { rerender } = render(<BuildSection uuid={UUID_A} build={state(0)} />);
+    await screen.findByRole('button', { name: /Build/ });
+    expect(testsApiMock.buildTest).not.toHaveBeenCalled();
+
+    rerender(<BuildSection uuid={UUID_A} build={state(1)} />);
+    await waitFor(() => expect(testsApiMock.buildTest).toHaveBeenCalledTimes(1));
+    expect(testsApiMock.buildTest).toHaveBeenCalledWith(UUID_A, { signal: expect.any(AbortSignal) });
   });
 });
