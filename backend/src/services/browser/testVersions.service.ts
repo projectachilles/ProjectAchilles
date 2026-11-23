@@ -37,6 +37,8 @@ export interface TestVersionsOptions {
   embedDependencyFiles?: (uuid: string) => string[];
   /** Where the published state is shared between processes (default: the settings directory). */
   stateFile?: string;
+  /** The first timed check runs at 2 min plus a random delay below this (spreads cluster workers). */
+  startJitterMs?: number;
 }
 
 export class CheckBusyError extends Error {
@@ -49,6 +51,7 @@ export class CheckBusyError extends Error {
 const UUID_PATTERN = /^[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}$/i;
 const FIRST_CHECK_MS = 2 * 60_000;
 const DISK_CACHE_MS = 30_000;
+const MIN_TIMED_GAP_MS = 10 * 60_000;
 const CHECK_INTERVAL_MS = 6 * 60 * 60_000;
 
 function emptyState(): PublishedState {
@@ -80,6 +83,8 @@ export class TestVersionsService implements BuildVersionSource {
   private diskCache: { at: number; ids: Map<string, TestVersionIdentity> } | null = null;
   private readonly stateFile: string;
   private loadedMtimeMs = -1;
+  private readonly startJitterMs: number;
+  private rerunWanted = false;
   private state: PublishedState = emptyState();
   private checking = false;
   private firstTimer: NodeJS.Timeout | undefined;
@@ -91,6 +96,7 @@ export class TestVersionsService implements BuildVersionSource {
     this.sourceSubdir = opts.sourceSubdir;
     this.listTests = opts.listTests;
     this.embedDependencyFiles = opts.embedDependencyFiles ?? (() => []);
+    this.startJitterMs = opts.startJitterMs ?? 0;
     this.stateFile = opts.stateFile
       ?? path.join(os.homedir(), '.projectachilles', 'test-versions-published.json');
   }
@@ -282,6 +288,10 @@ export class TestVersionsService implements BuildVersionSource {
       this.checking = false;
     }
     this.persist();
+    if (this.rerunWanted) {
+      this.rerunWanted = false;
+      this.check().catch(() => { /* busy: the next timer tick checks again */ });
+    }
     return this.state;
   }
 
@@ -290,18 +300,39 @@ export class TestVersionsService implements BuildVersionSource {
     this.gitCache = null;
     this.diskCache = null;
     if (!this.gitEnabled) return;
+    if (this.checking) {
+      // The running check may have fetched before the sync: run once more after it.
+      this.rerunWanted = true;
+      return;
+    }
     this.check().catch(() => { /* busy: the next timer tick checks again */ });
+  }
+
+  /** A timer tick: skipped when another process finished a check (ok or failed) in the last 10 minutes. */
+  private async timedCheck(): Promise<void> {
+    const { checkedAt, errorAt } = this.published();
+    const last = Math.max(
+      checkedAt ? Date.parse(checkedAt) : 0,
+      errorAt ? Date.parse(errorAt) : 0,
+    );
+    if (Date.now() - last < MIN_TIMED_GAP_MS) return;
+    try {
+      await this.check();
+    } catch {
+      // busy: the next tick checks again
+    }
   }
 
   start(): void {
     if (!this.gitEnabled || process.env.TESTS_UPDATE_CHECK === 'off') return;
     this.stop();
-    const run = (): void => { this.check().catch(() => { /* busy */ }); };
+    const run = (): void => { void this.timedCheck(); };
+    const delay = FIRST_CHECK_MS + (this.startJitterMs > 0 ? Math.floor(Math.random() * this.startJitterMs) : 0);
     this.firstTimer = setTimeout(() => {
       run();
       this.interval = setInterval(run, CHECK_INTERVAL_MS);
       this.interval.unref();
-    }, FIRST_CHECK_MS);
+    }, delay);
     this.firstTimer.unref();
   }
 

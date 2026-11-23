@@ -359,6 +359,7 @@ async function startServer() {
     sourceSubdir: 'tests_source',
     listTests: () => versionIndexer.listLocations(),
     // Uploaded embed dependencies are tracked by the build's deps hash, not the version.
+    startJitterMs: cluster.isWorker ? 60_000 : undefined,
     embedDependencyFiles: (uuid) => buildService.getEmbedDependencies(uuid)
       .filter(d => d.exists && !d.sourceBuilt)
       .map(d => d.filename),
@@ -369,6 +370,10 @@ async function startServer() {
     testVersions,
   );
   setTestVersionsService(testVersions);
+  // Every process that serves HTTP checks the published versions (a cluster
+  // worker has the git sync; the primary has none). The jitter and the shared
+  // state file keep the workers from all fetching at once.
+  testVersions.start();
 
   // Browser module - with Git sync integration
   const browserRouter = createBrowserRouter({
@@ -483,7 +488,7 @@ async function startServer() {
       startBackgroundJobs(httpServer);
     } else {
       // Worker: just handle graceful shutdown for HTTP
-      const shutdown = () => { httpServer.close(); };
+      const shutdown = () => { testVersions.stop(); httpServer.close(); };
       process.on('SIGTERM', shutdown);
       process.on('SIGINT', shutdown);
     }
@@ -495,9 +500,6 @@ async function startServer() {
  * either the lone process (no clustering) or the cluster primary.
  */
 function startBackgroundJobs(httpServer?: http.Server) {
-  // --- Published test versions: first check after 2 min, then every 6 h ---
-  getTestVersionsService()?.start();
-
   // --- Task scheduler: process due schedules every 60s ---
   processSchedules(); // Startup recovery: catch up on past-due schedules
   const noticeTick = () => {

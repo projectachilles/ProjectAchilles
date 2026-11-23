@@ -47,7 +47,7 @@ describe('TestVersionsService', () => {
   let fake: Fake;
   let customDir: string;
 
-  function makeService(opts: { git?: boolean; embed?: (uuid: string) => string[] } = {}): TestVersionsService {
+  function makeService(opts: { git?: boolean; embed?: (uuid: string) => string[]; jitter?: number } = {}): TestVersionsService {
     return new TestVersionsService({
       gitSync: opts.git === false ? undefined : (fake as unknown as GitSyncService),
       sourceSubdir: 'tests_source',
@@ -56,6 +56,7 @@ describe('TestVersionsService', () => {
         { uuid: UUID_CUSTOM, dir: customDir, provenance: 'custom' },
       ],
       embedDependencyFiles: opts.embed,
+      startJitterMs: opts.jitter,
       stateFile: path.join(tmp, 'state', 'published.json'),
     });
   }
@@ -315,6 +316,56 @@ describe('TestVersionsService', () => {
       expect((await svc.synced()).get(UUID_CUSTOM)!.fingerprint).toBe(first);
       await vi.advanceTimersByTimeAsync(2_000);
       expect((await svc.synced()).get(UUID_CUSTOM)!.fingerprint).not.toBe(first);
+    });
+  });
+
+  describe('timed checks', () => {
+    it('a timed check is skipped when the state file shows a check finished < 10 min ago by another instance, and runs when it is older', async () => {
+      vi.useFakeTimers();
+      vi.setSystemTime(new Date('2026-11-23T10:00:00Z'));
+      await makeService().check(); // writes checkedAt = 10:00
+      const other = makeService();
+      other.start();
+      await vi.advanceTimersByTimeAsync(2 * 60_000);
+      expect(fake.fetchPublished).toHaveBeenCalledTimes(1); // only the first instance's
+      // next tick is 6 h later: the shared result is older than 10 min
+      await vi.advanceTimersByTimeAsync(6 * 3_600_000);
+      expect(fake.fetchPublished).toHaveBeenCalledTimes(2);
+      other.stop();
+    });
+
+    it('an on-demand check() runs even when another instance checked a minute ago', async () => {
+      await makeService().check();
+      await makeService().check();
+      expect(fake.fetchPublished).toHaveBeenCalledTimes(2);
+    });
+
+    it('startJitterMs delays the first timed check by at most that much', async () => {
+      vi.useFakeTimers();
+      vi.spyOn(Math, 'random').mockReturnValue(0.5);
+      const svc = makeService({ jitter: 60_000 });
+      svc.start();
+      await vi.advanceTimersByTimeAsync(2 * 60_000 + 29_999);
+      expect(fake.fetchPublished).not.toHaveBeenCalled();
+      await vi.advanceTimersByTimeAsync(1);
+      expect(fake.fetchPublished).toHaveBeenCalledTimes(1);
+      svc.stop();
+      vi.mocked(Math.random).mockRestore();
+    });
+
+    it('afterSync() during a running check triggers exactly one more check after it finishes', async () => {
+      const svc = makeService();
+      let release: (ref: string) => void = () => undefined;
+      fake.fetchPublished.mockReturnValueOnce(new Promise<string>(r => { release = r; }));
+      const first = svc.check();
+      svc.afterSync();
+      svc.afterSync();
+      expect(fake.fetchPublished).toHaveBeenCalledTimes(1);
+      release('origin/main');
+      await first;
+      await vi.waitFor(() => expect(fake.fetchPublished).toHaveBeenCalledTimes(2));
+      await new Promise(r => setTimeout(r, 20));
+      expect(fake.fetchPublished).toHaveBeenCalledTimes(2);
     });
   });
 
