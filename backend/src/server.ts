@@ -337,6 +337,7 @@ async function startServer() {
       agentBuild: true,
       preExecutionNotices: true,
       campaigns: true,
+      testVersions: true,
       consoleIdentity: true,
       outcomeBreakdown: true,
       sentinelone: true,
@@ -381,6 +382,8 @@ async function startServer() {
     testsSourcePath,         // git sync scope (upstream path only)
     gitSync: gitSyncService,
     githubMetadata,
+    testVersions,
+    buildService,
   });
   app.use('/api/browser', browserRouter);
 

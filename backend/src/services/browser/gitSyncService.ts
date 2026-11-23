@@ -173,6 +173,11 @@ export class GitSyncService {
     return fs.existsSync(gitDir);
   }
 
+  /** The configured remote URL (may carry credentials: never send it to a client as is). */
+  public getRepoUrl(): string {
+    return this.config.repoUrl;
+  }
+
   /** The clone folder (operator-set; the folders inside it are repository content). */
   public getRepoPath(): string {
     return this.config.localPath;

@@ -8,6 +8,12 @@ export interface GitCommitInfo {
   lastCommitMessage: string;
 }
 
+/** owner/repo of a github.com remote URL (https or ssh form, optional .git suffix), else null. */
+export function parseGitHubRepo(url: string): { owner: string; repo: string } | null {
+  const match = url.match(/github\.com[/:]([^/]+)\/([^/.]+)/);
+  return match ? { owner: match[1], repo: match[2] } : null;
+}
+
 export class GitHubMetadataService {
   private owner: string;
   private repo: string;
@@ -28,12 +34,11 @@ export class GitHubMetadataService {
   }
 
   private parseGitHubUrl(url: string): { owner: string; repo: string } {
-    // Match github.com/owner/repo (with optional .git suffix)
-    const match = url.match(/github\.com[/:]([^/]+)\/([^/.]+)/);
-    if (!match) {
+    const parsed = parseGitHubRepo(url);
+    if (!parsed) {
       throw new Error(`Cannot parse GitHub owner/repo from URL: ${url}`);
     }
-    return { owner: match[1], repo: match[2] };
+    return parsed;
   }
 
   /**
