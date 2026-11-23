@@ -85,7 +85,7 @@ export function createGit(
  * Redact the configured credential in every representation this service sends
  * to Git, plus URL userinfo from clones created by older versions.
  */
-function sanitizeGitError(message: string, githubToken?: string): string {
+export function sanitizeGitError(message: string, githubToken?: string): string {
   const marker = '\u0000GIT_CREDENTIAL\u0000';
   let sanitized = message;
 

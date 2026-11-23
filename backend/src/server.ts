@@ -21,6 +21,10 @@ import analyticsRoutes from './api/analytics.routes.js';
 import { createTestsRouter } from './api/tests.routes.js';
 import { errorHandler, notFoundHandler } from './middleware/error.middleware.js';
 import { GitSyncService } from './services/browser/gitSyncService.js';
+import { TestIndexer } from './services/browser/testIndexer.js';
+import { TestVersionsService, setTestVersionsService, getTestVersionsService } from './services/browser/testVersions.service.js';
+import { BuildService } from './services/tests/buildService.js';
+import { TestsSettingsService } from './services/tests/settings.js';
 import { GitHubMetadataService } from './services/browser/githubMetadataService.js';
 import { localTestsSourceWarning } from './services/browser/testsSource.js';
 import { registerRepositoryRoot } from './services/browser/repositoryRoot.js';
@@ -347,6 +351,25 @@ async function startServer() {
     });
   });
 
+  // Per-test version tracking: one versions service, shared with the build
+  // service (which stamps each build with the version it was built from).
+  const versionIndexer = new TestIndexer(testSources);
+  const testVersions: TestVersionsService = new TestVersionsService({
+    gitSync: gitSyncService,
+    sourceSubdir: 'tests_source',
+    listTests: () => versionIndexer.listLocations(),
+    // Uploaded embed dependencies are tracked by the build's deps hash, not the version.
+    embedDependencyFiles: (uuid) => buildService.getEmbedDependencies(uuid)
+      .filter(d => d.exists && !d.sourceBuilt)
+      .map(d => d.filename),
+  });
+  const buildService: BuildService = new BuildService(
+    new TestsSettingsService(),
+    testSources.map(s => s.path),
+    testVersions,
+  );
+  setTestVersionsService(testVersions);
+
   // Browser module - with Git sync integration
   const browserRouter = createBrowserRouter({
     testSources,
@@ -363,6 +386,7 @@ async function startServer() {
   const testsRouter = createTestsRouter({
     testSourcePaths: testSources.map(s => s.path),
     testsSourcePath,
+    buildService,
   });
   app.use('/api/tests', testsRouter);
 
@@ -471,6 +495,9 @@ async function startServer() {
  * either the lone process (no clustering) or the cluster primary.
  */
 function startBackgroundJobs(httpServer?: http.Server) {
+  // --- Published test versions: first check after 2 min, then every 6 h ---
+  getTestVersionsService()?.start();
+
   // --- Task scheduler: process due schedules every 60s ---
   processSchedules(); // Startup recovery: catch up on past-due schedules
   const noticeTick = () => {
@@ -665,6 +692,7 @@ function startBackgroundJobs(httpServer?: http.Server) {
 
   const shutdown = () => {
     clearInterval(schedulerInterval);
+    getTestVersionsService()?.stop();
     clearInterval(sentinelOneInterval);
     clearInterval(sophosInterval);
     clearInterval(autoRotationInterval);

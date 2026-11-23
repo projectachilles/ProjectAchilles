@@ -6,6 +6,7 @@ import { fileURLToPath } from 'url';
 import { requireClerkAuth, requirePermission } from '../middleware/clerk.middleware.js';
 import { asyncHandler, AppError } from '../middleware/error.middleware.js';
 import { TestIndexer } from '../services/browser/testIndexer.js';
+import { getTestVersionsService } from '../services/browser/testVersions.service.js';
 import { FileService } from '../services/browser/fileService.js';
 import { GitSyncService, SyncStatus } from '../services/browser/gitSyncService.js';
 import { GitHubMetadataService } from '../services/browser/githubMetadataService.js';
@@ -92,6 +93,7 @@ export function createBrowserRouter(options: {
       // Re-scan tests after sync
       const tests = testIndexer?.refresh() || [];
       overviewMemo.clear();
+      getTestVersionsService()?.afterSync();
 
       // Reload agent test catalog so new tests are available for enrichment
       initCatalog(options.testSources);
@@ -485,6 +487,7 @@ export function createBrowserRouter(options: {
     console.log('Refreshing test index...');
     const tests = testIndexer.refresh();
     overviewMemo.clear();
+    getTestVersionsService()?.afterSync();
 
     res.json({
       success: true,

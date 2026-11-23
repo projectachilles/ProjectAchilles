@@ -389,6 +389,37 @@ export class TestIndexer {
   }
 
   /**
+   * Folder and provenance of every test, from the directory layout alone (no
+   * metadata is read and no cache is touched). First source wins a UUID, like
+   * scanAllTests().
+   */
+  public listLocations(): Array<{ uuid: string; dir: string; provenance: TestSourceProvenance }> {
+    const found = new Map<string, { uuid: string; dir: string; provenance: TestSourceProvenance }>();
+    const add = (uuid: string, dir: string, provenance: TestSourceProvenance): void => {
+      if (!found.has(uuid) && this.isRealDirectory(dir) && this.isValidTestDirectory(uuid)) {
+        found.set(uuid, { uuid, dir, provenance });
+      }
+    };
+    for (const source of this.sources) {
+      if (!fs.existsSync(source.path) || !isUsableSourceRoot(source.path)) continue;
+      if (this.detectStructure(source.path) === 'categorical') {
+        for (const category of KNOWN_CATEGORIES) {
+          const categoryPath = path.join(source.path, category);
+          if (!this.isRealDirectory(categoryPath)) continue;
+          for (const entry of fs.readdirSync(categoryPath)) {
+            add(entry, path.join(categoryPath, entry), source.provenance);
+          }
+        }
+      } else {
+        for (const entry of fs.readdirSync(source.path)) {
+          add(entry, path.join(source.path, entry), source.provenance);
+        }
+      }
+    }
+    return [...found.values()];
+  }
+
+  /**
    * Scan all tests across all source directories
    * Sources are scanned in order — first source wins on UUID collisions
    */
