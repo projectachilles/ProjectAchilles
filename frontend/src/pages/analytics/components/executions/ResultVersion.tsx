@@ -21,7 +21,7 @@ const CHIP_TONE: Record<ResultVersionState, string> = {
 
 const EXPLANATION: Partial<Record<ResultVersionState, string>> = {
   unknown: "This result's version could not be compared.",
-  not_recorded: 'Recorded before versions were tracked.',
+  not_recorded: 'No version was recorded for this run.',
 };
 
 /** The test a result belongs to: the bundle for a stage / control, else its own uuid. */

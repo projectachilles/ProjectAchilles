@@ -110,7 +110,7 @@ describe('ResultVersion (detail)', () => {
     expect(screen.getByText("This result's version could not be compared.")).toBeInTheDocument();
     expect(screen.getByText('uploaded binary')).toBeInTheDocument();
     rerender(wrap(<ResultVersion exec={exec({ version_state: 'not_recorded', test_version: undefined })} detail />));
-    expect(screen.getByText('Recorded before versions were tracked.')).toBeInTheDocument();
+    expect(screen.getByText('No version was recorded for this run.')).toBeInTheDocument();
     expect(screen.queryByText(/^built /)).toBeNull();
   });
 });
