@@ -40,7 +40,7 @@ import { TestListHeader, TestListRow } from './components/TestListRow';
 import { fleetResultText, type FleetState } from './components/fleetResult';
 import { FacetRail } from './components/FacetRail';
 import { SyncChip } from './components/SyncChip';
-import { VersionBanner, versionBannerVisible } from './components/VersionBanner';
+import { VersionBanner, unrecordedBuildCount, versionBannerVisible } from './components/VersionBanner';
 import {
   DEFAULT_FILTERS,
   computeFacetCounts,
@@ -282,7 +282,8 @@ export default function TestsPage() {
   const counts = useMemo(() => computeFacetCounts(tests, filters, ctx), [tests, filters, ctx]);
   const groups = useMemo(() => groupByCategory(filtered), [filtered]);
 
-  const bannerVisible = versions != null && versionBannerVisible(versions.library);
+  const unrecordedBuilds = useMemo(() => (versions ? unrecordedBuildCount(versions.tests) : 0), [versions]);
+  const bannerVisible = versions != null && versionBannerVisible(versions.library, unrecordedBuilds);
 
   function openDrawer(drawerSet: TestMetadata[]) {
     setDrawerTests(drawerSet);
@@ -344,7 +345,7 @@ export default function TestsPage() {
       </PageHeader>
 
       {versions && bannerVisible && (
-        <VersionBanner library={versions.library} />
+        <VersionBanner library={versions.library} unrecordedBuilds={unrecordedBuilds} />
       )}
 
       <div className="mb-4 flex flex-wrap items-center gap-2">
