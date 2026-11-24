@@ -57,9 +57,20 @@ vi.mock('../../analytics/client.js', () => ({
 vi.mock('../enrichment.service.js', () => ({
   DefenderEnrichmentService: class {
     async runEnrichmentPass() {
+      callOrder.push('enrichment');
       return { scanned: 0, detected: 0, stageDetected: 0, skipped: 0, batches: 0, alertsMarkedCorrelated: 0, errors: [], durationMs: 0 };
     }
   },
+}));
+
+// Mock the completed-stage clean-up: it runs just before the enrichment pass.
+const callOrder: string[] = [];
+const mockCleanup = vi.fn(async (..._args: unknown[]) => {
+  callOrder.push('cleanup');
+  return { matched: 0, sent: 0, cleared: 0, errors: [] as string[] };
+});
+vi.mock('../../edr/completedStageCleanup.js', () => ({
+  clearPreventionOnCompletedResults: (...args: unknown[]) => mockCleanup(...args),
 }));
 
 vi.mock('../auto-resolve.service.js', () => ({
@@ -199,5 +210,41 @@ describe('DefenderSyncService (serverless) — prevention disposition', () => {
     expect(mockGetAlerts).toHaveBeenCalledWith(
       expect.stringContaining('createdDateTime ge'),
     );
+  });
+});
+
+describe('DefenderSyncService (serverless) — enrichment step', () => {
+  let service: InstanceType<typeof DefenderSyncService>;
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    service = new DefenderSyncService();
+    mockGetDefenderSyncTimestamps.mockReturnValue({});
+    mockGetAlerts.mockResolvedValue([]);
+    mockBulk.mockResolvedValue({ errors: false, items: [] });
+  });
+
+  it('runs the completed-stage clean-up with the ES client and the results index pattern, before the enrichment pass', async () => {
+    callOrder.length = 0;
+    await service.syncAll();
+    expect(mockCleanup).toHaveBeenCalledTimes(1);
+    expect(mockCleanup).toHaveBeenCalledWith(expect.objectContaining({ bulk: mockBulk }), 'achilles-results-*');
+    expect(callOrder).toEqual(['cleanup', 'enrichment']);
+  });
+
+  it('logs the clean-up when it matched something and warns its first errors', async () => {
+    const log = vi.spyOn(console, 'log').mockImplementation(() => {});
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    try {
+      const errors = ['bulk[0]: e0', 'bulk[1]: e1', 'bulk[2]: e2', 'bulk[3]: e3', 'bulk[4]: e4', 'bulk[5]: e5'];
+      mockCleanup.mockResolvedValueOnce({ matched: 7, sent: 6, cleared: 0, errors });
+      await service.syncAll();
+      expect(log).toHaveBeenCalledWith('[Completed-Stage-Cleanup] matched=7 sent=6 cleared=0');
+      const cleanupWarnings = warn.mock.calls.map((c) => String(c[0])).filter((m) => m.startsWith('[Completed-Stage-Cleanup-ERROR]'));
+      expect(cleanupWarnings).toEqual(errors.slice(0, 5).map((e) => `[Completed-Stage-Cleanup-ERROR] ${e}`));
+    } finally {
+      log.mockRestore();
+      warn.mockRestore();
+    }
   });
 });

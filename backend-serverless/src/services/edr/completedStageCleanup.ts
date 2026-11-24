@@ -15,7 +15,11 @@
 import type { Client } from '@elastic/elasticsearch';
 import { getSourceField } from '../reports/stageOutcome.js';
 
-export interface CompletedStageCleanupResult { cleared: number; errors: string[] }
+/**
+ * `matched`: hits the searches of this run returned; `sent`: documents put in
+ * a bulk request; `cleared`: documents the bulk reported updated.
+ */
+export interface CompletedStageCleanupResult { matched: number; sent: number; cleared: number; errors: string[] }
 export interface CompletedStageCleanupOptions { batchSize?: number; maxDurationMs?: number }
 
 const DEFAULT_BATCH_SIZE = 500;
@@ -61,8 +65,8 @@ export async function clearPreventionOnCompletedResults(
     `f0rtika.${v}_prevented`, `f0rtika.${v}_stage_prevented`, `f0rtika.${v}_prevention_action`,
   ])];
   // Documents already sent in this run: never send the same one twice.
-  const sent = new Set<string>();
-  const result: CompletedStageCleanupResult = { cleared: 0, errors: [] };
+  const sentKeys = new Set<string>();
+  const result: CompletedStageCleanupResult = { matched: 0, sent: 0, cleared: 0, errors: [] };
 
   try {
     while (Date.now() < deadline) {
@@ -73,6 +77,8 @@ export async function clearPreventionOnCompletedResults(
           size: batchSize,
           query,
           _source: sourceFields,
+          ignore_unavailable: true,
+          allow_no_indices: true,
         } as never);
         hits = (res.hits?.hits ?? []) as typeof hits;
       } catch (err) {
@@ -80,11 +86,12 @@ export async function clearPreventionOnCompletedResults(
         break;
       }
       if (hits.length === 0) break;
+      result.matched += hits.length;
 
       const operations: unknown[] = [];
       for (const hit of hits) {
         const key = `${hit._index}\u0000${hit._id}`;
-        if (sent.has(key)) continue;
+        if (sentKeys.has(key)) continue;
         const source = hit._source ?? {};
         // The search filter alone is not trusted: re-check the stored exit code.
         if (Number(getSourceField(source, 'event.ERROR')) !== 101) continue;
@@ -104,11 +111,12 @@ export async function clearPreventionOnCompletedResults(
         }
         if (Object.keys(doc).length === 0 && Object.keys(nested).length === 0) continue;
         if (Object.keys(nested).length > 0) doc.f0rtika = nested;
-        sent.add(key);
+        sentKeys.add(key);
         operations.push({ update: { _index: hit._index, _id: hit._id, retry_on_conflict: 3 } });
         operations.push({ doc });
       }
       if (operations.length === 0) break;
+      result.sent += operations.length / 2;
 
       let batchCleared = 0;
       try {

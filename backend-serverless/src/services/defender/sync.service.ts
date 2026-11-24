@@ -422,7 +422,10 @@ export class DefenderSyncService {
       const settingsService = new SettingsService();
       const settings = await settingsService.getSettings();
       const cleanup = await clearPreventionOnCompletedResults(es, settings.indexPattern);
-      if (cleanup.cleared > 0) console.log(`[Completed-Stage-Cleanup] cleared=${cleanup.cleared}`);
+      if (cleanup.matched > 0) {
+        console.log(`[Completed-Stage-Cleanup] matched=${cleanup.matched} sent=${cleanup.sent} cleared=${cleanup.cleared}`);
+      }
+      for (const e of cleanup.errors.slice(0, 5)) console.warn(`[Completed-Stage-Cleanup-ERROR] ${e}`);
       const service = new DefenderEnrichmentService(es, settings.indexPattern);
       const result = await service.runEnrichmentPass({ lookbackDays: 90 });
       console.log(
