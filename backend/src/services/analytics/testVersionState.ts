@@ -3,6 +3,7 @@
 // versionStateClauses() filters in Elasticsearch. The route supplies the
 // current fingerprint of every test it can read (uuid -> fingerprint); this
 // module does not import the browser service.
+import type { estypes } from '@elastic/elasticsearch';
 import type { EnrichedTestExecution } from '../../types/analytics.js';
 import type { ResultVersionState } from '../../types/testVersion.js';
 import { resultVersionState } from '../browser/testVersionStatus.js';
@@ -80,14 +81,17 @@ export function documentVersion(source: Source, current: Map<string, string> | u
 }
 
 /** Filter clauses (filter context) selecting documents in one state; the same rule as documentVersion(). */
-export function versionStateClauses(state: ResultVersionState, current: Map<string, string> | undefined): any[] {
+export function versionStateClauses(
+  state: ResultVersionState,
+  current: Map<string, string> | undefined,
+): estypes.QueryDslQueryContainer[] {
   const FP = 'f0rtika.test_version.fingerprint';
   const BUILT = 'f0rtika.test_version.built_at';
   const fingerprints = [...new Set(current?.values() ?? [])];
   const uuids = [...(current?.keys() ?? [])];
-  const noMatch = { bool: { must_not: [{ match_all: {} }] } };
-  const fpIn = { terms: { [FP]: fingerprints } };
-  const testIn = {
+  const noMatch: estypes.QueryDslQueryContainer = { bool: { must_not: [{ match_all: {} }] } };
+  const fpIn: estypes.QueryDslQueryContainer = { terms: { [FP]: fingerprints } };
+  const testIn: estypes.QueryDslQueryContainer = {
     bool: {
       should: [{ terms: { 'f0rtika.bundle_id': uuids } }, { terms: { 'f0rtika.test_uuid': uuids } }],
       minimum_should_match: 1,
