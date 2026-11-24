@@ -176,7 +176,7 @@ Each entry of `tests` (keyed by test UUID):
 | Field | Description |
 |-------|-------------|
 | `status` | `up_to_date`, `update_available`, `rebuild_needed`, `not_built`, `uploaded`, `unknown_build` or `not_checked` (**Built, not checked**). |
-| `reason` | Optional. `test_source_changed` or `shared_changed` (with `update_available` or `rebuild_needed`), `documentation_changed` (with `update_available`), `dependency_changed` (an embedded file, with `rebuild_needed`), `no_stamp` or `modified_source` (with `unknown_build`, which can also have none). |
+| `reason` | Optional. `test_source_changed` or `shared_changed` (with `update_available` or `rebuild_needed`), `documentation_changed` (with `update_available`), `dependency_changed` (an embedded file, with `rebuild_needed`), `no_stamp`, `modified_source` or `embeds_excluded_file` (with `unknown_build`, which can also have none; `embeds_excluded_file`: the build embeds a file the fingerprint leaves out, so it has no comparable version and its `built` commit and fingerprint are `null`). |
 | `updateNote` | `true` on a `not_built` test whose published version differs from the synced one. |
 | `custom` | A custom test: compared by content, `published` is `null`. |
 | `published`, `synced` | `{ commit, commitDate, fingerprint }`, or `null` when not known. `published` is `null` for custom tests, without git and before the first successful check. A test missing from the published tree reports its synced version there. |

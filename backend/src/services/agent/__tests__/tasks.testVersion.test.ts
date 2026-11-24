@@ -131,6 +131,17 @@ describe('taskTestVersion', () => {
   it('leaves out version fields when the filename is not stamped', () => {
     expect(taskTestVersion(meta(stamp()), { name: 'other', sha256: WIN_SHA })).toEqual({ built_at: 'T0', build_source: 'built' });
   });
+  it('leaves out version fields when the build embeds a file its fingerprint leaves out', () => {
+    // The fingerprint identifies the source, not this file: a result must not
+    // be compared by it (it would read "current" after the file changed).
+    expect(taskTestVersion(meta(stamp({ embeds_left_out: ['u_hardening.ps1'] })), art))
+      .toEqual({ built_at: 'T0', build_source: 'built' });
+    expect(taskTestVersion(meta(stamp({ embeds_left_out: 'not a list' })), art))
+      .toEqual({ built_at: 'T0', build_source: 'built' });
+  });
+  it('keeps the version fields when the list of such files is empty', () => {
+    expect(taskTestVersion(meta(stamp({ embeds_left_out: [] })), art)).toMatchObject({ fingerprint: FP, commit: 'abc1234' });
+  });
   it('leaves out version fields when modified', () => {
     expect(taskTestVersion(meta(stamp({ modified: true })), art)).toEqual({ built_at: 'T0', build_source: 'built' });
   });

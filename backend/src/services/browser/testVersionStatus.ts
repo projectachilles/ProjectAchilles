@@ -31,6 +31,18 @@ export interface DerivedStatus {
   updateNote?: boolean;
 }
 
+/**
+ * Whether a build stamp lists embedded files its fingerprint leaves out. Such
+ * a stamp can't vouch for the binary: a change to one of those files changes
+ * what runs and leaves the fingerprint as it was, so a comparison by
+ * fingerprint (or by commit) would call an old binary current. The stamp is
+ * JSON from disk: anything but an absent key or an empty list counts.
+ */
+export function embedsLeftOutFiles(stamp: { embeds_left_out?: unknown }): boolean {
+  const files = stamp.embeds_left_out;
+  return files !== undefined && !(Array.isArray(files) && files.length === 0);
+}
+
 /** Why two identities with different fingerprints differ. */
 function changeReason(
   a: TestVersionIdentity,
@@ -82,6 +94,7 @@ export function deriveStatus(i: StatusInput): DerivedStatus {
   const built = build.version;
   if (!built) return { status: 'unknown_build', reason: 'no_stamp' };
   if (built.modified) return { status: 'unknown_build', reason: 'modified_source' };
+  if (embedsLeftOutFiles(built)) return { status: 'unknown_build', reason: 'embeds_excluded_file' };
   if (!synced) return { status: 'unknown_build' };
 
   if (published) {

@@ -84,6 +84,7 @@ describe('VersionStatusChip', () => {
       dependency_changed: 'an embedded file changed',
       documentation_changed: 'documentation changed',
       modified_source: 'built from source that differs from the synced commit',
+      embeds_excluded_file: 'embeds a file that versions do not cover',
       no_stamp: 'version was not recorded',
     };
     expect(VERSION_REASON_LABEL).toEqual(reasons);

@@ -4,6 +4,7 @@ import os from 'os';
 import path from 'path';
 import type { AgentOS } from '../../types/agent.js';
 import type { TaskTestVersion } from '../../types/testVersion.js';
+import { embedsLeftOutFiles } from '../browser/testVersionStatus.js';
 
 export type ArtifactFailure = {
       ok: false;
@@ -176,7 +177,8 @@ export function resolveTestArtifact(
  * The version a task carries, from the build-meta createTasks already read.
  * `built_at` and `build_source` always (no `builtAt` in the meta: undefined).
  * `fingerprint`, `commit` and `commit_date` only when the stamp vouches for
- * this very artifact: not `modified`, and its hash for the filename equals the
+ * this very artifact: not `modified`, no embedded file the fingerprint leaves
+ * out, and its hash for the filename equals the
  * sha256 of the binary that is being shipped. Never writes null keys. The meta
  * is JSON from disk, so a malformed stamp counts as absent.
  */
@@ -194,6 +196,7 @@ export function taskTestVersion(
     !isRecord(v)
     || typeof v.fingerprint !== 'string'
     || v.modified !== false
+    || embedsLeftOutFiles(v)
     || !isRecord(v.binaries)
     || v.binaries[artifact.name] !== artifact.sha256
   ) {

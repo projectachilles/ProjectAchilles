@@ -153,6 +153,14 @@ vi.mock('../privateTempFile.js', () => ({
   },
 }));
 
+// What the test's Go code embeds is read from real folders by embeddedFiles.ts
+// (its own test uses real files). Here: the embedded files the fingerprint
+// leaves out, as the detector would report them.
+const embedded = { leftOut: [] as string[] };
+vi.mock('../embeddedFiles.js', () => ({
+  embeddedFilesLeftOut: () => embedded.leftOut,
+}));
+
 const { BuildService, BuildError, BuildSupersededError } = await import('../buildService.js');
 const { deriveStatus } = await import('../../browser/testVersionStatus.js');
 type TestsSettingsService = import('../settings.js').TestsSettingsService;
@@ -203,6 +211,7 @@ describe('BuildService', () => {
     markerStore.enabled = true;
     markerStore.files.clear();
     privateTemp.entries = [];
+    embedded.leftOut = [];
     service = createService();
     mockExistsSync.mockReturnValue(false);
     mockExecFileAsync.mockResolvedValue({ stdout: '', stderr: '' });
@@ -2057,6 +2066,26 @@ var data string
       });
     });
 
+    it('records the embedded files the fingerprint leaves out, and still records the source', async () => {
+      embedded.leftOut = [`${VALID_UUID}_hardening.ps1`, 'rules/notes.md'];
+      const svc = stampedService(async () => ({ identity, modified: false }));
+
+      await svc.buildAndSign(VALID_UUID);
+
+      const { version } = writtenMeta();
+      expect(version.embeds_left_out).toEqual([`${VALID_UUID}_hardening.ps1`, 'rules/notes.md']);
+      expect(version.fingerprint).toBe(identity.fingerprint);
+      expect(version.commit).toBe(identity.commit);
+    });
+
+    it('writes no embeds_left_out key when the test embeds nothing the fingerprint leaves out', async () => {
+      const svc = stampedService(async () => ({ identity, modified: false }));
+
+      await svc.buildAndSign(VALID_UUID);
+
+      expect('embeds_left_out' in writtenMeta().version).toBe(false);
+    });
+
     it('a successful build writes version with fingerprint, commit, modified:false, deps_hash and a sha256 for every file in binaries', async () => {
       const svc = stampedService(async () => ({ identity, modified: false }));
 
@@ -2523,6 +2552,20 @@ var data string
       expect(deps.map(d => [d.filename, d.sourceBuilt])).toEqual([
         ['generated', true], [stageName, true], ['payload.dat', false],
       ]);
+    });
+
+    it('counts a left-out file inside a folder the build fills like any other', async () => {
+      // `generated` is classed as source-built by a filename guess that also
+      // matches ordinary committed folders, so nothing under it is exempt: a
+      // committed `<uuid>_hardening.ps1` in such a folder must not be missed.
+      embedded.leftOut = ['generated/report.html', `generated/${VALID_UUID}_hardening.ps1`, 'notes.md'];
+      const svc = service();
+      expect(svc.getEmbedDependencies(VALID_UUID).find(d => d.filename === 'generated')?.sourceBuilt).toBe(true);
+
+      await svc.buildAndSign(VALID_UUID);
+
+      expect(writtenStamp().embeds_left_out)
+        .toEqual(['generated/report.html', `generated/${VALID_UUID}_hardening.ps1`, 'notes.md']);
     });
 
     it('stamps outputs_hash from the source-built embeds as they are after the build', async () => {

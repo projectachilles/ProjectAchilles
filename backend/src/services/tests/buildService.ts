@@ -12,6 +12,7 @@ import { BuildJobs } from './buildJobs.js';
 import { describeCommandFailure } from '../shared/commandFailure.js';
 import { buildSubprocessEnv } from './buildEnv.js';
 import { writePrivateTempFile } from './privateTempFile.js';
+import { embeddedFilesLeftOut } from './embeddedFiles.js';
 import type { PrivateTempFile } from './privateTempFile.js';
 import { isUsableSourceRoot } from '../browser/repositoryRoot.js';
 import { hashFiles, isBuildInput } from '../browser/versionIdentity.js';
@@ -996,6 +997,25 @@ const ARTIFACT_DIR = \`${artifactDir}\`
     return this.embedDependenciesHash(uuid, true);
   }
 
+  /**
+   * Files the test embeds that its fingerprint leaves out by extension or by
+   * name (every pattern of every //go:embed line, globs and folders included:
+   * embeddedFiles.ts), relative to the test folder. A build with such a file
+   * is stamped with the list, and is then never compared by fingerprint
+   * (embedsLeftOutFiles).
+   *
+   * Files inside a folder build_all.sh fills are counted like any other. The
+   * source-built guess (isSourceBuiltBinary) was made for binaries and also
+   * matches an ordinary committed folder (a `scripts.go` next to `scripts/`,
+   * a `mkdir -p` of a folder that exists), so exempting such folders would
+   * hide a committed file in them. A test whose build writes a left-out kind
+   * of file into an embedded folder reads Unknown build: the safe side.
+   */
+  private embeddedFilesOutsideFingerprint(uuid: string): string[] {
+    const testDir = this.findTestDir(uuid);
+    return testDir ? embeddedFilesLeftOut(testDir) : [];
+  }
+
   /** Write an uploaded embed dependency into the test folder, under the test folder lock (409 while a build runs). */
   saveUploadedFile(uuid: string, filename: string, buffer: Buffer): void {
     const testDir = this.findTestDir(uuid);
@@ -1691,11 +1711,13 @@ const ARTIFACT_DIR = \`${artifactDir}\`
       // can't prove nothing else wrote to the test folder or the artifacts
       // (ownsMarker logs the warning, once per build).
       if (!this.ownsMarker(marker, uuid)) return null;
+      const leftOut = this.embeddedFilesOutsideFingerprint(uuid);
       return {
         ...before.identity,
         deps_hash: this.currentDepsHash(uuid),
         outputs_hash: this.currentOutputsHash(uuid),
         modified: before.modified,
+        ...(leftOut.length > 0 ? { embeds_left_out: leftOut } : {}),
         binaries,
       };
     } catch (err) {
