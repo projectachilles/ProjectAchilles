@@ -1047,7 +1047,9 @@ const ARTIFACT_DIR = \`${artifactDir}\`
     // The meta (no version stamp) first: a crash before the binary write
     // then leaves "uploaded" beside the old bytes, never the old stamp beside
     // the new ones.
-    fs.writeFileSync(this.metaPath(uuid), JSON.stringify(meta, null, 2));
+    // Atomic (temp + rename): a task created on another worker reads the old
+    // meta or the new one, never an empty file.
+    this.writeFileAtomic(this.metaPath(uuid), JSON.stringify(meta, null, 2));
     fs.writeFileSync(outputPath, buffer);
 
     return {
@@ -1476,7 +1478,8 @@ const ARTIFACT_DIR = \`${artifactDir}\`
     // Last check: a superseded build never writes build-meta.json (the
     // stamp's own check above stays as the last line of defence).
     this.refreshBuildMarker(marker, uuid);
-    fs.writeFileSync(this.metaPath(uuid), JSON.stringify(meta, null, 2));
+    // Atomic, like the void: a reader never sees a half-written meta.
+    this.writeFileAtomic(this.metaPath(uuid), JSON.stringify(meta, null, 2));
 
     return {
       exists: true,
@@ -1504,7 +1507,8 @@ const ARTIFACT_DIR = \`${artifactDir}\`
 
   /**
    * Before a build first writes over the previous artifact: rewrite
-   * build-meta.json without its version stamp (every other field kept), so a
+   * build-meta.json without its version stamp and with `builtAt` set to now
+   * (every other field kept), so a
    * build that then fails, is superseded or dies leaves "Unknown build", never
    * the old stamp beside bytes it does not describe. A successful build writes
    * its full meta at the end. Returns the original text when a stamp was
@@ -1524,6 +1528,10 @@ const ARTIFACT_DIR = \`${artifactDir}\`
       if (!('version' in parsed)) return null;
       const meta: Record<string, unknown> = { ...parsed };
       delete meta.version;
+      // The bytes are about to change: a task created from here on must not
+      // carry the previous build's time beside them. The put-back after a
+      // failed go build restores the original text, old builtAt included.
+      meta.builtAt = new Date().toISOString();
       this.writeFileAtomic(metaFile, JSON.stringify(meta, null, 2));
       return raw;
     } catch (err) {

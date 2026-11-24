@@ -153,6 +153,14 @@ function createMockSettingsService(overrides: Record<string, unknown> = {}) {
   } as unknown as TestsSettingsService;
 }
 
+/**
+ * A write of build-meta.json: the service writes it through a temp file next
+ * to it (`build-meta.json.<hex>.tmp`) and a rename, so the write lands there.
+ */
+function isMetaWrite(p: unknown): boolean {
+  return typeof p === 'string' && /\/build-meta\.json(?:\.[0-9a-f]{16}\.tmp)?$/.test(p);
+}
+
 /** The error `fn` throws (fails the test when it returns). */
 function thrownBy(fn: () => unknown): unknown {
   try {
@@ -886,7 +894,7 @@ var data string
       await service.buildAndSign(VALID_UUID);
 
       const metaWrite = mockWriteFileSync.mock.calls.find(
-        (call) => typeof call[0] === 'string' && call[0].endsWith('build-meta.json'),
+        (call) => isMetaWrite(call[0]),
       );
       expect(metaWrite).toBeDefined();
 
@@ -1384,7 +1392,7 @@ var data string
       await service.buildAndSign(VALID_UUID);
 
       const metaWrite = mockWriteFileSync.mock.calls.find(
-        (c) => typeof c[0] === 'string' && c[0].endsWith('build-meta.json'),
+        (c) => isMetaWrite(c[0]),
       );
       expect(metaWrite).toBeDefined();
       const meta = JSON.parse(metaWrite![1] as string);
@@ -1537,7 +1545,7 @@ var data string
 
       // Verify metadata was written
       const metaWrite = mockWriteFileSync.mock.calls.find(
-        (call) => typeof call[0] === 'string' && call[0].endsWith('build-meta.json'),
+        (call) => isMetaWrite(call[0]),
       );
       expect(metaWrite).toBeDefined();
       const meta = JSON.parse(metaWrite![1] as string);
@@ -1933,7 +1941,7 @@ var data string
 
     function writtenMeta() {
       const write = mockWriteFileSync.mock.calls.find(
-        (c) => typeof c[0] === 'string' && c[0].endsWith('build-meta.json'),
+        (c) => isMetaWrite(c[0]),
       );
       expect(write).toBeDefined();
       return JSON.parse(write![1] as string);
@@ -2214,7 +2222,7 @@ var data string
     }
     function writtenStamp() {
       const write = [...mockWriteFileSync.mock.calls].reverse().find(
-        (c) => typeof c[0] === 'string' && c[0].endsWith('build-meta.json'),
+        (c) => isMetaWrite(c[0]),
       );
       expect(write).toBeDefined();
       return JSON.parse(String(write![1])).version;
@@ -2866,11 +2874,15 @@ var data string
         const metaPath = `${BUILDS_DIR}/${VALID_UUID}/build-meta.json`;
         const outputPath = `${BUILDS_DIR}/${VALID_UUID}/${VALID_UUID}.exe`;
         const readMeta = () => JSON.parse(String(files.get(metaPath))) as Record<string, unknown>;
+        // A voided meta keeps every field but `version` and `builtAt` (which
+        // the void re-dates to the build's own time: see the builtAt tests).
         const withoutVersion = (m: Record<string, unknown>) => {
           const copy = { ...m };
           delete copy.version;
+          delete copy.builtAt;
           return copy;
         };
+        const voidedFields = () => withoutVersion(readMeta());
         const metaTemps = () => [...files.keys()].filter(f => f.startsWith(`${metaPath}.`));
         let warn: ReturnType<typeof vi.spyOn>;
         beforeEach(() => { warn = vi.spyOn(console, 'warn').mockImplementation(() => {}); });
@@ -2906,7 +2918,7 @@ var data string
 
           mockStatSync.mockImplementation(base);
           expect(readMeta()).not.toHaveProperty('version');
-          expect(readMeta()).toEqual(withoutVersion(prior.meta));
+          expect(voidedFields()).toEqual(withoutVersion(prior.meta));
           expect(service().getBuildInfo(VALID_UUID)).toMatchObject({ exists: true, source: 'built' });
           expect(service().getBuildInfo(VALID_UUID)).not.toHaveProperty('version');
           expect(metaTemps()).toEqual([]);
@@ -2929,7 +2941,7 @@ var data string
 
           await expect(svc.buildAndSign(VALID_UUID)).rejects.toThrow('Build was superseded by another build of this test');
 
-          expect(readMeta()).toEqual(withoutVersion(prior.meta));
+          expect(voidedFields()).toEqual(withoutVersion(prior.meta));
         });
 
         it('build_all.sh exiting non-zero before any copy leaves the previous stamp untouched', async () => {
@@ -2965,7 +2977,70 @@ var data string
 
           await expect(service().buildAndSign(VALID_UUID)).rejects.toThrow(/write failed/);
 
-          expect(readMeta()).toEqual(withoutVersion(prior.meta));
+          expect(voidedFields()).toEqual(withoutVersion(prior.meta));
+        });
+
+        describe('a voided stamp is dated by the build that voided it (final review C1)', () => {
+          const OLD_BUILT_AT = '2020-01-01T00:00:00.000Z';
+          /** The stamped meta, re-dated to an old build time so a change is visible. */
+          function backdate(meta: Record<string, unknown>): string {
+            const raw = JSON.stringify({ ...meta, builtAt: OLD_BUILT_AT }, null, 2);
+            put(metaPath, raw);
+            return raw;
+          }
+
+          it('a build that fails after its copy leaves a builtAt no older than its own start', async () => {
+            backdate((await stampedBuild()).meta);
+            const base = mockStatSync.getMockImplementation()!;
+            mockStatSync.mockImplementation(((p: string) => {
+              if (p === outputPath) throw Object.assign(new Error('EIO: i/o error'), { code: 'EIO' });
+              return base(p);
+            }) as never);
+            const start = Date.now();
+
+            await expect(service().buildAndSign(VALID_UUID)).rejects.toThrow('EIO');
+
+            mockStatSync.mockImplementation(base);
+            const builtAt = readMeta().builtAt as string;
+            expect(builtAt).not.toBe(OLD_BUILT_AT);
+            expect(new Date(builtAt).toISOString()).toBe(builtAt);
+            expect(Date.parse(builtAt)).toBeGreaterThanOrEqual(start);
+          });
+
+          it('a go build that wrote the artifact and failed leaves a builtAt no older than its own start', async () => {
+            plainPath(out => put(out, 'plain binary v1'));
+            backdate((await stampedBuild()).meta);
+            plainPath(out => {
+              put(out, 'half-written');
+              throw Object.assign(new Error('exit 1'), { stderr: 'write failed' });
+            });
+            const start = Date.now();
+
+            await expect(service().buildAndSign(VALID_UUID)).rejects.toThrow(/write failed/);
+
+            expect(readMeta()).not.toHaveProperty('version');
+            expect(Date.parse(readMeta().builtAt as string)).toBeGreaterThanOrEqual(start);
+          });
+
+          it('while the build runs the meta has no version and the new builtAt; the put-back restores the original byte for byte', async () => {
+            plainPath(out => put(out, 'plain binary v1'));
+            const raw = backdate((await stampedBuild()).meta);
+            let during: Record<string, unknown> | undefined;
+            plainPath(() => {
+              during = JSON.parse(String(files.get(metaPath))) as Record<string, unknown>;
+              throw Object.assign(new Error('exit 1'), { stderr: './main.go:3: undefined: foo' });
+            });
+            const start = Date.now();
+
+            await expect(service().buildAndSign(VALID_UUID)).rejects.toThrow(/undefined: foo/);
+
+            expect(during).toBeDefined();
+            expect(during).not.toHaveProperty('version');
+            expect(Date.parse(during!.builtAt as string)).toBeGreaterThanOrEqual(start);
+            expect(String(files.get(metaPath))).toBe(raw);
+            expect(readMeta().builtAt).toBe(OLD_BUILT_AT);
+            expect(metaTemps()).toEqual([]);
+          });
         });
 
         it('a superseded build whose go build fails never puts the old stamp back (review: Important)', async () => {
@@ -2981,7 +3056,7 @@ var data string
           // The build's own error, not a superseded one.
           await expect(service().buildAndSign(VALID_UUID)).rejects.toThrow(/undefined: foo/);
 
-          expect(readMeta()).toEqual(withoutVersion(prior.meta));
+          expect(voidedFields()).toEqual(withoutVersion(prior.meta));
           expect(String(files.get(marker))).toBe(FOREIGN);
         });
 
@@ -3002,12 +3077,17 @@ var data string
         it('a failing rewrite only warns, once, with the uuid; the build still succeeds and stamps', async () => {
           await stampedBuild();
           const base = mockRenameSync.getMockImplementation()!;
+          // Only the void's rename fails (the first onto build-meta.json): the
+          // final meta goes through the same atomic writer and must land.
+          let metaRenames = 0;
           mockRenameSync.mockImplementation(((from: string, to: string) => {
-            if (to === metaPath) throw Object.assign(new Error('EACCES: permission denied'), { code: 'EACCES' });
+            if (to === metaPath && ++metaRenames === 1) throw Object.assign(new Error('EACCES: permission denied'), { code: 'EACCES' });
             return base(from, to);
           }) as never);
 
           const info = await service().buildAndSign(VALID_UUID);
+
+          expect(metaRenames).toBe(2);
 
           expect(info.version).toBeDefined();
           expect(readMeta().version).toBeDefined();
@@ -3031,9 +3111,15 @@ var data string
           const order: string[] = [];
           const base = mockWriteFileSync.getMockImplementation()!;
           mockWriteFileSync.mockImplementation(((p: string, ...rest: unknown[]) => {
-            if (p === metaPath || p === outputPath) order.push(p === metaPath ? 'meta' : 'binary');
+            if (p === outputPath) order.push('binary');
             if (p === outputPath) throw Object.assign(new Error('ENOSPC: no space left on device'), { code: 'ENOSPC' });
             return (base as (...a: unknown[]) => unknown)(p, ...rest);
+          }) as never);
+          // The meta lands by its rename (atomic writer).
+          const rename = mockRenameSync.getMockImplementation()!;
+          mockRenameSync.mockImplementation(((from: string, to: string) => {
+            if (to === metaPath) order.push('meta');
+            return (rename as (...a: unknown[]) => unknown)(from, to);
           }) as never);
 
           expect(() => service().uploadBinary(VALID_UUID, Buffer.from([0x4D, 0x5A, 1, 2]))).toThrow('ENOSPC');
@@ -3041,6 +3127,93 @@ var data string
           expect(order).toEqual(['meta', 'binary']);
           expect(readMeta()).not.toHaveProperty('version');
           expect(readMeta()).toMatchObject({ source: 'uploaded' });
+        });
+
+        describe('build-meta.json is only ever replaced whole (final review C3)', () => {
+          const TEMP = new RegExp(`^${metaPath.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\.[0-9a-f]{16}\\.tmp$`);
+
+          /** Every write straight to build-meta.json, and every rename onto it. */
+          function trackMetaWrites(): { direct: string[]; renamedFrom: string[] } {
+            const seen = { direct: [] as string[], renamedFrom: [] as string[] };
+            const write = mockWriteFileSync.getMockImplementation()!;
+            mockWriteFileSync.mockImplementation(((p: string, ...rest: unknown[]) => {
+              if (p === metaPath) seen.direct.push(p);
+              return (write as (...a: unknown[]) => unknown)(p, ...rest);
+            }) as never);
+            const rename = mockRenameSync.getMockImplementation()!;
+            mockRenameSync.mockImplementation(((from: string, to: string) => {
+              if (to === metaPath) seen.renamedFrom.push(from);
+              return (rename as (...a: unknown[]) => unknown)(from, to);
+            }) as never);
+            return seen;
+          }
+
+          /**
+           * A reader on another worker, run at every write and rename: it must
+           * find build-meta.json absent or whole. A plain writeFileSync to the
+           * file is modelled as what it is on disk (truncate, then write), so a
+           * direct write is caught here too.
+           */
+          function watchReaders(): string[] {
+            const torn: string[] = [];
+            const read = (when: string): void => {
+              const b = files.get(metaPath);
+              if (b === undefined) return;
+              try { JSON.parse(b.toString('utf8')); } catch { torn.push(`${when}: ${JSON.stringify(b.toString('utf8'))}`); }
+            };
+            const write = mockWriteFileSync.getMockImplementation()!;
+            mockWriteFileSync.mockImplementation(((p: string, ...rest: unknown[]) => {
+              if (p === metaPath) { put(p, ''); read(`write ${p}`); }
+              const r = (write as (...a: unknown[]) => unknown)(p, ...rest);
+              read(`after write ${p}`);
+              return r;
+            }) as never);
+            const rename = mockRenameSync.getMockImplementation()!;
+            mockRenameSync.mockImplementation(((from: string, to: string) => {
+              const r = (rename as (...a: unknown[]) => unknown)(from, to);
+              read(`after rename ${from} -> ${to}`);
+              return r;
+            }) as never);
+            return torn;
+          }
+
+          it('the final write of a build goes through a temp file in the same directory and a rename', async () => {
+            const seen = trackMetaWrites();
+
+            await service().buildAndSign(VALID_UUID);
+
+            expect(seen.direct).toEqual([]);
+            // No prior meta, so nothing was voided: the one rename is the final write.
+            expect(seen.renamedFrom).toHaveLength(1);
+            expect(seen.renamedFrom[0]).toMatch(TEMP);
+            expect(readMeta().version).toBeDefined();
+            expect(metaTemps()).toEqual([]);
+          });
+
+          it('uploadBinary writes its meta through a temp file and a rename', async () => {
+            await stampedBuild();
+            const seen = trackMetaWrites();
+
+            service().uploadBinary(VALID_UUID, Buffer.from([0x4D, 0x5A, 1, 2]));
+
+            expect(seen.direct).toEqual([]);
+            expect(seen.renamedFrom).toHaveLength(1);
+            expect(seen.renamedFrom[0]).toMatch(TEMP);
+            expect(readMeta()).toMatchObject({ source: 'uploaded', fileSize: 4 });
+            expect(readMeta()).not.toHaveProperty('version');
+            expect(metaTemps()).toEqual([]);
+          });
+
+          it('a reader never sees an empty or partial build-meta.json during a rebuild or an upload', async () => {
+            const torn = watchReaders();
+
+            await stampedBuild();
+            await service().buildAndSign(VALID_UUID);
+            service().uploadBinary(VALID_UUID, Buffer.from([0x4D, 0x5A, 1, 2]));
+
+            expect(torn).toEqual([]);
+            expect(readMeta()).toMatchObject({ source: 'uploaded' });
+          });
         });
       });
 
