@@ -340,191 +340,6 @@ exports[`EDR vendor characterization (pre-registry refactor) > OUTCOME_FILTERS 1
                 },
               },
             ],
-            "must_not": [
-              {
-                "bool": {
-                  "minimum_should_match": 1,
-                  "should": [
-                    {
-                      "bool": {
-                        "minimum_should_match": 1,
-                        "should": [
-                          {
-                            "bool": {
-                              "filter": [
-                                {
-                                  "term": {
-                                    "f0rtika.crowdstrike_stage_detected": true,
-                                  },
-                                },
-                                {
-                                  "terms": {
-                                    "f0rtika.crowdstrike_prevention_action": [
-                                      "blocked",
-                                      "process_killed",
-                                      "quarantined",
-                                    ],
-                                  },
-                                },
-                              ],
-                              "must_not": [
-                                {
-                                  "exists": {
-                                    "field": "f0rtika.crowdstrike_stage_prevented",
-                                  },
-                                },
-                              ],
-                            },
-                          },
-                          {
-                            "term": {
-                              "f0rtika.crowdstrike_stage_prevented": true,
-                            },
-                          },
-                        ],
-                      },
-                    },
-                    {
-                      "bool": {
-                        "minimum_should_match": 1,
-                        "should": [
-                          {
-                            "bool": {
-                              "filter": [
-                                {
-                                  "term": {
-                                    "f0rtika.defender_stage_detected": true,
-                                  },
-                                },
-                                {
-                                  "terms": {
-                                    "f0rtika.defender_prevention_action": [
-                                      "blocked",
-                                      "process_killed",
-                                      "quarantined",
-                                    ],
-                                  },
-                                },
-                              ],
-                              "must_not": [
-                                {
-                                  "exists": {
-                                    "field": "f0rtika.defender_stage_prevented",
-                                  },
-                                },
-                              ],
-                            },
-                          },
-                          {
-                            "term": {
-                              "f0rtika.defender_stage_prevented": true,
-                            },
-                          },
-                        ],
-                      },
-                    },
-                    {
-                      "bool": {
-                        "minimum_should_match": 1,
-                        "should": [
-                          {
-                            "bool": {
-                              "filter": [
-                                {
-                                  "term": {
-                                    "f0rtika.sentinelone_stage_detected": true,
-                                  },
-                                },
-                                {
-                                  "terms": {
-                                    "f0rtika.sentinelone_prevention_action": [
-                                      "blocked",
-                                      "process_killed",
-                                      "quarantined",
-                                    ],
-                                  },
-                                },
-                              ],
-                              "must_not": [
-                                {
-                                  "exists": {
-                                    "field": "f0rtika.sentinelone_stage_prevented",
-                                  },
-                                },
-                              ],
-                            },
-                          },
-                          {
-                            "term": {
-                              "f0rtika.sentinelone_stage_prevented": true,
-                            },
-                          },
-                        ],
-                      },
-                    },
-                    {
-                      "bool": {
-                        "minimum_should_match": 1,
-                        "should": [
-                          {
-                            "bool": {
-                              "filter": [
-                                {
-                                  "term": {
-                                    "f0rtika.sophos_stage_detected": true,
-                                  },
-                                },
-                                {
-                                  "terms": {
-                                    "f0rtika.sophos_prevention_action": [
-                                      "blocked",
-                                      "process_killed",
-                                      "quarantined",
-                                    ],
-                                  },
-                                },
-                              ],
-                              "must_not": [
-                                {
-                                  "exists": {
-                                    "field": "f0rtika.sophos_stage_prevented",
-                                  },
-                                },
-                              ],
-                            },
-                          },
-                          {
-                            "term": {
-                              "f0rtika.sophos_stage_prevented": true,
-                            },
-                          },
-                        ],
-                      },
-                    },
-                    {
-                      "term": {
-                        "f0rtika.crowdstrike_prevented": true,
-                      },
-                    },
-                    {
-                      "term": {
-                        "f0rtika.defender_prevented": true,
-                      },
-                    },
-                    {
-                      "term": {
-                        "f0rtika.sentinelone_prevented": true,
-                      },
-                    },
-                    {
-                      "term": {
-                        "f0rtika.sophos_prevented": true,
-                      },
-                    },
-                  ],
-                },
-              },
-            ],
           },
         },
       ],
@@ -644,456 +459,35 @@ exports[`EDR vendor characterization (pre-registry refactor) > OUTCOME_FILTERS 1
   },
   "prevented": {
     "bool": {
-      "minimum_should_match": 1,
-      "should": [
-        {
-          "bool": {
-            "filter": [
-              {
-                "bool": {
-                  "filter": [
-                    {
-                      "exists": {
-                        "field": "event.ERROR",
-                      },
-                    },
-                  ],
-                  "must_not": [
-                    {
-                      "terms": {
-                        "event.ERROR": [
-                          101,
-                          105,
-                          126,
-                          127,
-                        ],
-                      },
-                    },
-                    {
-                      "term": {
-                        "event.ERROR": 0,
-                      },
-                    },
-                  ],
-                },
-              },
-              {
-                "bool": {
-                  "minimum_should_match": 1,
-                  "should": [
-                    {
-                      "bool": {
-                        "minimum_should_match": 1,
-                        "should": [
-                          {
-                            "bool": {
-                              "filter": [
-                                {
-                                  "term": {
-                                    "f0rtika.crowdstrike_stage_detected": true,
-                                  },
-                                },
-                                {
-                                  "terms": {
-                                    "f0rtika.crowdstrike_prevention_action": [
-                                      "blocked",
-                                      "process_killed",
-                                      "quarantined",
-                                    ],
-                                  },
-                                },
-                              ],
-                              "must_not": [
-                                {
-                                  "exists": {
-                                    "field": "f0rtika.crowdstrike_stage_prevented",
-                                  },
-                                },
-                              ],
-                            },
-                          },
-                          {
-                            "term": {
-                              "f0rtika.crowdstrike_stage_prevented": true,
-                            },
-                          },
-                        ],
-                      },
-                    },
-                    {
-                      "bool": {
-                        "minimum_should_match": 1,
-                        "should": [
-                          {
-                            "bool": {
-                              "filter": [
-                                {
-                                  "term": {
-                                    "f0rtika.defender_stage_detected": true,
-                                  },
-                                },
-                                {
-                                  "terms": {
-                                    "f0rtika.defender_prevention_action": [
-                                      "blocked",
-                                      "process_killed",
-                                      "quarantined",
-                                    ],
-                                  },
-                                },
-                              ],
-                              "must_not": [
-                                {
-                                  "exists": {
-                                    "field": "f0rtika.defender_stage_prevented",
-                                  },
-                                },
-                              ],
-                            },
-                          },
-                          {
-                            "term": {
-                              "f0rtika.defender_stage_prevented": true,
-                            },
-                          },
-                        ],
-                      },
-                    },
-                    {
-                      "bool": {
-                        "minimum_should_match": 1,
-                        "should": [
-                          {
-                            "bool": {
-                              "filter": [
-                                {
-                                  "term": {
-                                    "f0rtika.sentinelone_stage_detected": true,
-                                  },
-                                },
-                                {
-                                  "terms": {
-                                    "f0rtika.sentinelone_prevention_action": [
-                                      "blocked",
-                                      "process_killed",
-                                      "quarantined",
-                                    ],
-                                  },
-                                },
-                              ],
-                              "must_not": [
-                                {
-                                  "exists": {
-                                    "field": "f0rtika.sentinelone_stage_prevented",
-                                  },
-                                },
-                              ],
-                            },
-                          },
-                          {
-                            "term": {
-                              "f0rtika.sentinelone_stage_prevented": true,
-                            },
-                          },
-                        ],
-                      },
-                    },
-                    {
-                      "bool": {
-                        "minimum_should_match": 1,
-                        "should": [
-                          {
-                            "bool": {
-                              "filter": [
-                                {
-                                  "term": {
-                                    "f0rtika.sophos_stage_detected": true,
-                                  },
-                                },
-                                {
-                                  "terms": {
-                                    "f0rtika.sophos_prevention_action": [
-                                      "blocked",
-                                      "process_killed",
-                                      "quarantined",
-                                    ],
-                                  },
-                                },
-                              ],
-                              "must_not": [
-                                {
-                                  "exists": {
-                                    "field": "f0rtika.sophos_stage_prevented",
-                                  },
-                                },
-                              ],
-                            },
-                          },
-                          {
-                            "term": {
-                              "f0rtika.sophos_stage_prevented": true,
-                            },
-                          },
-                        ],
-                      },
-                    },
-                  ],
-                },
-              },
-            ],
-          },
-        },
-        {
-          "bool": {
-            "filter": [
-              {
-                "term": {
-                  "event.ERROR": 101,
-                },
-              },
-              {
-                "bool": {
-                  "minimum_should_match": 1,
-                  "should": [
-                    {
-                      "bool": {
-                        "minimum_should_match": 1,
-                        "should": [
-                          {
-                            "bool": {
-                              "filter": [
-                                {
-                                  "term": {
-                                    "f0rtika.crowdstrike_stage_detected": true,
-                                  },
-                                },
-                                {
-                                  "terms": {
-                                    "f0rtika.crowdstrike_prevention_action": [
-                                      "blocked",
-                                      "process_killed",
-                                      "quarantined",
-                                    ],
-                                  },
-                                },
-                              ],
-                              "must_not": [
-                                {
-                                  "exists": {
-                                    "field": "f0rtika.crowdstrike_stage_prevented",
-                                  },
-                                },
-                              ],
-                            },
-                          },
-                          {
-                            "term": {
-                              "f0rtika.crowdstrike_stage_prevented": true,
-                            },
-                          },
-                        ],
-                      },
-                    },
-                    {
-                      "bool": {
-                        "minimum_should_match": 1,
-                        "should": [
-                          {
-                            "bool": {
-                              "filter": [
-                                {
-                                  "term": {
-                                    "f0rtika.defender_stage_detected": true,
-                                  },
-                                },
-                                {
-                                  "terms": {
-                                    "f0rtika.defender_prevention_action": [
-                                      "blocked",
-                                      "process_killed",
-                                      "quarantined",
-                                    ],
-                                  },
-                                },
-                              ],
-                              "must_not": [
-                                {
-                                  "exists": {
-                                    "field": "f0rtika.defender_stage_prevented",
-                                  },
-                                },
-                              ],
-                            },
-                          },
-                          {
-                            "term": {
-                              "f0rtika.defender_stage_prevented": true,
-                            },
-                          },
-                        ],
-                      },
-                    },
-                    {
-                      "bool": {
-                        "minimum_should_match": 1,
-                        "should": [
-                          {
-                            "bool": {
-                              "filter": [
-                                {
-                                  "term": {
-                                    "f0rtika.sentinelone_stage_detected": true,
-                                  },
-                                },
-                                {
-                                  "terms": {
-                                    "f0rtika.sentinelone_prevention_action": [
-                                      "blocked",
-                                      "process_killed",
-                                      "quarantined",
-                                    ],
-                                  },
-                                },
-                              ],
-                              "must_not": [
-                                {
-                                  "exists": {
-                                    "field": "f0rtika.sentinelone_stage_prevented",
-                                  },
-                                },
-                              ],
-                            },
-                          },
-                          {
-                            "term": {
-                              "f0rtika.sentinelone_stage_prevented": true,
-                            },
-                          },
-                        ],
-                      },
-                    },
-                    {
-                      "bool": {
-                        "minimum_should_match": 1,
-                        "should": [
-                          {
-                            "bool": {
-                              "filter": [
-                                {
-                                  "term": {
-                                    "f0rtika.sophos_stage_detected": true,
-                                  },
-                                },
-                                {
-                                  "terms": {
-                                    "f0rtika.sophos_prevention_action": [
-                                      "blocked",
-                                      "process_killed",
-                                      "quarantined",
-                                    ],
-                                  },
-                                },
-                              ],
-                              "must_not": [
-                                {
-                                  "exists": {
-                                    "field": "f0rtika.sophos_stage_prevented",
-                                  },
-                                },
-                              ],
-                            },
-                          },
-                          {
-                            "term": {
-                              "f0rtika.sophos_stage_prevented": true,
-                            },
-                          },
-                        ],
-                      },
-                    },
-                    {
-                      "term": {
-                        "f0rtika.crowdstrike_prevented": true,
-                      },
-                    },
-                    {
-                      "term": {
-                        "f0rtika.defender_prevented": true,
-                      },
-                    },
-                    {
-                      "term": {
-                        "f0rtika.sentinelone_prevented": true,
-                      },
-                    },
-                    {
-                      "term": {
-                        "f0rtika.sophos_prevented": true,
-                      },
-                    },
-                  ],
-                },
-              },
-            ],
-          },
-        },
-      ],
-    },
-  },
-  "protected": {
-    "terms": {
-      "event.ERROR": [
-        105,
-        126,
-        127,
-      ],
-    },
-  },
-  "skipped": {
-    "bool": {
       "filter": [
         {
-          "term": {
-            "f0rtika.is_bundle_control": true,
-          },
-        },
-        {
-          "term": {
-            "event.ERROR": 0,
-          },
-        },
-      ],
-      "minimum_should_match": 1,
-      "should": [
-        {
           "bool": {
+            "filter": [
+              {
+                "exists": {
+                  "field": "event.ERROR",
+                },
+              },
+            ],
             "must_not": [
               {
+                "terms": {
+                  "event.ERROR": [
+                    101,
+                    105,
+                    126,
+                    127,
+                  ],
+                },
+              },
+              {
                 "term": {
-                  "f0rtika.category": "cyber-hygiene",
+                  "event.ERROR": 0,
                 },
               },
             ],
           },
         },
-        {
-          "term": {
-            "f0rtika.skipped": true,
-          },
-        },
-      ],
-    },
-  },
-  "unprotected": {
-    "bool": {
-      "filter": [
-        {
-          "term": {
-            "event.ERROR": 101,
-          },
-        },
-      ],
-      "must_not": [
         {
           "bool": {
             "minimum_should_match": 1,
@@ -1254,29 +648,66 @@ exports[`EDR vendor characterization (pre-registry refactor) > OUTCOME_FILTERS 1
                   ],
                 },
               },
+            ],
+          },
+        },
+      ],
+    },
+  },
+  "protected": {
+    "terms": {
+      "event.ERROR": [
+        105,
+        126,
+        127,
+      ],
+    },
+  },
+  "skipped": {
+    "bool": {
+      "filter": [
+        {
+          "term": {
+            "f0rtika.is_bundle_control": true,
+          },
+        },
+        {
+          "term": {
+            "event.ERROR": 0,
+          },
+        },
+      ],
+      "minimum_should_match": 1,
+      "should": [
+        {
+          "bool": {
+            "must_not": [
               {
                 "term": {
-                  "f0rtika.crowdstrike_prevented": true,
-                },
-              },
-              {
-                "term": {
-                  "f0rtika.defender_prevented": true,
-                },
-              },
-              {
-                "term": {
-                  "f0rtika.sentinelone_prevented": true,
-                },
-              },
-              {
-                "term": {
-                  "f0rtika.sophos_prevented": true,
+                  "f0rtika.category": "cyber-hygiene",
                 },
               },
             ],
           },
         },
+        {
+          "term": {
+            "f0rtika.skipped": true,
+          },
+        },
+      ],
+    },
+  },
+  "unprotected": {
+    "bool": {
+      "filter": [
+        {
+          "term": {
+            "event.ERROR": 101,
+          },
+        },
+      ],
+      "must_not": [
         {
           "bool": {
             "minimum_should_match": 1,
@@ -1566,34 +997,34 @@ exports[`EDR vendor characterization (pre-registry refactor) > classifyStage acr
   "0|single|sentinelone|stage_quarantined": "inconclusive",
   "101|bundle|crowdstrike|detected_bundle": "unprotected",
   "101|bundle|crowdstrike|none": "unprotected",
-  "101|bundle|crowdstrike|prevented": "prevented",
+  "101|bundle|crowdstrike|prevented": "unprotected",
   "101|bundle|crowdstrike|stage_detected": "detected",
-  "101|bundle|crowdstrike|stage_quarantined": "prevented",
+  "101|bundle|crowdstrike|stage_quarantined": "detected",
   "101|bundle|defender|detected_bundle": "unprotected",
   "101|bundle|defender|none": "unprotected",
-  "101|bundle|defender|prevented": "prevented",
+  "101|bundle|defender|prevented": "unprotected",
   "101|bundle|defender|stage_detected": "detected",
-  "101|bundle|defender|stage_quarantined": "prevented",
+  "101|bundle|defender|stage_quarantined": "detected",
   "101|bundle|sentinelone|detected_bundle": "unprotected",
   "101|bundle|sentinelone|none": "unprotected",
-  "101|bundle|sentinelone|prevented": "prevented",
+  "101|bundle|sentinelone|prevented": "unprotected",
   "101|bundle|sentinelone|stage_detected": "detected",
-  "101|bundle|sentinelone|stage_quarantined": "prevented",
+  "101|bundle|sentinelone|stage_quarantined": "detected",
   "101|single|crowdstrike|detected_bundle": "detected",
   "101|single|crowdstrike|none": "unprotected",
-  "101|single|crowdstrike|prevented": "prevented",
+  "101|single|crowdstrike|prevented": "unprotected",
   "101|single|crowdstrike|stage_detected": "detected",
-  "101|single|crowdstrike|stage_quarantined": "prevented",
+  "101|single|crowdstrike|stage_quarantined": "detected",
   "101|single|defender|detected_bundle": "detected",
   "101|single|defender|none": "unprotected",
-  "101|single|defender|prevented": "prevented",
+  "101|single|defender|prevented": "unprotected",
   "101|single|defender|stage_detected": "detected",
-  "101|single|defender|stage_quarantined": "prevented",
+  "101|single|defender|stage_quarantined": "detected",
   "101|single|sentinelone|detected_bundle": "detected",
   "101|single|sentinelone|none": "unprotected",
-  "101|single|sentinelone|prevented": "prevented",
+  "101|single|sentinelone|prevented": "unprotected",
   "101|single|sentinelone|stage_detected": "detected",
-  "101|single|sentinelone|stage_quarantined": "prevented",
+  "101|single|sentinelone|stage_quarantined": "detected",
   "105|bundle|crowdstrike|detected_bundle": "protected",
   "105|bundle|crowdstrike|none": "protected",
   "105|bundle|crowdstrike|prevented": "protected",

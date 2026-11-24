@@ -10,7 +10,9 @@ import {
   protectionRate,
   countsFromFiltersAgg,
   STAGE_OUTCOMES,
+  stagePreventedBy,
 } from '../stageOutcome.js';
+import { EDR_VENDOR_KEYS } from '../../outcomes/vendors.js';
 import type { StageOutcome } from '../../../types/reports.js';
 
 // ── Golden table ──────────────────────────────────────────────────
@@ -47,27 +49,27 @@ const GOLDEN: GoldenCase[] = [
   { name: 'standalone exit 101 + Defender alert → detected', exit: 101, flags: { defender_detected: true }, expected: 'detected' },
   { name: 'standalone exit 101 + Falcon alert → detected', exit: 101, flags: { crowdstrike_detected: true }, expected: 'detected' },
   { name: 'standalone exit 999 + Defender alert only stays inconclusive', exit: 999, flags: { defender_detected: true }, expected: 'inconclusive' },
-  { name: 'exit 101 + Falcon prevented → prevented', exit: 101, flags: { crowdstrike_prevented: true }, expected: 'prevented' },
-  { name: 'exit 101 + Defender prevented → prevented', exit: 101, flags: { defender_prevented: true }, expected: 'prevented' },
+  { name: 'exit 101 + Falcon prevented → unprotected', exit: 101, flags: { crowdstrike_prevented: true }, expected: 'unprotected' },
+  { name: 'exit 101 + Defender prevented → unprotected', exit: 101, flags: { defender_prevented: true }, expected: 'unprotected' },
   {
-    name: 'exit 101 + Falcon stage alert + quarantined → prevented', exit: 101,
-    flags: { crowdstrike_stage_detected: true }, actions: { crowdstrike_prevention_action: 'quarantined' }, expected: 'prevented',
+    name: 'exit 101 + Falcon stage alert + quarantined → detected', exit: 101,
+    flags: { crowdstrike_stage_detected: true }, actions: { crowdstrike_prevention_action: 'quarantined' }, expected: 'detected',
   },
   {
     name: 'exit 101 + Defender stage alert + kill_failed → detected', exit: 101,
     flags: { defender_stage_detected: true }, actions: { defender_prevention_action: 'kill_failed' }, expected: 'detected',
   },
   {
-    name: 'exit 101 + Defender stage alert + quarantined → prevented', exit: 101,
-    flags: { defender_stage_detected: true }, actions: { defender_prevention_action: 'quarantined' }, expected: 'prevented',
+    name: 'exit 101 + Defender stage alert + quarantined → detected', exit: 101,
+    flags: { defender_stage_detected: true }, actions: { defender_prevention_action: 'quarantined' }, expected: 'detected',
   },
   {
-    name: 'exit 101 + Defender stage alert + process_killed → prevented', exit: 101,
-    flags: { defender_stage_detected: true }, actions: { defender_prevention_action: 'process_killed' }, expected: 'prevented',
+    name: 'exit 101 + Defender stage alert + process_killed → detected', exit: 101,
+    flags: { defender_stage_detected: true }, actions: { defender_prevention_action: 'process_killed' }, expected: 'detected',
   },
   {
-    name: 'exit 101 + Falcon stage alert + blocked → prevented', exit: 101,
-    flags: { crowdstrike_stage_detected: true }, actions: { crowdstrike_prevention_action: 'blocked' }, expected: 'prevented',
+    name: 'exit 101 + Falcon stage alert + blocked → detected', exit: 101,
+    flags: { crowdstrike_stage_detected: true }, actions: { crowdstrike_prevention_action: 'blocked' }, expected: 'detected',
   },
   {
     name: 'exit 101 + Falcon stage alert + kill_failed → detected', exit: 101,
@@ -138,15 +140,22 @@ const GOLDEN: GoldenCase[] = [
   { name: 'missing exit code → inconclusive', expected: 'inconclusive' },
   { name: 'exit 101 + SentinelOne stage alert → detected', exit: 101, flags: { sentinelone_stage_detected: true }, expected: 'detected' },
   {
-    name: 'exit 101 + SentinelOne stage alert + process_killed → prevented', exit: 101,
-    flags: { sentinelone_stage_detected: true }, actions: { sentinelone_prevention_action: 'process_killed' }, expected: 'prevented',
+    name: 'exit 101 + SentinelOne stage alert + process_killed → detected', exit: 101,
+    flags: { sentinelone_stage_detected: true }, actions: { sentinelone_prevention_action: 'process_killed' }, expected: 'detected',
   },
   {
     name: 'exit 101 + SentinelOne stage alert + kill_failed → detected', exit: 101,
     flags: { sentinelone_stage_detected: true }, actions: { sentinelone_prevention_action: 'kill_failed' }, expected: 'detected',
   },
-  { name: 'exit 101 + SentinelOne prevented → prevented', exit: 101, flags: { sentinelone_prevented: true }, expected: 'prevented' },
+  { name: 'exit 101 + SentinelOne prevented → unprotected', exit: 101, flags: { sentinelone_prevented: true }, expected: 'unprotected' },
   { name: 'exit 101 + SentinelOne bundle-level flag only → unprotected', exit: 101, bundle: true, flags: { sentinelone_detected: true }, expected: 'unprotected' },
+  {
+    name: 'exit 101 + Defender stage alert + stage_prevented → detected (it ran to completion)', exit: 101,
+    flags: { defender_stage_detected: true, defender_prevented: true, defender_stage_prevented: true },
+    actions: { defender_prevention_action: 'process_killed' }, expected: 'detected',
+  },
+  { name: 'bundle stage exit 101 + test-level prevented only → unprotected', exit: 101, bundle: true, flags: { defender_detected: true, defender_prevented: true }, expected: 'unprotected' },
+  { name: 'standalone exit 101 + Falcon alert + prevented → detected', exit: 101, flags: { crowdstrike_detected: true, crowdstrike_prevented: true }, expected: 'detected' },
 ];
 
 function toSource(c: GoldenCase): Record<string, unknown> {
@@ -203,6 +212,18 @@ describe('OUTCOME_FILTERS agree with classifyStage', () => {
   it.each(GOLDEN)('$name: exactly one filter matches, the classified one', (c) => {
     const doc = toSource(c);
     expect(STAGE_OUTCOMES.filter((k) => matches(OUTCOME_FILTERS[k], doc))).toEqual([c.expected]);
+  });
+});
+
+describe('stagePreventedBy', () => {
+  it.each(GOLDEN)('$name: some vendor prevented it exactly when the stage is Prevented', (c) => {
+    const src = toSource(c);
+    expect(EDR_VENDOR_KEYS.some((v) => stagePreventedBy(src, v))).toBe(classifyStage(src) === 'prevented');
+  });
+  it('names only the vendor whose own stage alert carried the action', () => {
+    const src = toSource({ name: '', exit: 999, flags: { defender_stage_detected: true, defender_stage_prevented: true, crowdstrike_prevented: true }, expected: 'prevented' });
+    expect(stagePreventedBy(src, 'defender')).toBe(true);
+    expect(stagePreventedBy(src, 'crowdstrike')).toBe(false);
   });
 });
 

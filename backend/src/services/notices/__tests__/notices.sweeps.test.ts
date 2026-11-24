@@ -596,8 +596,8 @@ describe('pre-execution notice sweeps', () => {
       mockFetchEdrDocs.mockImplementationOnce(async () => ({
         status: 'ok',
         docs: new Map<string, Record<string, unknown>>([
-          // The 101 single-binary result: Defender killed the process.
-          ['t-unprot', { event: { ERROR: 101 }, f0rtika: { defender_prevented: true, defender_prevention_action: 'process_killed' } }],
+          // A single-binary result whose doc says it errored (999) and Defender killed the process.
+          ['t-unprot', { event: { ERROR: 999 }, f0rtika: { defender_prevented: true, defender_prevention_action: 'process_killed' } }],
           // The exit-1 result: Defender raised an alert.
           ['t-err', { event: { ERROR: 1 }, f0rtika: { defender_detected: true, defender_stage_detected: true } }],
         ]),
