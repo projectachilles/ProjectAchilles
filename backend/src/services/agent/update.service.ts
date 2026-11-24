@@ -48,6 +48,25 @@ function toAgentVersion(row: VersionRow): AgentVersion {
   };
 }
 
+/**
+ * Release notes a person typed (register by path, upload) that start like the
+ * line the build service writes for a version it built ("Built from source
+ * (<os>/<arch>) at <commit>", buildReleaseNotes in agentBuild.service.ts).
+ * The console reads that line back as the version's source commit, and both
+ * kinds of notes share one column, so the form is reserved for the server.
+ */
+export class ReservedReleaseNotesError extends Error {
+  constructor() {
+    super('Release notes can\'t start with "Built from source": the server writes that line for versions it builds, and the console shows it as the version\'s source commit');
+    this.name = 'ReservedReleaseNotesError';
+  }
+}
+
+/** Throws ReservedReleaseNotesError for typed notes in the build service's form. */
+export function assertTypedReleaseNotes(releaseNotes: string | undefined): void {
+  if (/^\s*built from source\b/i.test(releaseNotes ?? '')) throw new ReservedReleaseNotesError();
+}
+
 /** Rejected binary path — the admin route maps this to HTTP 400. */
 export class BinaryPathError extends Error {
   constructor() {

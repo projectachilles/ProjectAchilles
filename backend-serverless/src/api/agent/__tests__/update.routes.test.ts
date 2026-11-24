@@ -120,3 +120,72 @@ describe('POST /admin/versions — binary_path containment', () => {
     expect(missing.body.error).toBe(outside.body.error);
   });
 });
+
+// ── Release notes a person types can't pose as the server's build record ────
+// The console reads "Built from source (<os>/<arch>) at <commit>" in
+// release_notes as the version's source commit (backend/ writes that line for
+// versions it builds). This backend builds nothing, so the form never belongs
+// in what an operator types here.
+
+describe('release notes typed for a registered or uploaded version', () => {
+  const RESERVED = /Release notes can't start with "Built from source"/;
+  let binDir: string;
+
+  const versionRows = () => testDb.all('SELECT release_notes FROM agent_versions');
+
+  const register = (releaseNotes: string) =>
+    request(createApp())
+      .post('/admin/versions')
+      .send({ version: '1.2.3', os: 'linux', arch: 'amd64', binary_path: path.join(binDir, 'agent-notes'), release_notes: releaseNotes });
+
+  const upload = (releaseNotes: string) =>
+    request(createApp())
+      .post('/admin/versions/upload')
+      .field('version', '1.2.3').field('os', 'linux').field('arch', 'amd64')
+      .field('release_notes', releaseNotes)
+      .attach('binary', agentBinary('1.2.3'), 'agent');
+
+  beforeAll(() => {
+    binDir = path.join(home, '.projectachilles', 'binaries', 'linux-amd64');
+    fs.mkdirSync(binDir, { recursive: true });
+    fs.writeFileSync(path.join(binDir, 'agent-notes'), agentBinary('1.2.3'));
+  });
+
+  afterAll(() => {
+    fs.rmSync(home, { recursive: true, force: true });
+  });
+
+  beforeEach(async () => {
+    testDb = await createTestDatabase();
+  });
+
+  const posing = [
+    'Built from source (windows/amd64) at deadbee',
+    'Built from source (linux/amd64)',
+    '  built FROM source (linux/amd64) at deadbee  ',
+  ];
+
+  it.each(posing)('register by path refuses %j and registers nothing', async (notes) => {
+    const res = await register(notes);
+
+    expect(res.status).toBe(400);
+    expect(res.body.error).toMatch(RESERVED);
+    expect(await versionRows()).toEqual([]);
+  });
+
+  it.each(posing)('upload refuses %j and registers nothing', async (notes) => {
+    const res = await upload(notes);
+
+    expect(res.status).toBe(400);
+    expect(res.body.error).toMatch(RESERVED);
+    expect(await versionRows()).toEqual([]);
+  });
+
+  it('still accepts ordinary notes', async () => {
+    const res = await register('Rebuilt from source by the release team');
+
+    expect(res.status, JSON.stringify(res.body)).toBe(201);
+    expect(await versionRows()).toEqual([{ release_notes: 'Rebuilt from source by the release team' }]);
+  });
+});
+

@@ -36,6 +36,7 @@ vi.mock('../../../services/agent/signing.service.js', () => ({
 
 const { createAdminUpdateRouter } = await import('../update.routes.js');
 const { errorHandler } = await import('../../../middleware/error.middleware.js');
+const { buildReleaseNotes } = await import('../../../services/agent/agentBuild.service.js');
 
 const agentBinary = (version: string) =>
   Buffer.from(`\x00MZ\x90build\t-ldflags="-s -w -X main.version=${version}"\n\x00`);
@@ -120,3 +121,96 @@ describe('POST /admin/versions — binary_path containment', () => {
     expect(missing.body.error).toBe(outside.body.error);
   });
 });
+
+// ── Release notes a person types can't pose as the server's build record ────
+// Build from source writes "Built from source (<os>/<arch>) at <commit>" into
+// release_notes, and Settings → Agent shows that commit as the version's
+// source. The same field holds what an uploader types.
+
+describe('release notes typed for a registered or uploaded version', () => {
+  const RESERVED = /Release notes can't start with "Built from source"/;
+  let binDir: string;
+
+  const versionRows = () => testDb.prepare('SELECT release_notes FROM agent_versions').all() as Array<{ release_notes: string }>;
+
+  const register = (releaseNotes: string) =>
+    request(createApp())
+      .post('/admin/versions')
+      .send({ version: '1.2.3', os: 'linux', arch: 'amd64', binary_path: path.join(binDir, 'agent-notes'), release_notes: releaseNotes });
+
+  const upload = (releaseNotes: string) =>
+    request(createApp())
+      .post('/admin/versions/upload')
+      .field('version', '1.2.3').field('os', 'linux').field('arch', 'amd64')
+      .field('allow_unsigned', 'true').field('release_notes', releaseNotes)
+      .attach('binary', agentBinary('1.2.3'), 'agent');
+
+  beforeAll(() => {
+    binDir = path.join(home, '.projectachilles', 'binaries', 'linux-amd64');
+    fs.mkdirSync(binDir, { recursive: true });
+    fs.writeFileSync(path.join(binDir, 'agent-notes'), agentBinary('1.2.3'));
+  });
+
+  afterAll(() => {
+    fs.rmSync(home, { recursive: true, force: true });
+  });
+
+  beforeEach(() => {
+    testDb = createTestDatabase();
+  });
+
+  const posing = [
+    'Built from source (windows/amd64) at deadbee',
+    'Built from source (linux/amd64) at 0123456789abcdef0123456789abcdef01234567 (source says 9.9.9)',
+    'Built from source (linux/amd64)',
+    '  built FROM source (linux/amd64) at deadbee  ',
+    'Built from source\nby the release team',
+  ];
+
+  it.each(posing)('register by path refuses %j and registers nothing', async (notes) => {
+    const res = await register(notes);
+
+    expect(res.status).toBe(400);
+    expect(res.body.error).toMatch(RESERVED);
+    expect(versionRows()).toEqual([]);
+  });
+
+  it.each(posing)('upload refuses %j and registers nothing', async (notes) => {
+    const res = await upload(notes);
+
+    expect(res.status).toBe(400);
+    expect(res.body.error).toMatch(RESERVED);
+    expect(versionRows()).toEqual([]);
+  });
+
+  it('refuses exactly what the build service writes, with and without a commit', async () => {
+    for (const notes of [
+      buildReleaseNotes('linux', 'amd64', 'deadbee', '1.2.3', '1.2.3'),
+      buildReleaseNotes('windows', 'arm64', null, '1.2.3', null),
+      buildReleaseNotes('darwin', 'arm64', '0123456789abcdef0123456789abcdef01234567', '1.2.3', '1.2.2'),
+    ]) {
+      expect(notes).toMatch(/^Built from source/);
+      expect((await register(notes)).status).toBe(400);
+    }
+  });
+
+  it.each([
+    'Hotfix for the heartbeat timeout',
+    'Rebuilt from source by the release team',
+    'Signed build. Built from sources of tag agent-v1.2.3',
+    '',
+  ])('still accepts ordinary notes: %j', async (notes) => {
+    const res = await register(notes);
+
+    expect(res.status, JSON.stringify(res.body)).toBe(201);
+    expect(versionRows()).toEqual([{ release_notes: notes }]);
+  });
+
+  it('accepts an upload with ordinary notes', async () => {
+    const res = await upload('Hotfix for the heartbeat timeout');
+
+    expect(res.status, JSON.stringify(res.body)).toBe(201);
+    expect(versionRows()).toEqual([{ release_notes: 'Hotfix for the heartbeat timeout' }]);
+  });
+});
+

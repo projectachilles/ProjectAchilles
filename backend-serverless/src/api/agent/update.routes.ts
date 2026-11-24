@@ -12,6 +12,8 @@ import {
   registerVersionFromUpload,
   deleteVersion,
   BinaryPathError,
+  ReservedReleaseNotesError,
+  assertTypedReleaseNotes,
 } from '../../services/agent/update.service.js';
 import { RegisterVersionSchema, BuildVersionSchema } from '../../schemas/admin.schemas.js';
 import { EmbeddedVersionError } from '../../services/agent/binaryVersion.js';
@@ -92,6 +94,16 @@ agentUpdateRouter.get( // nosemgrep: semgrep.rules.projectachilles-clerk-auth-mi
 
 // Clerk auth is applied at mount time in the parent router.
 
+/** 400 when typed release notes take the form reserved for versions the server builds. */
+function rejectReservedNotes(releaseNotes: string | undefined): void {
+  try {
+    assertTypedReleaseNotes(releaseNotes);
+  } catch (err) {
+    if (err instanceof ReservedReleaseNotesError) throw new AppError(err.message, 400);
+    throw err;
+  }
+}
+
 export function createAdminUpdateRouter(_buildService: unknown): Router {
   const router = Router();
 
@@ -114,6 +126,8 @@ export function createAdminUpdateRouter(_buildService: unknown): Router {
         release_notes?: string;
         mandatory?: boolean;
       };
+
+      rejectReservedNotes(release_notes);
 
       let result;
       try {
@@ -186,6 +200,8 @@ export function createAdminUpdateRouter(_buildService: unknown): Router {
       if (!req.file) {
         throw new AppError('Missing binary file', 400);
       }
+
+      rejectReservedNotes(release_notes);
 
       let result;
       try {
