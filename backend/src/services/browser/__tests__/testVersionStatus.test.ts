@@ -427,7 +427,7 @@ describe('resultVersionState', () => {
     expect(resultVersionState(rec(), now({ fingerprint: 'fp2', commit: null }))).toBe('older');
     expect(resultVersionState(rec({ commit: undefined }), now({ fingerprint: 'fp2', commit: null }))).toBe('older');
   });
-  it('a commit without a fingerprint is never current: the stamp was not trusted', () => {
+  it('a commit is never compared on its own: no fingerprint, no state', () => {
     expect(resultVersionState(rec({ fingerprint: undefined }), now())).toBe('unknown');
   });
 });

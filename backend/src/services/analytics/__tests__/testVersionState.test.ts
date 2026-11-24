@@ -100,6 +100,13 @@ const FIXTURES: Array<{ name: string; doc: Doc; state: (typeof RESULT_VERSION_ST
     state: 'current',
   },
   {
+    // No writer makes this document (a bundle document's test_uuid starts with its
+    // bundle_id); the filter still has to read the test the way the label does.
+    name: 'bundle_id of one test, test_uuid of another: the bundle_id decides',
+    doc: { 'f0rtika.test_uuid': UUID_A, 'f0rtika.bundle_id': UUID_PINNED, ...tv('fp-old', HEAD) },
+    state: 'older',
+  },
+  {
     name: 'custom test (no commit), other fingerprint',
     doc: { 'f0rtika.test_uuid': UUID_CUSTOM, ...tv('fp-custom-old', null) },
     state: 'older',
@@ -201,12 +208,16 @@ describe('versionStateClauses (exact JSON)', () => {
   const small = new Map<string, CurrentTestVersion>([[UUID_A, { fingerprint: 'fp1', commit: 'c1' }]]);
   const noGit = new Map<string, CurrentTestVersion>([[UUID_A, { fingerprint: 'fp1', commit: null }]]);
   const fpIn = { terms: { [FP]: ['fp1'] } };
-  const testIn = {
+  const tests = (uuids: string[]) => ({
     bool: {
-      should: [{ terms: { 'f0rtika.bundle_id': [UUID_A] } }, { terms: { 'f0rtika.test_uuid': [UUID_A] } }],
+      should: [
+        { terms: { 'f0rtika.bundle_id': uuids } },
+        { bool: { filter: [{ terms: { 'f0rtika.test_uuid': uuids } }], must_not: [{ exists: { field: 'f0rtika.bundle_id' } }] } },
+      ],
       minimum_should_match: 1,
     },
-  };
+  });
+  const testIn = tests([UUID_A]);
 
   it('not_recorded', () => {
     expect(versionStateClauses('not_recorded', small)).toEqual([{ bool: { must_not: [{ exists: { field: BUILT } }] } }]);
@@ -234,12 +245,6 @@ describe('versionStateClauses (exact JSON)', () => {
       [UUID_B, { fingerprint: 'fp2', commit: 'c1' }],
       [UUID_GONE, { fingerprint: 'fp3', commit: 'c2' }],
     ]);
-    const tests = (uuids: string[]) => ({
-      bool: {
-        should: [{ terms: { 'f0rtika.bundle_id': uuids } }, { terms: { 'f0rtika.test_uuid': uuids } }],
-        minimum_should_match: 1,
-      },
-    });
     expect(versionStateClauses('current', two)).toEqual([
       {
         bool: {

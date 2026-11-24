@@ -46,7 +46,11 @@ function changeReason(
  * computes them changed (BUILD_INPUT_EXCLUDED_* in versionIdentity.ts). Without
  * a commit on both sides (no git, custom tests) only the fingerprint counts.
  * Callers pass a version they trust: a stamp that is not `modified`, or a
- * result that carries a fingerprint.
+ * result that carries a fingerprint. The commit rule leans on that check as it
+ * was made at build time, under the rule of that time: it is sound across a
+ * rule change that only leaves more files out (the one made so far). A change
+ * that makes the fingerprint count a file it ignored must not accept the same
+ * commit for older stamps: a local edit to that file was not seen as modified.
  */
 function sameSource(
   a: { fingerprint?: string | null; commit?: string | null },
@@ -112,8 +116,9 @@ export function deriveStatus(i: StatusInput): DerivedStatus {
 
 /**
  * How the version recorded on a stored result relates to the one synced now.
- * A result without a fingerprint is unknown even when it has a commit: the
- * fingerprint is only written for a binary whose stamp could be trusted.
+ * A result without a fingerprint is unknown whatever else it carries: a task
+ * gets a fingerprint (and a commit) only for a binary whose stamp could be
+ * trusted (taskTestVersion), so the commit is never compared on its own.
  */
 export function resultVersionState(
   v: Pick<TaskTestVersion, 'fingerprint' | 'commit'> | undefined,

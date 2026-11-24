@@ -33,8 +33,10 @@ function str(v: unknown): string | undefined {
 /**
  * The test a document belongs to: bundle_id when present (bundle controls and
  * multi-stage whole-test documents), else the part of test_uuid before '::'.
- * Bundle documents always carry bundle_id, so the fallback is for plain ids
- * and the query (bundle_id or test_uuid in keys) and this cannot diverge.
+ * Bundle documents always carry bundle_id, so the fallback is for plain ids.
+ * versionStateClauses() reads the test the same way (testsIn): a composite
+ * test_uuid without a bundle_id, which no writer produces, is the one case
+ * where the two differ.
  */
 export function documentTestUuid(source: Source): string {
   const bundle = str(field(source, 'f0rtika.bundle_id'));
@@ -83,13 +85,19 @@ export function versionStateClauses(
   const FP = 'f0rtika.test_version.fingerprint';
   const COMMIT = 'f0rtika.test_version.commit';
   const BUILT = 'f0rtika.test_version.built_at';
+  const BUNDLE = 'f0rtika.bundle_id';
   const fingerprints = [...new Set([...(current?.values() ?? [])].map((v) => v.fingerprint))];
   const uuids = [...(current?.keys() ?? [])];
   const noMatch: estypes.QueryDslQueryContainer = { bool: { must_not: [{ match_all: {} }] } };
   const fpIn: estypes.QueryDslQueryContainer = { terms: { [FP]: fingerprints } };
+  // The test of a document, as documentTestUuid() reads it: bundle_id when
+  // there is one, test_uuid only when there is none.
   const testsIn = (ids: string[]): estypes.QueryDslQueryContainer => ({
     bool: {
-      should: [{ terms: { 'f0rtika.bundle_id': ids } }, { terms: { 'f0rtika.test_uuid': ids } }],
+      should: [
+        { terms: { [BUNDLE]: ids } },
+        { bool: { filter: [{ terms: { 'f0rtika.test_uuid': ids } }], must_not: [{ exists: { field: BUNDLE } }] } },
+      ],
       minimum_should_match: 1,
     },
   });

@@ -83,7 +83,7 @@ export interface ExecutionReportDeps {
   readGuidance: (testKey: string) => string | null;
   getRunStartTimes: (taskIds: string[]) => Promise<Map<string, string>>;
   getAcceptances: (testNames: string[], org?: string) => Promise<Record<string, RiskAcceptance[]>>;
-  /** Current fingerprint of every synced test (uuid -> fingerprint), for the runs' version states;
+  /** Current version of every synced test (uuid -> fingerprint and library commit), for the runs' version states;
    *  undefined when the library can't be read within `limitMs` (currentFingerprintMap bounds it). */
   getCurrentFingerprints: (limitMs?: number) => Promise<Map<string, CurrentTestVersion> | undefined>;
   budgetMs: number;

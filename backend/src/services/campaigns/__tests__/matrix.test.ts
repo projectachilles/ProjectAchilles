@@ -411,7 +411,7 @@ describe('campaign run matrix', () => {
       insertRun('v9', 'c1', snap(['t1', 't2', 't3', 't4'], ['a1']));
       insertTask({ runId: 'v9', agent: 'a1', test: 't1', status: 'completed', exit: 126, testVersion: stamp({ commit: COMMIT_A, fingerprint: 'fp-old-rule' }) });
       insertTask({ runId: 'v9', agent: 'a1', test: 't2', status: 'completed', exit: 126, testVersion: stamp({ commit: COMMIT_B, fingerprint: 'fp-old' }) });
-      // The commit alone, without a fingerprint, proves nothing: the stamp was not trusted.
+      // No task is written like this (a trusted stamp gives both, an untrusted one neither): a commit is never compared on its own.
       insertTask({ runId: 'v9', agent: 'a1', test: 't3', status: 'completed', exit: 126, testVersion: stamp({ commit: COMMIT_A }) });
       // t4 is not in the library now.
       insertTask({ runId: 'v9', agent: 'a1', test: 't4', status: 'completed', exit: 126, testVersion: stamp({ commit: COMMIT_A, fingerprint: 'fp-x' }) });

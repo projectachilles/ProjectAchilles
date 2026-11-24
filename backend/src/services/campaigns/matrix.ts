@@ -176,7 +176,7 @@ function parseJson(raw: unknown): unknown {
 /**
  * The version of a cell's task, by the rules ingestion and Analytics →
  * Executions use (validTestVersion, resultStateForTest). `current` is the
- * synced fingerprint of every readable test; undefined leaves recorded
+ * synced fingerprint and commit of every readable test; undefined leaves recorded
  * versions without a state rather than guessing one.
  */
 function cellVersion(raw: string | null, testUuid: string, current: Map<string, CurrentTestVersion> | undefined): CellVersion {

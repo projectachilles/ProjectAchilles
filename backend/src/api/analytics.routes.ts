@@ -323,7 +323,8 @@ router.get('/defense-score/by-technique', asyncHandler(async (req, res) => {
 }));
 
 /**
- * Current fingerprint of every test the library can read (uuid -> fingerprint),
+ * Current version of every test the library can read (uuid -> fingerprint and
+ * library commit),
  * for the result version labels and the versionState filter. undefined when
  * the versions service is missing, the read fails, or it takes more than
  * VERSION_READ_BUDGET_MS (5 s, bounded in currentFingerprintMap): rows then

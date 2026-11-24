@@ -213,7 +213,7 @@ export function taskIdFromDocId(docId: string, testKey: string): string | null {
 
 /**
  * The run's test version: from the first member document that records one (a stage document can
- * lack it), with its state when `current` (test uuid -> fingerprint of the synced library) is known.
+ * lack it), with its state when `current` (test uuid -> fingerprint and commit of the synced library) is known.
  * No member records one: not recorded, which needs no comparison.
  */
 function runVersion(hits: Agg[], current: Map<string, CurrentTestVersion> | undefined): ReportRunVersion {
@@ -224,7 +224,7 @@ function runVersion(hits: Agg[], current: Map<string, CurrentTestVersion> | unde
   return { commit: null, state: 'not_recorded' };
 }
 
-/** `current`: the synced library's fingerprint per test; undefined when it could not be read (no state then). */
+/** `current`: the synced library's fingerprint and commit per test; undefined when it could not be read (no state then). */
 export function parseRuns(response: Agg, current?: Map<string, CurrentTestVersion>): ReportRun[] {
   return buckets(response?.aggregations?.runs).map((b) => {
     const key = String(b.key);
