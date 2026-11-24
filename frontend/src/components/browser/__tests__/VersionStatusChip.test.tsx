@@ -42,12 +42,32 @@ describe('VersionStatusChip', () => {
     expect(screen.getByText('2222222')).toBeTruthy();
   });
 
-  it('falls back to the synced commit when not built, and shows no commit when both are null', () => {
-    const { unmount } = render(<VersionStatusChip row={row({ status: 'not_built', built: null })} />);
-    expect(screen.getByText('1111111')).toBeTruthy();
-    unmount();
-    render(<VersionStatusChip row={row({ status: 'not_built', built: null, synced: null })} />);
-    expect(screen.queryByText(/^[0-9a-f]{7}$/)).toBeNull();
+  it('never shows the synced commit: not_built, unknown_build and uploaded show no commit', () => {
+    for (const status of ['not_built', 'unknown_build', 'uploaded'] as const) {
+      const { unmount } = render(<VersionStatusChip row={row({ status, built: null })} />);
+      expect(screen.queryByText(/^[0-9a-f]{7}$/)).toBeNull();
+      unmount();
+    }
+  });
+
+  it('shows no commit next to unknown_build or uploaded even when a built commit exists', () => {
+    for (const status of ['unknown_build', 'uploaded'] as const) {
+      const { unmount } = render(<VersionStatusChip row={row({ status })} />);
+      expect(screen.queryByText(/^[0-9a-f]{7}$/)).toBeNull();
+      unmount();
+    }
+  });
+
+  it('shows the built commit only, and nothing when it is absent, for built statuses', () => {
+    for (const status of ['up_to_date', 'rebuild_needed', 'update_available', 'not_checked'] as const) {
+      const { unmount } = render(<VersionStatusChip row={row({ status })} />);
+      expect(screen.getByText('2222222')).toBeTruthy();
+      expect(screen.queryByText('1111111')).toBeNull();
+      unmount();
+      const second = render(<VersionStatusChip row={row({ status, built: { ...ref(null), builtAt: 'x', signed: true } })} />);
+      expect(screen.queryByText(/^[0-9a-f]{7}$/)).toBeNull();
+      second.unmount();
+    }
   });
 
   it('puts the reason in the title', () => {

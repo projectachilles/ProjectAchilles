@@ -1,12 +1,18 @@
 import { tests } from '@/components/browser/detail/plural';
-import type { TestVersionsResponse } from '@/types/testVersion';
+import type { TestVersionRow, TestVersionsResponse } from '@/types/testVersion';
 
 type Library = TestVersionsResponse['library'];
 
-/** True when the library has something to act on: a counter or a failed check. */
-export function versionBannerVisible(library: Library): boolean {
+/** Tests built before versions were recorded: each needs one build to record its version. */
+export function unrecordedBuildCount(rows: Record<string, TestVersionRow>): number {
+  return Object.values(rows).filter((r) => r.status === 'unknown_build' && r.reason === 'no_stamp').length;
+}
+
+/** True when the library has something to act on: a counter, unrecorded builds or a failed check. */
+export function versionBannerVisible(library: Library, unrecordedBuilds: number): boolean {
   return (
     library.checkError != null ||
+    unrecordedBuilds > 0 ||
     library.updatesAvailable > 0 ||
     library.rebuildsNeeded > 0 ||
     library.newTests > 0
@@ -15,10 +21,12 @@ export function versionBannerVisible(library: Library): boolean {
 
 interface VersionBannerProps {
   library: Library;
+  /** Tests whose build has no recorded version (see `unrecordedBuildCount`). */
+  unrecordedBuilds: number;
 }
 
 /** Information only: Sync and Check now live in the page header. */
-export function VersionBanner({ library }: VersionBannerProps) {
+export function VersionBanner({ library, unrecordedBuilds }: VersionBannerProps) {
   const lines: string[] = [];
   const { updatesAvailable: updates, rebuildsNeeded: rebuilds, newTests } = library;
   if (updates > 0) {
@@ -26,6 +34,13 @@ export function VersionBanner({ library }: VersionBannerProps) {
   }
   if (rebuilds > 0) {
     lines.push(`${tests(rebuilds)} ${rebuilds === 1 ? 'needs' : 'need'} a rebuild`);
+  }
+  if (unrecordedBuilds > 0) {
+    lines.push(
+      `${tests(unrecordedBuilds)} ${unrecordedBuilds === 1 ? 'was' : 'were'} built before versions were recorded: build ${
+        unrecordedBuilds === 1 ? 'it' : 'each'
+      } once to record its version`,
+    );
   }
   if (newTests > 0) {
     lines.push(`${newTests} new ${newTests === 1 ? 'test' : 'tests'} available`);
