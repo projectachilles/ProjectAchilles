@@ -397,10 +397,10 @@ with `crowdstrike_prevented: true` (plus the action) under these rules
   names the bundle, or a sibling stage, does not mark the stage: a sibling
   that already ran to completion was not prevented by the kill of a later
   stage.
-- **During the run.** For a stage that ran to completion (exit `101`), the
-  action counts only if the alert was raised before the run ended (the
-  result's time plus 2 minutes). A later action leaves the stage **Detected**.
-  Error-coded stages are not time-gated.
+- **Exit code decides.** A stage that ran to completion (exit `101`) is never
+  Prevented; it reads **Detected**. Error-coded stages are Prevented when the
+  alert on their own binary carries a confirmed action (v2.10.0 and v2.10.1
+  judged this by time; since the exit-code rule they no longer do).
 - **Alerts that name several tests' files** count for none of them:
   CrowdStrike gives no per-file verdict to tell which test the alert is about.
 

@@ -75,6 +75,11 @@ This is deterministic vendor evidence of *prevention* — no inference needed.
      exited 101 (executed unprotected) was not prevented by the alert that killed a
      later stage — observed in prod when Falcon killed T1486 while stages 1–4 had
      completed.
+   - **A stage that exited 101 never qualifies, not even on a stage-binary match.**
+     It ran to completion, and an EDR can mark a process as blocked after it has
+     already exited. No `*_prevented` / `*_stage_prevented` / `*_prevention_action`
+     is written on it; it is Detected when an alert names it. (This replaced a
+     time-based rule.)
    Qualifying matches set on the test doc, alongside the existing detected flags:
    - `f0rtika.crowdstrike_prevented: true`
    - `f0rtika.crowdstrike_prevention_action: '<action>'`

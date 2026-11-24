@@ -42,7 +42,9 @@ CrowdStrike in PR #486/#487.)
 
 2. **Enrichment (both Defender enrichment services)** — identical rule to CrowdStrike:
    stage-binary matches always qualify; bundle-wide matches qualify only when the stage never
-   reached a conclusive outcome (`event.ERROR` ∉ {101, 105, 126, 127}). Qualifying matches set
+   reached a conclusive outcome (`event.ERROR` ∉ {101, 105, 126, 127}). A stage that exited 101
+   never qualifies, even on a stage-binary match: Defender can mark a process as blocked after it
+   has exited, so such a stage is Detected, with no prevention flag written. Qualifying matches set
    `f0rtika.defender_prevented: true` + `f0rtika.defender_prevention_action: '<action>'`.
    `msearch` sub-queries include `_source: ['prevention_action']`.
    Results-index mapping gains the two additive fields (both backends + python script).
