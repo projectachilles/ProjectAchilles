@@ -161,12 +161,37 @@ const SIGN_TIMEOUT = 60_000;
 /**
  * A build's marker file in BUILDS_DIR/<uuid>, so every process (each HTTP
  * worker has its own BuildService and in-memory jobs) sees that the test is
- * building. The build refreshes it before every step (one subprocess, at most
- * BUILD_TIMEOUT or SIGN_TIMEOUT), so a marker older than both together was
- * left by a process that died mid-build.
+ * building. Uploads and deletes hold the same marker while they write
+ * (withTestFolderLock). The build refreshes it before every step (one
+ * subprocess, at most BUILD_TIMEOUT or SIGN_TIMEOUT), so a marker older than
+ * both together was left by a process that died mid-build, or by a build
+ * whose step overran its timeout (the timeout signals only the direct child,
+ * so a step can outlive it): a stale marker is taken over, and the build that
+ * owned it can then no longer refresh, remove or stamp (see BuildMarkerHandle).
  */
 const BUILD_MARKER = '.building';
 const BUILD_MARKER_STALE_MS = BUILD_TIMEOUT + SIGN_TIMEOUT;
+/**
+ * A takeover claim (see takeOverStaleMarker) older than this was left by a
+ * process that stopped inside the takeover, a few synchronous file calls.
+ */
+const TAKEOVER_CLAIM_STALE_MS = 30_000;
+/** Claims tried per stale marker before giving up (each one left by a stopped process). */
+const TAKEOVER_CLAIM_ATTEMPTS = 5;
+const BUILD_IN_PROGRESS = 'Build in progress for this test';
+
+/**
+ * The marker a build (or an upload or delete) holds. The file carries the
+ * same random token; refresh, release and the version stamp act only while it
+ * still does, so a build whose marker another build took over can't touch the
+ * other build's marker.
+ */
+export interface BuildMarkerHandle {
+  path: string;
+  token: string;
+}
+
+type MarkerState = 'ours' | 'foreign' | 'gone';
 
 /** What a build reads before compiling, for its stamp. */
 interface VersionBefore {
@@ -181,6 +206,8 @@ export class BuildService {
   private testSourcePaths: string[];
   private jobs = new BuildJobs<BuildInfo>();
   private buildSlot = new BuildSlot();
+  /** Handles whose marker was found taken over (warned once). */
+  private lostMarkers = new WeakSet<BuildMarkerHandle>();
 
   private versionSource?: BuildVersionSource;
 
@@ -230,8 +257,10 @@ export class BuildService {
 
   /**
    * Whether `uuid` is building in this process or in any other process that
-   * shares BUILDS_DIR (a fresh build marker). What guards writes into a test's
-   * folder and build directory; a job's status stays per process (getBuildJob).
+   * shares BUILDS_DIR (a fresh build marker). The routes' fast pre-check for
+   * writes into a test's folder and build directory (those writes then hold
+   * the marker themselves, withTestFolderLock); a job's status stays per
+   * process (getBuildJob).
    */
   isBuildingAnywhere(uuid: string): boolean {
     return this.isBuilding(uuid) || this.buildMarkerIsFresh(this.buildMarkerPath(uuid));
@@ -249,45 +278,198 @@ export class BuildService {
     }
   }
 
-  private buildMarkerContent(): string {
-    return JSON.stringify({ pid: process.pid, startedAt: new Date().toISOString() });
+  private buildMarkerContent(token: string): string {
+    return JSON.stringify({ pid: process.pid, startedAt: new Date().toISOString(), token });
+  }
+
+  /** Create `file` only if it does not exist (`wx`); false when it does. */
+  private createExclusive(file: string, content: string): boolean {
+    try {
+      fs.writeFileSync(file, content, { flag: 'wx', mode: 0o600 });
+      return true;
+    } catch (err) {
+      if ((err as NodeJS.ErrnoException).code === 'EEXIST') return false;
+      throw err;
+    }
+  }
+
+  /** The marker's content, or null when there is none; other read errors throw. */
+  private readMarker(marker: string): string | null {
+    try {
+      return fs.readFileSync(marker, 'utf8');
+    } catch (err) {
+      if ((err as NodeJS.ErrnoException).code === 'ENOENT') return null;
+      throw err;
+    }
+  }
+
+  /** Whether the marker still holds this handle's token. A marker that can't be read is not ours. */
+  private markerState(handle: BuildMarkerHandle): MarkerState {
+    let content: string | null;
+    try {
+      content = this.readMarker(handle.path);
+    } catch {
+      return 'foreign';
+    }
+    if (content === null) return 'gone';
+    try {
+      const parsed = JSON.parse(content) as { token?: unknown } | null;
+      return parsed?.token === handle.token ? 'ours' : 'foreign';
+    } catch {
+      return 'foreign';
+    }
+  }
+
+  /** Log, once per handle, that its marker is no longer this build's. */
+  private markerLost(handle: BuildMarkerHandle, uuid: string): void {
+    if (this.lostMarkers.has(handle)) return;
+    this.lostMarkers.add(handle);
+    console.warn('Build of %s lost its build marker to another build or a removal: from now on it records no version and leaves the marker alone', uuid);
+  }
+
+  /** True while `handle` still holds its marker; otherwise warns (once) and returns false. */
+  private ownsMarker(handle: BuildMarkerHandle, uuid: string): boolean {
+    if (this.markerState(handle) === 'ours') return true;
+    this.markerLost(handle, uuid);
+    return false;
   }
 
   /**
-   * Create the build marker atomically (`wx`), or refuse the build (409) while
-   * another process's marker is fresh. A stale one is replaced.
+   * Create the build marker atomically (`wx`), or refuse (409) while another
+   * process's marker is fresh. A stale one is taken over (takeOverStaleMarker).
    */
-  private acquireBuildMarker(uuid: string): string {
-    const marker = path.join(this.ensureBuildDir(uuid), BUILD_MARKER);
-    const create = (): boolean => {
-      try {
-        fs.writeFileSync(marker, this.buildMarkerContent(), { flag: 'wx', mode: 0o600 });
-        return true;
-      } catch (err) {
-        if ((err as NodeJS.ErrnoException).code === 'EEXIST') return false;
-        throw err;
-      }
+  private acquireBuildMarker(uuid: string): BuildMarkerHandle {
+    const handle: BuildMarkerHandle = {
+      path: path.join(this.ensureBuildDir(uuid), BUILD_MARKER),
+      token: crypto.randomBytes(16).toString('hex'),
     };
-    if (create()) return marker;
-    if (this.buildMarkerIsFresh(marker)) {
-      throw new AppError('Build in progress for this test', 409);
+    const content = this.buildMarkerContent(handle.token);
+    if (this.createExclusive(handle.path, content)) return handle;
+    if (this.buildMarkerIsFresh(handle.path)) {
+      throw new AppError(BUILD_IN_PROGRESS, 409);
     }
-    console.warn('Build of %s replaces a stale build marker left by a process that stopped mid-build', uuid);
-    try { fs.unlinkSync(marker); } catch { /* already gone */ }
-    // Another process may have replaced it first: then that one builds.
-    if (!create()) throw new AppError('Build in progress for this test', 409);
-    return marker;
+    this.takeOverStaleMarker(uuid, handle, content);
+    return handle;
   }
 
-  /** Keep the marker fresh before a build step; a failure here never fails the build. */
-  private refreshBuildMarker(marker: string): void {
+  /**
+   * Replace a stale marker with `handle`'s, or refuse (409). The takeovers of
+   * one stale marker are serialized by a claim file named after its content
+   * (created with `wx`), and the claimant checks again, under the claim, that
+   * the marker is still that stale one: two processes that both judged it
+   * stale can't both take it over. The new marker is written to a temp file,
+   * renamed over the old one (atomic) and read back.
+   */
+  private takeOverStaleMarker(uuid: string, handle: BuildMarkerHandle, content: string): void {
+    const dir = path.dirname(handle.path);
+    const seen = this.readMarker(handle.path);
+    if (seen === null) {
+      // Released since it was judged stale: create it like a fresh one.
+      if (this.createExclusive(handle.path, content)) return;
+      throw new AppError(BUILD_IN_PROGRESS, 409);
+    }
+    const generation = crypto.createHash('sha256').update(seen).digest('hex').slice(0, 16);
+    const claim = this.claimTakeover(dir, generation, handle.token);
     try {
-      fs.writeFileSync(marker, this.buildMarkerContent(), { mode: 0o600 });
+      // Its owner may have refreshed or released it, or another process
+      // taken it over, since it was judged stale.
+      if (this.readMarker(handle.path) !== seen || this.buildMarkerIsFresh(handle.path)) {
+        throw new AppError(BUILD_IN_PROGRESS, 409);
+      }
+      const tmp = path.join(dir, `${BUILD_MARKER}.${handle.token}.tmp`);
+      fs.writeFileSync(tmp, content, { flag: 'wx', mode: 0o600 });
+      try {
+        fs.renameSync(tmp, handle.path);
+      } catch (err) {
+        try { fs.unlinkSync(tmp); } catch { /* already gone */ }
+        throw err;
+      }
+      if (this.markerState(handle) !== 'ours') throw new AppError(BUILD_IN_PROGRESS, 409);
+      console.warn('Replacing a stale build marker for %s: its build stopped, or a build step overran its timeout', uuid);
+      // The marker no longer holds `seen`, so every claim on it is void now:
+      // drop any a process that stopped inside a takeover left behind.
+      for (let attempt = 0; attempt < TAKEOVER_CLAIM_ATTEMPTS; attempt++) {
+        const other = this.takeoverClaimPath(dir, generation, attempt);
+        if (other !== claim) {
+          try { fs.unlinkSync(other); } catch { /* none */ }
+        }
+      }
+    } finally {
+      try { fs.unlinkSync(claim); } catch { /* already gone */ }
+    }
+  }
+
+  private takeoverClaimPath(dir: string, generation: string, attempt: number): string {
+    return path.join(dir, `${BUILD_MARKER}.takeover-${generation}-${attempt}`);
+  }
+
+  /**
+   * Create the claim to take over the marker whose content hashes to
+   * `generation`, or refuse (409) while another process holds it. A claim
+   * older than TAKEOVER_CLAIM_STALE_MS was left by a process that stopped
+   * inside a takeover; the next name is tried instead (never removed here,
+   * so two processes can't both remove it and both claim).
+   */
+  private claimTakeover(dir: string, generation: string, token: string): string {
+    for (let attempt = 0; attempt < TAKEOVER_CLAIM_ATTEMPTS; attempt++) {
+      const claim = this.takeoverClaimPath(dir, generation, attempt);
+      if (this.createExclusive(claim, token)) return claim;
+      let age = 0;
+      try {
+        age = Date.now() - fs.statSync(claim).mtimeMs;
+      } catch { /* just released: that takeover ran */ }
+      if (!(age >= TAKEOVER_CLAIM_STALE_MS)) throw new AppError(BUILD_IN_PROGRESS, 409);
+    }
+    throw new AppError(BUILD_IN_PROGRESS, 409);
+  }
+
+  /**
+   * Keep the marker fresh before a build step, only while it still holds this
+   * build's token (a taken-over marker belongs to another build). Touches the
+   * file, never rewrites it. A failure here never fails the build.
+   */
+  private refreshBuildMarker(handle: BuildMarkerHandle, uuid: string): void {
+    if (!this.ownsMarker(handle, uuid)) return;
+    try {
+      const now = new Date();
+      fs.utimesSync(handle.path, now, now);
     } catch { /* the next step refreshes it again */ }
   }
 
-  private releaseBuildMarker(marker: string): void {
-    try { fs.unlinkSync(marker); } catch { /* already gone */ }
+  /**
+   * Remove the marker if it still holds this handle's token; another build's
+   * marker is left in place (with the one warning, unless `quiet`). A marker
+   * already gone is fine: deleteBuild removes the whole build directory.
+   */
+  private releaseBuildMarker(handle: BuildMarkerHandle, uuid: string, opts: { quiet?: boolean } = {}): void {
+    const state = this.markerState(handle);
+    if (state === 'ours') {
+      try { fs.unlinkSync(handle.path); } catch { /* already gone */ }
+    } else if (state === 'foreign' && !opts.quiet) {
+      this.markerLost(handle, uuid);
+    }
+  }
+
+  /**
+   * Run `fn` while holding the test's build marker, the one a build holds, so
+   * a build in any process can't start while `fn` writes into the test's
+   * folder or build directory. Refused with the running-build 409 while this
+   * process builds the test or another process's marker is fresh; a stale
+   * marker is taken over. Released when `fn` returns or throws; quietly when
+   * `fn` removed it. `fn` must be synchronous (the marker is released as soon
+   * as it returns); the three callers (saveUploadedFile, uploadBinary,
+   * deleteBuild) are.
+   */
+  withTestFolderLock<T>(uuid: string, fn: () => T): T {
+    if (this.isBuilding(uuid)) throw new AppError(BUILD_IN_PROGRESS, 409);
+    const handle = this.acquireBuildMarker(uuid);
+    try {
+      return fn();
+    } finally {
+      // Quiet: a synchronous `fn` can't see its fresh marker taken over, so
+      // another token here is a build that started after deleteBuild.
+      this.releaseBuildMarker(handle, uuid, { quiet: true });
+    }
   }
 
   /**
@@ -638,11 +820,13 @@ const ARTIFACT_DIR = \`${artifactDir}\`
     }
   }
 
+  /** Remove the build directory (marker included) under the test folder lock; 409 while a build runs. */
   deleteBuild(uuid: string): void {
-    const buildDir = path.join(BUILDS_DIR, uuid);
-    if (fs.existsSync(buildDir)) {
+    const buildDir = this.safeBuildDir(uuid);
+    if (!fs.existsSync(buildDir)) return;
+    this.withTestFolderLock(uuid, () => {
       fs.rmSync(buildDir, { recursive: true, force: true });
-    }
+    });
   }
 
   getEmbedDependencies(uuid: string): EmbedDependency[] {
@@ -724,6 +908,7 @@ const ARTIFACT_DIR = \`${artifactDir}\`
     return this.embedDependenciesHash(uuid, true);
   }
 
+  /** Write an uploaded embed dependency into the test folder, under the test folder lock (409 while a build runs). */
   saveUploadedFile(uuid: string, filename: string, buffer: Buffer): void {
     const testDir = this.findTestDir(uuid);
     if (!testDir) {
@@ -736,21 +921,24 @@ const ARTIFACT_DIR = \`${artifactDir}\`
       throw new Error('Invalid filename');
     }
 
-    // M8: Only allow known embed dependency filenames to prevent arbitrary file writes
-    const deps = this.getEmbedDependencies(uuid);
-    const dep = deps.find(d => d.filename === baseName);
-    if (!dep) {
-      throw new Error(`Filename '${baseName}' is not a known embed dependency for this test`);
-    }
+    this.withTestFolderLock(uuid, () => {
+      // M8: Only allow known embed dependency filenames to prevent arbitrary file writes
+      const deps = this.getEmbedDependencies(uuid);
+      const dep = deps.find(d => d.filename === baseName);
+      if (!dep) {
+        throw new Error(`Filename '${baseName}' is not a known embed dependency for this test`);
+      }
 
-    // Reject uploads for source-built dependencies — these are compiled by build_all.sh
-    if (dep.sourceBuilt) {
-      throw new Error(`Cannot upload '${baseName}': this binary is built from source by build_all.sh`);
-    }
+      // Reject uploads for source-built dependencies — these are compiled by build_all.sh
+      if (dep.sourceBuilt) {
+        throw new Error(`Cannot upload '${baseName}': this binary is built from source by build_all.sh`);
+      }
 
-    fs.writeFileSync(path.join(testDir, baseName), buffer);
+      fs.writeFileSync(path.join(testDir, baseName), buffer);
+    });
   }
 
+  /** Store an uploaded test binary and its metadata, under the test folder lock (409 while a build runs). */
   uploadBinary(uuid: string, buffer: Buffer): BuildInfo {
     if (!UUID_REGEX.test(uuid)) {
       throw new Error('Invalid UUID format');
@@ -765,6 +953,10 @@ const ARTIFACT_DIR = \`${artifactDir}\`
       throw new Error('File does not appear to be a valid Windows executable (missing MZ header)');
     }
 
+    return this.withTestFolderLock(uuid, () => this.writeUploadedBinary(uuid, buffer));
+  }
+
+  private writeUploadedBinary(uuid: string, buffer: Buffer): BuildInfo {
     const platform = this.settingsService.getPlatformSettings();
     const safeUuid = path.basename(uuid);
     const filename = platform.os === 'windows'
@@ -812,11 +1004,11 @@ const ARTIFACT_DIR = \`${artifactDir}\`
     try {
       return await this.runBuild(uuid, testDir, marker);
     } finally {
-      this.releaseBuildMarker(marker);
+      this.releaseBuildMarker(marker, uuid);
     }
   }
 
-  private async runBuild(uuid: string, testDir: string, marker: string): Promise<BuildInfo> {
+  private async runBuild(uuid: string, testDir: string, marker: BuildMarkerHandle): Promise<BuildInfo> {
     // Read the version identity BEFORE compiling: the build compiles the
     // working tree as it is now, and a sync could change it mid-build. A
     // failure here only costs the stamp, never the build.
@@ -966,7 +1158,7 @@ const ARTIFACT_DIR = \`${artifactDir}\`
         }
 
         try {
-          this.refreshBuildMarker(marker);
+          this.refreshBuildMarker(marker, uuid);
           await runBuildCommand('bash', buildArgs, {
             cwd: buildCwd,
             env,
@@ -1058,7 +1250,7 @@ const ARTIFACT_DIR = \`${artifactDir}\`
         try {
           if (!hadGoMod) {
             // Auto-init a temporary module so "go build ." works in package mode
-            this.refreshBuildMarker(marker);
+            this.refreshBuildMarker(marker, uuid);
             await runBuildCommand('go', ['mod', 'init', 'testbuild'], {
               cwd: testDir,
               env,
@@ -1066,15 +1258,15 @@ const ARTIFACT_DIR = \`${artifactDir}\`
             });
           }
 
-          this.refreshBuildMarker(marker);
+          this.refreshBuildMarker(marker, uuid);
           await runBuildCommand('go', ['mod', 'tidy'], { cwd: testDir, env, timeout: BUILD_TIMEOUT });
-          this.refreshBuildMarker(marker);
+          this.refreshBuildMarker(marker, uuid);
           await runBuildCommand('go', ['mod', 'download'], { cwd: testDir, env, timeout: BUILD_TIMEOUT });
 
           // Use package mode ("go build .") for proper GOOS/GOARCH constraint evaluation.
           // File-list mode ("go build a.go b.go") doesn't resolve cross-platform build tags
           // on transitive dependencies, causing failures for windows-only imports on Linux.
-          this.refreshBuildMarker(marker);
+          this.refreshBuildMarker(marker, uuid);
           await runBuildCommand('go', ['build', '-o', outputPath, '.'], {
             cwd: testDir,
             env,
@@ -1118,7 +1310,7 @@ const ARTIFACT_DIR = \`${artifactDir}\`
         const passFile = path.join(buildDir, '.tmp-pass');
         try {
           fs.writeFileSync(passFile, activeCert.password, { mode: 0o600 });
-          this.refreshBuildMarker(marker);
+          this.refreshBuildMarker(marker, uuid);
           await execFileAsync('osslsigncode', [
             'sign',
             '-pkcs12', activeCert.pfxPath,
@@ -1140,7 +1332,7 @@ const ARTIFACT_DIR = \`${artifactDir}\`
       }
     } else if (platform.os === 'darwin') {
       try {
-        this.refreshBuildMarker(marker);
+        this.refreshBuildMarker(marker, uuid);
         await execFileAsync('rcodesign', [
           'sign',
           '--code-signature-flags', 'adhoc',
@@ -1162,7 +1354,7 @@ const ARTIFACT_DIR = \`${artifactDir}\`
       [platform.os]: { filename, fileSize: stats.size, signed },
     };
     const version = versionBefore
-      ? await this.stampVersion(uuid, versionBefore, buildDir, binaries)
+      ? await this.stampVersion(uuid, versionBefore, buildDir, binaries, marker)
       : undefined;
     const meta: BuildMetadata = {
       platform: { os: platform.os, arch: platform.arch },
@@ -1199,14 +1391,17 @@ const ARTIFACT_DIR = \`${artifactDir}\`
    *    compile (library commit or fingerprint), or can't be read: the test's
    *    source changed while it was being built, e.g. a Sync moved HEAD;
    *  - an uploaded dependency that was there before the build is gone;
-   *  - an artifact or dependency can't be hashed.
+   *  - an artifact or dependency can't be hashed;
+   *  - the build no longer holds its marker (another build took it over), so
+   *    it can't prove nothing else wrote to the test folder or the artifacts.
    *
    * deps_hash is taken here, not before the build, because a build_all.sh can
    * itself write an embedded file that is classed as uploaded (a gzipped
-   * helper no source-built rule matches). Uploading or deleting a dependency
-   * is refused in every process while the build marker is fresh (see
-   * isBuildingAnywhere), so an uploaded dependency keeps its content through
-   * the build; a file the script produced only changes when a build runs, and
+   * helper no source-built rule matches). Uploading a dependency, uploading a
+   * binary and deleting the build hold the same marker while they write
+   * (withTestFolderLock), so they are refused in every process while the
+   * build runs and an uploaded dependency keeps its content through the
+   * build; a file the script produced only changes when a build runs, and
    * a build rewrites the stamp. So a difference between the stamped and the
    * current hash means the file changed after the build. A dependency that was
    * there before the build and is gone now (a Sync's `git clean` removes
@@ -1220,6 +1415,7 @@ const ARTIFACT_DIR = \`${artifactDir}\`
     before: VersionBefore,
     buildDir: string,
     artifacts: NonNullable<BuildMetadata['binaries']>,
+    marker: BuildMarkerHandle,
   ): Promise<BuildVersionStamp | null> {
     let after: { identity: TestVersionIdentity; modified: boolean } | null;
     try {
@@ -1249,6 +1445,10 @@ const ARTIFACT_DIR = \`${artifactDir}\`
         const bytes = fs.readFileSync(path.join(buildDir, path.basename(artifact.filename)));
         binaries[artifact.filename] = crypto.createHash('sha256').update(bytes).digest('hex');
       }
+      // Last, after every hash: a build whose marker another build took over
+      // can't prove nothing else wrote to the test folder or the artifacts
+      // (ownsMarker logs the warning, once per build).
+      if (!this.ownsMarker(marker, uuid)) return null;
       return {
         ...before.identity,
         deps_hash: this.currentDepsHash(uuid),

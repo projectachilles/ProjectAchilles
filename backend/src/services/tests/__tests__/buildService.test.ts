@@ -18,6 +18,7 @@ const mockUnlinkSync = vi.fn();
 const mockCopyFileSync = vi.fn();
 const mockRenameSync = vi.fn();
 const mockSymlinkSync = vi.fn();
+const mockUtimesSync = vi.fn();
 // hashFiles (deps hash) resolves and lstat()s each entry: follow existsSync.
 const mockRealpathSync = vi.fn((p: string) => p);
 const mockLstatSync = vi.fn((p: string) => {
@@ -25,22 +26,90 @@ const mockLstatSync = vi.fn((p: string) => {
   return { isSymbolicLink: () => false, isFile: () => true, isDirectory: () => false };
 });
 
+// Build marker files (BUILDS_DIR/<uuid>/.building and the takeover's temp and
+// claim files next to it) live in this store, outside the per-test fs mocks:
+// a build reads its marker back to check it still owns it, and the per-test
+// readFileSync mocks know nothing about it. The in-memory-fs suite below
+// models markers in its own files and turns the store off.
+const markerStore = {
+  enabled: true,
+  files: new Map<string, { data: string; mtimeMs: number }>(),
+};
+function isMarkerPath(p: unknown): p is string {
+  return markerStore.enabled && typeof p === 'string' && /\/\.building(?:$|\.)/.test(p);
+}
+function markerEnoent(p: string): Error {
+  return Object.assign(new Error(`ENOENT: ${p}`), { code: 'ENOENT' });
+}
+const markerAware = {
+  writeFileSync: (...args: unknown[]) => {
+    const [p, data, opts] = args;
+    if (!isMarkerPath(p)) return mockWriteFileSync(...args);
+    if ((opts as { flag?: string } | undefined)?.flag === 'wx' && markerStore.files.has(p)) {
+      throw Object.assign(new Error(`EEXIST: ${p}`), { code: 'EEXIST' });
+    }
+    markerStore.files.set(p, { data: String(data), mtimeMs: Date.now() });
+  },
+  readFileSync: (...args: unknown[]) => {
+    const [p, opts] = args;
+    if (!isMarkerPath(p)) return mockReadFileSync(...args);
+    const f = markerStore.files.get(p);
+    if (!f) throw markerEnoent(p);
+    return opts ? f.data : Buffer.from(f.data);
+  },
+  statSync: (...args: unknown[]) => {
+    const [p] = args;
+    if (!isMarkerPath(p)) return mockStatSync(...args);
+    const f = markerStore.files.get(p);
+    if (!f) throw markerEnoent(p);
+    return { mtimeMs: f.mtimeMs, size: f.data.length, isFile: () => true, isDirectory: () => false };
+  },
+  unlinkSync: (...args: unknown[]) => {
+    const [p] = args;
+    if (!isMarkerPath(p)) return mockUnlinkSync(...args);
+    if (!markerStore.files.delete(p)) throw markerEnoent(p);
+  },
+  renameSync: (...args: unknown[]) => {
+    const [from, to] = args;
+    if (!isMarkerPath(from)) return mockRenameSync(...args);
+    const f = markerStore.files.get(from);
+    if (!f) throw markerEnoent(from);
+    markerStore.files.delete(from);
+    markerStore.files.set(String(to), f);
+  },
+  utimesSync: (...args: unknown[]) => {
+    const [p, , mtime] = args;
+    if (!isMarkerPath(p)) return mockUtimesSync(...args);
+    const f = markerStore.files.get(p);
+    if (!f) throw markerEnoent(p);
+    f.mtimeMs = mtime instanceof Date ? mtime.getTime() : Number(mtime) * 1000;
+  },
+  rmSync: (...args: unknown[]) => {
+    const [p] = args;
+    if (markerStore.enabled && typeof p === 'string') {
+      for (const k of [...markerStore.files.keys()]) if (k.startsWith(`${p}/`)) markerStore.files.delete(k);
+    }
+    return mockRmSync(...args);
+  },
+};
+
 vi.mock('fs', async () => {
   const actual = await vi.importActual<typeof import('fs')>('fs');
   const overrides = {
     existsSync: mockExistsSync,
-    readFileSync: mockReadFileSync,
-    writeFileSync: mockWriteFileSync,
+    readFileSync: markerAware.readFileSync,
+    writeFileSync: markerAware.writeFileSync,
     mkdirSync: mockMkdirSync,
     readdirSync: mockReaddirSync,
-    rmSync: mockRmSync,
-    statSync: mockStatSync,
-    unlinkSync: mockUnlinkSync,
+    rmSync: markerAware.rmSync,
+    statSync: markerAware.statSync,
+    unlinkSync: markerAware.unlinkSync,
     copyFileSync: mockCopyFileSync,
-    renameSync: mockRenameSync,
+    renameSync: markerAware.renameSync,
     symlinkSync: mockSymlinkSync,
     realpathSync: mockRealpathSync,
     lstatSync: mockLstatSync,
+    utimesSync: markerAware.utimesSync,
   };
   return { ...actual, ...overrides, default: { ...actual, ...overrides } };
 });
@@ -84,6 +153,16 @@ function createMockSettingsService(overrides: Record<string, unknown> = {}) {
   } as unknown as TestsSettingsService;
 }
 
+/** The error `fn` throws (fails the test when it returns). */
+function thrownBy(fn: () => unknown): unknown {
+  try {
+    fn();
+  } catch (err) {
+    return err;
+  }
+  throw new Error('expected a throw');
+}
+
 function createService(settingsOverrides: Record<string, unknown> = {}) {
   return new BuildService(createMockSettingsService(settingsOverrides), TESTS_SOURCE);
 }
@@ -95,6 +174,8 @@ describe('BuildService', () => {
 
   beforeEach(() => {
     vi.clearAllMocks();
+    markerStore.enabled = true;
+    markerStore.files.clear();
     service = createService();
     mockExistsSync.mockReturnValue(false);
     mockExecFileAsync.mockResolvedValue({ stdout: '', stderr: '' });
@@ -2139,6 +2220,8 @@ var data string
     }
 
     beforeEach(() => {
+      // This suite's files model the markers too.
+      markerStore.enabled = false;
       files.clear();
       dirs.clear();
       mtimes.clear();
@@ -2196,8 +2279,26 @@ var data string
         if (opts?.flag === 'wx' && files.has(p)) {
           throw Object.assign(new Error(`EEXIST: ${p}`), { code: 'EEXIST' });
         }
-        mtimes.delete(p);
+        mtimes.set(p, Date.now());
         put(p, data);
+      }) as never);
+      mockRenameSync.mockImplementation(((from: string, to: string) => {
+        const b = files.get(from);
+        if (!b) throw enoent(from);
+        const mtime = mtimes.get(from);
+        files.delete(from);
+        mtimes.delete(from);
+        put(to, b);
+        if (mtime !== undefined) mtimes.set(to, mtime);
+        else mtimes.delete(to);
+      }) as never);
+      mockUtimesSync.mockImplementation(((p: string, _atime: Date, mtime: Date) => {
+        if (!files.has(p)) throw enoent(p);
+        mtimes.set(p, mtime.getTime());
+      }) as never);
+      mockRmSync.mockImplementation(((p: string) => {
+        for (const f of [...files.keys()]) if (f === p || f.startsWith(`${p}/`)) { files.delete(f); mtimes.delete(f); }
+        for (const d of [...dirs]) if (d === p || d.startsWith(`${p}/`)) dirs.delete(d);
       }) as never);
       mockCopyFileSync.mockImplementation(((from: string, to: string) => {
         const b = files.get(from);
@@ -2230,9 +2331,10 @@ var data string
     afterEach(() => {
       // Hand the later suites back the default fs mocks (plain no-ops, and
       // lstat following existsSync).
-      for (const m of [mockWriteFileSync, mockCopyFileSync, mockMkdirSync, mockUnlinkSync]) {
+      for (const m of [mockWriteFileSync, mockCopyFileSync, mockMkdirSync, mockUnlinkSync, mockRenameSync, mockUtimesSync, mockRmSync]) {
         m.mockImplementation(() => undefined);
       }
+      markerStore.enabled = true;
       mockLstatSync.mockImplementation((p: string) => {
         if (!mockExistsSync(p)) throw Object.assign(new Error(`ENOENT: ${p}`), { code: 'ENOENT' });
         return { isSymbolicLink: () => false, isFile: () => true, isDirectory: () => false };
@@ -2411,6 +2513,310 @@ var data string
         expect(svc.getBuildInfo(VALID_UUID)).toEqual(info);
         expect(svc.listBuiltUuids()).toEqual(listed);
         expect(listed).toEqual([VALID_UUID]);
+      });
+
+      // ── Owned markers (H1.1) ──────────────────────────────
+
+      interface MarkerHandle { path: string; token: string }
+      interface MarkerInternals {
+        acquireBuildMarker(uuid: string): MarkerHandle;
+        refreshBuildMarker(handle: MarkerHandle, uuid: string): void;
+        releaseBuildMarker(handle: MarkerHandle, uuid: string): void;
+      }
+      const internals = (svc: InstanceType<typeof BuildService>) => svc as unknown as MarkerInternals;
+      const FOREIGN = JSON.stringify({ pid: 4242, startedAt: '2026-11-23T00:00:00.000Z', token: 'f'.repeat(32) });
+      const markerJson = () => JSON.parse(String(files.get(marker))) as { pid: number; startedAt: string; token: string };
+      /** Files next to the marker a takeover may leave behind (temp file, claim). */
+      const markerLeftovers = () => [...files.keys()].filter(f => f.startsWith(`${marker}.`));
+
+      it('acquire returns the marker path and a random token that is in the file; release removes it', () => {
+        const svc = service();
+        const handle = internals(svc).acquireBuildMarker(VALID_UUID);
+        expect(handle.path).toBe(marker);
+        expect(handle.token).toMatch(/^[0-9a-f]{32}$/);
+        expect(markerJson()).toEqual({ pid: process.pid, startedAt: expect.any(String), token: handle.token });
+        // A second acquire gets a different token (and is refused while the first holds it).
+        expect(thrownBy(() => internals(service()).acquireBuildMarker(VALID_UUID)))
+          .toMatchObject({ statusCode: 409, message: 'Build in progress for this test' });
+        internals(svc).refreshBuildMarker(handle, VALID_UUID);
+        expect(markerJson().token).toBe(handle.token);
+        internals(svc).releaseBuildMarker(handle, VALID_UUID);
+        expect(files.has(marker)).toBe(false);
+        const again = internals(svc).acquireBuildMarker(VALID_UUID);
+        expect(again.token).not.toBe(handle.token);
+        internals(svc).releaseBuildMarker(again, VALID_UUID);
+      });
+
+      it('release leaves a marker that holds another build\'s token in place, with one warning', () => {
+        const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+        try {
+          const svc = service();
+          const handle = internals(svc).acquireBuildMarker(VALID_UUID);
+          put(marker, FOREIGN);
+          internals(svc).releaseBuildMarker(handle, VALID_UUID);
+          expect(String(files.get(marker))).toBe(FOREIGN);
+          expect(warn).toHaveBeenCalledTimes(1);
+          expect(warn.mock.calls[0].map(String).join(' ')).toContain(VALID_UUID);
+        } finally {
+          warn.mockRestore();
+        }
+      });
+
+      it('refresh does not touch a marker that holds another build\'s token', () => {
+        const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+        try {
+          const svc = service();
+          const handle = internals(svc).acquireBuildMarker(VALID_UUID);
+          put(marker, FOREIGN);
+          const old = Date.now() - 100_000;
+          mtimes.set(marker, old);
+          internals(svc).refreshBuildMarker(handle, VALID_UUID);
+          internals(svc).refreshBuildMarker(handle, VALID_UUID);
+          expect(String(files.get(marker))).toBe(FOREIGN);
+          expect(mtimes.get(marker)).toBe(old);
+          expect(mockUtimesSync).not.toHaveBeenCalled();
+          // Logged once, not per step.
+          expect(warn).toHaveBeenCalledTimes(1);
+        } finally {
+          warn.mockRestore();
+        }
+      });
+
+      describe('two instances racing for the same stale marker', () => {
+        const stale = JSON.stringify({ pid: 1, startedAt: '2026-11-23T00:00:00.000Z', token: '0'.repeat(32) });
+        let warn: ReturnType<typeof vi.spyOn>;
+        beforeEach(() => {
+          warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+          put(marker, stale);
+          mtimes.set(marker, Date.now() - STALE_AFTER_MS - 1_000);
+        });
+        afterEach(() => { warn.mockRestore(); });
+
+        async function expectOneRan(first: Promise<BuildInfo>, second: Promise<BuildInfo>): Promise<void> {
+          const [a, b] = await Promise.allSettled([first, second]);
+          const ran = [a, b].filter(r => r.status === 'fulfilled');
+          const refused = [a, b].filter((r): r is PromiseRejectedResult => r.status === 'rejected');
+          expect(ran).toHaveLength(1);
+          expect(refused).toHaveLength(1);
+          expect(refused[0].reason).toMatchObject({ statusCode: 409, message: 'Build in progress for this test' });
+          expect(buildRuns).toBe(1);
+          expect(files.has(marker)).toBe(false);
+          expect(markerLeftovers()).toEqual([]);
+        }
+
+        it('B judged the marker stale, then A took it over before B acted: B is refused', async () => {
+          const a = service();
+          const b = service();
+          // B reads the stale marker; A's whole takeover runs right after that read.
+          let aBuild: Promise<BuildInfo> | null = null;
+          let started = false;
+          const base = mockReadFileSync.getMockImplementation()!;
+          mockReadFileSync.mockImplementation(((p: string, enc?: unknown) => {
+            const result = base(p, enc);
+            if (p === marker && !started) {
+              started = true;
+              aBuild = a.buildAndSign(VALID_UUID);
+            }
+            return result;
+          }) as never);
+
+          const bBuild = b.buildAndSign(VALID_UUID);
+          expect(aBuild).not.toBeNull();
+          await expectOneRan(aBuild!, bBuild);
+        });
+
+        it('B looks at the marker while A is replacing it: B is refused', async () => {
+          const a = service();
+          const b = service();
+          let bBuild: Promise<BuildInfo> | null = null;
+          let started = false;
+          const base = mockRenameSync.getMockImplementation()!;
+          mockRenameSync.mockImplementation(((from: string, to: string) => {
+            if (to === marker && !started) {
+              started = true;
+              bBuild = b.buildAndSign(VALID_UUID);
+            }
+            return base(from, to);
+          }) as never);
+
+          const aBuild = a.buildAndSign(VALID_UUID);
+          expect(bBuild).not.toBeNull();
+          await expectOneRan(aBuild, bBuild!);
+        });
+      });
+
+      it('a build whose marker another build replaced mid-build records no version, warns once and leaves the other marker', async () => {
+        const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+        try {
+          bashAlso(() => { put(marker, FOREIGN); });
+          const svc = service();
+
+          const info = await svc.buildAndSign(VALID_UUID);
+
+          expect(info.exists).toBe(true);
+          expect(info).not.toHaveProperty('version');
+          const meta = JSON.parse(String(files.get(`${BUILDS_DIR}/${VALID_UUID}/build-meta.json`)));
+          expect(meta).not.toHaveProperty('version');
+          expect(String(files.get(marker))).toBe(FOREIGN);
+          expect(warn).toHaveBeenCalledTimes(1);
+          expect(warn.mock.calls[0].map(String).join(' ')).toContain(VALID_UUID);
+        } finally {
+          warn.mockRestore();
+        }
+      });
+
+      it('a refreshed marker keeps a second instance\'s isBuildingAnywhere true past the stale bound', async () => {
+        vi.useFakeTimers({ toFake: ['Date'] });
+        try {
+          vi.setSystemTime(new Date('2026-11-23T10:00:00Z'));
+          const svc = new BuildService(createMockSettingsService({
+            getActiveCertPfxPath: vi.fn().mockReturnValue({ pfxPath: '/certs/active.pfx', password: 'pw' }),
+          }), TESTS_SOURCE, { current: async () => ({ identity, modified: false }) });
+          const other = service();
+          const seen: Array<[string, boolean]> = [];
+          const base = mockExecFileAsync.getMockImplementation()!;
+          // Each step takes 250 s: two steps outlast the 360 s bound from the start.
+          mockExecFileAsync.mockImplementation(async (cmd: string, args: string[], opts?: unknown) => {
+            seen.push([cmd, other.isBuildingAnywhere(VALID_UUID)]);
+            vi.setSystemTime(Date.now() + 250_000);
+            return base(cmd, args, opts);
+          });
+
+          await svc.buildAndSign(VALID_UUID);
+
+          expect(seen.map(s => s[0])).toEqual(['bash', 'osslsigncode']);
+          expect(seen.every(s => s[1])).toBe(true);
+          expect(other.isBuildingAnywhere(VALID_UUID)).toBe(false);
+        } finally {
+          vi.useRealTimers();
+        }
+      });
+    });
+
+    // ── Writes into a test folder hold the marker (H1.2) ─────
+
+    describe('test folder lock (uploads and deletes)', () => {
+      const marker = `${BUILDS_DIR}/${VALID_UUID}/.building`;
+      const buildDir = `${BUILDS_DIR}/${VALID_UUID}`;
+      const FOREIGN = JSON.stringify({ pid: 4242, startedAt: '2026-11-23T00:00:00.000Z', token: 'f'.repeat(32) });
+      const pe = Buffer.concat([Buffer.from([0x4D, 0x5A]), Buffer.alloc(16, 0)]);
+
+      interface Operation {
+        name: string;
+        /** The write the operation makes under the lock. */
+        isWrite: (p: string) => boolean;
+        run: (svc: InstanceType<typeof BuildService>) => unknown;
+        mock: typeof mockWriteFileSync;
+      }
+      const operations: Operation[] = [
+        {
+          name: 'saveUploadedFile',
+          isWrite: p => p === `${testDir}/payload.dat`,
+          run: svc => svc.saveUploadedFile(VALID_UUID, 'payload.dat', Buffer.from('new payload')),
+          mock: mockWriteFileSync,
+        },
+        {
+          name: 'uploadBinary',
+          isWrite: p => p === `${buildDir}/${VALID_UUID}.exe` || p === `${buildDir}/build-meta.json`,
+          run: svc => svc.uploadBinary(VALID_UUID, pe),
+          mock: mockWriteFileSync,
+        },
+        {
+          name: 'deleteBuild',
+          isWrite: p => p === buildDir,
+          run: svc => svc.deleteBuild(VALID_UUID),
+          mock: mockRmSync,
+        },
+      ];
+
+      beforeEach(() => {
+        // An earlier build's output, so deleteBuild has something to remove.
+        put(`${buildDir}/${VALID_UUID}.exe`, 'old binary');
+      });
+
+      /** Run `hook` inside the operation's own write, before it happens. */
+      function duringWrite(op: Operation, hook: (p: string) => void): void {
+        const base = op.mock.getMockImplementation()!;
+        op.mock.mockImplementation(((...args: unknown[]) => {
+          const p = String(args[0]);
+          if (op.isWrite(p)) hook(p);
+          return (base as (...a: unknown[]) => unknown)(...args);
+        }) as never);
+      }
+
+      for (const op of operations) {
+        describe(op.name, () => {
+          it('holds the marker while it writes and releases it after', () => {
+            const svc = service();
+            const other = service();
+            const during: Array<[boolean, boolean]> = [];
+            duringWrite(op, () => { during.push([files.has(marker), other.isBuildingAnywhere(VALID_UUID)]); });
+
+            op.run(svc);
+
+            expect(during.length).toBeGreaterThan(0);
+            expect(during.every(([held, seen]) => held && seen)).toBe(true);
+            expect(files.has(marker)).toBe(false);
+            expect(other.isBuildingAnywhere(VALID_UUID)).toBe(false);
+            expect([...files.keys()].filter(f => f.startsWith(`${marker}.`))).toEqual([]);
+          });
+
+          it('releases the marker when the write throws', () => {
+            const svc = service();
+            duringWrite(op, () => { throw Object.assign(new Error('ENOSPC: no space left on device'), { code: 'ENOSPC' }); });
+
+            expect(() => op.run(svc)).toThrow('ENOSPC');
+            expect(files.has(marker)).toBe(false);
+            expect(service().isBuildingAnywhere(VALID_UUID)).toBe(false);
+          });
+
+          it('is refused with the running-build 409 while another process\'s fresh marker exists, and writes nothing', () => {
+            put(marker, FOREIGN);
+            const svc = service();
+            const writes: string[] = [];
+            duringWrite(op, p => { writes.push(p); });
+
+            expect(thrownBy(() => op.run(svc)))
+              .toMatchObject({ statusCode: 409, message: 'Build in progress for this test' });
+            expect(writes).toEqual([]);
+            expect(String(files.get(marker))).toBe(FOREIGN);
+          });
+
+          it('a build another instance starts while it holds the marker is refused with 409', async () => {
+            const svc = service();
+            const other = service();
+            let build: Promise<BuildInfo> | null = null;
+            let started = false;
+            duringWrite(op, () => {
+              if (started) return;
+              started = true;
+              build = other.buildAndSign(VALID_UUID);
+            });
+
+            op.run(svc);
+
+            expect(build).not.toBeNull();
+            await expect(build).rejects.toMatchObject({ statusCode: 409, message: 'Build in progress for this test' });
+            expect(buildRuns).toBe(0);
+          });
+        });
+      }
+
+      it('with no contention the three operations behave as before', () => {
+        const svc = service();
+        svc.saveUploadedFile(VALID_UUID, 'payload.dat', Buffer.from('new payload'));
+        expect(String(files.get(`${testDir}/payload.dat`))).toBe('new payload');
+        const info = svc.uploadBinary(VALID_UUID, pe);
+        expect(info).toMatchObject({ exists: true, source: 'uploaded', fileSize: pe.length });
+        expect(svc.getBuildInfo(VALID_UUID)).toMatchObject({ exists: true, source: 'uploaded' });
+        svc.deleteBuild(VALID_UUID);
+        expect(dirs.has(buildDir)).toBe(false);
+        expect(svc.getBuildInfo(VALID_UUID)).toEqual({ exists: false });
+        // Deleting a build that is not there stays a no-op.
+        mockRmSync.mockClear();
+        svc.deleteBuild(VALID_UUID);
+        expect(mockRmSync).not.toHaveBeenCalled();
+        expect(files.has(marker)).toBe(false);
       });
     });
 

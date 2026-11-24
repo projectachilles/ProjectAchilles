@@ -70,7 +70,7 @@ vi.mock('../../services/tests/buildService.js', () => ({
 }));
 
 const { createTestsRouter } = await import('../tests.routes.js');
-const { errorHandler } = await import('../../middleware/error.middleware.js');
+const { errorHandler, AppError } = await import('../../middleware/error.middleware.js');
 const { BuildError } = await import('../../services/tests/buildService.js');
 
 function createApp() {
@@ -435,6 +435,55 @@ describe('tests routes', () => {
           expect(res.status).toBe(409);
           expect(res.body.error).toBe('Build in progress for this test');
           expect(mockUploadBinary).not.toHaveBeenCalled();
+        });
+      });
+
+      // The pre-check passed, then a build took the marker before the write
+      // (the service's test folder lock refuses with the same 409).
+      describe('when the service refuses under the test folder lock', () => {
+        const conflict = () => { throw new AppError('Build in progress for this test', 409); };
+        beforeEach(() => {
+          mockIsBuilding.mockReturnValue(false);
+        });
+
+        it('DELETE returns 409 with the running-build message', async () => {
+          mockDeleteBuild.mockImplementationOnce(conflict);
+          const res = await request(createApp()).delete(`/api/tests/builds/${VALID_UUID}`);
+
+          expect(res.status).toBe(409);
+          expect(res.body).toEqual({ success: false, error: 'Build in progress for this test' });
+        });
+
+        it('embed upload returns 409 with the running-build message', async () => {
+          mockSaveUploadedFile.mockImplementationOnce(conflict);
+          const res = await request(createApp())
+            .post(`/api/tests/builds/${VALID_UUID}/upload`)
+            .field('filename', 'payload.exe')
+            .attach('file', Buffer.from([0x4D, 0x5A]), 'payload.exe');
+
+          expect(res.status).toBe(409);
+          expect(res.body).toEqual({ success: false, error: 'Build in progress for this test' });
+        });
+
+        it('binary upload returns 409 with the running-build message', async () => {
+          mockUploadBinary.mockImplementationOnce(conflict);
+          const res = await request(createApp())
+            .post(`/api/tests/builds/${VALID_UUID}/upload-binary`)
+            .attach('file', Buffer.from([0x4D, 0x5A, 0x00]), 'test.exe');
+
+          expect(res.status).toBe(409);
+          expect(res.body).toEqual({ success: false, error: 'Build in progress for this test' });
+        });
+
+        it('other upload errors stay 400', async () => {
+          mockSaveUploadedFile.mockImplementationOnce(() => { throw new Error('Invalid filename'); });
+          const res = await request(createApp())
+            .post(`/api/tests/builds/${VALID_UUID}/upload`)
+            .field('filename', 'payload.exe')
+            .attach('file', Buffer.from([0x4D, 0x5A]), 'payload.exe');
+
+          expect(res.status).toBe(400);
+          expect(res.body.error).toBe('Invalid filename');
         });
       });
 
