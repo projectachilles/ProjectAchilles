@@ -13,17 +13,18 @@ import { describeCommandFailure } from '../shared/commandFailure.js';
 import { buildSubprocessEnv } from './buildEnv.js';
 import { isUsableSourceRoot } from '../browser/repositoryRoot.js';
 import { hashFiles } from '../browser/versionIdentity.js';
+import { sanitizeGitError } from '../browser/gitSyncService.js';
 import type { BuildVersionStamp, TestVersionIdentity } from '../../types/testVersion.js';
 
 const execFileAsync = promisify(execFile);
 
-/** Thrown when a build command fails — carries the stderr output for the user */
 /** Where a build learns which source version it is compiling. */
 export interface BuildVersionSource {
   /** Identity of the test as it is on disk now, plus whether its build inputs differ from HEAD. */
   current(uuid: string): Promise<{ identity: TestVersionIdentity; modified: boolean } | null>;
 }
 
+/** Thrown when a build command fails — carries the stderr output for the user */
 export class BuildError extends Error {
   constructor(message: string) {
     super(message);
@@ -690,9 +691,13 @@ const ARTIFACT_DIR = \`${artifactDir}\`
         const current = await this.versionSource.current(uuid);
         if (current) {
           versionBefore = { ...current, depsHash: this.currentDepsHash(uuid) };
+        } else {
+          console.warn('Build of %s will not record its version: no version available for this test', uuid);
         }
-      } catch {
+      } catch (err) {
         versionBefore = null;
+        console.warn('Build of %s will not record its version: %s', uuid,
+          sanitizeGitError(err instanceof Error ? err.message : String(err), process.env.GITHUB_TOKEN));
       }
     }
 
@@ -734,227 +739,230 @@ const ARTIFACT_DIR = \`${artifactDir}\`
     const buildAllPath = path.join(testDir, 'build_all.sh');
     const hasBuildScript = fs.existsSync(buildAllPath);
 
-    if (hasBuildScript) {
-      // Determine if the test is in a categorized subdirectory (tests_source/<category>/<uuid>/).
-      // Some build_all.sh scripts hardcode TEST_DIR="tests_source/<uuid>" (flat layout) and use
-      // ../../ to navigate back to repo root. For categorized tests (3 levels deep instead of 2),
-      // we patch the script to fix paths before executing from the repo root.
-      const containingSource = this.testSourcePaths.find(sp => testDir.startsWith(sp + path.sep)) || this.testSourcePaths[0];
-      const repoRoot = path.dirname(containingSource);
-      const relFromTestsSource = path.relative(containingSource, testDir);
-      const pathParts = relFromTestsSource.split(path.sep);
-      const isCategorized = pathParts.length === 2; // e.g., "intel-driven/<uuid>"
-
-      let patchedScript: string | null = null;
-      let buildCwd: string;
-      let buildArgs: string[];
-
-      if (isCategorized) {
-        const category = pathParts[0];
-        const scriptContent = fs.readFileSync(buildAllPath, 'utf-8');
-        const needsPatching = scriptContent.includes(`TEST_DIR="tests_source/\${TEST_UUID}"`)
-          || scriptContent.includes(`TEST_DIR="tests_source/$TEST_UUID"`);
-
-        if (needsPatching) {
-          // Patch the script: fix TEST_DIR and adjust relative paths for 3-level depth
-          let patched = scriptContent;
-          // 1. Insert category into TEST_DIR
-          patched = patched.replace(
-            /TEST_DIR="tests_source\//g,
-            `TEST_DIR="tests_source/${category}/`,
-          );
-          // 2. Fix ../../ path references (2-level → 3-level back-navigation)
-          //    Negative lookbehind: don't expand paths that are already ../../../
-          patched = patched.replace(
-            /(?<!\.\.\/)\.\.\/\.\.\//g,
-            '../../../',
-          );
-          // 3. Fix standalone `cd ../..` (no trailing slash) at end of line
-          patched = patched.replace(
-            /cd \.\.\/\.\.$/gm,
-            'cd ../../..',
-          );
-
-          patchedScript = path.join(buildDir, '.build-patched.sh');
-          fs.writeFileSync(patchedScript, patched, { mode: 0o755 });
-          buildCwd = repoRoot;
-          buildArgs = [patchedScript];
-        } else {
-          // Script uses SCRIPT_DIR pattern (self-contained paths) — run from repo root as-is
-          buildCwd = repoRoot;
-          buildArgs = [path.relative(repoRoot, buildAllPath)];
-        }
-      } else {
-        buildCwd = testDir;
-        buildArgs = ['build_all.sh'];
-      }
-
-      // Pass active signing cert to build_all.sh so it can sign inner binaries
-      // (e.g., multi-binary bundles sign validators before embedding). Set it
-      // whenever Windows is a TARGET OS — not only the primary — so a
-      // cross-platform build (primary resolved to Linux) still signs the
-      // Windows orchestrator it emits, rather than shipping it unsigned.
-      let innerPassFile: string | null = null;
-      if (targetOSes.includes('windows')) {
-        const activeCert = this.settingsService.getActiveCertPfxPath();
-        if (activeCert) {
-          env.F0_SIGN_CERT_PATH = activeCert.pfxPath;
-          innerPassFile = path.join(buildDir, '.tmp-inner-pass');
-          fs.writeFileSync(innerPassFile, activeCert.password, { mode: 0o600 });
-          env.F0_SIGN_CERT_PASS_FILE = innerPassFile;
-        }
-      }
-
+    // `go mod tidy` (run by the build below or by a test's build_all.sh) can
+    // rewrite a test's own go.mod and create a go.sum. Keep the originals so
+    // the synced clone is left exactly as found: a dirty tree would read as
+    // modified source on the next build.
+    const goModPath = path.join(testDir, 'go.mod');
+    const goSumPath = path.join(testDir, 'go.sum');
+    const hadGoMod = fs.existsSync(goModPath);
+    let original: { goMod: Buffer; goSum: Buffer | null } | null = null;
+    if (hadGoMod) {
       try {
-        await runBuildCommand('bash', buildArgs, {
-          cwd: buildCwd,
-          env,
-          timeout: BUILD_TIMEOUT,
-        });
-      } finally {
-        // Clean up patched build script
-        if (patchedScript && fs.existsSync(patchedScript)) {
-          try { fs.unlinkSync(patchedScript); } catch { /* ignore */ }
-        }
-        // Clean up inner cert password file
-        if (innerPassFile && fs.existsSync(innerPassFile)) {
-          fs.unlinkSync(innerPassFile);
-        }
+        original = {
+          goMod: fs.readFileSync(goModPath),
+          goSum: fs.existsSync(goSumPath) ? fs.readFileSync(goSumPath) : null,
+        };
+      } catch (err) {
+        console.warn('Could not snapshot go.mod/go.sum for %s; they will not be restored:', uuid, err);
       }
+    }
 
-      // Locate output binary — check repo-root build dir (build_all.sh output location) too
-      const candidates = [
-        path.join(repoRoot, 'build', uuid, filename),
-        path.join(testDir, 'build', uuid, filename),
-        path.join(testDir, filename),
-      ];
-      let found = false;
-      for (const candidate of candidates) {
-        if (fs.existsSync(candidate)) {
-          fs.copyFileSync(candidate, outputPath);
-          found = true;
-          break;
+    try {
+      if (hasBuildScript) {
+        // Determine if the test is in a categorized subdirectory (tests_source/<category>/<uuid>/).
+        // Some build_all.sh scripts hardcode TEST_DIR="tests_source/<uuid>" (flat layout) and use
+        // ../../ to navigate back to repo root. For categorized tests (3 levels deep instead of 2),
+        // we patch the script to fix paths before executing from the repo root.
+        const containingSource = this.testSourcePaths.find(sp => testDir.startsWith(sp + path.sep)) || this.testSourcePaths[0];
+        const repoRoot = path.dirname(containingSource);
+        const relFromTestsSource = path.relative(containingSource, testDir);
+        const pathParts = relFromTestsSource.split(path.sep);
+        const isCategorized = pathParts.length === 2; // e.g., "intel-driven/<uuid>"
+
+        let patchedScript: string | null = null;
+        let buildCwd: string;
+        let buildArgs: string[];
+
+        if (isCategorized) {
+          const category = pathParts[0];
+          const scriptContent = fs.readFileSync(buildAllPath, 'utf-8');
+          const needsPatching = scriptContent.includes(`TEST_DIR="tests_source/\${TEST_UUID}"`)
+            || scriptContent.includes(`TEST_DIR="tests_source/$TEST_UUID"`);
+
+          if (needsPatching) {
+            // Patch the script: fix TEST_DIR and adjust relative paths for 3-level depth
+            let patched = scriptContent;
+            // 1. Insert category into TEST_DIR
+            patched = patched.replace(
+              /TEST_DIR="tests_source\//g,
+              `TEST_DIR="tests_source/${category}/`,
+            );
+            // 2. Fix ../../ path references (2-level → 3-level back-navigation)
+            //    Negative lookbehind: don't expand paths that are already ../../../
+            patched = patched.replace(
+              /(?<!\.\.\/)\.\.\/\.\.\//g,
+              '../../../',
+            );
+            // 3. Fix standalone `cd ../..` (no trailing slash) at end of line
+            patched = patched.replace(
+              /cd \.\.\/\.\.$/gm,
+              'cd ../../..',
+            );
+
+            patchedScript = path.join(buildDir, '.build-patched.sh');
+            fs.writeFileSync(patchedScript, patched, { mode: 0o755 });
+            buildCwd = repoRoot;
+            buildArgs = [patchedScript];
+          } else {
+            // Script uses SCRIPT_DIR pattern (self-contained paths) — run from repo root as-is
+            buildCwd = repoRoot;
+            buildArgs = [path.relative(repoRoot, buildAllPath)];
+          }
+        } else {
+          buildCwd = testDir;
+          buildArgs = ['build_all.sh'];
         }
-      }
-      if (!found) {
-        // Try to find any file in build/<uuid>/ under repo root or testDir
-        for (const base of [repoRoot, testDir]) {
-          const buildSubdir = path.join(base, 'build', uuid);
-          if (fs.existsSync(buildSubdir)) {
-            const files = fs.readdirSync(buildSubdir);
-            if (files.length > 0) {
-              fs.copyFileSync(path.join(buildSubdir, files[0]), outputPath);
-              found = true;
-              break;
+
+        // Pass active signing cert to build_all.sh so it can sign inner binaries
+        // (e.g., multi-binary bundles sign validators before embedding). Set it
+        // whenever Windows is a TARGET OS — not only the primary — so a
+        // cross-platform build (primary resolved to Linux) still signs the
+        // Windows orchestrator it emits, rather than shipping it unsigned.
+        let innerPassFile: string | null = null;
+        if (targetOSes.includes('windows')) {
+          const activeCert = this.settingsService.getActiveCertPfxPath();
+          if (activeCert) {
+            env.F0_SIGN_CERT_PATH = activeCert.pfxPath;
+            innerPassFile = path.join(buildDir, '.tmp-inner-pass');
+            fs.writeFileSync(innerPassFile, activeCert.password, { mode: 0o600 });
+            env.F0_SIGN_CERT_PASS_FILE = innerPassFile;
+          }
+        }
+
+        try {
+          await runBuildCommand('bash', buildArgs, {
+            cwd: buildCwd,
+            env,
+            timeout: BUILD_TIMEOUT,
+          });
+        } finally {
+          // Clean up patched build script
+          if (patchedScript && fs.existsSync(patchedScript)) {
+            try { fs.unlinkSync(patchedScript); } catch { /* ignore */ }
+          }
+          // Clean up inner cert password file
+          if (innerPassFile && fs.existsSync(innerPassFile)) {
+            fs.unlinkSync(innerPassFile);
+          }
+        }
+
+        // Locate output binary — check repo-root build dir (build_all.sh output location) too
+        const candidates = [
+          path.join(repoRoot, 'build', uuid, filename),
+          path.join(testDir, 'build', uuid, filename),
+          path.join(testDir, filename),
+        ];
+        let found = false;
+        for (const candidate of candidates) {
+          if (fs.existsSync(candidate)) {
+            fs.copyFileSync(candidate, outputPath);
+            found = true;
+            break;
+          }
+        }
+        if (!found) {
+          // Try to find any file in build/<uuid>/ under repo root or testDir
+          for (const base of [repoRoot, testDir]) {
+            const buildSubdir = path.join(base, 'build', uuid);
+            if (fs.existsSync(buildSubdir)) {
+              const files = fs.readdirSync(buildSubdir);
+              if (files.length > 0) {
+                fs.copyFileSync(path.join(buildSubdir, files[0]), outputPath);
+                found = true;
+                break;
+              }
             }
           }
         }
-      }
-      if (!found) {
-        throw new Error('build_all.sh completed but output binary not found');
-      }
-
-      // Collect the SIBLING-OS artifacts build_all.sh produced (every target OS
-      // other than the primary) so dispatch can serve each agent its own binary.
-      // Without this, a Windows agent would receive the Linux orchestrator (no
-      // `.exe`) and fail to launch it. The primary OS is recorded at meta-write.
-      for (const siblingOs of targetOSes) {
-        if (siblingOs === platform.os) continue;
-        // basename() strips path separators (path-injection sanitizer CodeQL
-        // recognizes); no-op for the UUID_REGEX-valid uuid / `<uuid>[.exe]`.
-        const safeUuid = path.basename(uuid);
-        const siblingFilename = path.basename(this.osBinaryFilename(uuid, siblingOs));
-        const siblingCandidates = [
-          path.join(repoRoot, 'build', safeUuid, siblingFilename),
-          path.join(testDir, 'build', safeUuid, siblingFilename),
-          path.join(testDir, siblingFilename),
-        ];
-        const sourcePath = siblingCandidates.find(c => fs.existsSync(c));
-        if (!sourcePath) continue; // build_all.sh didn't emit this OS — skip
-        const siblingDest = path.join(buildDir, siblingFilename);
-        fs.copyFileSync(sourcePath, siblingDest);
-        extraBinaries[siblingOs] = {
-          filename: siblingFilename,
-          fileSize: fs.statSync(siblingDest).size,
-          // build_all.sh signs the Windows orchestrator internally (cert passed
-          // above); other OSes are unsigned. `signed` here is informational —
-          // dispatch does not depend on it.
-          signed: siblingOs === 'windows' && Boolean(env.F0_SIGN_CERT_PATH),
-        };
-      }
-    } else {
-      // Standard Go build
-      const goModPath = path.join(testDir, 'go.mod');
-      const goSumPath = path.join(testDir, 'go.sum');
-      const hadGoMod = fs.existsSync(goModPath);
-
-      const goFiles = fs.readdirSync(testDir).filter(f => f.endsWith('.go'));
-      if (goFiles.length === 0) {
-        throw new BuildError('No Go source files found in test directory');
-      }
-
-      // Synthesize LOG_DIR/ARTIFACT_DIR if the test references LOG_DIR but
-      // ships no platform-specific test_logger_<os>.go. See issue #202.
-      const injectedLogDirPath = this.injectLogDirIfMissing(testDir, platform.os);
-
-      // `go mod tidy` can rewrite a test's own go.mod and create a go.sum.
-      // Keep the originals so the synced clone is left exactly as found:
-      // a dirty tree would read as modified source on the next build.
-      let original: { goMod: Buffer; goSum: Buffer | null } | null = null;
-      if (hadGoMod) {
-        try {
-          original = {
-            goMod: fs.readFileSync(goModPath),
-            goSum: fs.existsSync(goSumPath) ? fs.readFileSync(goSumPath) : null,
-          };
-        } catch (err) {
-          console.warn(`Could not snapshot go.mod/go.sum for ${uuid}; they will not be restored:`, err);
+        if (!found) {
+          throw new Error('build_all.sh completed but output binary not found');
         }
-      }
 
-      try {
-        if (!hadGoMod) {
-          // Auto-init a temporary module so "go build ." works in package mode
-          await runBuildCommand('go', ['mod', 'init', 'testbuild'], {
+        // Collect the SIBLING-OS artifacts build_all.sh produced (every target OS
+        // other than the primary) so dispatch can serve each agent its own binary.
+        // Without this, a Windows agent would receive the Linux orchestrator (no
+        // `.exe`) and fail to launch it. The primary OS is recorded at meta-write.
+        for (const siblingOs of targetOSes) {
+          if (siblingOs === platform.os) continue;
+          // basename() strips path separators (path-injection sanitizer CodeQL
+          // recognizes); no-op for the UUID_REGEX-valid uuid / `<uuid>[.exe]`.
+          const safeUuid = path.basename(uuid);
+          const siblingFilename = path.basename(this.osBinaryFilename(uuid, siblingOs));
+          const siblingCandidates = [
+            path.join(repoRoot, 'build', safeUuid, siblingFilename),
+            path.join(testDir, 'build', safeUuid, siblingFilename),
+            path.join(testDir, siblingFilename),
+          ];
+          const sourcePath = siblingCandidates.find(c => fs.existsSync(c));
+          if (!sourcePath) continue; // build_all.sh didn't emit this OS — skip
+          const siblingDest = path.join(buildDir, siblingFilename);
+          fs.copyFileSync(sourcePath, siblingDest);
+          extraBinaries[siblingOs] = {
+            filename: siblingFilename,
+            fileSize: fs.statSync(siblingDest).size,
+            // build_all.sh signs the Windows orchestrator internally (cert passed
+            // above); other OSes are unsigned. `signed` here is informational —
+            // dispatch does not depend on it.
+            signed: siblingOs === 'windows' && Boolean(env.F0_SIGN_CERT_PATH),
+          };
+        }
+      } else {
+        // Standard Go build
+        const goFiles = fs.readdirSync(testDir).filter(f => f.endsWith('.go'));
+        if (goFiles.length === 0) {
+          throw new BuildError('No Go source files found in test directory');
+        }
+
+        // Synthesize LOG_DIR/ARTIFACT_DIR if the test references LOG_DIR but
+        // ships no platform-specific test_logger_<os>.go. See issue #202.
+        const injectedLogDirPath = this.injectLogDirIfMissing(testDir, platform.os);
+
+        try {
+          if (!hadGoMod) {
+            // Auto-init a temporary module so "go build ." works in package mode
+            await runBuildCommand('go', ['mod', 'init', 'testbuild'], {
+              cwd: testDir,
+              env,
+              timeout: BUILD_TIMEOUT,
+            });
+          }
+
+          await runBuildCommand('go', ['mod', 'tidy'], { cwd: testDir, env, timeout: BUILD_TIMEOUT });
+          await runBuildCommand('go', ['mod', 'download'], { cwd: testDir, env, timeout: BUILD_TIMEOUT });
+
+          // Use package mode ("go build .") for proper GOOS/GOARCH constraint evaluation.
+          // File-list mode ("go build a.go b.go") doesn't resolve cross-platform build tags
+          // on transitive dependencies, causing failures for windows-only imports on Linux.
+          await runBuildCommand('go', ['build', '-o', outputPath, '.'], {
             cwd: testDir,
             env,
             timeout: BUILD_TIMEOUT,
           });
-        }
-
-        await runBuildCommand('go', ['mod', 'tidy'], { cwd: testDir, env, timeout: BUILD_TIMEOUT });
-        await runBuildCommand('go', ['mod', 'download'], { cwd: testDir, env, timeout: BUILD_TIMEOUT });
-
-        // Use package mode ("go build .") for proper GOOS/GOARCH constraint evaluation.
-        // File-list mode ("go build a.go b.go") doesn't resolve cross-platform build tags
-        // on transitive dependencies, causing failures for windows-only imports on Linux.
-        await runBuildCommand('go', ['build', '-o', outputPath, '.'], {
-          cwd: testDir,
-          env,
-          timeout: BUILD_TIMEOUT,
-        });
-      } finally {
-        // Clean up auto-generated module files to avoid dirtying the test source tree
-        if (!hadGoMod) {
-          if (fs.existsSync(goModPath)) fs.unlinkSync(goModPath);
-          if (fs.existsSync(goSumPath)) fs.unlinkSync(goSumPath);
-        }
-        // Restore a test's own go.mod / go.sum after the compile (the compile
-        // already used the tidied files). A failure here is logged, never
-        // allowed to fail or mask the build result.
-        if (original) {
-          try {
-            fs.writeFileSync(goModPath, original.goMod);
-            if (original.goSum) fs.writeFileSync(goSumPath, original.goSum);
-            else if (fs.existsSync(goSumPath)) fs.unlinkSync(goSumPath);
-          } catch (err) {
-            console.warn(`Could not restore go.mod/go.sum for ${uuid}:`, err);
+        } finally {
+          // Clean up auto-generated module files to avoid dirtying the test source tree
+          if (!hadGoMod) {
+            if (fs.existsSync(goModPath)) fs.unlinkSync(goModPath);
+            if (fs.existsSync(goSumPath)) fs.unlinkSync(goSumPath);
+          }
+          // Clean up the synthesized LOG_DIR file. Cleanup runs even if the
+          // build above throws, so the source tree never holds the auto-file.
+          if (injectedLogDirPath && fs.existsSync(injectedLogDirPath)) {
+            fs.unlinkSync(injectedLogDirPath);
           }
         }
-        // Clean up the synthesized LOG_DIR file. Cleanup runs even if the
-        // build above throws, so the source tree never holds the auto-file.
-        if (injectedLogDirPath && fs.existsSync(injectedLogDirPath)) {
-          fs.unlinkSync(injectedLogDirPath);
+      }
+    } finally {
+      // Restore a test's own go.mod / go.sum after either build path (the
+      // compile already used the tidied files). A failure here is logged,
+      // never allowed to fail or mask the build result.
+      if (original) {
+        try {
+          fs.writeFileSync(goModPath, original.goMod);
+          if (original.goSum) fs.writeFileSync(goSumPath, original.goSum);
+          else if (fs.existsSync(goSumPath)) fs.unlinkSync(goSumPath);
+        } catch (err) {
+          console.warn('Could not restore go.mod/go.sum for %s:', uuid, err);
         }
       }
     }
@@ -1011,7 +1019,7 @@ const ARTIFACT_DIR = \`${artifactDir}\`
       [platform.os]: { filename, fileSize: stats.size, signed },
     };
     const version = versionBefore
-      ? this.stampVersion(versionBefore, buildDir, binaries)
+      ? this.stampVersion(uuid, versionBefore, buildDir, binaries)
       : undefined;
     const meta: BuildMetadata = {
       platform: { os: platform.os, arch: platform.arch },
@@ -1043,6 +1051,7 @@ const ARTIFACT_DIR = \`${artifactDir}\`
    * an artifact can't be read: no stamp is better than a wrong one.
    */
   private stampVersion(
+    uuid: string,
     before: { identity: TestVersionIdentity; modified: boolean; depsHash: string | null },
     buildDir: string,
     artifacts: NonNullable<BuildMetadata['binaries']>,
@@ -1055,7 +1064,9 @@ const ARTIFACT_DIR = \`${artifactDir}\`
         binaries[artifact.filename] = crypto.createHash('sha256').update(bytes).digest('hex');
       }
       return { ...before.identity, deps_hash: before.depsHash, modified: before.modified, binaries };
-    } catch {
+    } catch (err) {
+      console.warn('Build of %s will not record its version: could not hash its artifacts: %s',
+        uuid, err instanceof Error ? err.message : String(err));
       return null;
     }
   }

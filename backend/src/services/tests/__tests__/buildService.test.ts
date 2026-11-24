@@ -1869,15 +1869,61 @@ var data string
     });
 
     it.each([
-      ['throws', async () => { throw new Error('git unavailable'); }],
-      ['returns null', async () => null],
-    ])('versionSource.current %s: the build still succeeds with no version', async (_label, current) => {
+      ['throws', async () => { throw new Error('git unavailable'); }, 'git unavailable'],
+      ['returns null', async () => null, 'no version'],
+    ])('versionSource.current %s: the build still succeeds with no version, and says why', async (_label, current, why) => {
+      const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
       const svc = stampedService(current);
 
       const info = await svc.buildAndSign(VALID_UUID);
 
       expect(info.exists).toBe(true);
       expect(writtenMeta()).not.toHaveProperty('version');
+      expect(warn).toHaveBeenCalledTimes(1);
+      const logged = warn.mock.calls[0].map(String).join(' ');
+      expect(logged).toContain(VALID_UUID);
+      expect(logged).toContain(why);
+      warn.mockRestore();
+    });
+
+    it('a git error from versionSource.current is logged without the credential', async () => {
+      const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+      const saved = process.env.GITHUB_TOKEN;
+      process.env.GITHUB_TOKEN = 'tok-placeholder-123';
+      try {
+        const svc = stampedService(async () => {
+          throw new Error('fatal: unable to access https://x-access-token:tok-placeholder-123@example.invalid/lib.git');
+        });
+        await svc.buildAndSign(VALID_UUID);
+        const logged = warn.mock.calls[0].map(String).join(' ');
+        expect(logged).toContain('unable to access');
+        expect(logged).not.toContain('tok-placeholder-123');
+      } finally {
+        if (saved === undefined) delete process.env.GITHUB_TOKEN;
+        else process.env.GITHUB_TOKEN = saved;
+        warn.mockRestore();
+      }
+    });
+
+    it('an artifact that cannot be hashed leaves no stamp, and says why', async () => {
+      const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+      mockReadFileSync.mockImplementation((p: string) => {
+        if (p === binaryPath) throw new Error('EACCES: permission denied');
+        if (p === `${testDir}/main.go`) return '//go:embed dep.dat\nvar dep []byte\n';
+        if (p === `${testDir}/dep.dat`) return depBytes;
+        throw new Error(`unexpected read ${p}`);
+      });
+      const svc = stampedService(async () => ({ identity, modified: false }));
+
+      const info = await svc.buildAndSign(VALID_UUID);
+
+      expect(info.exists).toBe(true);
+      expect(writtenMeta()).not.toHaveProperty('version');
+      expect(warn).toHaveBeenCalledTimes(1);
+      const logged = warn.mock.calls[0].map(String).join(' ');
+      expect(logged).toContain(VALID_UUID);
+      expect(logged).toContain('EACCES');
+      warn.mockRestore();
     });
 
     it('no versionSource passed: build works, no version', async () => {
@@ -1993,6 +2039,86 @@ var data string
       expect(info.exists).toBe(true);
       expect(warn).toHaveBeenCalled();
       warn.mockRestore();
+    });
+
+    describe('with a build_all.sh that runs go mod tidy', () => {
+      const script = `${testDir}/build_all.sh`;
+      const output = `/build/${VALID_UUID}/${VALID_UUID}.exe`;
+
+      beforeEach(() => {
+        files.set(script, Buffer.from('SCRIPT_DIR="$(dirname "${BASH_SOURCE[0]}")"\ngo mod tidy\n'));
+        files.set(output, Buffer.from('MZ built'));
+        mockExecFileAsync.mockImplementation(async (cmd: string) => {
+          if (cmd === 'bash') {
+            files.set(goMod, Buffer.from('module tidied\n'));
+            files.set(goSum, Buffer.from('tidy sum\n'));
+          }
+          return { stdout: '', stderr: '' };
+        });
+      });
+
+      it('restores go.mod to its original content and removes a go.sum the script created', async () => {
+        await service.buildAndSign(VALID_UUID);
+
+        expect(mockExecFileAsync.mock.calls.some(c => c[0] === 'bash')).toBe(true);
+        expect(files.get(goMod)).toEqual(originalMod);
+        expect(files.has(goSum)).toBe(false);
+      });
+
+      it('restores a go.sum that existed before the build', async () => {
+        files.set(goSum, originalSum);
+
+        await service.buildAndSign(VALID_UUID);
+
+        expect(files.get(goSum)).toEqual(originalSum);
+        expect(files.get(goMod)).toEqual(originalMod);
+      });
+
+      it('restores them when the script fails', async () => {
+        mockExecFileAsync.mockImplementation(async (cmd: string) => {
+          if (cmd === 'bash') {
+            files.set(goMod, Buffer.from('module tidied\n'));
+            files.set(goSum, Buffer.from('tidy sum\n'));
+            throw Object.assign(new Error('exit 1'), { stderr: 'build failed' });
+          }
+          return { stdout: '', stderr: '' };
+        });
+
+        await expect(service.buildAndSign(VALID_UUID)).rejects.toThrow();
+
+        expect(files.get(goMod)).toEqual(originalMod);
+        expect(files.has(goSum)).toBe(false);
+      });
+
+      it('a restore failure is logged and does not fail the build', async () => {
+        const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+        mockWriteFileSync.mockImplementation((p: string, data: Buffer | string) => {
+          if (p === goMod) throw new Error('disk full');
+          files.set(p, Buffer.from(data));
+        });
+
+        const info = await service.buildAndSign(VALID_UUID);
+
+        expect(info.exists).toBe(true);
+        expect(warn).toHaveBeenCalled();
+        warn.mockRestore();
+      });
+
+      it('a script failure is reported, not masked by a restore failure', async () => {
+        const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+        mockWriteFileSync.mockImplementation((p: string, data: Buffer | string) => {
+          if (p === goMod) throw new Error('disk full');
+          files.set(p, Buffer.from(data));
+        });
+        mockExecFileAsync.mockImplementation(async (cmd: string) => {
+          if (cmd === 'bash') throw Object.assign(new Error('exit 1'), { stderr: 'script broke' });
+          return { stdout: '', stderr: '' };
+        });
+
+        await expect(service.buildAndSign(VALID_UUID)).rejects.toThrow(/script broke/);
+        expect(warn).toHaveBeenCalled();
+        warn.mockRestore();
+      });
     });
   });
 });
