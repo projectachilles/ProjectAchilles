@@ -986,6 +986,7 @@ describe('ExecutionsDataTable — CrowdStrike prevention (vendor-confirmed)', ()
       crowdstrike_detected: true,
       crowdstrike_prevented: true,
       crowdstrike_prevention_action: 'process_killed',
+      error_code: 999,
     });
     renderTable(
       makeData([stage], { defenderDetected: false, crowdstrikeDetected: true, crowdstrikePrevented: true }),
@@ -1109,6 +1110,7 @@ describe('ExecutionsDataTable — Defender prevention (vendor-confirmed)', () =>
       defender_detected: true,
       defender_prevented: true,
       defender_prevention_action: 'process_killed',
+      error_code: 999,
     });
     renderTable(
       makeData([stage], { defenderDetected: true, defenderPrevented: true }),

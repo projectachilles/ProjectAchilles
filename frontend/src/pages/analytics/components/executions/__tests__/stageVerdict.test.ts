@@ -126,7 +126,7 @@ describe('stageVerdict', () => {
     expect(stageVerdict(mk({ crowdstrike_stage_detected: true }), [])).toEqual({
       kind: 'detected',
       title: 'Ran to completion. An EDR alerted but did not stop it.',
-      body: "CrowdStrike raised an alert naming this stage's binary; nothing was blocked.",
+      body: "CrowdStrike raised an alert naming this stage's binary; it did not stop the stage.",
     });
   });
 

@@ -119,17 +119,17 @@ export function alertStageText(tests: ReportTest[], run: ReportRun, token: strin
 
 /**
  * The alert's action as the report prints it, or null: "<action>", or
- * "<action> after the run" when it came after the run on a stage that exited
- * 101 (cleanup, so the stage reads Detected; same gate as the verdict).
+ * "<action>, stage still completed" when the stage it is attributed to exited
+ * 101 (it ran to completion, so the action did not stop it and the stage reads
+ * Detected; same rule as the verdict). A standalone test uses its one result.
  */
 export function alertActionText(tests: ReportTest[], run: ReportRun, alert: ReportAlert): string | null {
   if (!alert.preventionAction) return null;
   const action = alert.preventionAction.replace(/_/g, ' ');
-  if (!alert.actedAfterRun) return action;
   const test = testOf(tests, run);
   const named = stageForAlert(run, alert.stageControlId);
   const stage = test && !test.isBundle ? run.stages[0] : run.stages.find((s) => s === named);
-  return stage?.exitCode === 101 ? `${action} after the run` : action;
+  return stage?.exitCode === 101 ? `${action}, stage still completed` : action;
 }
 
 /** The note for a run the EDR killed the agent in (same copy as the console's run detail); null otherwise. */

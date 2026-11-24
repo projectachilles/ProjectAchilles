@@ -164,19 +164,19 @@ describe('alertActionText', () => {
     expect(alertActionText(tests, run, { ...lsass, preventionAction: null })).toBeNull();
   });
 
-  it('says "after the run" for a late action on a stage that exited 101 (same gate as the verdict)', () => {
-    const late = { ...lsass, stageControlId: 't1021.002', preventionAction: 'process_killed', actedAfterRun: true };
-    expect(alertActionText(tests, run, late)).toBe('process killed after the run');
+  it('says "stage still completed" for an action on a stage that exited 101 (same rule as the verdict)', () => {
+    const onCompleted = { ...lsass, stageControlId: 't1021.002', preventionAction: 'process_killed' };
+    expect(alertActionText(tests, run, onCompleted)).toBe('process killed, stage still completed');
   });
 
-  it('a late action on a stage that did not exit 101 (or a bundle-level alert) prints as is', () => {
-    expect(alertActionText(tests, run, { ...lsass, actedAfterRun: true })).toBe('blocked'); // T1003.001 exited 126
-    expect(alertActionText(tests, run, { ...lsass, stageControlId: null, actedAfterRun: true })).toBe('blocked');
+  it('an action on a stage that did not exit 101 (or a bundle-level alert) prints as is', () => {
+    expect(alertActionText(tests, run, lsass)).toBe('blocked'); // T1003.001 exited 126
+    expect(alertActionText(tests, run, { ...lsass, stageControlId: null })).toBe('blocked');
   });
 
   it('a standalone test uses its one result', () => {
     const solo = makeRun({ stages: [{ ...run.stages[0], controlId: null }] });
-    expect(alertActionText([makeTest({ isBundle: false })], solo, { ...lsass, stageControlId: null, actedAfterRun: true })).toBe('blocked after the run');
+    expect(alertActionText([makeTest({ isBundle: false })], solo, { ...lsass, stageControlId: null })).toBe('blocked, stage still completed');
   });
 });
 

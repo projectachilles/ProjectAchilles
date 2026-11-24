@@ -125,7 +125,7 @@ describe('RunDetailPanel — attack-chain stage view (non-cyber-hygiene bundles)
     const body = screen.getByRole('region', { name: 'Stage 1 details' });
     expect(within(body).getByText('Ran to completion. An EDR alerted but did not stop it.')).toBeInTheDocument();
     expect(
-      within(body).getByText("Defender raised an alert naming this stage's binary; nothing was blocked."),
+      within(body).getByText("Defender raised an alert naming this stage's binary; it did not stop the stage."),
     ).toBeInTheDocument();
     expect(within(body).getByText('Unprotected (101)')).toBeInTheDocument();
     const link = within(body).getByRole('link', { name: /T1059\.001.*PowerShell/ });

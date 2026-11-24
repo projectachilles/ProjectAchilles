@@ -220,11 +220,7 @@ describe('projectAlertHit stage action and timing', () => {
     expect(projectAlertHit(old, UUID).prevention_action).toBe('process_killed');
   });
 
-  it('flags an action that can\'t have happened by the end of the run (7 minutes later)', () => {
-    expect(projectAlertHit(lumma(), UUID, { resultTime: '2026-11-04T12:48:32Z' }).acted_after_run).toBe(true);
-    expect(projectAlertHit(lumma({ last_activity_at: '2026-11-04T12:49:00Z' }), UUID, { resultTime: '2026-11-04T12:48:32Z' }).acted_after_run).toBeUndefined();
-    // No run time, or no action: no flag.
-    expect(projectAlertHit(lumma(), UUID).acted_after_run).toBeUndefined();
-    expect(projectAlertHit({ alert_id: 'b', created_at: '2026-11-04T13:30:00Z' }, UUID, { resultTime: '2026-11-04T12:48:32Z' }).acted_after_run).toBeUndefined();
+  it('carries no time-based flag: the exit code decides whether an action stopped the stage', () => {
+    expect(projectAlertHit(lumma(), UUID)).not.toHaveProperty('acted_after_run');
   });
 });

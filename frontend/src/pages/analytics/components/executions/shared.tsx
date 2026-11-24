@@ -269,15 +269,15 @@ export function classifyExecution(exec: EnrichedTestExecution): ExecutionOutcome
 }
 
 /**
- * Result label for a single execution. Precedence: Protected (EDR blocked) >
- * Prevented (vendor-confirmed prevention from either EDR — CrowdStrike
- * pattern_disposition or Defender remediationStatus: quarantine / process
- * killed / blocked) > Detected (an enrichment pass correlated this doc to an
- * alert — the cloud SIEM caught what the endpoint missed) > Unprotected.
- * Stage-specific flags are preferred; the bundle-level flags are the fallback
- * for docs predating stage-specific enrichment (over-detects, but strictly
- * safer than silently showing Unprotected). 'kill_failed' never counts as
- * Prevented.
+ * Result label for a single execution (classifyExecution). The exit code
+ * decides first: a protected code (105 / 126 / 127) is Protected. A result
+ * that exited 101 ran to completion, so it is never Prevented: it is Detected
+ * when an EDR alert names it (stage-specific flag, falling back to the
+ * bundle-level flag for docs predating stage-specific enrichment; over-detects,
+ * but strictly safer than silently showing Unprotected), else Unprotected.
+ * Prevented is reached only by an error-coded stage (999 and the like) whose
+ * own flag carries a vendor-confirmed action (quarantine / process killed /
+ * blocked); 'kill_failed' never counts as Prevented.
  */
 export function ExecResultLabel({ exec, compact }: { exec: EnrichedTestExecution; compact?: boolean }) {
   const iconClass = compact ? 'w-3.5 h-3.5' : 'w-4 h-4';
