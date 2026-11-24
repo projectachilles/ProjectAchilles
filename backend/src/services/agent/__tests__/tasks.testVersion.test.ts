@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach, vi } from 'vitest';
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import crypto from 'crypto';
 import Database from 'better-sqlite3';
 import { createTestDatabase, insertTestAgent } from '../../../__tests__/helpers/db.js';
@@ -32,17 +32,46 @@ vi.mock('os', async () => {
   return { ...actual, ...overrides, default: { ...actual, ...overrides } };
 });
 
+// Null unless a test sets it: a test that needs Azure gets env_vars on its task.
+let azureCredentials: Record<string, string> | null = null;
 vi.mock('../../integrations/settings.js', () => ({
   IntegrationsSettingsService: class {
-    getAzureCredentials() { return null; }
+    getAzureCredentials() { return azureCredentials; }
   },
+}));
+
+// Elasticsearch for the task -> result -> document flow (results.service).
+const { mockEsIndex, mockPutMapping } = vi.hoisted(() => ({
+  mockEsIndex: vi.fn(),
+  mockPutMapping: vi.fn(),
+}));
+vi.mock('../../analytics/settings.js', () => ({
+  SettingsService: class {
+    getSettings() {
+      return {
+        connectionType: 'direct', node: 'http://localhost:9200', apiKey: 'k',
+        indexPattern: 'f0rtika-results', writeIndexPrefix: 'f0rtika-results',
+        writeIndexRollover: 'none', configured: true,
+      };
+    }
+    isConfigured() { return true; }
+  },
+}));
+vi.mock('../../analytics/client.js', () => ({
+  createEsClient: () => ({ index: mockEsIndex, bulk: vi.fn(), indices: { putMapping: mockPutMapping } }),
+}));
+vi.mock('../../analytics/index-management.service.js', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('../../analytics/index-management.service.js')>()),
+  createResultsIndex: async () => ({ created: true, message: 'ok' }),
 }));
 
 const {
   createTasks, createCommandTasks, createUninstallTasks, createUpdateTasks,
   retryTask, expireStaleTasks, expireOverdueTasks,
+  getNextTask, updateTaskStatus, submitResult, getPendingIngestionTasks,
 } = await import('../tasks.service.js');
 const { taskTestVersion } = await import('../testArtifacts.js');
+const { ingestResult, resetClient } = await import('../results.service.js');
 
 const sha = (s: string) => crypto.createHash('sha256').update(s).digest('hex');
 const WIN = 'win-binary';
@@ -182,6 +211,22 @@ describe('createTasks test_version', () => {
     expect('commit' in tv).toBe(false);
   });
 
+  it('a meta whose stamp a running build voided: built_at of that build, no fingerprint, no commit (final review C6)', () => {
+    // What voidPreviousStamp leaves while a build replaces the artifact: the
+    // full meta of the previous build without `version`, re-dated to now.
+    const voidedAt = '2026-11-23T09:15:00.000Z';
+    setMeta({
+      ...baseMeta, builtAt: voidedAt, source: 'built', signed: true, fileSize: 1024,
+      filename: 'u.exe', platform: { os: 'windows', arch: 'amd64' },
+    });
+    const [id] = createTasks(req(['agent-win']), 'org-001', 'user');
+    const tv = payloadOf(id).test_version;
+    expect(tv).toEqual({ built_at: voidedAt, build_source: 'built' });
+    expect('fingerprint' in tv).toBe(false);
+    expect('commit' in tv).toBe(false);
+    expect('commit_date' in tv).toBe(false);
+  });
+
   it('no builtAt in the meta: no test_version at all', () => {
     setMeta({ filename: 'u.exe', version: stamp() });
     const [id] = createTasks(req(['agent-win']), 'org-001', 'user');
@@ -244,5 +289,67 @@ describe('createTasks test_version', () => {
     ];
     expect(ids).toHaveLength(3);
     for (const id of ids) expect('test_version' in payloadOf(id)).toBe(false);
+  });
+});
+
+describe('test_version from task creation to the result document (final review C6)', () => {
+  beforeEach(() => {
+    testDb = createTestDatabase();
+    insertTestAgent(testDb, { id: 'agent-win', os: 'windows' });
+    resetClient();
+    mockEsIndex.mockReset().mockResolvedValue({ result: 'created' });
+    mockPutMapping.mockReset().mockResolvedValue({ acknowledged: true });
+    // A test that needs Azure: its task carries env_vars, which getNextTask
+    // strips from the stored payload by rewriting it.
+    azureCredentials = { authMethod: 'secret', tenant_id: 't', client_id: 'c', client_secret: 's' };
+    setMeta({ ...baseMeta, version: stamp() });
+  });
+  afterEach(() => { azureCredentials = null; });
+
+  const azureReq = () => ({
+    ...req(['agent-win']),
+    metadata: { integrations: ['azure'] } as never,
+  });
+  const result = (taskId: string) => ({
+    task_id: taskId, test_uuid: 'u', exit_code: 126, stdout: '', stderr: '',
+    started_at: '2026-11-23T10:00:00Z', completed_at: '2026-11-23T10:01:00Z',
+    execution_duration_ms: 60000, binary_sha256: WIN_SHA, hostname: 'ws-01', os: 'windows', arch: 'amd64',
+  });
+
+  it('the agent gets the stamp, the env_vars strip keeps it, and the indexed document carries it', async () => {
+    const [id] = createTasks(azureReq(), 'org-001', 'user');
+    const created = payloadOf(id).test_version;
+    expect(created.fingerprint).toBe(FP);
+    expect(payloadOf(id).env_vars).toBeDefined();
+
+    // The agent's poll: it receives env_vars once, and the stored payload is rewritten without them.
+    const handed = getNextTask('agent-win')!;
+    expect(handed.id).toBe(id);
+    expect(handed.payload.env_vars).toBeDefined();
+    expect(handed.payload.test_version).toEqual(created);
+    expect('env_vars' in payloadOf(id)).toBe(false);
+    expect(payloadOf(id).test_version).toEqual(created);
+
+    updateTaskStatus(id, 'agent-win', 'executing');
+    const completed = submitResult(id, 'agent-win', result(id) as never);
+
+    // The route's fast path ingests the task submitResult returns.
+    await ingestResult(completed, result(id) as never);
+    expect(mockEsIndex).toHaveBeenCalledTimes(1);
+    expect(mockEsIndex.mock.calls[0][0].id).toBe(id);
+    expect(mockEsIndex.mock.calls[0][0].document.f0rtika.test_version).toEqual(created);
+  });
+
+  it('the retry worker ingests the same version from the stored row', async () => {
+    const [id] = createTasks(azureReq(), 'org-001', 'user');
+    const created = payloadOf(id).test_version;
+    getNextTask('agent-win');
+    updateTaskStatus(id, 'agent-win', 'executing');
+    submitResult(id, 'agent-win', result(id) as never);
+
+    const [pending] = getPendingIngestionTasks();
+    expect(pending.id).toBe(id);
+    await ingestResult(pending, pending.result as never);
+    expect(mockEsIndex.mock.calls[0][0].document.f0rtika.test_version).toEqual(created);
   });
 });
