@@ -146,6 +146,40 @@ describe('GET /api/browser/tests/versions', () => {
     });
   });
 
+  describe('a build that matches the synced and published versions', () => {
+    const DEPS = 'd'.repeat(64);
+    function matchingBuild() {
+      const builds = makeBuild();
+      builds.getBuildInfo.mockImplementation(((uuid: string) => (uuid === U_REBUILD
+        ? { exists: true, source: 'built', builtAt: '2026-11-11T00:00:00Z', signed: true, version: stamp('same', { deps_hash: DEPS }) }
+        : { exists: false })) as never);
+      builds.currentDepsHash.mockImplementation((() => DEPS) as never);
+      return builds;
+    }
+
+    it('is up_to_date when fingerprint, deps hash, synced and published all match', async () => {
+      const res = await request(makeApp({ buildService: matchingBuild() as never })).get('/api/browser/tests/versions');
+      expect(res.body.data.tests[U_REBUILD]).toEqual({
+        status: 'up_to_date', custom: false,
+        published: { commit: 'commit-same', commitDate: '2026-01-01T00:00:00Z', fingerprint: 'same' },
+        synced: { commit: 'commit-same', commitDate: '2026-01-01T00:00:00Z', fingerprint: 'same' },
+        built: { commit: 'commit-same', commitDate: '2026-01-01T00:00:00Z', fingerprint: 'same', builtAt: '2026-11-11T00:00:00Z', signed: true },
+      });
+    });
+
+    it('is not_checked with no published side when no check has succeeded yet', async () => {
+      const svc = makeService({ published: vi.fn(() => published({ checkedAt: null })) });
+      const res = await request(makeApp({ testVersions: svc as never, buildService: matchingBuild() as never }))
+        .get('/api/browser/tests/versions');
+      const row = res.body.data.tests[U_REBUILD];
+      expect(row.status).toBe('not_checked');
+      expect(row.published).toBeNull();
+      expect(res.body.data.library.updatesAvailable).toBe(0);
+      expect(Object.values(res.body.data.tests).map(r => (r as { status: string }).status))
+        .not.toContain('up_to_date');
+    });
+  });
+
   it('counters equal the rows in each status', async () => {
     const res = await request(makeApp()).get('/api/browser/tests/versions');
     const rows = Object.values(res.body.data.tests) as Array<{ status: string; updateNote?: boolean }>;
@@ -161,12 +195,44 @@ describe('GET /api/browser/tests/versions', () => {
     expect(svc.check).not.toHaveBeenCalled();
   });
 
-  it('answers with checkError and no 500 when the synced versions cannot be read', async () => {
-    const svc = makeService({ synced: vi.fn(async () => { throw new Error('bad object'); }) });
-    const res = await request(makeApp({ testVersions: svc as never })).get('/api/browser/tests/versions');
-    expect(res.status).toBe(200);
-    expect(res.body.data.library.checkError).toBe('bad object');
-    expect(Object.keys(res.body.data.tests)).toHaveLength(4);
+  it('answers with checkError and no 500 when the synced versions cannot be read; git text only goes to the log', async () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    const svc = makeService({ synced: vi.fn(async () => { throw new Error('fatal: bad object at /srv/clone'); }) });
+    try {
+      const res = await request(makeApp({ testVersions: svc as never })).get('/api/browser/tests/versions');
+      expect(res.status).toBe(200);
+      expect(res.body.data.library.checkError).toBe('The test library could not be read');
+      expect(JSON.stringify(res.body)).not.toContain('/srv/clone');
+      expect(Object.keys(res.body.data.tests)).toHaveLength(4);
+      expect(warn.mock.calls[0].join(' ')).toContain('bad object');
+    } finally {
+      warn.mockRestore();
+    }
+  });
+
+  it('a test whose row cannot be computed is unknown_build; the other rows are unaffected', async () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    const builds = makeBuild();
+    builds.currentDepsHash.mockImplementation(((uuid: string) => {
+      if (uuid === U_REBUILD) throw new Error(`EISDIR: illegal operation on a directory, read`);
+      return null;
+    }) as () => null);
+    try {
+      const res = await request(makeApp({ buildService: builds as never })).get('/api/browser/tests/versions');
+      expect(res.status).toBe(200);
+      const rows = res.body.data.tests;
+      expect(rows[U_REBUILD]).toEqual({
+        status: 'unknown_build', custom: false, published: null, synced: null, built: null,
+      });
+      expect(rows[U_UPDATE].status).toBe('update_available');
+      expect(rows[U_NEWNOTE]).toMatchObject({ status: 'not_built', updateNote: true });
+      expect(rows[U_CUSTOM]).toMatchObject({ custom: true, status: 'not_built' });
+      expect(res.body.data.library.rebuildsNeeded).toBe(0);
+      expect(warn).toHaveBeenCalledTimes(1);
+      expect(warn.mock.calls[0].join(' ')).toContain(U_REBUILD);
+    } finally {
+      warn.mockRestore();
+    }
   });
 
   it('with git sync off: gitEnabled false, no published side', async () => {

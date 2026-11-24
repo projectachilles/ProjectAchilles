@@ -187,7 +187,10 @@ export function createBrowserRouter(options: {
       synced = await versions.synced();
     } catch (err) {
       // A git problem must not turn into a 500: answer with what can be built.
-      syncError = sanitizeGitError(err instanceof Error ? err.message : String(err), process.env.GITHUB_TOKEN);
+      // The detail (paths, repository URL) goes to the log, not to readers.
+      console.warn('Could not read the synced test versions: %s',
+        sanitizeGitError(err instanceof Error ? err.message : String(err), process.env.GITHUB_TOKEN));
+      syncError = 'The test library could not be read';
     }
     const commit = await versions.syncedCommit().catch(() => null);
     const publishedKnown = published.checkedAt !== null;
@@ -198,37 +201,45 @@ export function createBrowserRouter(options: {
     for (const t of testIndexer?.getAllTests() ?? []) {
       const sync = synced.get(t.uuid);
       const custom = (t.source ?? sync?.provenance) === 'custom';
-      const hasGit = versions.gitEnabled && !custom && !!sync && sync.commit !== null;
-      const pub = hasGit && publishedKnown ? (published.byTest.get(t.uuid) ?? sync) : undefined;
-      const info = builds.getBuildInfo(t.uuid);
-      const derived = deriveStatus({
-        build: { exists: info.exists, source: info.source, version: info.version },
-        synced: sync,
-        published: hasGit && publishedKnown ? published.byTest.get(t.uuid) : undefined,
-        publishedKnown,
-        hasGit,
-        currentDepsHash: info.exists ? builds.currentDepsHash(t.uuid) : null,
-      });
-      const stamp = info.version && !info.version.modified ? info.version : undefined;
-      rows[t.uuid] = {
-        status: derived.status,
-        ...(derived.reason ? { reason: derived.reason } : {}),
-        ...(derived.updateNote ? { updateNote: true } : {}),
-        custom,
-        published: versionRef(pub),
-        synced: versionRef(sync),
-        built: info.exists && info.builtAt
-          ? {
-              commit: stamp?.commit ?? null,
-              commitDate: stamp?.commit_date ?? null,
-              fingerprint: stamp?.fingerprint ?? null,
-              builtAt: info.builtAt,
-              signed: info.signed === true,
-            }
-          : null,
-      };
-      if (derived.status === 'update_available' || (derived.status === 'not_built' && derived.updateNote)) updatesAvailable++;
-      if (derived.status === 'rebuild_needed') rebuildsNeeded++;
+      let row: TestVersionRow;
+      try {
+        const hasGit = versions.gitEnabled && !custom && !!sync && sync.commit !== null;
+        const pub = hasGit && publishedKnown ? (published.byTest.get(t.uuid) ?? sync) : undefined;
+        const info = builds.getBuildInfo(t.uuid);
+        const derived = deriveStatus({
+          build: { exists: info.exists, source: info.source, version: info.version },
+          synced: sync,
+          published: hasGit && publishedKnown ? published.byTest.get(t.uuid) : undefined,
+          publishedKnown,
+          hasGit,
+          currentDepsHash: info.exists ? builds.currentDepsHash(t.uuid) : null,
+        });
+        const stamp = info.version && !info.version.modified ? info.version : undefined;
+        row = {
+          status: derived.status,
+          ...(derived.reason ? { reason: derived.reason } : {}),
+          ...(derived.updateNote ? { updateNote: true } : {}),
+          custom,
+          published: versionRef(pub),
+          synced: versionRef(sync),
+          built: info.exists && info.builtAt
+            ? {
+                commit: stamp?.commit ?? null,
+                commitDate: stamp?.commit_date ?? null,
+                fingerprint: stamp?.fingerprint ?? null,
+                builtAt: info.builtAt,
+                signed: info.signed === true,
+              }
+            : null,
+        };
+      } catch (err) {
+        // One test that can't be read must not take down every other row.
+        console.warn('Could not compute the version of test %s: %s', t.uuid, err instanceof Error ? err.message : String(err));
+        row = { status: 'unknown_build', custom, published: null, synced: null, built: null };
+      }
+      rows[t.uuid] = row;
+      if (row.status === 'update_available' || (row.status === 'not_built' && row.updateNote)) updatesAvailable++;
+      if (row.status === 'rebuild_needed') rebuildsNeeded++;
     }
 
     return {
