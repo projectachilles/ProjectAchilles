@@ -57,7 +57,7 @@ Go to **Settings → Agent**. There are two ways to publish.
 The server compiles the agent from the git repository in `AGENT_REPO_URL` (branch `AGENT_REPO_BRANCH`, default `main`). Before every build it **fetches the latest commit**, so a build always uses the current branch and doesn't depend on when the server was last deployed. Windows builds are signed with the active code-signing certificate.
 
 - The version you type is compiled into the binary, so its label and what it reports always match.
-- The version's release notes record the source commit, e.g. `Built from source (windows/amd64) at 1bbe749`. Check it against your repository before agents pick the version up.
+- The **Source** column under **Registered Versions** shows the commit the version was built from, e.g. `1bbe749`. Check it against your repository before agents pick the version up. An amber `source says <version>` line means the code on the server was older than the number you typed.
 - **Docker and server installs build from the server's own checkout** (the repository folder the containers were started from), so run `git pull` there **before** Build from source. A build made first compiles the old code under the new version number. The release notes show the checked-out commit, and add `(source says 0.7.2)` when the agent version in the source differs from the version you typed. Agents that already installed such a build don't take a corrected rebuild of the same version; they update with the next version.
 - If the server can't reach the repository, the build **fails** rather than compiling possibly stale code.
 
