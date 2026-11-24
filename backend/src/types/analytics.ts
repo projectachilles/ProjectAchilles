@@ -90,7 +90,8 @@ export interface ResultTestVersion {
   commit_date?: string;
   fingerprint?: string;
   built_at: string;
-  build_source: string;
+  /** Absent when the stored document does not say. */
+  build_source?: 'built' | 'uploaded';
 }
 
 // Organization info

@@ -32,6 +32,8 @@ function str(v: unknown): string | undefined {
 /**
  * The test a document belongs to: bundle_id when present (bundle controls and
  * multi-stage whole-test documents), else the part of test_uuid before '::'.
+ * Bundle documents always carry bundle_id, so the fallback is for plain ids
+ * and the query (bundle_id or test_uuid in keys) and this cannot diverge.
  */
 export function documentTestUuid(source: Source): string {
   const bundle = str(field(source, 'f0rtika.bundle_id'));
@@ -50,10 +52,12 @@ export interface DocumentVersion {
  */
 export function documentVersion(source: Source, current: Map<string, string> | undefined): DocumentVersion {
   const builtAt = str(field(source, 'f0rtika.test_version.built_at'));
+  const rawSource = str(field(source, 'f0rtika.test_version.build_source'));
+  const buildSource: 'built' | 'uploaded' | undefined = rawSource === 'built' || rawSource === 'uploaded' ? rawSource : undefined;
   const test_version = builtAt
     ? {
         built_at: builtAt,
-        build_source: str(field(source, 'f0rtika.test_version.build_source')) ?? '',
+        ...(buildSource ? { build_source: buildSource } : {}),
         commit: str(field(source, 'f0rtika.test_version.commit')),
         commit_date: str(field(source, 'f0rtika.test_version.commit_date')),
         fingerprint: str(field(source, 'f0rtika.test_version.fingerprint')),

@@ -64,6 +64,7 @@ const mockStageCoverage = vi.fn();
 const mockOutcomeBreakdown = vi.fn();
 const mockTestResults = vi.fn();
 const mockGetPaginatedExecutions = vi.fn();
+const mockGetRecentExecutions = vi.fn();
 const mockGetGroupedPaginatedExecutions = vi.fn();
 const mockHostTestMatrix = vi.fn();
 vi.mock('../../services/analytics/elasticsearch.js', () => ({
@@ -94,6 +95,7 @@ vi.mock('../../services/analytics/elasticsearch.js', () => ({
     getOutcomeBreakdown = mockOutcomeBreakdown;
     getTestResults = mockTestResults;
     getPaginatedExecutions = mockGetPaginatedExecutions;
+    getRecentExecutions = mockGetRecentExecutions;
     getGroupedPaginatedExecutions = mockGetGroupedPaginatedExecutions;
     getHostTestMatrix = mockHostTestMatrix;
   },
@@ -689,6 +691,7 @@ describe('analytics routes', () => {
     });
 
     it('synced() rejecting: 503 with the param, a plain list without it', async () => {
+      const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
       mockGetTestVersionsService.mockReturnValue({ synced: vi.fn().mockRejectedValue(new Error('git failed')) });
       const withParam = await request(createApp()).get('/api/analytics/executions/paginated?versionState=older');
       expect(withParam.status).toBe(503);
@@ -696,6 +699,17 @@ describe('analytics routes', () => {
       const without = await request(createApp()).get('/api/analytics/executions/paginated');
       expect(without.status).toBe(200);
       expect(mockGetPaginatedExecutions.mock.calls[0][0].currentFingerprints).toBeUndefined();
+      expect(warn).toHaveBeenCalledTimes(2);
+      expect(warn.mock.calls.flat().join(' ')).not.toContain('git failed');
+      warn.mockRestore();
+    });
+
+    it('GET /executions passes the map so recent rows carry version_state', async () => {
+      useVersions([['t1', 'f1']]);
+      mockGetRecentExecutions.mockResolvedValue([]);
+      const res = await request(createApp()).get('/api/analytics/executions');
+      expect(res.status).toBe(200);
+      expect(mockGetRecentExecutions.mock.calls[0][0].currentFingerprints).toEqual(new Map([['t1', 'f1']]));
     });
 
     it('refuses to build a clause for more than 10,000 tests', async () => {

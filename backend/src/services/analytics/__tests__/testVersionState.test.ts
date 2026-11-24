@@ -73,7 +73,9 @@ function matches(q: any, doc: Doc): boolean {
     if ((b.must ?? []).some((c: any) => !matches(c, doc))) return false;
     if ((b.must_not ?? []).some((c: any) => matches(c, doc))) return false;
     if (b.should) {
-      const need = b.minimum_should_match ?? 0;
+      // Elasticsearch's default differs with context; make every should say what it means.
+      if (b.minimum_should_match === undefined) throw new Error('should without minimum_should_match');
+      const need = b.minimum_should_match;
       if (b.should.filter((c: any) => matches(c, doc)).length < need) return false;
     }
     return true;
@@ -117,6 +119,13 @@ describe('result version state: row label and filter use one rule', () => {
       test_version: { built_at: 'T', build_source: 'uploaded', fingerprint: FP_A, commit: 'c', commit_date: 'D' },
       version_state: 'current',
     });
+  });
+
+  it('omits a build_source the document lacks or does not recognise', () => {
+    const base = { 'f0rtika.test_uuid': UUID_A, 'f0rtika.test_version.built_at': 'T' };
+    expect(documentVersion(base, CURRENT).test_version).not.toHaveProperty('build_source');
+    expect(documentVersion({ ...base, 'f0rtika.test_version.build_source': 'x' }, CURRENT).test_version).not.toHaveProperty('build_source');
+    expect(documentVersion({ ...base, 'f0rtika.test_version.build_source': 'uploaded' }, CURRENT).test_version?.build_source).toBe('uploaded');
   });
 
   it('without a map the row carries test_version and no version_state; absent version carries neither', () => {

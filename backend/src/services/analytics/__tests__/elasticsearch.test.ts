@@ -1448,9 +1448,20 @@ describe('elasticsearch.ts', () => {
       });
       const res = await createService().getGroupedPaginatedExecutions({ page: 1, pageSize: 25, currentFingerprints: current });
       const g = res.groups[0];
-      expect(g.members.map(m => m.version_state).sort()).toEqual(['current', 'older']);
-      expect(g.representative.version_state).toBeDefined();
+      const byControl = Object.fromEntries(g.members.map(m => [m.control_id, m.version_state]));
+      expect(byControl).toEqual({ 'CH-1': 'older', 'CH-2': 'current' });
+      expect(g.representative.control_id).toBe('CH-1');
+      expect(g.representative.version_state).toBe('older');
       expect(g.representative.test_version?.built_at).toBe('2026-11-01T00:00:00Z');
+    });
+
+    it('grouped count and search both carry the versionState clauses', async () => {
+      mockSearch.mockResolvedValue({ hits: { hits: [], total: { value: 0 } }, aggregations: { total_groups: { value: 0 }, display_groups: { buckets: [] } } });
+      const svc = createService();
+      await svc.getGroupedPaginatedExecutions({ page: 1, pageSize: 25, versionState: 'older', currentFingerprints: current });
+      const clauses = versionStateClauses('older', current);
+      expect(mockCount.mock.calls[0][0].query.bool.filter).toEqual(expect.arrayContaining(clauses));
+      expect(mockSearch.mock.calls[0][0].query.bool.filter).toEqual(expect.arrayContaining(clauses));
     });
 
     it('recent executions carry them too', async () => {

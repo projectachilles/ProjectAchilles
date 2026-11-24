@@ -339,7 +339,9 @@ async function currentFingerprints(required: boolean): Promise<Map<string, strin
     const map = new Map<string, string>();
     for (const [uuid, identity] of await service.synced()) map.set(uuid, identity.fingerprint);
     return map;
-  } catch {
+  } catch (err) {
+    // Fixed text and the error class only: git messages can carry a remote URL.
+    console.warn('Could not read the current test versions (%s)', err instanceof Error ? err.name : 'error');
     if (required) throw unavailable();
     return undefined;
   }
