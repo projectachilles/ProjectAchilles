@@ -463,13 +463,18 @@ describe('TestsPage bulk build', () => {
     expect(vi.mocked(deps.buildTest).mock.calls[1][0]).toBe('c');
   });
 
-  it('Build N is disabled while a run is going', async () => {
+  it('Build N is disabled while a run is going, and says why', async () => {
     await renderPage();
+    fireEvent.click(button('Select'));
+    fireEvent.click(checkbox('test b'));
+    expect(button('Build 1').getAttribute('title')).toBeNull();
+    fireEvent.click(button('Cancel'));
     await startRun(['test a']);
     await screen.findByText('Building 1 of 1 · test a');
     fireEvent.click(button('Select'));
     fireEvent.click(checkbox('test b'));
     expect((button('Build 1') as HTMLButtonElement).disabled).toBe(true);
+    expect(button('Build 1').getAttribute('title')).toBe('A build run is in progress');
     expect((button('Run 1') as HTMLButtonElement).disabled).toBe(false);
   });
 
@@ -498,7 +503,7 @@ describe('TestsPage bulk build', () => {
     expect(await screen.findByText('Built 2 of 2 · 0 failed · 0 skipped')).toBeTruthy();
   });
 
-  it('reloads the version rows once for each result', async () => {
+  it('reloads the version rows once for each built or failed result', async () => {
     await renderPage();
     await startRun(['test a', 'test b']);
     await waitFor(() => expect(gates).toHaveLength(1));

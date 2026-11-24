@@ -444,7 +444,12 @@ export default function TestsPage() {
               </Button>
             )}
             {canBuild && selectMode && selectedShown.length > 0 && (
-              <Button variant="outline" disabled={buildRunActive} onClick={() => setBuildDialogOpen(true)}>
+              <Button
+                variant="outline"
+                disabled={buildRunActive}
+                title={buildRunActive ? 'A build run is in progress' : undefined}
+                onClick={() => setBuildDialogOpen(true)}
+              >
                 <Hammer />
                 Build {selectedShown.length}
               </Button>

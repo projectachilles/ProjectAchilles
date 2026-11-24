@@ -152,7 +152,48 @@ describe('BuildQueueBar', () => {
     expect(screen.queryByText('Stopped: 7 not started')).toBeNull();
   });
 
-  it('calls onResult once for each new result, not on other renders', () => {
+  it('shows a failure reason as preformatted text that keeps its lines and scrolls on its own', () => {
+    const reason = 'go build failed:\n./main.go:12:2: undefined: foo\n./main.go:13:2: undefined: bar';
+    setState({
+      status: 'done',
+      total: 1,
+      results: [{ ...item(1), outcome: 'failed', reason }],
+      end: 'completed',
+    });
+    renderBar();
+    fireEvent.click(screen.getByRole('button', { name: 'Details' }));
+    const row = within(screen.getByRole('list')).getByRole('listitem');
+    const pre = row.querySelector('pre');
+    expect(pre).not.toBeNull();
+    expect(pre!.textContent).toBe(reason);
+    expect(pre!.className).toContain('whitespace-pre-wrap');
+    expect(pre!.className).toContain('max-h-48');
+    expect(pre!.className).toContain('overflow-auto');
+  });
+
+  it('announces the summary in the same live region the progress was in', () => {
+    setState({ status: 'running', total: 2, current: item(2), results: results({ built: 1 }) });
+    const { rerender } = renderBar();
+    const live = screen.getByText('Building 2 of 2 · Test 2').closest('[aria-live="polite"]');
+    expect(live).not.toBeNull();
+    setState({ status: 'done', total: 2, results: results({ built: 1, failed: 1 }), end: 'completed' });
+    rerender(
+      <MemoryRouter>
+        <BuildQueueBar />
+      </MemoryRouter>,
+    );
+    const summary = screen.getByText('Built 1 of 2 · 1 failed · 0 skipped');
+    expect(summary.closest('[aria-live="polite"]')).toBe(live);
+    expect(screen.getAllByRole('region', { name: 'Build run' })).toHaveLength(1);
+  });
+
+  it('a stopped line is inside the live region too', () => {
+    setState({ status: 'done', total: 5, results: results({ built: 2 }), end: 'stopped' });
+    renderBar();
+    expect(screen.getByText('Stopped: 3 not started').closest('[aria-live="polite"]')).not.toBeNull();
+  });
+
+  it('calls onResult for each new built or failed result, not on other renders', () => {
     setState({ status: 'running', total: 3, current: item(1), results: [] });
     const { rerender, onResult } = renderBar();
     expect(onResult).not.toHaveBeenCalled();
@@ -174,6 +215,31 @@ describe('BuildQueueBar', () => {
     setState({ status: 'done', total: 3, results: results({ built: 1, failed: 1 }), end: 'completed' });
     again();
     expect(onResult).toHaveBeenCalledTimes(2);
+  });
+
+  it('a skipped result triggers no reload', () => {
+    setState({ status: 'running', total: 3, current: item(1), results: [] });
+    const { rerender, onResult } = renderBar();
+    const again = () =>
+      rerender(
+        <MemoryRouter>
+          <BuildQueueBar onResult={onResult} />
+        </MemoryRouter>,
+      );
+    setState({ status: 'running', total: 3, current: item(2), results: results({ skipped: 1 }) });
+    again();
+    expect(onResult).not.toHaveBeenCalled();
+    setState({ status: 'running', total: 3, current: item(3), results: results({ skipped: 2 }) });
+    again();
+    expect(onResult).not.toHaveBeenCalled();
+    setState({
+      status: 'done',
+      total: 3,
+      results: [...results({ skipped: 2 }), { ...item(3), outcome: 'built' }],
+      end: 'completed',
+    });
+    again();
+    expect(onResult).toHaveBeenCalledTimes(1);
   });
 
   it('does not reload for results that were already there when it mounted', () => {

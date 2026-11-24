@@ -21,15 +21,16 @@ function AppContent() {
   return (
     <ThemeProvider defaultTheme="dark">
       <AnalyticsAuthProvider>
-        <ErrorBoundary>
-          <BrowserRouter>
-            <ConsoleIdentityProvider>
-              <BuildQueueProvider>
+        {/* Above the ErrorBoundary: a page's render error must not unmount it and end a build run. */}
+        <BuildQueueProvider>
+          <ErrorBoundary>
+            <BrowserRouter>
+              <ConsoleIdentityProvider>
                 <AppRouter />
-              </BuildQueueProvider>
-            </ConsoleIdentityProvider>
-          </BrowserRouter>
-        </ErrorBoundary>
+              </ConsoleIdentityProvider>
+            </BrowserRouter>
+          </ErrorBoundary>
+        </BuildQueueProvider>
       </AnalyticsAuthProvider>
     </ThemeProvider>
   );
