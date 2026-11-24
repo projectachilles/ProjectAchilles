@@ -58,7 +58,7 @@ POST /api/tests/builds/:uuid
 Triggers Go cross-compilation (and signing) for a test. Needs `tests:builds:create`. There is no body:
 the build uses the saved [build platform](#build-platform) and the active certificate.
 
-- Without a query, the request waits for the build and returns the build info. A failed build returns `422` with the build error.
+- Without a query, the request waits for the build and returns the build info. A failed build returns `422` with the build error. A build that another build of the same test took over (on any backend worker) returns `409 Build was superseded by another build of this test`.
 - With `?async=true` it returns `202` with `{ "job": { "status": "running", ... } }` at once. Poll `GET /api/tests/builds/:uuid` and read `job`.
 
 ### Delete Build
@@ -67,7 +67,7 @@ the build uses the saved [build platform](#build-platform) and the active certif
 DELETE /api/tests/builds/:uuid
 ```
 
-Removes the cached binary for a test. Needs `tests:builds:delete`. `409` while the test is building.
+Removes the cached binary for a test. Needs `tests:builds:delete`. `409 Build in progress for this test` while the test is building, or while an upload or another delete of the same test is in flight.
 
 ### Download Binary
 
@@ -90,7 +90,7 @@ POST /api/tests/builds/:uuid/upload-binary
 - **`/upload`** — upload a required embed dependency file (multipart form: `file` and `filename`). Uploads for source-built dependencies are rejected (`400`).
 - **`/upload-binary`** — upload a pre-built test binary instead of compiling (multipart form: `file`).
 
-All three need `tests:builds:create`. The two uploads return `409` while the test is building.
+All three need `tests:builds:create`. The two uploads return `409 Build in progress for this test` while the test is building, or while another upload or a delete of the same test is in flight (on any backend worker).
 
 ## Certificate Endpoints
 
