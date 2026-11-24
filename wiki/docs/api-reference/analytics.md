@@ -160,11 +160,11 @@ Rows of `GET /api/analytics/executions` and `/executions/paginated` say which ve
 
 | Field | Present | Description |
 |-------|---------|-------------|
-| `built_at` | always | When the binary was built (or uploaded), ISO 8601. |
+| `built_at` | always | When the binary was built (or uploaded), ISO 8601 in UTC (`2026-11-23T10:00:00.000Z`). |
 | `build_source` | optional | `built` (Build & Sign) or `uploaded` (an uploaded binary). |
-| `fingerprint` | optional | Fingerprint of what went into the binary. Only when the binary sent had the SHA-256 recorded for that build, from unmodified source; absent for an uploaded binary, a build with no recorded version, a build from locally changed source and a task created while the test was being rebuilt. |
+| `fingerprint` | optional | Fingerprint of what went into the binary. Only when the binary sent had the SHA-256 recorded for that build, from unmodified source; absent for an uploaded binary, a build with no recorded version, a build from locally changed source and a task created while a rebuild was replacing the binary. |
 | `commit` | optional | Library commit the binary was built from. Same condition as `fingerprint`, and absent for a custom test (no git commit). |
-| `commit_date` | optional | Commit date of that source, ISO 8601. Same condition as `commit`. |
+| `commit_date` | optional | Commit date of that source, ISO 8601 in UTC: a commit made at `14:03:11-04:00` reads `18:03:11.000Z`. Same condition as `commit`. |
 
 `version_state` compares the result with the test as it is synced now, so a Sync can change it. It is left out when the backend could not read the current test versions (the rows are returned without it):
 
