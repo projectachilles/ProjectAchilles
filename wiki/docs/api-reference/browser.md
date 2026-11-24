@@ -162,10 +162,10 @@ Both answer `{ "success": true, "data": { "library": {...}, "tests": {...} } }`:
 | Field | Description |
 |-------|-------------|
 | `gitEnabled` | Git sync is configured. When `false`, every test is compared by content and has no published side. |
-| `checkEnabled` | The timed check runs: git sync is on and `TESTS_UPDATE_CHECK` is not `off`. **Check now** works either way. |
+| `checkEnabled` | The timed check runs: git sync is on and `TESTS_UPDATE_CHECK` is not `off`. **Check now** works whatever `TESTS_UPDATE_CHECK` is set to. |
 | `repoWebUrl` | `https://github.com/<owner>/<repo>` for a github.com remote, never with credentials; `null` for any other remote. |
 | `syncedCommit`, `syncedCommitDate` | The commit the synced library is at; `null` without git. |
-| `publishedCommit`, `publishedCommitDate`, `checkedAt` | The published commit and when the last successful check ran; `null` until one has. |
+| `publishedCommit`, `publishedCommitDate`, `checkedAt` | The published commit and when the last successful check or Sync recorded it; `null` until one has. |
 | `checkError` | `null`, or one fixed text (never git's own message): `The test library could not be read` (git can't read the synced library; it wins over the others), `Could not reach the test repository`, `The test repository rejected the credentials` or `The update check failed`. |
 | `updatesAvailable` | Tests in `update_available`, plus `not_built` tests with `updateNote`. |
 | `rebuildsNeeded` | Tests in `rebuild_needed`. |

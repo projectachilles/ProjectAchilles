@@ -18,7 +18,7 @@ Every test that was already built on the server reads **Unknown build** until it
 
 ## The three versions
 
-A test's **version** is the library commit it comes from plus a **fingerprint**: a value computed from the test's source and the shared libraries it builds with.
+A test's version is the library commit it comes from plus a fingerprint: a value computed from the test's source and, for a test synced with git, the shared libraries it builds with.
 
 | Version | What it is |
 |---------|------------|
@@ -26,7 +26,7 @@ A test's **version** is the library commit it comes from plus a **fingerprint**:
 | **Synced** | What this console downloaded with **Sync** |
 | **Built** | What the test's binary was compiled from |
 
-The **Version** card in the side column of a test's **Overview** tab shows all three: the short commit and its date for each, when the binary was built and whether it is signed, and "same as published" when the synced version is the published one. For a test that reads **Update available** or **Rebuild needed**, when the test repository is on GitHub, **View changes on GitHub** opens the changes between the two commits.
+The **Version** card in the side column of a test's **Overview** tab shows all three: the short commit for each (with its date for **Published** and **Synced**), when the binary was built and whether it is signed, and "same as published" when the synced version is the published one. For a test that reads **Update available** or **Rebuild needed**, when the test repository is on GitHub, **View changes on GitHub** opens the changes between the two commits.
 
 ## The seven statuses
 
@@ -38,7 +38,7 @@ Each test has one status, shown under its name in the test list and at the top o
 | **Update available** | The test repository has a newer version than the one synced. Reason: test source changed, shared libraries changed, or documentation changed. | **Sync** on the **Tests** page. Build afterwards if the test then reads **Rebuild needed**. |
 | **Rebuild needed** | The synced version is newer than the binary. Reason: test source changed, shared libraries changed, or an embedded file changed. | **Build & Sign**. |
 | **Not built** | The test has no binary. With "update available" next to it, a newer version is published. | **Build & Sign**. With "update available", Sync first, then build. |
-| **Uploaded** | The binary was uploaded by hand, so the console doesn't know its version. | To record a version, build it on the server (**Rebuild** in the **Deploy** panel). |
+| **Uploaded** | The binary was uploaded by hand, so the console doesn't know its version. | To record a version, build it on the server (the **Rebuild** icon in the **Deploy** panel). |
 | **Unknown build** | The binary's version was not recorded (it was built before versions were recorded, or a build is replacing it or stopped part-way), or it was built from source that was changed on the server and differs from the synced commit. Also shown when the console can't read its synced library. | **Build & Sign**. |
 | **Built, not checked** | The binary was built from the synced version, but no check of the published version has succeeded yet. | **Check now**, or wait for the next check. |
 
@@ -50,7 +50,7 @@ While a build replaces a test's binary, the test reads **Unknown build**, also w
 
 ## Documentation changes
 
-A change to a test's documents (Markdown, HTML) or to its detection and defence files shows as **Update available: documentation changed**, so you know to sync. The detection and defence files are the KQL, YARA, Elastic, Sigma and LimaCharlie D&R rules and the hardening scripts that come with each test. Such a change never asks for a rebuild: after the Sync, the binary still matches the synced version.
+A change to a test's documents (Markdown, HTML) or to its detection and defense files shows as **Update available: documentation changed**, so you know to sync. The detection and defense files are the KQL, YARA, Elastic, Sigma and LimaCharlie D&R rules and the hardening scripts that come with each test. Such a change never asks for a rebuild: after the Sync, the binary still matches the synced version.
 
 Every other file in the test's folder counts as source, other PowerShell and shell scripts included. A change to the test's source, to the shared libraries it builds with, or to an embedded file asks for a rebuild.
 
@@ -78,7 +78,7 @@ When a test task is created, the console copies the version of the binary it sen
 |-------|---------------|------------|
 | **current** | The binary was built from the source you have synced now. | Nothing. |
 | **older** | The synced source has changed since that binary was built. | Open the test and rebuild it; the next runs read **current**. |
-| **version unknown** | A version was recorded but can't be compared: an uploaded binary, a build with no recorded version or from changed source, a task created while a rebuild was replacing the binary, or a test that is no longer in the library. | For a test still in the library, **Build & Sign** it so that new runs can be compared. |
+| **version unknown** | The run recorded which build it used, but not a version that can be compared: an uploaded binary, a build with no recorded version or from changed source, a task created while a rebuild was replacing the binary, a test that is no longer in the library, or the console can't read the test's synced version now. | For a test still in the library, **Build & Sign** it so that new runs can be compared. |
 | **not recorded** | The run has no version: its task was created before this console recorded versions. | Nothing. New runs record it. |
 
 Where they show:
@@ -87,7 +87,7 @@ Where they show:
 - **Campaign run page**: under each test name, the short commit and its state, or **mixed versions** when the hosts ran different versions (hover for each version and its number of hosts). The **As of** line adds that the states compare with the synced test library as of that time, and it prints with the page. The CSV ends with the same two columns. See [Campaigns](../agent-management/campaigns#exporting-evidence).
 - **PDF report**: in the execution log, under each run's completion time, the short commit, with **older** when the test has changed since. A run without a commit shows its state alone, for example **not recorded**. See [Execution Report](../analytics/execution-report).
 
-When the console can't read its test library at that moment, the states can't be worked out: All Executions then shows no version on its rows, and the campaign page and the report show the commit without a state.
+When the console can't read a test's synced version, its results read **version unknown**. If the console can't read its test library at all, the states can't be worked out: All Executions then shows no version on its rows, and the campaign page and the report show recorded commits without a state (the report also when the read takes more than 5 seconds).
 
 ## Three things to know
 
@@ -100,12 +100,12 @@ Results recorded before the upgrade, and results of tasks created before it (a R
 :::
 
 :::note[What current compares]
-A result is **current** when the source its binary was built from equals the source synced now: the test's own files and the shared libraries it builds with. It does not look at files uploaded for the build (embedded dependencies), the signing certificate, or the target platform. A documentation change, as described under [Documentation changes](#documentation-changes), never makes a result **older**.
+A result is **current** when the source its binary was built from equals the source synced now: the test's own files and, for a test synced with git, the shared libraries it builds with. It does not look at files uploaded for the build (embedded dependencies), the signing certificate, or the target platform. A documentation change, as described under [Documentation changes](#documentation-changes), never makes a result **older**.
 :::
 
 ## Without git, and custom tests
 
-When git sync is off, and for custom tests, the console compares versions by the content of the test's folder. There is no published side: the **Version** card has no **Published** row, and **Built, not checked** never appears. With git sync off, the header also says "Git sync is off: published versions are not checked". There is no commit either, so these tests show none, and the CSV `version` column is empty for their results. Custom tests carry a **Custom** label next to their status.
+When git sync is off, and for custom tests, the console compares versions by the content of the test's folder. Only the folder counts: a change to the shared libraries never asks these tests for a rebuild and never makes their results **older**. There is no published side: the **Version** card has no **Published** row, and **Built, not checked** never appears. With git sync off, the header also says "Git sync is off: published versions are not checked". There is no commit either, so these tests show none, and the CSV `version` column is empty for their results. Custom tests carry a **Custom** label next to their status.
 
 ## Uploaded binaries
 
