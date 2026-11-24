@@ -357,7 +357,7 @@ Deploy a lightweight Go agent to endpoints for remote test execution with full l
 - **Pre-execution blocks recorded, not failed** — when Defender ASR or application control denies launch of a fresh test binary, agent 0.7.0+ reports exit code `260` (inconclusive, excluded from the Defense Score) with the remedy, instead of leaving the task stuck. When an EDR's own prevention alert proves it blocked the launch, the run counts as Protected
 - **Per-stage descriptions** — each stage's plain-language "what this does" travels with the result into run detail
 - **Pinned LAN enrollment** — on `achilles-installer` deployments, one bootstrap script verifies the root CA fingerprint, trusts it, installs the agent into a locked-down `C:\F0`, and enrolls
-- **Cleans up after itself** — the agent removes a test's binaries after each run and sweeps leftover task folders at startup; its own files are never touched
+- **Cleans up after itself** — before and after every test run the agent empties its test-artifact folder and the decoy folder, keeping its own files and undo files, and sweeps leftover task folders at startup
 - **Endpoint prerequisites** — distributing the signing certificate, the per-rule Defender ASR exclusion for `C:\F0`, application control, and what to expect from each EDR: [guide](wiki/docs/deployment/endpoint-prerequisites.md)
 
 - **Fleet utility rail** — online/offline/stale ring, version rollout, groups, key-rotation settings, and per-platform binary downloads beside the agent table

@@ -125,7 +125,7 @@ Deploy a lightweight Go agent to endpoints for remote test execution with full l
 - **Encrypted Config** — Agent credentials encrypted at rest with AES-256-GCM using machine-bound keys
 - **Tagging** — Organize agents with custom tags for filtering and bulk operations
 - **Locked Install Folder** — The agent installs into `C:\F0` (Windows) or `/opt/f0` (Linux, macOS) and restricts the folder to SYSTEM and Administrators (root)
-- **Test Leftover Cleanup** — After each run the agent removes that test's binaries, and at startup it sweeps stale task folders
+- **Test Leftover Cleanup** — Before and after every run the agent empties the test-artifact folder and the decoy folder, keeping its own files and undo files, and at startup it sweeps stale task folders
 - **Cross-Platform** — Windows, Linux, and macOS support (amd64 + arm64)
 - **Bundle Results** — Reads per-control results from cyber-hygiene bundles for granular compliance tracking
 - **Remote Uninstall** — Two-phase agent removal (stop service + cleanup) initiated from admin UI

@@ -239,7 +239,7 @@ the layers behind it. Say so when you report coverage.
 
 ## 4. The `C:\F0` folder lock
 
-The agent empties `C:\F0` and the decoy folder `C:\Users\fortika-test` before and after every test run, so do not store other files in them. These stay in `C:\F0`: the agent's own files (`achilles-*` and the folder that holds its config and log), undo files (any name containing `cleanup`, `restore`, `backup` or `state`), and after a run the last test log. A dropped tool or decoy file is gone when the run ends, so an EDR scan that runs later will not find it. Detections made while the test runs are not affected.
+The agent empties `C:\F0` and the decoy folder `C:\Users\fortika-test` before and after every test run, so do not store other files in them. These stay in `C:\F0`: the agent's own files (`achilles-*`), its work folder (`tasks\` on a default Windows install), undo files (any name containing `cleanup`, `restore`, `backup` or `state`), and after a run the last test log. A dropped tool or decoy file is gone when the run ends, so an EDR scan that runs later will not find it. Detections made while the test runs are not affected.
 
 Under `C:\`, a new folder inherits **Modify** for every signed-in user. With the
 ASR exclusion in place, that would let any user run unknown binaries from

@@ -105,7 +105,7 @@ The agent-server communication channel has been hardened through a dedicated int
 **Binary Integrity:**
 - **SHA256 Verification** — Agents verify test binary integrity via checksum before execution
 - **Ed25519 Update Signatures** — Server signs agent binary SHA256 hashes with an Ed25519 keypair; agents verify signatures before applying self-updates; public key distributed during enrollment
-- **Isolated Execution** — Test binaries run in per-task directories (0700); the agent removes a test's binaries after each run and sweeps leftovers at startup
+- **Isolated Execution** — Test binaries run in per-task directories (0700); before and after every run the agent empties the shared artifact and decoy folders through a trusted folder handle that never follows a link, keeping its own files, and sweeps leftovers at startup
 - **Download only for a held task** — an agent can download a test binary only for a task assigned to it
 - **Locked install folder** — the agent installs into `C:\F0` (Windows) or `/opt/f0`, restricted to SYSTEM and Administrators / root
 
