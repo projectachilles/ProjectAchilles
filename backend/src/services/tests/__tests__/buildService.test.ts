@@ -1928,6 +1928,85 @@ var data string
       expect(order.some(o => o.startsWith('exec:go build'))).toBe(true);
     });
 
+    describe('identity read again after the build', () => {
+      function sequence(...reads: Array<() => Promise<{ identity: TestVersionIdentity; modified: boolean } | null>>) {
+        const current = vi.fn<BuildVersionSource['current']>();
+        for (const read of reads) current.mockImplementationOnce(read);
+        return current;
+      }
+      const same = async () => ({ identity, modified: false });
+
+      function expectNoStampWarning(warn: ReturnType<typeof vi.spyOn>, info: BuildInfo) {
+        expect(info.exists).toBe(true);
+        expect(info).not.toHaveProperty('version');
+        expect(writtenMeta()).not.toHaveProperty('version');
+        expect(warn).toHaveBeenCalledTimes(1);
+        const logged = warn.mock.calls[0].map(String).join(' ');
+        expect(logged).toContain(VALID_UUID);
+        expect(logged).toContain('source changed while it was being built');
+      }
+
+      it('a build during which the library commit changed gets no stamp and a warning', async () => {
+        const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+        const current = sequence(same, async () => ({ identity: { ...identity, commit: 'def5678' }, modified: false }));
+        try {
+          const info = await stampedService(current).buildAndSign(VALID_UUID);
+          expect(current).toHaveBeenCalledTimes(2);
+          expectNoStampWarning(warn, info);
+        } finally {
+          warn.mockRestore();
+        }
+      });
+
+      it('a build during which the test\'s fingerprint changed gets no stamp', async () => {
+        const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+        // A test without git: no commit, only the folder's fingerprint.
+        const noGit = { ...identity, commit: null, commit_date: null, test_tree: null, provenance: 'custom' as const };
+        const current = sequence(
+          async () => ({ identity: noGit, modified: false }),
+          async () => ({ identity: { ...noGit, fingerprint: 'e'.repeat(64), source_hash: 't'.repeat(64) }, modified: false }),
+        );
+        try {
+          expectNoStampWarning(warn, await stampedService(current).buildAndSign(VALID_UUID));
+        } finally {
+          warn.mockRestore();
+        }
+      });
+
+      it.each([
+        ['throws', async () => { throw new Error('git unavailable'); }],
+        ['returns null', async () => null],
+      ])('the second identity read failing voids the stamp (%s)', async (_label, second) => {
+        const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+        try {
+          expectNoStampWarning(warn, await stampedService(sequence(same, second)).buildAndSign(VALID_UUID));
+        } finally {
+          warn.mockRestore();
+        }
+      });
+
+      it('an unchanged identity still stamps, and versionSource.current is called twice, the first time before the compile', async () => {
+        const order: string[] = [];
+        mockExecFileAsync.mockImplementation(async (cmd: string, args: string[]) => {
+          order.push(`exec:${cmd} ${args[0]}`);
+          return { stdout: '', stderr: '' };
+        });
+        const current = vi.fn<BuildVersionSource['current']>(async () => {
+          order.push('current');
+          return { identity, modified: false };
+        });
+
+        const info = await stampedService(current).buildAndSign(VALID_UUID);
+
+        expect(current).toHaveBeenCalledTimes(2);
+        expect(order[0]).toBe('current');
+        expect(order[order.length - 1]).toBe('current');
+        expect(order.findIndex(o => o.startsWith('exec:go build'))).toBeGreaterThan(0);
+        expect(info.version).toMatchObject({ ...identity, modified: false });
+        expect(writtenMeta().version).toMatchObject({ fingerprint: identity.fingerprint, commit: identity.commit });
+      });
+    });
+
     it('modified source gives version.modified === true', async () => {
       const svc = stampedService(async () => ({ identity, modified: true }));
       await svc.buildAndSign(VALID_UUID);

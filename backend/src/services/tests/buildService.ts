@@ -1162,7 +1162,7 @@ const ARTIFACT_DIR = \`${artifactDir}\`
       [platform.os]: { filename, fileSize: stats.size, signed },
     };
     const version = versionBefore
-      ? this.stampVersion(uuid, versionBefore, buildDir, binaries)
+      ? await this.stampVersion(uuid, versionBefore, buildDir, binaries)
       : undefined;
     const meta: BuildMetadata = {
       platform: { os: platform.os, arch: platform.arch },
@@ -1193,8 +1193,13 @@ const ARTIFACT_DIR = \`${artifactDir}\`
    * artifact as it is now (after signing, which rewrites the file), and the
    * embed dependencies, uploaded and source-built, as the build left them
    * (build_all.sh and every cleanup step have finished; nothing after this
-   * point touches the test folder). null when an artifact can't be read: no
-   * stamp is better than a wrong one.
+   * point touches the test folder). No stamp is better than a wrong one, so
+   * it returns null, with a warning, when:
+   *  - the identity read again now differs from the one read before the
+   *    compile (library commit or fingerprint), or can't be read: the test's
+   *    source changed while it was being built, e.g. a Sync moved HEAD;
+   *  - an uploaded dependency that was there before the build is gone;
+   *  - an artifact or dependency can't be hashed.
    *
    * deps_hash is taken here, not before the build, because a build_all.sh can
    * itself write an embedded file that is classed as uploaded (a gzipped
@@ -1206,14 +1211,30 @@ const ARTIFACT_DIR = \`${artifactDir}\`
    * current hash means the file changed after the build. A dependency that was
    * there before the build and is gone now (a Sync's `git clean` removes
    * untracked files) voids the stamp: the binary embeds a file the hash can no
-   * longer cover.
+   * longer cover. A tracked file can only change through a Sync that moves
+   * HEAD, which voids the stamp, so a tracked embed the fingerprint leaves out
+   * (an excluded extension) can't change under a stamp either.
    */
-  private stampVersion(
+  private async stampVersion(
     uuid: string,
     before: VersionBefore,
     buildDir: string,
     artifacts: NonNullable<BuildMetadata['binaries']>,
-  ): BuildVersionStamp | null {
+  ): Promise<BuildVersionStamp | null> {
+    let after: { identity: TestVersionIdentity; modified: boolean } | null;
+    try {
+      after = this.versionSource ? await this.versionSource.current(uuid) : null;
+    } catch {
+      after = null;
+    }
+    if (
+      !after ||
+      after.identity.commit !== before.identity.commit ||
+      after.identity.fingerprint !== before.identity.fingerprint
+    ) {
+      console.warn('Build of %s will not record its version: the test\'s source changed while it was being built', uuid);
+      return null;
+    }
     try {
       const present = new Set(this.getEmbedDependencies(uuid).filter(d => d.exists).map(d => d.filename));
       const removed = before.uploadedDeps.filter(name => !present.has(name));
