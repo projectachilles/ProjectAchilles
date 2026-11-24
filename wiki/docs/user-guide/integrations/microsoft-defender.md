@@ -373,7 +373,7 @@ When `configured` is `false`, Defender panels, tabs, and cross-correlation widge
 | Sync trigger | `setInterval` at server startup | Vercel Cron (`/api/cron/defender-sync`) |
 | Credentials | Encrypted file or env vars | Env vars or encrypted blob |
 
-Both variants expose the same API endpoints. The evidence rules of v2.10.0 and v2.10.1 (own-alert credit, in-run prevention, multi-test alerts), EDR-killed agent runs and the Elasticsearch readiness check are in `backend/` only.
+Both variants expose the same API endpoints. The evidence rules of v2.10.0 and v2.10.1 (own-alert credit, a stage's prevention only from the action on its own file, multi-test alerts), EDR-killed agent runs and the Elasticsearch readiness check are in `backend/` only. The exit-code rule (a stage that exited 101 is never Prevented) and the clean-up of stored results are in both.
 
 ## Troubleshooting
 

@@ -94,10 +94,9 @@ that is detected but not yet `*_stage_prevented` is re-checked for 72 hours,
 and only gains the flags it lacks. Every alert matching a document counts,
 not only the first few returned.
 
-**Prevented is decided by the exit code.** Late *reporting* is fine; a late
-*action* is not. A stage that exited `101` ran to completion, so it is never
-**Prevented**, whatever the EDR's alert says: it reads **Detected** when an EDR
-alert names it, and **Unprotected** otherwise. An EDR can mark a process as
+**Prevented is decided by the exit code.** A stage that exited `101` ran to
+completion, so it is never **Prevented**, whatever the EDR's alert says: it
+reads **Detected** when an EDR alert names it, and **Unprotected** otherwise. An EDR can mark a process as
 blocked after the process has already exited (Defender has added *blocked* to
 an alert minutes after the stage finished), and that is detection, not
 prevention. No prevention flag (`*_prevented`, `*_stage_prevented`,
@@ -135,9 +134,11 @@ prevention. A failed kill (*kill failed*) is never qualified.
 before this rule. At start-up and every 5 minutes the backend finds these, of
 any age and for every EDR whether it is connected or not, and sets them to
 `false`, `false` and empty (`edr/completedStageCleanup.ts`; it logs
-`[Completed-Stage-Cleanup] cleared=<n>` when it changed something). Detection
-flags and results with another exit code are never touched. `backend-serverless`
-does the same just before each Defender and CrowdStrike enrichment pass.
+`[Completed-Stage-Cleanup] matched=<m> sent=<s> cleared=<c>` whenever it found
+such results). Detection flags and results with another exit code are never
+touched. `backend-serverless` clears the Defender and CrowdStrike flags only,
+and only when one of those two integrations is configured: its clean-up runs
+just before each of their enrichment passes.
 
 **Which documents are scanned:** exit codes `[0, 1, 101, 105, 126, 127, 259, 999]`
 — so EDR-killed stages (999) are eligible. Deliberately **not scanned**:
