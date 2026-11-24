@@ -109,6 +109,8 @@ A result is **current** when the source its binary was built from equals the sou
 
 When git sync is off, and for custom tests, the console compares versions by the content of the test's folder. Only the folder counts: a change to the shared libraries never asks these tests for a rebuild and never makes their results **older**. There is no published side: the **Version** card has no **Published** row, and **Built, not checked** never appears. With git sync off, the header also says "Git sync is off: published versions are not checked". There is no commit either, so these tests show none, and the CSV `version` column is empty for their results. Custom tests carry a **Custom** label next to their status.
 
+Compiled files in the folder (what a build leaves behind) are not part of the comparison: files ending in `.exe`, `.dll`, `.so`, `.dylib` or `.bin`, the `build/` folder, and any other file that is a Linux, macOS or Windows executable by its header. A text file is always compared, whatever its first letters.
+
 ## Uploaded binaries
 
 A binary uploaded with **Upload Binary** has no version. Its status is **Uploaded**, and the results of its runs say **version unknown**.
