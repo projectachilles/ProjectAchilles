@@ -2,6 +2,7 @@ package executor
 
 import (
 	"errors"
+	"fmt"
 	"log"
 	"os"
 	"os/user"
@@ -26,9 +27,10 @@ import (
 // update and config temporaries) are never touched. Undo files, the ones a
 // test leaves for its own or an operator's cleanup, stay because deleting
 // them would strand what they restore. The top-level folders the agent
-// itself uses (protectedTops) stay. The after pass also keeps the three
-// result files the agent reads once the test has finished; the before pass
-// removes them so a stale result can't be mistaken for the new run's.
+// itself uses (protectedTops and the identity rule) stay. The after pass also
+// keeps the last run's three result files, for the operator to read on the
+// host until the next run (the agent does not read them there); the before
+// pass removes them so a stale result can't be mistaken for the new run's.
 
 // cleanPass selects which of the two passes is deciding.
 type cleanPass int
@@ -43,7 +45,8 @@ const (
 // name.
 var undoWords = []string{"cleanup", "restore", "backup", "state"}
 
-// afterRunKept are the result files the agent reads after the test ends.
+// afterRunKept are the result files the after pass keeps for the operator to
+// read on the host until the next run; the agent does not read them there.
 var afterRunKept = []string{"test_execution_log.json", "test_execution_log.txt", "bundle_results.json"}
 
 // isAgentFile reports whether name belongs to the agent itself: its binary,
@@ -108,9 +111,9 @@ type cleanReport struct {
 }
 
 // protectedTops returns the top-level names of dir that hold a protected path
-// (sorted, without duplicates). selfIsWorkDir is true when dir itself is
-// protected, which happens when the agent runs from the artifact folder. Paths
-// are compared as given, without resolving links.
+// (sorted, without duplicates). selfIsWorkDir is true when dir itself is a
+// protected path, which is the case when the work dir is the artifact folder
+// itself. Paths are compared as given, without resolving links.
 func protectedTops(dir string, protected []string) (tops []string, selfIsWorkDir bool) {
 	seen := map[string]bool{}
 	for _, p := range protected {
@@ -211,17 +214,18 @@ func (k identityKeeps) holds(root *os.Root, name string) bool {
 // removeEntries removes, through the trusted root, every top-level entry of
 // root that selected accepts, and returns their names. A failed delete is
 // logged and counted in rep.Failed; the walk stops, setting rep.OutOfTime, once
-// the deadline has passed (checked before each entry). dir is only used in log
-// lines.
+// the deadline has passed (checked before each entry selected for removal, so
+// a folder that holds only kept entries is never out of time). dir is only
+// used in log lines.
 func removeEntries(dir string, root *os.Root, deadline time.Time, rep *cleanReport, selected func(os.DirEntry) bool) []string {
 	var removed []string
 	for _, e := range readRoot(root) {
+		if !selected(e) {
+			continue
+		}
 		if time.Now().After(deadline) {
 			rep.OutOfTime = true
 			return removed
-		}
-		if !selected(e) {
-			continue
 		}
 		name := e.Name()
 		if err := root.RemoveAll(name); err != nil {
@@ -448,7 +452,8 @@ func CleanBeforeRun(cfg *config.Config, testUUID string) {
 }
 
 // CleanAfterRun empties the artifact and decoy folders once a test has
-// finished, keeping the result files the agent still reads.
+// finished, keeping the last run's result files for the operator to read on
+// the host until the next run.
 func CleanAfterRun(cfg *config.Config, testUUID string) {
 	cleanRun(afterRun, afterRunBudget, cfg, testUUID)
 }
@@ -461,15 +466,35 @@ func cleanRun(pass cleanPass, budget time.Duration, cfg *config.Config, testUUID
 	logCleanReport(pass, runCleanPass(pass, t, testUUID, time.Now().Add(budget)))
 }
 
-// logCleanReport logs what a pass removed; an empty report logs nothing.
+// logCleanReport logs what a pass removed, naming only the places it removed
+// something from; an empty report logs nothing.
 func logCleanReport(pass cleanPass, rep cleanReport) {
 	label := "before run"
 	if pass == afterRun {
 		label = "after run"
 	}
-	if len(rep.Removed) > 0 || rep.Decoys > 0 || rep.RunFolders > 0 || rep.Failed > 0 {
-		log.Printf("[cleanup] %s: removed %d from the artifact folder (%s), %d decoy entries, %d old run folder(s); %d failed",
-			label, len(rep.Removed), strings.Join(rep.Removed, ", "), rep.Decoys, rep.RunFolders, rep.Failed)
+	var parts []string
+	if len(rep.Removed) > 0 {
+		parts = append(parts, fmt.Sprintf("%d from the artifact folder (%s)", len(rep.Removed), strings.Join(rep.Removed, ", ")))
+	}
+	if rep.Decoys > 0 {
+		parts = append(parts, fmt.Sprintf("%d decoy entries", rep.Decoys))
+	}
+	if rep.RunFolders > 0 {
+		parts = append(parts, fmt.Sprintf("%d old run folder(s)", rep.RunFolders))
+	}
+	msg := ""
+	if len(parts) > 0 {
+		msg = "removed " + strings.Join(parts, ", ")
+	}
+	if rep.Failed > 0 {
+		if msg != "" {
+			msg += "; "
+		}
+		msg += fmt.Sprintf("%d could not be removed", rep.Failed)
+	}
+	if msg != "" {
+		log.Printf("[cleanup] %s: %s", label, msg)
 	}
 	if rep.OutOfTime {
 		log.Printf("[cleanup] %s: out of time, leftovers remain", label)

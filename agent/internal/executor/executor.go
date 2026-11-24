@@ -159,6 +159,8 @@ func executableName(goos, name string) string {
 
 // Execute downloads the test binary for the given task, verifies its integrity,
 // runs it with the specified arguments and timeout, and returns the execution result.
+// It runs the clean start's before pass (CleanBeforeRun) itself. The caller owns
+// the after pass: it must call CleanAfterRun once the result is reported.
 func Execute(ctx context.Context, client *httpclient.Client, task Task, cfg *config.Config) (*Result, error) {
 	// Step 1: Notify server we are downloading.
 	if err := patchStatus(ctx, client, task.ID, "downloading"); err != nil {

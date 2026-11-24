@@ -231,6 +231,16 @@ func TestCleanArtifactDirStopsWhenOutOfTime(t *testing.T) {
 	}
 }
 
+func TestCleanArtifactDirIsNotOutOfTimeWhenNothingIsToBeRemoved(t *testing.T) {
+	dir := filepath.Join(t.TempDir(), "F0")
+	touch(t, filepath.Join(dir, "achilles-agent.exe"), time.Now())
+	var rep cleanReport
+	cleanArtifactDir(dir, beforeRun, cleanTargets{Wide: true}, lockbit, time.Now().Add(-time.Second), &rep)
+	if rep.OutOfTime {
+		t.Error("OutOfTime set for a folder that holds only kept entries")
+	}
+}
+
 // noAccount makes cleanDecoyDir see no local fortika-test account.
 func noAccount(t *testing.T) {
 	t.Helper()
