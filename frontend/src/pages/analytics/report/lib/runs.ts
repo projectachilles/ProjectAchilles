@@ -5,6 +5,7 @@ import { agentKillNote, killVendorLabel } from '../../components/executions/stag
 import { timeOf, truncate } from './format';
 import { emptyCounts } from './outcomes';
 import { findEdrVendor } from '@/lib/edrVendors';
+import { VERSION_STATE_LABEL } from '../../components/executions/versionLabels';
 
 /** Longest stage name printed beside a stage label in an alert row. */
 const STAGE_NAME_MAX = 34;
@@ -13,6 +14,23 @@ export function countStages(stages: ReportRunStage[]): OutcomeCounts {
   const c = emptyCounts();
   for (const s of stages) c[s.outcome] += 1;
   return c;
+}
+
+/** True when the runs carry test versions; a server without them sends none. */
+export function hasRunVersions(runs: ReportRun[]): boolean {
+  return runs.some((r) => r.version !== undefined);
+}
+
+/**
+ * The Execution log's Version cell: the 7-character commit, followed by "older" when the test has
+ * changed since; a run with no commit gets its state's label, and a dash when it has no state either.
+ */
+export function runVersionText(run: ReportRun): string {
+  const v = run.version;
+  if (!v) return '';
+  const commit = v.commit?.slice(0, 7);
+  if (commit) return v.state === 'older' ? `${commit} ${VERSION_STATE_LABEL.older}` : commit;
+  return v.state ? VERSION_STATE_LABEL[v.state] : '—';
 }
 
 /** The run's earliest alert. An alert whose time does not parse is never first. */

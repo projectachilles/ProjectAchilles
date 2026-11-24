@@ -6,7 +6,7 @@ import { ExecutionLog } from '../ExecutionLog';
 import { RunStrips } from '../RunStrips';
 import { Method } from '../Method';
 import { countStages, firstAlert } from '../../lib/runs';
-import { BUNDLE, counts, makeReport, makeRun, makeTest } from '../../__tests__/fixtures';
+import { BUNDLE, COMMIT, counts, makeReport, makeRun, makeTest, versionedRuns } from '../../__tests__/fixtures';
 import type { AcceptedRiskRow, ReportMeta, ReportRun } from '@/services/api/reports';
 
 const head = { left: 'h', right: 'r' };
@@ -511,6 +511,48 @@ describe('ExecutionLog', () => {
     render(<ExecutionLog report={makeReport({ meta: { unavailable: ['alerts'] } })} head={head} />);
     expect(screen.getByText(ALERTS_INCOMPLETE)).toBeInTheDocument();
   });
+
+  describe('test version', () => {
+    const versionCell = (hostname: string) => within(hostRow(hostname)).getAllByRole('cell')[1];
+
+    it('adds a narrow Version column after Completed', () => {
+      render(<ExecutionLog report={makeReport({ runs: versionedRuns() })} head={head} />);
+      expect(screen.getAllByRole('columnheader').map((h) => h.textContent))
+        .toEqual(['Completed', 'Version', 'Endpoint', 'Test', 'Stages', 'Defended', 'First alert']);
+      // Mono, but free to wrap between the commit and its state, so the column stays one commit wide.
+      expect(versionCell('WS-FIN-014')).toHaveClass('rp-mono');
+      expect(versionCell('WS-FIN-014')).not.toHaveClass('rp-nowrap');
+    });
+
+    it('prints the 7-character commit, and the word older only for an older version', () => {
+      render(<ExecutionLog report={makeReport({ runs: versionedRuns() })} head={head} />);
+      expect(versionCell('WS-FIN-014')).toHaveTextContent(/^abc1234$/);
+      expect(versionCell('WS-0042')).toHaveTextContent(/^def5678 older$/);
+    });
+
+    it('names the state of a run with no commit', () => {
+      render(<ExecutionLog report={makeReport({ runs: versionedRuns() })} head={head} />);
+      expect(versionCell('WS-0043')).toHaveTextContent(/^version unknown$/);
+      expect(versionCell('WS-OPS-022')).toHaveTextContent(/^not recorded$/);
+    });
+
+    it('prints the commit alone, or a dash, when the versions could not be compared', () => {
+      const runs = [
+        makeRun({ version: { commit: COMMIT } }),
+        makeRun({ hostname: 'WS-OPS-022', completedAt: '2026-10-11T09:12:00.000Z', taskId: '9e1b7c52-3d84-4a6f-b0c9-5f2a8d71e346', version: { commit: null } }),
+      ];
+      render(<ExecutionLog report={makeReport({ runs })} head={head} />);
+      expect(versionCell('WS-FIN-014')).toHaveTextContent(/^abc1234$/);
+      expect(versionCell('WS-OPS-022')).toHaveTextContent(/^—$/);
+    });
+
+    it('has no Version column when no run carries a version (a server without the feature)', () => {
+      const { container } = render(<ExecutionLog report={makeReport()} head={head} />);
+      expect(screen.getAllByRole('columnheader').map((h) => h.textContent))
+        .toEqual(['Completed', 'Endpoint', 'Test', 'Stages', 'Defended', 'First alert']);
+      expect(container.textContent).not.toMatch(/not recorded|version unknown/);
+    });
+  });
 });
 
 describe('RunStrips', () => {
@@ -647,6 +689,20 @@ describe('Method', () => {
     expect(container.textContent).not.toContain('Alerts raised more than 5 minutes');
     // The metric definitions stay.
     expect(screen.getByText('Defense Score')).toBeInTheDocument();
+  });
+
+  it('says what the Version column is and what older is compared with, as of the report\'s generation', () => {
+    render(<Method head={head} versions={{ generatedAt: '2026-10-13T23:40:00.000Z', tz: 'UTC' }} />);
+    const sources = screen.getByText('Sources.').closest('p') as HTMLElement;
+    expect(sources).toHaveTextContent(
+      'The Version column gives the commit each run\'s test was built from; “older” marks a test that has changed since, '
+      + 'compared with the test library synced on the console when this report was generated (13 Oct 2026, 23:40 UTC).',
+    );
+  });
+
+  it('has no version sentence for a report without versions', () => {
+    const { container } = render(<Method head={head} />);
+    expect(container.textContent).not.toMatch(/Version column|older/);
   });
 
   it('defines every outcome in the report\'s vocabulary', () => {

@@ -3,6 +3,7 @@ import { OUTCOME_LABEL } from '../lib/outcomes';
 import { GlyphIcon } from '../diagrams/StageGlyph';
 import { Sheet, type SheetHead } from './Sheet';
 import { EDR_VENDOR_KEYS, findEdrVendor } from '@/lib/edrVendors';
+import { fmtDateTime, tzName } from '../lib/format';
 
 const DEFINITIONS: [StageOutcome, string][] = [
   ['protected', 'The test exited 105, 126 or 127: the security stack blocked or quarantined it.'],
@@ -12,8 +13,15 @@ const DEFINITIONS: [StageOutcome, string][] = [
   ['inconclusive', 'The test could not reach a verdict (for example exit 200, 259, 260 or 999). Excluded from rates.'],
 ];
 
-/** `edrVendors` is meta.edrVendors: the sources and alert-window text name only configured vendors, and are omitted when there are none. */
-export function Method({ head, edrVendors = [...EDR_VENDOR_KEYS] }: { head: SheetHead; edrVendors?: ExecutionReport['meta']['edrVendors'] }) {
+/**
+ * `edrVendors` is meta.edrVendors: the sources and alert-window text name only configured vendors, and are omitted when there are none.
+ * `versions` is set when the runs carry test versions: the report's generation time, which the version states compare as of.
+ */
+export function Method({ head, edrVendors = [...EDR_VENDOR_KEYS], versions }: {
+  head: SheetHead;
+  edrVendors?: ExecutionReport['meta']['edrVendors'];
+  versions?: { generatedAt: string; tz: string };
+}) {
   const edr = edrVendors.length > 0;
   return (
     <Sheet label="Method" head={head}>
@@ -33,6 +41,7 @@ export function Method({ head, edrVendors = [...EDR_VENDOR_KEYS] }: { head: Shee
         <p>
           <b>Sources.</b> Stage results come from the ProjectAchilles agent.
           {edr && ` EDR alerts come from ${edrVendors.map((v) => findEdrVendor(v)?.productName ?? v).join(' and ')}, matched to a run by test binary, endpoint and a window from 5 minutes before to 30 minutes after the run completed.`}
+          {versions && ` The Version column gives the commit each run's test was built from; “older” marks a test that has changed since, compared with the test library synced on the console when this report was generated (${fmtDateTime(versions.generatedAt, versions.tz)} ${tzName(versions.generatedAt, versions.tz)}).`}
         </p>
         <p>
           <b>Limits.</b> Stages within a run are not timed individually; every stage carries the run's completion time.
