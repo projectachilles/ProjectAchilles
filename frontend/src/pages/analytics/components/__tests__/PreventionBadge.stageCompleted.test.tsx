@@ -1,8 +1,9 @@
 import { describe, it, expect } from 'vitest';
 import { render, screen } from '@testing-library/react';
 import PreventionBadge from '../PreventionBadge';
-import { DefenderAlertRow } from '../executions/detailParts';
+import { DefenderAlertRow, EndpointAlertRow } from '../executions/detailParts';
 import type { DefenderAlertItem } from '@/services/api/defender';
+import type { CrowdStrikeAlertItem } from '@/services/api/crowdstrike';
 
 // A stage that exited 101 ran to completion, so an EDR action on it did not
 // stop it (the stage reads Detected); the alert row says so instead of hiding it.
@@ -33,6 +34,20 @@ describe('DefenderAlertRow under a stage that ran to completion', () => {
     const { rerender } = render(<DefenderAlertRow alert={alert} runTimestamp="2026-11-04T12:48:32Z" ranToCompletion />);
     expect(screen.getByText('process killed, stage still completed')).toBeInTheDocument();
     rerender(<DefenderAlertRow alert={alert} runTimestamp="2026-11-04T12:48:32Z" />);
+    expect(screen.getByText('process killed')).toBeInTheDocument();
+  });
+});
+
+describe('EndpointAlertRow under a stage that ran to completion', () => {
+  const alert = {
+    alert_id: 'a1', alert_title: 'Malicious process terminated', severity: 'high', status: 'resolved',
+    created_at: '2026-11-04T12:56:03Z', prevention_action: 'process_killed',
+  } as unknown as CrowdStrikeAlertItem;
+
+  it('says "stage still completed" only on a result that ran to completion (exit 101)', () => {
+    const { rerender } = render(<EndpointAlertRow alert={alert} runTimestamp="2026-11-04T12:48:32Z" vendor="sentinelone" ranToCompletion />);
+    expect(screen.getByText('process killed, stage still completed')).toBeInTheDocument();
+    rerender(<EndpointAlertRow alert={alert} runTimestamp="2026-11-04T12:48:32Z" vendor="sentinelone" />);
     expect(screen.getByText('process killed')).toBeInTheDocument();
   });
 });

@@ -9,10 +9,11 @@ import { VERSION_STATE_LABEL } from '../../components/executions/versionLabels';
 
 const DEFINITIONS: [StageOutcome, string][] = [
   ['protected', 'The test exited 105, 126 or 127: the security stack blocked or quarantined it.'],
-  ['prevented', 'The stage ran (exit 101) and the EDR confirmed it blocked, killed or quarantined it.'],
-  ['detected', 'The stage ran and an EDR alert names this stage.'],
+  ['prevented', 'The stage ended with an error code and the EDR\'s own alert on it carried a confirmed block, kill or quarantine. A stage that exited 101 is never Prevented.'],
+  ['detected', 'The stage exited 101, or ended with an error code, and an EDR alert names this stage but did not stop it.'],
   ['unprotected', 'The stage ran and nothing stopped or detected it. Dark red marks exfiltration and impact stages.'],
-  ['inconclusive', 'The test could not reach a verdict (for example exit 200, 259, 260 or 999). Excluded from rates.'],
+  ['inconclusive', 'The test could not reach a verdict (for example exit 200, 259, 260 or 999) and no EDR alert names the stage. Excluded from rates.'
+    + ' An error-coded stage that an EDR alert names is Detected instead, or Prevented when its own alert carried a confirmed action; both count in the rates.'],
 ];
 
 const quoted = (state: keyof typeof VERSION_STATE_LABEL) => `“${VERSION_STATE_LABEL[state]}”`;

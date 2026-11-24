@@ -671,6 +671,20 @@ describe('RunStrips', () => {
 });
 
 describe('Method', () => {
+  it('defines Prevented by the exit code: an error-coded stage its own alert stopped, never one that exited 101', () => {
+    render(<Method head={head} />);
+    expect(screen.getByText(
+      'The stage ended with an error code and the EDR\'s own alert on it carried a confirmed block, kill or quarantine. '
+      + 'A stage that exited 101 is never Prevented.',
+    )).toBeInTheDocument();
+    expect(screen.getByText(
+      'The stage exited 101, or ended with an error code, and an EDR alert names this stage but did not stop it.',
+    )).toBeInTheDocument();
+    expect(screen.getByText(/^The test could not reach a verdict/)).toHaveTextContent(
+      'An error-coded stage that an EDR alert names is Detected instead, or Prevented when its own alert carried a confirmed action; both count in the rates.',
+    );
+  });
+
   it('defines both metrics', () => {
     render(<Method head={head} />);
     expect(screen.getByText('Defense Score')).toBeInTheDocument();
