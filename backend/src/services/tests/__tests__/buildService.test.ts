@@ -2554,24 +2554,18 @@ var data string
       ]);
     });
 
-    it('does not count what build_all.sh makes as embedded files the fingerprint leaves out', async () => {
-      // `generated` and the stage binary are made by the build from source the
-      // fingerprint covers; only the hand-written note is a real gap.
-      embedded.leftOut = ['generated/report.html', 'generated/sub/readme.md', 'notes.md'];
+    it('counts a left-out file inside a folder the build fills like any other', async () => {
+      // `generated` is classed as source-built by a filename guess that also
+      // matches ordinary committed folders, so nothing under it is exempt: a
+      // committed `<uuid>_hardening.ps1` in such a folder must not be missed.
+      embedded.leftOut = ['generated/report.html', `generated/${VALID_UUID}_hardening.ps1`, 'notes.md'];
       const svc = service();
+      expect(svc.getEmbedDependencies(VALID_UUID).find(d => d.filename === 'generated')?.sourceBuilt).toBe(true);
 
       await svc.buildAndSign(VALID_UUID);
 
-      expect(writtenStamp().embeds_left_out).toEqual(['notes.md']);
-    });
-
-    it('writes no embeds_left_out key when every such file is made by the build', async () => {
-      embedded.leftOut = ['generated/report.html'];
-      const svc = service();
-
-      await svc.buildAndSign(VALID_UUID);
-
-      expect('embeds_left_out' in writtenStamp()).toBe(false);
+      expect(writtenStamp().embeds_left_out)
+        .toEqual(['generated/report.html', `generated/${VALID_UUID}_hardening.ps1`, 'notes.md']);
     });
 
     it('stamps outputs_hash from the source-built embeds as they are after the build', async () => {

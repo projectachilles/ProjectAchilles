@@ -111,7 +111,7 @@ A test's version is a fingerprint of its build inputs. Documentation and detecti
 
 If a test's Go code embeds one of those files (`//go:embed`, by name, through a pattern such as `*.ps1`, or inside an embedded folder), the file is part of the binary but not of the fingerprint: changing it changes what runs on endpoints while the version stays the same. The console does not vouch for such a build. The test reads **Unknown build** with the reason "embeds a file that versions do not cover", and the results of its runs say **version unknown**, never **current**.
 
-Building again does not change this. To get versions back, change the test: stop embedding the file, or give it a name that is a build input (for example `apply_hardening.ps1` instead of `<uuid>_hardening.ps1`), then Sync and build. No test in the published library embeds such a file. Files that `build_all.sh` generates are not counted.
+Building again does not change this. To get versions back, change the test: stop embedding the file, or give it a name that is a build input (for example `apply_hardening.ps1` instead of `<uuid>_hardening.ps1`), then Sync and build. No test in the published library embeds such a file. A file of one of these kinds that `build_all.sh` writes into an embedded folder counts too.
 
 ## Without git, and custom tests
 

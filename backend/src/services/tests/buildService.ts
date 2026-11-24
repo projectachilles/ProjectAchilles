@@ -1000,18 +1000,20 @@ const ARTIFACT_DIR = \`${artifactDir}\`
   /**
    * Files the test embeds that its fingerprint leaves out by extension or by
    * name (every pattern of every //go:embed line, globs and folders included:
-   * embeddedFiles.ts), relative to the test folder. What build_all.sh makes
-   * is not counted: it comes from source the fingerprint covers. A build
-   * with such a file is stamped with the list, and is then never compared by
-   * fingerprint (embedsLeftOutFiles).
+   * embeddedFiles.ts), relative to the test folder. A build with such a file
+   * is stamped with the list, and is then never compared by fingerprint
+   * (embedsLeftOutFiles).
+   *
+   * Files inside a folder build_all.sh fills are counted like any other. The
+   * source-built guess (isSourceBuiltBinary) was made for binaries and also
+   * matches an ordinary committed folder (a `scripts.go` next to `scripts/`,
+   * a `mkdir -p` of a folder that exists), so exempting such folders would
+   * hide a committed file in them. A test whose build writes a left-out kind
+   * of file into an embedded folder reads Unknown build: the safe side.
    */
   private embeddedFilesOutsideFingerprint(uuid: string): string[] {
     const testDir = this.findTestDir(uuid);
-    if (!testDir) return [];
-    const built = this.getEmbedDependencies(uuid).filter(d => d.sourceBuilt).map(d => d.filename);
-    return embeddedFilesLeftOut(testDir).filter(
-      file => !built.some(name => file === name || file.startsWith(`${name}/`)),
-    );
+    return testDir ? embeddedFilesLeftOut(testDir) : [];
   }
 
   /** Write an uploaded embed dependency into the test folder, under the test folder lock (409 while a build runs). */
