@@ -25,6 +25,10 @@ vi.mock('../../integrations/settings.js', () => ({
     isSophosConfigured() { return false; }
   },
 }));
+const { mockCurrentFingerprintMap } = vi.hoisted(() => ({
+  mockCurrentFingerprintMap: vi.fn(async (): Promise<Map<string, string> | undefined> => undefined),
+}));
+vi.mock('../../browser/currentFingerprints.js', () => ({ currentFingerprintMap: mockCurrentFingerprintMap }));
 vi.mock('../../notices/userLabel.js', () => ({
   resolveUserLabel: async (id: string) => (id === 'user_jane' ? 'Jane Doe (jane@x.io)' : id),
 }));
@@ -47,7 +51,7 @@ function insertRun(id: string, campaignId: string, snapshot: object, noticeId: s
 
 function insertTask(o: {
   runId: string; agent: string; test: string; status: string; exit?: number; noticeId?: string | null;
-  createdAt?: string; techniques?: string[]; id?: string; stdout?: string; error?: string;
+  createdAt?: string; techniques?: string[]; id?: string; stdout?: string; error?: string; testVersion?: unknown;
 }): string {
   const id = o.id ?? `task-${++seq}`;
   testDb
@@ -57,7 +61,10 @@ function insertTask(o: {
     )
     .run(
       id, o.agent, ORG, o.status,
-      JSON.stringify({ test_uuid: o.test, test_name: o.test, metadata: { techniques: o.techniques ?? [] } }),
+      JSON.stringify({
+        test_uuid: o.test, test_name: o.test, metadata: { techniques: o.techniques ?? [] },
+        ...(o.testVersion === undefined ? {} : { test_version: o.testVersion }),
+      }),
       o.exit === undefined && o.error === undefined ? null : JSON.stringify({ exit_code: o.exit, stdout: o.stdout, error: o.error }),
       o.createdAt ?? '2026-10-23 10:00:00',
       o.status === 'completed' ? '2026-10-23T10:05:00.000Z' : null,
@@ -73,6 +80,9 @@ function notice(id: string, state: string, releaseAt: string | null) {
   } as unknown as Parameters<typeof insertNotice>[0]);
   testDb.prepare('UPDATE run_notices SET state = ?, release_at = ? WHERE id = ?').run(state, releaseAt, id);
 }
+
+/** A CSV row without its last two columns (version, version_state): the eleven columns that existed before them. */
+const legacyColumns = (line: string) => line.replace(/,[^,]*,[^,]*$/, '');
 
 const snap = (tests: string[], agents: string[], skipped: object[] = []) => ({
   campaign_name: 'C',
@@ -176,11 +186,11 @@ describe('campaign run matrix', () => {
     const m8 = (await getRunMatrix('r8', ORG));
     const csv = runMatrixCsv(m8);
     const lines = csv.trimEnd().split('\r\n');
-    expect(lines[0]).toBe('test,techniques,host,os,outcome,exit_code,reason,completed_at,as_of,stages,edr');
+    expect(lines[0]).toBe('test,techniques,host,os,outcome,exit_code,reason,completed_at,as_of,stages,edr,version,version_state');
     const asOf = m8.as_of;
     expect(lines[1]).toMatch(/^'=cmd\|' \/C calc'!A0,T1059; T1105,"web,01",windows,unprotected,101,Ran without being blocked \(exit 101\)\.,2026-10-23T10:05:00\.000Z,/);
-    expect(lines.slice(1).every((l) => l.endsWith(',' + asOf + ',,'))).toBe(true);
-    expect(lines[2]).toBe(`Test t2,,"web,01",windows,na,,no windows binary,,${asOf},,`);
+    expect(lines.slice(1).every((l) => legacyColumns(l).endsWith(',' + asOf + ',,'))).toBe(true);
+    expect(legacyColumns(lines[2])).toBe(`Test t2,,"web,01",windows,na,,no windows binary,,${asOf},,`);
   });
 
   it('CSV: not_run has a blank exit_code (no -1) and its reason; error carries result.error', async () => {
@@ -189,10 +199,10 @@ describe('campaign run matrix', () => {
     insertTask({ runId: 'r11', agent: 'a1', test: 't2', status: 'failed', exit: 1, error: 'binary crashed' });
     const m = (await getRunMatrix('r11', ORG));
     const lines = runMatrixCsv(m).trimEnd().split('\r\n');
-    expect(lines[1]).toBe(`Test t1,,host-a1,windows,not_run,,Not run: notice expired,,${m.as_of},,`);
-    expect(lines[2]).toBe(`Test t2,,host-a1,windows,error,1,binary crashed,,${m.as_of},,`);
+    expect(legacyColumns(lines[1])).toBe(`Test t1,,host-a1,windows,not_run,,Not run: notice expired,,${m.as_of},,`);
+    expect(legacyColumns(lines[2])).toBe(`Test t2,,host-a1,windows,error,1,binary crashed,,${m.as_of},,`);
     // No task at all: not_run, blank exit_code and reason.
-    expect(lines[3]).toBe(`Test t3,,host-a1,windows,not_run,,,,${m.as_of},,`);
+    expect(legacyColumns(lines[3])).toBe(`Test t3,,host-a1,windows,not_run,,,,${m.as_of},,`);
   });
 
   it('error cells carry reason from result.error', async () => {
@@ -333,7 +343,7 @@ describe('campaign run matrix', () => {
         s1Configured.value = false;
       }
       const csv = runMatrixCsv(m).trimEnd().split('\r\n');
-      expect(csv[1].endsWith(',1:101 2:999,Defender: prevented (process killed)')).toBe(true);
+      expect(legacyColumns(csv[1]).endsWith(',1:101 2:999,Defender: prevented (process killed)')).toBe(true);
     });
 
     it('EDR unavailable: exit codes only, and the run says so', async () => {
@@ -357,6 +367,112 @@ describe('campaign run matrix', () => {
       const m = await getRunMatrix('e3', ORG);
       expect(mockFetchEdrDocs).toHaveBeenCalledWith([]);
       expect(m.cells.t2.a1).toMatchObject({ state: 'protected', reason: '1 of 1 controls compliant.' });
+    });
+  });
+
+  describe('test version', () => {
+    const COMMIT_A = 'a'.repeat(7) + '1234567890abcdef1234567890abcdef1';
+    const COMMIT_B = 'b'.repeat(7) + '1234567890abcdef1234567890abcdef1';
+    const stamp = (o: Record<string, unknown> = {}) => ({ built_at: '2026-11-20T10:00:00.000Z', build_source: 'built', ...o });
+
+    afterEach(() => {
+      mockCurrentFingerprintMap.mockReset();
+      mockCurrentFingerprintMap.mockImplementation(async () => undefined);
+      mockFetchEdrDocs.mockImplementation(async () => ({ status: 'not_configured', docs: new Map() }));
+    });
+
+    it("comes from the task payload, with Elasticsearch unavailable", async () => {
+      mockFetchEdrDocs.mockImplementation(async () => ({ status: 'unavailable', docs: new Map() }));
+      mockCurrentFingerprintMap.mockImplementation(async () => new Map([['t1', 'fp-1']]));
+      insertRun('v1', 'c1', snap(['t1'], ['a1']));
+      insertTask({ runId: 'v1', agent: 'a1', test: 't1', status: 'completed', exit: 101, testVersion: stamp({ commit: COMMIT_A, fingerprint: 'fp-1' }) });
+      const m = await getRunMatrix('v1', ORG);
+      expect(m.edr.status).toBe('unavailable');
+      expect(m.cells.t1.a1.version).toEqual({ commit: COMMIT_A, fingerprint: 'fp-1', state: 'current' });
+    });
+
+    it('no stamp, or a malformed one, is not recorded', async () => {
+      mockCurrentFingerprintMap.mockImplementation(async () => new Map([['t1', 'fp-1'], ['t2', 'fp-2']]));
+      insertRun('v2', 'c1', snap(['t1', 't2'], ['a1']));
+      insertTask({ runId: 'v2', agent: 'a1', test: 't1', status: 'completed', exit: 101 });
+      insertTask({ runId: 'v2', agent: 'a1', test: 't2', status: 'completed', exit: 101, testVersion: stamp({ built_at: 'yesterday', commit: COMMIT_A, fingerprint: 'fp-2' }) });
+      const m = await getRunMatrix('v2', ORG);
+      expect(m.cells.t1.a1.version).toEqual({ commit: null, fingerprint: null, state: 'not_recorded' });
+      expect(m.cells.t2.a1.version).toEqual({ commit: null, fingerprint: null, state: 'not_recorded' });
+    });
+
+    it('current only on an exact fingerprint match; older, or unknown when it cannot be compared', async () => {
+      mockCurrentFingerprintMap.mockImplementation(async () => new Map([['t1', 'fp-1'], ['t2', 'fp-2'], ['t3', 'fp-3']]));
+      insertRun('v3', 'c1', snap(['t1', 't2', 't3', 't4'], ['a1']));
+      insertTask({ runId: 'v3', agent: 'a1', test: 't1', status: 'completed', exit: 126, testVersion: stamp({ commit: COMMIT_A, fingerprint: 'fp-1' }) });
+      insertTask({ runId: 'v3', agent: 'a1', test: 't2', status: 'completed', exit: 126, testVersion: stamp({ commit: COMMIT_B, fingerprint: 'fp-old' }) });
+      insertTask({ runId: 'v3', agent: 'a1', test: 't3', status: 'completed', exit: 126, testVersion: stamp({ build_source: 'uploaded' }) });
+      insertTask({ runId: 'v3', agent: 'a1', test: 't4', status: 'completed', exit: 126, testVersion: stamp({ commit: COMMIT_A, fingerprint: 'fp-1' }) });
+      const m = await getRunMatrix('v3', ORG);
+      expect(m.cells.t1.a1.version).toEqual({ commit: COMMIT_A, fingerprint: 'fp-1', state: 'current' });
+      expect(m.cells.t2.a1.version).toEqual({ commit: COMMIT_B, fingerprint: 'fp-old', state: 'older' });
+      // Recorded without a fingerprint.
+      expect(m.cells.t3.a1.version).toEqual({ commit: null, fingerprint: null, state: 'unknown' });
+      // Same fingerprint as another test's current one, but t4 is missing from the map.
+      expect(m.cells.t4.a1.version).toEqual({ commit: COMMIT_A, fingerprint: 'fp-1', state: 'unknown' });
+      expect(mockCurrentFingerprintMap).toHaveBeenCalledTimes(1);
+    });
+
+    it('current versions unreadable: recorded cells keep the commit and have no state', async () => {
+      mockCurrentFingerprintMap.mockImplementation(async () => undefined);
+      insertRun('v4', 'c1', snap(['t1', 't2'], ['a1']));
+      insertTask({ runId: 'v4', agent: 'a1', test: 't1', status: 'executing', testVersion: stamp({ commit: COMMIT_A, fingerprint: 'fp-1' }) });
+      insertTask({ runId: 'v4', agent: 'a1', test: 't2', status: 'completed', exit: 101 });
+      const m = await getRunMatrix('v4', ORG);
+      expect(m.cells.t1.a1.version).toEqual({ commit: COMMIT_A, fingerprint: 'fp-1' });
+      expect(m.cells.t2.a1.version).toEqual({ commit: null, fingerprint: null, state: 'not_recorded' });
+    });
+
+    it('a cell with no task has no version', async () => {
+      mockCurrentFingerprintMap.mockImplementation(async () => new Map([['t1', 'fp-1']]));
+      insertRun('v5', 'c1', snap(['t1', 't2'], ['a1'], [{ test_uuid: 't1', agent_id: 'a1', reason: 'not built' }]));
+      const m = await getRunMatrix('v5', ORG);
+      expect(m.cells.t1.a1.state).toBe('na');
+      expect(m.cells.t1.a1).not.toHaveProperty('version');
+      expect(m.cells.t2.a1.state).toBe('not_run');
+      expect(m.cells.t2.a1).not.toHaveProperty('version');
+    });
+
+    it('CSV: version and version_state columns appended, the first eleven unchanged', async () => {
+      mockCurrentFingerprintMap.mockImplementation(async () => new Map([['t1', 'fp-1'], ['t2', 'fp-2'], ['t3', 'fp-3']]));
+      insertRun('v6', 'c1', snap(['t1', 't2', 't3', 't4', 't5', 't6'], ['a1'], [{ test_uuid: 't6', agent_id: 'a1', reason: 'not built' }]));
+      insertTask({ runId: 'v6', agent: 'a1', test: 't1', status: 'completed', exit: 126, testVersion: stamp({ commit: COMMIT_A, fingerprint: 'fp-1' }) });
+      insertTask({ runId: 'v6', agent: 'a1', test: 't2', status: 'completed', exit: 101, testVersion: stamp({ commit: COMMIT_B, fingerprint: 'fp-old' }) });
+      insertTask({ runId: 'v6', agent: 'a1', test: 't3', status: 'completed', exit: 101, testVersion: stamp({ build_source: 'uploaded' }) });
+      insertTask({ runId: 'v6', agent: 'a1', test: 't4', status: 'completed', exit: 101 });
+      const m = await getRunMatrix('v6', ORG);
+      const lines = runMatrixCsv(m).trimEnd().split('\r\n');
+      expect(lines[0]).toBe('test,techniques,host,os,outcome,exit_code,reason,completed_at,as_of,stages,edr,version,version_state');
+      const prefix = (test: string, outcome: string, exit: string, reason: string, completed = '2026-10-23T10:05:00.000Z') =>
+        `Test ${test},,host-a1,windows,${outcome},${exit},${reason},${completed},${m.as_of},,`;
+      expect(lines[1]).toBe(`${prefix('t1', 'protected', '126', '"Blocked, exit 126."')},aaaaaaa,current`);
+      expect(lines[2]).toBe(`${prefix('t2', 'unprotected', '101', 'Ran without being blocked (exit 101).')},bbbbbbb,older`);
+      expect(lines[3]).toBe(`${prefix('t3', 'unprotected', '101', 'Ran without being blocked (exit 101).')},,version unknown`);
+      expect(lines[4]).toBe(`${prefix('t4', 'unprotected', '101', 'Ran without being blocked (exit 101).')},,not recorded`);
+      // No task: no version, no state.
+      expect(lines[5]).toBe(`${prefix('t5', 'not_run', '', '', '')},,`);
+      expect(lines[6]).toBe(`${prefix('t6', 'na', '', 'not built', '')},,`);
+
+      // No state when the current versions can't be read; the commit stays.
+      mockCurrentFingerprintMap.mockImplementation(async () => undefined);
+      const unread = runMatrixCsv(await getRunMatrix('v6', ORG)).trimEnd().split('\r\n');
+      expect(unread[2].endsWith(',bbbbbbb,')).toBe(true);
+      expect(unread[4].endsWith(',,not recorded')).toBe(true);
+    });
+
+    it('the run-list paths never read the current versions', async () => {
+      insertRun('v7', 'c1', snap(['t1'], ['a1']));
+      insertTask({ runId: 'v7', agent: 'a1', test: 't1', status: 'completed', exit: 126, testVersion: stamp({ commit: COMMIT_A, fingerprint: 'fp-1' }) });
+      mockCurrentFingerprintMap.mockClear();
+      await computeRunTotals('v7');
+      await listRuns('c1', ORG, 25, 0);
+      await listAllRuns(ORG, 25, 0);
+      expect(mockCurrentFingerprintMap).not.toHaveBeenCalled();
     });
   });
 });
