@@ -1,13 +1,16 @@
 package executor
 
 import (
+	"errors"
 	"os"
 	"path/filepath"
 	"reflect"
+	"runtime"
 	"sort"
-	"strings"
 	"testing"
 	"time"
+
+	"github.com/f0rt1ka/achilles-agent/internal/config"
 )
 
 func TestIsAgentFile(t *testing.T) {
@@ -287,12 +290,26 @@ func TestCleanDecoyDirSkipsWhenAnAgentPathIsInside(t *testing.T) {
 	noAccount(t)
 	decoy := filepath.Join(t.TempDir(), "fortika-test")
 	touch(t, filepath.Join(decoy, "a.txt"), time.Now())
+	for name, protected := range map[string]string{
+		"a path inside": filepath.Join(decoy, "agent.log"),
+		"the folder":    decoy,
+	} {
+		tg := decoyTargets(decoy)
+		tg.Protected = []string{protected}
+		var rep cleanReport
+		cleanDecoyDir(decoy, tg, inOneMinute(), &rep)
+		if got, want := names(t, decoy), []string{"a.txt"}; !equal(got, want) {
+			t.Errorf("%s: left %v, want %v", name, got, want)
+		}
+	}
+
+	// An empty protected path protects nothing.
 	tg := decoyTargets(decoy)
-	tg.Protected = []string{filepath.Join(decoy, "agent.log")}
+	tg.Protected = []string{""}
 	var rep cleanReport
 	cleanDecoyDir(decoy, tg, inOneMinute(), &rep)
-	if got, want := names(t, decoy), []string{"a.txt"}; !equal(got, want) {
-		t.Errorf("left %v, want %v", got, want)
+	if got := names(t, decoy); len(got) != 0 {
+		t.Errorf("an empty protected path skipped the folder: left %v", got)
 	}
 }
 
@@ -400,8 +417,151 @@ func TestRunCleanPassOutOfTimeTouchesNothing(t *testing.T) {
 }
 
 func TestDecoyDirs(t *testing.T) {
-	got := DecoyDirs()
-	if len(got) != 1 || !strings.HasSuffix(filepath.ToSlash(got[0]), "fortika-test") {
-		t.Errorf("DecoyDirs() = %v", got)
+	want := "/home/fortika-test"
+	switch runtime.GOOS {
+	case "windows":
+		want = `C:\Users\fortika-test`
+	case "darwin":
+		want = "/Users/fortika-test"
+	}
+	if got := DecoyDirs(); !equal(got, []string{want}) {
+		t.Errorf("DecoyDirs() = %v, want [%s]", got, want)
+	}
+}
+
+// useTargets replaces targetsFor for one test.
+func useTargets(t *testing.T, f func(cfg *config.Config) cleanTargets) {
+	t.Helper()
+	old := targetsFor
+	targetsFor = f
+	t.Cleanup(func() { targetsFor = old })
+}
+
+// useExecutable replaces executablePath for one test.
+func useExecutable(t *testing.T, path string, err error) {
+	t.Helper()
+	old := executablePath
+	executablePath = func() (string, error) { return path, err }
+	t.Cleanup(func() { executablePath = old })
+}
+
+// loadConfig writes a minimal config file and loads it, so ConfigPath() is set.
+func loadConfig(t *testing.T, path, body string) *config.Config {
+	t.Helper()
+	if err := os.MkdirAll(filepath.Dir(path), 0700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(path, []byte(body), 0600); err != nil {
+		t.Fatal(err)
+	}
+	cfg, err := config.Load(path)
+	if err != nil {
+		t.Fatalf("config.Load: %v", err)
+	}
+	return cfg
+}
+
+func TestDefaultTargetsProtectTheAgentsOwnPaths(t *testing.T) {
+	f0 := filepath.Join(t.TempDir(), "F0")
+	exe := filepath.Join(f0, "achilles-agent.exe")
+	useExecutable(t, exe, nil)
+	cfgPath := filepath.Join(f0, "achilles-agent.yaml")
+	work := filepath.Join(f0, "tasks")
+	logFile := filepath.Join(f0, "achilles-agent.log")
+	ca := filepath.Join(f0, "certs", "ca.pem")
+	cfg := loadConfig(t, cfgPath, "work_dir: "+work+"\nlog_file: "+logFile+"\nca_cert: "+ca+"\n")
+
+	tg := defaultTargets(cfg)
+	if !tg.Wide {
+		t.Error("Wide = false, want true")
+	}
+	for _, p := range []string{exe, cfgPath, logFile, ca, work} {
+		found := false
+		for _, got := range tg.Protected {
+			found = found || got == p
+		}
+		if !found {
+			t.Errorf("Protected %v lacks %s", tg.Protected, p)
+		}
+	}
+	if !equal(tg.ArtifactDirs, ArtifactDirs()) || !equal(tg.DecoyDirs, DecoyDirs()) || tg.WorkDir != work {
+		t.Errorf("targets = %+v", tg)
+	}
+}
+
+func TestDefaultTargetsMakeProtectedPathsAbsolute(t *testing.T) {
+	tmp := t.TempDir()
+	t.Chdir(tmp)
+	useExecutable(t, filepath.Join(tmp, "F0", "achilles-agent.exe"), nil)
+	cfg := loadConfig(t, filepath.Join(tmp, "F0", "achilles-agent.yaml"), "ca_cert: certs/ca.pem\n")
+	tg := defaultTargets(cfg)
+	if !tg.Wide {
+		t.Error("Wide = false, want true")
+	}
+	want := filepath.Join(tmp, "certs", "ca.pem")
+	found := false
+	for _, p := range tg.Protected {
+		if p == "certs/ca.pem" {
+			t.Errorf("a relative path stayed in Protected: %v", tg.Protected)
+		}
+		found = found || p == want
+	}
+	if !found {
+		t.Errorf("Protected %v lacks the absolute %s", tg.Protected, want)
+	}
+}
+
+func TestDefaultTargetsFailClosed(t *testing.T) {
+	tmp := t.TempDir()
+	cfg := loadConfig(t, filepath.Join(tmp, "achilles-agent.yaml"), "agent_id: a\n")
+
+	useExecutable(t, "", errors.New("no executable"))
+	if defaultTargets(cfg).Wide {
+		t.Error("an unknown executable gave Wide = true")
+	}
+
+	useExecutable(t, filepath.Join(tmp, "achilles-agent.exe"), nil)
+	d := config.DefaultConfig()
+	if defaultTargets(&d).Wide {
+		t.Error("a config not loaded from a file gave Wide = true")
+	}
+}
+
+func TestCleanBeforeAndAfterRunUseTheTargets(t *testing.T) {
+	tmp := t.TempDir()
+	art, decoy, work := filepath.Join(tmp, "F0"), filepath.Join(tmp, "fortika-test"), filepath.Join(tmp, "work")
+	noAccount(t)
+	now := time.Now()
+	for _, f := range []string{
+		filepath.Join(art, "rwdrv.sys"), filepath.Join(art, "test_execution_log.json"),
+		filepath.Join(art, "achilles-agent.exe"), filepath.Join(decoy, "a.txt"),
+		filepath.Join(work, "task-old-1", "x"),
+	} {
+		touch(t, f, now)
+	}
+	useTargets(t, func(cfg *config.Config) cleanTargets {
+		return cleanTargets{
+			ArtifactDirs: []string{art}, DecoyDirs: []string{decoy}, WorkDir: work,
+			Protected: []string{filepath.Join(art, "achilles-agent.exe"), work}, Wide: true,
+		}
+	})
+	cfg := &config.Config{}
+
+	CleanBeforeRun(cfg, lockbit)
+	if got, want := names(t, art), []string{"achilles-agent.exe"}; !equal(got, want) {
+		t.Errorf("artifact dir after the before pass: %v, want %v", got, want)
+	}
+	if got := names(t, decoy); len(got) != 0 {
+		t.Errorf("decoy dir left %v", got)
+	}
+	if got := names(t, work); len(got) != 0 {
+		t.Errorf("work dir left %v", got)
+	}
+
+	touch(t, filepath.Join(art, "rwdrv.sys"), now)
+	touch(t, filepath.Join(art, "test_execution_log.json"), now)
+	CleanAfterRun(cfg, lockbit)
+	if got, want := names(t, art), []string{"achilles-agent.exe", "test_execution_log.json"}; !equal(got, want) {
+		t.Errorf("artifact dir after the after pass: %v, want %v", got, want)
 	}
 }

@@ -773,6 +773,15 @@ func executeAndReport(
 		}
 	}()
 
+	// Empty the artifact and decoy folders once the result is reported (or the
+	// task is marked failed). Defers run last-in first-out, so this runs after
+	// the heartbeat stops naming the task and before the busy flag clears: the
+	// agent can't take another task meanwhile, and the pass is never inside the
+	// server's execution-timeout clock.
+	if task.Type == "execute_test" {
+		defer executor.CleanAfterRun(cfg, task.Payload.TestUUID)
+	}
+
 	// Track current task for heartbeat reporting.
 	taskID := task.ID
 	setCurrentTask(&taskID)

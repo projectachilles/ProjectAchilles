@@ -9,6 +9,8 @@ import (
 	"sort"
 	"strings"
 	"time"
+
+	"github.com/f0rt1ka/achilles-agent/internal/config"
 )
 
 // Clean start. Test binaries drop files of their own into the artifact folder
@@ -113,10 +115,10 @@ func protectedTops(dir string, protected []string) (tops []string, selfIsWorkDir
 		if p == "" {
 			continue
 		}
-		rel, err := filepath.Rel(filepath.Clean(dir), filepath.Clean(p))
-		if err != nil || filepath.IsAbs(rel) || rel == ".." || strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
+		if !pathInside(dir, p) {
 			continue
 		}
+		rel, _ := filepath.Rel(filepath.Clean(dir), filepath.Clean(p))
 		if rel == "." {
 			selfIsWorkDir = true
 			continue
@@ -264,4 +266,92 @@ func runCleanPass(pass cleanPass, t cleanTargets, testUUID string, deadline time
 		removeRunFolders(t.WorkDir, deadline, &rep)
 	}
 	return rep
+}
+
+// Time each pass may spend. The before pass delays a test that is waiting to
+// start; the after pass runs while the agent is still busy, so it can't take
+// another task until it ends.
+const (
+	beforeRunBudget = 20 * time.Second
+	afterRunBudget  = 60 * time.Second
+)
+
+// executablePath resolves the running agent binary. A variable so tests can
+// replace it.
+var executablePath = func() (string, error) {
+	exe, err := os.Executable()
+	if err != nil {
+		return "", err
+	}
+	return filepath.EvalSymlinks(exe)
+}
+
+// targetsFor builds the targets of a pass. A variable so TestMain can point
+// every test at temp folders.
+var targetsFor = defaultTargets
+
+// defaultTargets builds the real targets from the agent's config. Wide is
+// true only when the executable and the config file are both known, because
+// those two decide what the agent must never delete. Every protected path is
+// made absolute first, since a relative one would never match a folder entry;
+// if any of them can't be, Wide is false.
+func defaultTargets(cfg *config.Config) cleanTargets {
+	t := cleanTargets{
+		ArtifactDirs: ArtifactDirs(),
+		DecoyDirs:    DecoyDirs(),
+		WorkDir:      cfg.WorkDir,
+	}
+	exe, err := executablePath()
+	if err != nil || cfg.ConfigPath() == "" {
+		return t
+	}
+	t.Wide = true
+	for _, p := range []string{exe, cfg.ConfigPath(), cfg.LogFile, cfg.CACert, cfg.WorkDir} {
+		if p == "" {
+			continue
+		}
+		abs, err := filepath.Abs(p)
+		if err != nil {
+			t.Wide = false
+			break
+		}
+		t.Protected = append(t.Protected, abs)
+	}
+	return t
+}
+
+// CleanBeforeRun empties the artifact and decoy folders and removes old run
+// folders before a test starts. Best effort: nothing is returned and a
+// failure never stops the run.
+func CleanBeforeRun(cfg *config.Config, testUUID string) {
+	cleanRun(beforeRun, beforeRunBudget, cfg, testUUID)
+}
+
+// CleanAfterRun empties the artifact and decoy folders once a test has
+// finished, keeping the result files the agent still reads.
+func CleanAfterRun(cfg *config.Config, testUUID string) {
+	cleanRun(afterRun, afterRunBudget, cfg, testUUID)
+}
+
+func cleanRun(pass cleanPass, budget time.Duration, cfg *config.Config, testUUID string) {
+	t := targetsFor(cfg)
+	if !t.Wide {
+		log.Printf("[cleanup] agent paths unknown: only this test's binaries are removed")
+	}
+	logCleanReport(pass, runCleanPass(pass, t, testUUID, time.Now().Add(budget)))
+}
+
+// logCleanReport logs what a pass removed; an empty report logs nothing.
+func logCleanReport(pass cleanPass, rep cleanReport) {
+	label := "before run"
+	if pass == afterRun {
+		label = "after run"
+	}
+	if len(rep.Removed) > 0 || rep.Decoys > 0 || rep.RunFolders > 0 || rep.Failed > 0 {
+		log.Printf("[cleanup] %s: removed %d from the artifact folder (%s), %d decoy entries, %d old run folder(s); %d failed",
+			label, len(rep.Removed), strings.Join(rep.Removed, ", "), rep.Decoys, rep.RunFolders, rep.Failed)
+	}
+	if rep.OutOfTime {
+		log.Printf("[cleanup] %s: out of time, leftovers remain", label)
+	}
 }
