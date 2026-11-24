@@ -179,9 +179,12 @@ const SIGN_TIMEOUT = 60_000;
  * subprocess, at most BUILD_TIMEOUT or SIGN_TIMEOUT), so a marker older than
  * both together was left by a process that died mid-build, or by a build
  * whose step overran its timeout (the timeout signals only the direct child,
- * so a step can outlive it): a stale marker is taken over, and the build that
- * owned it stops at its next check (BuildSupersededError) without touching
- * the new owner's marker (see BuildMarkerHandle).
+ * so a step can outlive it), or by a build that waited longer than that on
+ * a version read, which has no timeout (the one before the first step, or
+ * the stamp's second identity read after the last one). A stale marker is
+ * taken over, and the build that owned it stops at its next check
+ * (BuildSupersededError) without touching the new owner's marker (see
+ * BuildMarkerHandle).
  */
 const BUILD_MARKER = '.building';
 const BUILD_MARKER_STALE_MS = BUILD_TIMEOUT + SIGN_TIMEOUT;
@@ -205,7 +208,12 @@ export interface BuildMarkerHandle {
   token: string;
 }
 
-type MarkerState = 'ours' | 'foreign' | 'gone';
+/**
+ * ours: the marker holds this handle's token; foreign: it was read and holds
+ * something else; gone: there is none; unreadable: reading it failed with an
+ * error other than ENOENT (EMFILE, EIO...), so ownership is unknown.
+ */
+type MarkerState = 'ours' | 'foreign' | 'gone' | 'unreadable';
 
 /** What a build reads before compiling, for its stamp. */
 interface VersionBefore {
@@ -222,6 +230,8 @@ export class BuildService {
   private buildSlot = new BuildSlot();
   /** Handles whose marker was found taken over (warned once). */
   private lostMarkers = new WeakSet<BuildMarkerHandle>();
+  /** Handles whose marker could not be read during a refresh (warned once). */
+  private unreadableMarkers = new WeakSet<BuildMarkerHandle>();
 
   private versionSource?: BuildVersionSource;
 
@@ -317,13 +327,13 @@ export class BuildService {
     }
   }
 
-  /** Whether the marker still holds this handle's token. A marker that can't be read is not ours. */
+  /** Whether the marker still holds this handle's token (see MarkerState). */
   private markerState(handle: BuildMarkerHandle): MarkerState {
     let content: string | null;
     try {
       content = this.readMarker(handle.path);
     } catch {
-      return 'foreign';
+      return 'unreadable';
     }
     if (content === null) return 'gone';
     try {
@@ -441,20 +451,36 @@ export class BuildService {
    * Keep the marker fresh before a build step and before the build writes its
    * outputs. When the marker no longer holds this build's token (another
    * build took it over, or it was removed), the build stops here with
-   * BuildSupersededError: it never touches the other build's marker, and the
-   * error is its report (no separate warning). Touches the file, never
-   * rewrites it; a failed touch never fails the build.
+   * BuildSupersededError: it never rewrites the other build's marker, and the
+   * error is its report (no separate warning). Touches the file, then reads it
+   * again: a takeover that landed between the check and the touch stops the
+   * build here too (the touch only freshened the new owner's marker). A
+   * marker that can't be read (EMFILE, EIO...) proves nothing either way: one
+   * warning, and the build goes on; the next step and the stamp check it
+   * again (the stamp is refused unless the marker reads as ours). A failed
+   * touch never fails the build.
    */
-  private refreshBuildMarker(handle: BuildMarkerHandle): void {
-    if (this.markerState(handle) !== 'ours') {
-      // Release then leaves the marker alone without a warning of its own.
-      this.lostMarkers.add(handle);
-      throw new BuildSupersededError();
-    }
+  private refreshBuildMarker(handle: BuildMarkerHandle, uuid: string): void {
+    this.assertNotSuperseded(handle, uuid);
     try {
       const now = new Date();
       fs.utimesSync(handle.path, now, now);
     } catch { /* the next step refreshes it again */ }
+    this.assertNotSuperseded(handle, uuid);
+  }
+
+  /** Throw BuildSupersededError when the marker was read and is another build's, or is gone. */
+  private assertNotSuperseded(handle: BuildMarkerHandle, uuid: string): void {
+    const state = this.markerState(handle);
+    if (state === 'foreign' || state === 'gone') {
+      // Release then leaves the marker alone without a warning of its own.
+      this.lostMarkers.add(handle);
+      throw new BuildSupersededError();
+    }
+    if (state === 'unreadable' && !this.unreadableMarkers.has(handle)) {
+      this.unreadableMarkers.add(handle);
+      console.warn('Build of %s could not read its build marker; the build goes on and checks it again at its next step', uuid);
+    }
   }
 
   /**
@@ -841,13 +867,37 @@ const ARTIFACT_DIR = \`${artifactDir}\`
     }
   }
 
-  /** Remove the build directory (marker included) under the test folder lock; 409 while a build runs. */
+  /**
+   * Remove the build directory (marker included) under the test folder lock;
+   * 409 while a build runs. The directory is first renamed to
+   * `<uuid>.deleting-<random>` (atomic, same parent), then removed: a build or
+   * upload that starts once the marker has moved away gets a new, empty
+   * directory the removal never touches. listBuiltUuids only lists names that
+   * are a UUID, so a renamed directory is never a build; one a crash left
+   * behind is removed by the next delete of that test.
+   */
   deleteBuild(uuid: string): void {
     const buildDir = this.safeBuildDir(uuid);
+    this.removeDeletingLeftovers(uuid);
     if (!fs.existsSync(buildDir)) return;
     this.withTestFolderLock(uuid, () => {
-      fs.rmSync(buildDir, { recursive: true, force: true });
+      const doomed = `${buildDir}.deleting-${crypto.randomBytes(8).toString('hex')}`;
+      fs.renameSync(buildDir, doomed);
+      fs.rmSync(doomed, { recursive: true, force: true });
     });
+  }
+
+  /** Remove `<uuid>.deleting-*` directories an interrupted delete left in BUILDS_DIR. */
+  private removeDeletingLeftovers(uuid: string): void {
+    const root = path.dirname(this.safeBuildDir(uuid));
+    const prefix = `${path.basename(this.safeBuildDir(uuid))}.deleting-`;
+    try {
+      for (const entry of fs.readdirSync(root)) {
+        if (typeof entry === 'string' && entry.startsWith(prefix) && /^[0-9a-f]+$/.test(entry.slice(prefix.length))) {
+          fs.rmSync(path.join(root, entry), { recursive: true, force: true });
+        }
+      }
+    } catch { /* no BUILDS_DIR yet, or nothing to remove */ }
   }
 
   getEmbedDependencies(uuid: string): EmbedDependency[] {
@@ -1112,7 +1162,7 @@ const ARTIFACT_DIR = \`${artifactDir}\`
       // Before the first write into the test folder or the build directory
       // (patched script, password file, LOG_DIR file): the version read
       // above is not bounded by a step timeout.
-      this.refreshBuildMarker(marker);
+      this.refreshBuildMarker(marker, uuid);
       if (hasBuildScript) {
         // Determine if the test is in a categorized subdirectory (tests_source/<category>/<uuid>/).
         // Some build_all.sh scripts hardcode TEST_DIR="tests_source/<uuid>" (flat layout) and use
@@ -1185,7 +1235,7 @@ const ARTIFACT_DIR = \`${artifactDir}\`
         }
 
         try {
-          this.refreshBuildMarker(marker);
+          this.refreshBuildMarker(marker, uuid);
           await runBuildCommand('bash', buildArgs, {
             cwd: buildCwd,
             env,
@@ -1204,7 +1254,7 @@ const ARTIFACT_DIR = \`${artifactDir}\`
 
         // The script may have outlived its timeout: a build superseded while
         // it ran must not copy its outputs over the other build's.
-        this.refreshBuildMarker(marker);
+        this.refreshBuildMarker(marker, uuid);
 
         // Locate output binary — check repo-root build dir (build_all.sh output location) too
         const candidates = [
@@ -1289,7 +1339,7 @@ const ARTIFACT_DIR = \`${artifactDir}\`
         try {
           if (!hadGoMod) {
             // Auto-init a temporary module so "go build ." works in package mode
-            this.refreshBuildMarker(marker);
+            this.refreshBuildMarker(marker, uuid);
             await runBuildCommand('go', ['mod', 'init', 'testbuild'], {
               cwd: testDir,
               env,
@@ -1297,15 +1347,15 @@ const ARTIFACT_DIR = \`${artifactDir}\`
             });
           }
 
-          this.refreshBuildMarker(marker);
+          this.refreshBuildMarker(marker, uuid);
           await runBuildCommand('go', ['mod', 'tidy'], { cwd: testDir, env, timeout: BUILD_TIMEOUT });
-          this.refreshBuildMarker(marker);
+          this.refreshBuildMarker(marker, uuid);
           await runBuildCommand('go', ['mod', 'download'], { cwd: testDir, env, timeout: BUILD_TIMEOUT });
 
           // Use package mode ("go build .") for proper GOOS/GOARCH constraint evaluation.
           // File-list mode ("go build a.go b.go") doesn't resolve cross-platform build tags
           // on transitive dependencies, causing failures for windows-only imports on Linux.
-          this.refreshBuildMarker(marker);
+          this.refreshBuildMarker(marker, uuid);
           // go build writes the artifact in place: void the previous stamp
           // first, and put it back only when the step failed and the artifact
           // provably still is the stamped one.
@@ -1317,7 +1367,7 @@ const ARTIFACT_DIR = \`${artifactDir}\`
               timeout: BUILD_TIMEOUT,
             });
           } catch (err) {
-            if (voided !== null) this.restoreStampIfUntouched(uuid, voided, filename, outputPath);
+            if (voided !== null) this.restoreStampIfUntouched(uuid, voided, filename, outputPath, marker);
             throw err;
           }
         } finally {
@@ -1358,7 +1408,7 @@ const ARTIFACT_DIR = \`${artifactDir}\`
         const passFile = path.join(buildDir, '.tmp-pass');
         try {
           // Before the password file: it is in the build directory too.
-          this.refreshBuildMarker(marker);
+          this.refreshBuildMarker(marker, uuid);
           fs.writeFileSync(passFile, activeCert.password, { mode: 0o600 });
           await execFileAsync('osslsigncode', [
             'sign',
@@ -1369,7 +1419,7 @@ const ARTIFACT_DIR = \`${artifactDir}\`
           ], { timeout: SIGN_TIMEOUT });
 
           // Not over the artifact of a build that superseded this one.
-          this.refreshBuildMarker(marker);
+          this.refreshBuildMarker(marker, uuid);
           fs.renameSync(signedPath, outputPath);
           signed = true;
         } catch (err) {
@@ -1385,14 +1435,16 @@ const ARTIFACT_DIR = \`${artifactDir}\`
       }
     } else if (platform.os === 'darwin') {
       try {
-        this.refreshBuildMarker(marker);
+        this.refreshBuildMarker(marker, uuid);
         await execFileAsync('rcodesign', [
           'sign',
           '--code-signature-flags', 'adhoc',
           outputPath,
         ], { timeout: SIGN_TIMEOUT });
         signed = true;
-      } catch {
+      } catch (err) {
+        // Superseded is not a signing failure: the build stops (as on Windows).
+        if (err instanceof BuildSupersededError) throw err;
         // rcodesign not installed or signing failed — continue unsigned
       }
     }
@@ -1407,7 +1459,7 @@ const ARTIFACT_DIR = \`${artifactDir}\`
       [platform.os]: { filename, fileSize: stats.size, signed },
     };
     // Before the stamp hashes the outputs (go build and rcodesign wrote them in place).
-    this.refreshBuildMarker(marker);
+    this.refreshBuildMarker(marker, uuid);
     const version = versionBefore
       ? await this.stampVersion(uuid, versionBefore, buildDir, binaries, marker)
       : undefined;
@@ -1423,7 +1475,7 @@ const ARTIFACT_DIR = \`${artifactDir}\`
     };
     // Last check: a superseded build never writes build-meta.json (the
     // stamp's own check above stays as the last line of defence).
-    this.refreshBuildMarker(marker);
+    this.refreshBuildMarker(marker, uuid);
     fs.writeFileSync(this.metaPath(uuid), JSON.stringify(meta, null, 2));
 
     return {
@@ -1482,12 +1534,22 @@ const ARTIFACT_DIR = \`${artifactDir}\`
   }
 
   /**
-   * After a failed `go build`: put the voided meta back only when the
-   * artifact's SHA-256 still equals the one its stamp recorded (go writes the
-   * output only after a successful link, but this does not rely on it).
-   * Anything else, or any error, leaves the stamp voided.
+   * After a failed `go build`: put the voided meta back only while this
+   * build still holds its marker and the artifact's SHA-256 still equals the
+   * one its stamp recorded (go writes the output only after a successful
+   * link, but this does not rely on it). A superseded build never restores:
+   * the build that took over may already be writing the artifact, and its
+   * own void found no stamp to clear. Anything else, or any error, leaves the
+   * stamp voided; the caller rethrows the build's own error.
    */
-  private restoreStampIfUntouched(uuid: string, raw: string, filename: string, outputPath: string): void {
+  private restoreStampIfUntouched(
+    uuid: string,
+    raw: string,
+    filename: string,
+    outputPath: string,
+    marker: BuildMarkerHandle,
+  ): void {
+    if (this.markerState(marker) !== 'ours') return;
     try {
       const stamped = (JSON.parse(raw) as { version?: { binaries?: Record<string, unknown> } }).version?.binaries?.[filename];
       if (typeof stamped !== 'string') return;

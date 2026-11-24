@@ -287,7 +287,7 @@ describe('BuildService', () => {
   // ── Group 3: deleteBuild ──────────────────────────────────
 
   describe('deleteBuild', () => {
-    it('removes build directory with rmSync', () => {
+    it('renames the build directory away, then removes the renamed one with rmSync', () => {
       mockExistsSync.mockImplementation((p: string) => {
         if (p === `${BUILDS_DIR}/${VALID_UUID}`) return true;
         return false;
@@ -295,10 +295,11 @@ describe('BuildService', () => {
 
       service.deleteBuild(VALID_UUID);
 
-      expect(mockRmSync).toHaveBeenCalledWith(
-        `${BUILDS_DIR}/${VALID_UUID}`,
-        { recursive: true, force: true },
-      );
+      expect(mockRenameSync).toHaveBeenCalledTimes(1);
+      const [from, to] = mockRenameSync.mock.calls[0] as [string, string];
+      expect(from).toBe(`${BUILDS_DIR}/${VALID_UUID}`);
+      expect(to).toMatch(new RegExp(`^${BUILDS_DIR}/${VALID_UUID}\\.deleting-[0-9a-f]{16}$`));
+      expect(mockRmSync).toHaveBeenCalledWith(to, { recursive: true, force: true });
     });
 
     it('no-op when build directory does not exist', () => {
@@ -2283,6 +2284,25 @@ var data string
         put(p, data);
       }) as never);
       mockRenameSync.mockImplementation(((from: string, to: string) => {
+        if (dirs.has(from)) {
+          // A directory: move everything under it.
+          for (const f of [...files.keys()]) {
+            if (!f.startsWith(`${from}/`)) continue;
+            const moved = `${to}${f.slice(from.length)}`;
+            const mtime = mtimes.get(f);
+            put(moved, files.get(f)!);
+            if (mtime !== undefined) mtimes.set(moved, mtime);
+            files.delete(f);
+            mtimes.delete(f);
+          }
+          for (const d of [...dirs]) {
+            if (d === from || d.startsWith(`${from}/`)) {
+              dirs.delete(d);
+              addDir(`${to}${d.slice(from.length)}`);
+            }
+          }
+          return;
+        }
         const b = files.get(from);
         if (!b) throw enoent(from);
         const mtime = mtimes.get(from);
@@ -2742,6 +2762,89 @@ var data string
           expect(warn.mock.calls[0].map(String).join(' ')).toContain(VALID_UUID);
         });
 
+        it('a takeover that lands between the check and the touch stops the build at that refresh', async () => {
+          // Touches: 1 before the first temp file, 2 right before bash.
+          let touches = 0;
+          mockUtimesSync.mockImplementation(((p: string, _atime: Date, mtime: Date) => {
+            if (!files.has(p)) throw enoent(p);
+            if (p === marker && ++touches === 2) put(marker, FOREIGN); // the other build renames its marker in
+            mtimes.set(p, mtime.getTime());
+          }) as never);
+
+          await expect(service().buildAndSign(VALID_UUID)).rejects.toThrow(SUPERSEDED);
+
+          expect(touches).toBe(2);
+          // Stopped at the refresh before bash: the step never ran.
+          expect(buildRuns).toBe(0);
+          expect(String(files.get(marker))).toBe(FOREIGN);
+        });
+
+        it('darwin: superseded before rcodesign stops the build there, as on Windows (rcodesign never runs)', async () => {
+          const svc = new BuildService(createMockSettingsService({
+            getPlatformSettings: vi.fn().mockReturnValue({ os: 'darwin', arch: 'arm64' }),
+          }), TESTS_SOURCE, { current: async () => ({ identity, modified: false }) });
+          const darwinOutput = `${BUILDS_DIR}/${VALID_UUID}/${VALID_UUID}`;
+          // Superseded right after the copy, i.e. at the refresh before
+          // rcodesign. The marker then reads as ours again (at the stat that
+          // follows the signing block), so only a build that stopped AT the
+          // darwin refresh rejects.
+          let ours: Buffer | undefined;
+          const baseCopy = mockCopyFileSync.getMockImplementation()!;
+          mockCopyFileSync.mockImplementation(((from: string, to: string) => {
+            baseCopy(from, to);
+            if (to === darwinOutput) {
+              ours = files.get(marker);
+              put(marker, FOREIGN);
+            }
+          }) as never);
+          const baseStat = mockStatSync.getMockImplementation()!;
+          mockStatSync.mockImplementation(((p: string) => {
+            if (p === darwinOutput && ours && String(files.get(marker)) === FOREIGN) put(marker, ours);
+            return baseStat(p);
+          }) as never);
+          const signers: string[] = [];
+          const base = mockExecFileAsync.getMockImplementation()!;
+          mockExecFileAsync.mockImplementation(async (cmd: string, args: string[], opts?: unknown) => {
+            if (cmd === 'rcodesign') signers.push(cmd);
+            return base(cmd, args, opts);
+          });
+
+          await expect(svc.buildAndSign(VALID_UUID)).rejects.toThrow(SUPERSEDED);
+
+          expect(files.has(darwinOutput)).toBe(true);
+          expect(signers).toEqual([]);
+          expect(files.has(metaPath)).toBe(false);
+        });
+
+        it('a transient error reading the marker (EMFILE) is not "superseded": one warning, the build goes on and stamps', async () => {
+          let failures = 1;
+          const base = mockReadFileSync.getMockImplementation()!;
+          mockReadFileSync.mockImplementation(((p: string, enc?: unknown) => {
+            if (p === marker && failures > 0) {
+              failures--;
+              throw Object.assign(new Error('EMFILE: too many open files'), { code: 'EMFILE' });
+            }
+            return base(p, enc);
+          }) as never);
+
+          const info = await service().buildAndSign(VALID_UUID);
+
+          expect(failures).toBe(0);
+          expect(info.version).toBeDefined();
+          expect(warn).toHaveBeenCalledTimes(1);
+          expect(warn.mock.calls[0].map(String).join(' ')).toContain(VALID_UUID);
+          expect(files.has(marker)).toBe(false);
+        });
+
+        it('a marker that is gone mid-build counts as superseded', async () => {
+          bashAlso(() => { files.delete(marker); });
+
+          await expect(service().buildAndSign(VALID_UUID)).rejects.toThrow(SUPERSEDED);
+
+          expect(files.has(metaPath)).toBe(false);
+          expect(files.has(outputPath)).toBe(false);
+        });
+
         it('the async job of a superseded build ends failed with the message', async () => {
           const error = vi.spyOn(console, 'error').mockImplementation(() => {});
           try {
@@ -2865,6 +2968,23 @@ var data string
           expect(readMeta()).toEqual(withoutVersion(prior.meta));
         });
 
+        it('a superseded build whose go build fails never puts the old stamp back (review: Important)', async () => {
+          plainPath(out => put(out, 'plain binary v1'));
+          const prior = await stampedBuild();
+          // The artifact is untouched (the hash would match), but another
+          // build took the marker over while go build ran.
+          plainPath(() => {
+            put(marker, FOREIGN);
+            throw Object.assign(new Error('exit 1'), { stderr: './main.go:3: undefined: foo' });
+          });
+
+          // The build's own error, not a superseded one.
+          await expect(service().buildAndSign(VALID_UUID)).rejects.toThrow(/undefined: foo/);
+
+          expect(readMeta()).toEqual(withoutVersion(prior.meta));
+          expect(String(files.get(marker))).toBe(FOREIGN);
+        });
+
         it('a successful rebuild ends with the new stamp', async () => {
           await stampedBuild();
           const newer = { ...identity, fingerprint: 'e'.repeat(64) };
@@ -2982,9 +3102,10 @@ var data string
         },
         {
           name: 'deleteBuild',
+          // The rename away is its first write; the removal follows.
           isWrite: p => p === buildDir,
           run: svc => svc.deleteBuild(VALID_UUID),
-          mock: mockRmSync,
+          mock: mockRenameSync,
         },
       ];
 
@@ -3060,6 +3181,51 @@ var data string
           });
         });
       }
+
+      describe('deleteBuild renames the directory away before removing it (review)', () => {
+        const underUuid = () => [...files.keys(), ...dirs].filter(f => f.startsWith(`${BUILDS_DIR}/${VALID_UUID}`));
+
+        it('after a delete nothing named after the uuid remains in BUILDS_DIR', () => {
+          put(`${buildDir}/build-meta.json`, '{}');
+          service().deleteBuild(VALID_UUID);
+          expect(underUuid()).toEqual([]);
+        });
+
+        it('listBuiltUuids never returns a .deleting- directory; the next delete of the test removes a leftover one', () => {
+          const leftover = `${BUILDS_DIR}/${VALID_UUID}.deleting-0123456789abcdef`;
+          put(`${leftover}/build-meta.json`, JSON.stringify({ filename: `${VALID_UUID}.exe`, platform: { os: 'windows', arch: 'amd64' } }));
+          put(`${leftover}/${VALID_UUID}.exe`, 'old binary');
+          files.delete(`${buildDir}/${VALID_UUID}.exe`);
+          dirs.delete(buildDir);
+          const svc = service();
+
+          expect(svc.listBuiltUuids()).toEqual([]);
+
+          svc.deleteBuild(VALID_UUID); // no build directory: only the leftover goes
+          expect(underUuid()).toEqual([]);
+        });
+
+        it('a build started right after the rename is not affected by the removal', async () => {
+          const svc = service();
+          const other = service();
+          let build: Promise<BuildInfo> | null = null;
+          const base = mockRmSync.getMockImplementation()!;
+          mockRmSync.mockImplementation(((p: string, opts?: unknown) => {
+            if (p.includes('.deleting-') && !build) build = other.buildAndSign(VALID_UUID);
+            return (base as (...a: unknown[]) => unknown)(p, opts);
+          }) as never);
+
+          svc.deleteBuild(VALID_UUID);
+
+          expect(build).not.toBeNull();
+          const info = await build!;
+          expect(info.exists).toBe(true);
+          expect(files.has(`${buildDir}/build-meta.json`)).toBe(true);
+          expect(other.getBuildInfo(VALID_UUID)).toMatchObject({ exists: true, source: 'built' });
+          expect(files.has(marker)).toBe(false);
+          expect(underUuid().filter(f => f.includes('.deleting-'))).toEqual([]);
+        });
+      });
 
       it('with no contention the three operations behave as before', () => {
         const svc = service();
