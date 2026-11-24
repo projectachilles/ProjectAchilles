@@ -95,6 +95,97 @@ func TestCleanDecoyDirRemovesASymlinkNotItsTarget(t *testing.T) {
 	}
 }
 
+// aliasOf makes <base>/alias a symlink to target and returns its path.
+func aliasOf(t *testing.T, base, target string) string {
+	t.Helper()
+	alias := filepath.Join(base, "alias")
+	if err := os.Symlink(target, alias); err != nil {
+		t.Fatal(err)
+	}
+	return alias
+}
+
+func TestCleanArtifactDirKeepsAgentPathsReachedThroughASymlink(t *testing.T) {
+	tmp := t.TempDir()
+	dir := filepath.Join(tmp, "F0")
+	now := time.Now()
+	for _, f := range []string{"tasks/state.json", "agent.yaml", "rwdrv.sys"} {
+		touch(t, filepath.Join(dir, f), now)
+	}
+	alias := aliasOf(t, tmp, dir)
+	targets := cleanTargets{
+		ArtifactDirs: []string{dir},
+		WorkDir:      filepath.Join(alias, "tasks"),
+		Protected:    []string{filepath.Join(alias, "tasks"), filepath.Join(alias, "agent.yaml")},
+		Wide:         true,
+	}
+	var rep cleanReport
+	cleanArtifactDir(dir, beforeRun, targets, lockbit, inOneMinute(), &rep)
+	if got, want := names(t, dir), []string{"agent.yaml", "tasks"}; !equal(got, want) {
+		t.Errorf("left %v, want %v", got, want)
+	}
+	if _, err := os.Stat(filepath.Join(dir, "tasks", "state.json")); err != nil {
+		t.Errorf("tasks/state.json was removed: %v", err)
+	}
+}
+
+func TestCleanArtifactDirTreatsAnAliasedWorkDirAsItself(t *testing.T) {
+	tmp := t.TempDir()
+	dir := filepath.Join(tmp, "F0")
+	now := time.Now()
+	for _, f := range []string{"state.json", "queue/a.json", "rwdrv.sys"} {
+		touch(t, filepath.Join(dir, f), now)
+	}
+	alias := aliasOf(t, tmp, dir)
+	targets := cleanTargets{ArtifactDirs: []string{dir}, WorkDir: alias, Protected: []string{alias}, Wide: true}
+	var rep cleanReport
+	cleanArtifactDir(dir, beforeRun, targets, lockbit, inOneMinute(), &rep)
+	if got, want := names(t, dir), []string{"queue", "state.json"}; !equal(got, want) {
+		t.Errorf("left %v, want %v", got, want)
+	}
+	if _, err := os.Stat(filepath.Join(dir, "queue", "a.json")); err != nil {
+		t.Errorf("queue/a.json was removed: %v", err)
+	}
+}
+
+func TestCleanDecoyDirSkipsWhenAnAgentPathIsInsideThroughASymlink(t *testing.T) {
+	noAccount(t)
+	tmp := t.TempDir()
+	decoy := filepath.Join(tmp, "decoy")
+	touch(t, filepath.Join(decoy, "a.txt"), time.Now())
+	alias := aliasOf(t, tmp, decoy)
+	tg := decoyTargets(decoy)
+	tg.Protected = []string{filepath.Join(alias, "agent.log")}
+	var rep cleanReport
+	cleanDecoyDir(decoy, tg, inOneMinute(), &rep)
+	if got, want := names(t, decoy), []string{"a.txt"}; !equal(got, want) {
+		t.Errorf("left %v, want %v", got, want)
+	}
+}
+
+func TestCleanArtifactDirKeepsALogFileThatDoesNotExistYet(t *testing.T) {
+	tmp := t.TempDir()
+	dir := filepath.Join(tmp, "F0")
+	alias := aliasOf(t, tmp, dir)
+	// The folder spelled as given and the same folder reached through a link.
+	for name, base := range map[string]string{"as given": dir, "through a symlink": alias} {
+		if err := os.MkdirAll(filepath.Join(dir, "agentlogs"), 0o700); err != nil {
+			t.Fatal(err)
+		}
+		touch(t, filepath.Join(dir, "rwdrv.sys"), time.Now())
+		targets := cleanTargets{
+			ArtifactDirs: []string{dir},
+			Protected:    []string{filepath.Join(base, "agentlogs", "agent.log")},
+			Wide:         true,
+		}
+		var rep cleanReport
+		cleanArtifactDir(dir, beforeRun, targets, lockbit, inOneMinute(), &rep)
+		if got, want := names(t, dir), []string{"agentlogs"}; !equal(got, want) {
+			t.Errorf("%s: left %v, want %v", name, got, want)
+		}
+	}
+}
+
 func TestCleanDecoyDirSkipsAWorldWritableDir(t *testing.T) {
 	noAccount(t)
 	decoy := filepath.Join(t.TempDir(), "fortika-test")

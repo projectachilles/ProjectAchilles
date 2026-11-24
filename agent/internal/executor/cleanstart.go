@@ -133,6 +133,79 @@ func protectedTops(dir string, protected []string) (tops []string, selfIsWorkDir
 	return tops, selfIsWorkDir
 }
 
+// reachesDir walks an agent path p up through its parents and reports where it
+// reaches the folder whose identity is dir. The comparison is by file identity
+// (os.Stat follows links), so a symlink, a junction, a short name or another
+// spelling of the folder is found as well. self is true when p is the folder
+// itself. below lists, for each ancestor of p that is the folder, the path of
+// the entry directly below it on the way up; that entry may not exist yet.
+func reachesDir(p string, dir os.FileInfo) (self bool, below []string) {
+	child := ""
+	for cur := filepath.Clean(p); ; {
+		if info, err := os.Stat(cur); err == nil && os.SameFile(info, dir) {
+			if child == "" {
+				self = true
+			} else {
+				below = append(below, child)
+			}
+		}
+		parent := filepath.Dir(cur)
+		if parent == cur {
+			return self, below
+		}
+		child, cur = cur, parent
+	}
+}
+
+// identityKeeps is what the identity rule keeps in an opened artifact folder.
+type identityKeeps struct {
+	entries []os.FileInfo // top-level entries that hold an agent path
+	names   []string      // such entries that do not exist yet, kept by name
+	self    bool          // an agent path is the folder itself
+}
+
+// identityKeepsFor applies the identity rule to every protected path. ok is
+// false when the opened folder's own identity can't be read.
+func identityKeepsFor(root *os.Root, protected []string) (keeps identityKeeps, ok bool) {
+	dir, err := root.Stat(".")
+	if err != nil {
+		return keeps, false
+	}
+	for _, p := range protected {
+		if p == "" {
+			continue
+		}
+		self, below := reachesDir(p, dir)
+		keeps.self = keeps.self || self
+		for _, entry := range below {
+			if info, err := os.Lstat(entry); err == nil {
+				keeps.entries = append(keeps.entries, info)
+			} else {
+				keeps.names = append(keeps.names, filepath.Base(entry))
+			}
+		}
+	}
+	return keeps, true
+}
+
+// holds reports whether the top-level entry name of root is one the identity
+// rule keeps. An entry whose identity can't be read is kept.
+func (k identityKeeps) holds(root *os.Root, name string) bool {
+	if len(k.entries) == 0 {
+		return false
+	}
+	info, err := root.Lstat(name)
+	if err != nil {
+		return true
+	}
+	for _, kept := range k.entries {
+		if os.SameFile(info, kept) {
+			return true
+		}
+	}
+	return false
+}
+
 // removeEntries removes, through the trusted root, every top-level entry of
 // root that selected accepts, and returns their names. A failed delete is
 // logged and counted in rep.Failed; the walk stops, setting rep.OutOfTime, once
@@ -161,8 +234,10 @@ func removeEntries(dir string, root *os.Root, deadline time.Time, rep *cleanRepo
 
 // cleanArtifactDir empties the top level of an artifact folder except what
 // keepInArtifactDir keeps. Without the agent's own paths (Wide false) it
-// removes only testUUID's binaries. Every delete goes through the trusted
-// root, which never follows a link.
+// removes only testUUID's binaries. An agent path is matched twice: by its
+// text (protectedTops) and by file identity (identityKeepsFor), and an entry
+// either rule names stays. Every delete goes through the trusted root, which
+// never follows a link.
 func cleanArtifactDir(dir string, pass cleanPass, t cleanTargets, testUUID string, deadline time.Time, rep *cleanReport) {
 	if !t.Wide {
 		rep.Removed = append(rep.Removed, removeTestBinaries(dir, testUUID)...)
@@ -173,12 +248,18 @@ func cleanArtifactDir(dir string, pass cleanPass, t cleanTargets, testUUID strin
 		return
 	}
 	defer root.Close()
+	keeps, ok := identityKeepsFor(root, t.Protected)
+	if !ok {
+		log.Printf("[cleanup] skipping %s: can't read its identity", dir)
+		return
+	}
 	tops, selfIsWorkDir := protectedTops(dir, t.Protected)
-	if selfIsWorkDir {
+	tops = append(tops, keeps.names...)
+	if selfIsWorkDir || keeps.self {
 		tops = append(tops, "state.json", "queue")
 	}
 	rep.Removed = append(rep.Removed, removeEntries(dir, root, deadline, rep, func(e os.DirEntry) bool {
-		return !keepInArtifactDir(e.Name(), pass, tops)
+		return !keepInArtifactDir(e.Name(), pass, tops) && !keeps.holds(root, e.Name())
 	})...)
 }
 
@@ -214,9 +295,9 @@ func pathInside(dir, p string) bool {
 }
 
 // cleanDecoyDir empties a decoy home folder but keeps the folder. It does
-// nothing when an agent path lies inside it, or when it looks like a real
-// user's home (the account exists, or it holds NTUSER.DAT), so a mistaken
-// folder name can never wipe a person's files.
+// nothing when an agent path lies inside it, by its text or by file identity,
+// or when it looks like a real user's home (the account exists, or it holds
+// NTUSER.DAT), so a mistaken folder name can never wipe a person's files.
 func cleanDecoyDir(dir string, t cleanTargets, deadline time.Time, rep *cleanReport) {
 	if !t.Wide {
 		return
@@ -232,6 +313,10 @@ func cleanDecoyDir(dir string, t cleanTargets, deadline time.Time, rep *cleanRep
 		return
 	}
 	defer root.Close()
+	if keeps, ok := identityKeepsFor(root, t.Protected); !ok || keeps.self || len(keeps.entries) > 0 || len(keeps.names) > 0 {
+		log.Printf("[cleanup] skipping %s: it holds an agent path", dir)
+		return
+	}
 	if _, err := root.Lstat("NTUSER.DAT"); err == nil || accountExists(decoyAccount) {
 		log.Printf("[cleanup] skipping %s: it is a user's home folder", dir)
 		return
