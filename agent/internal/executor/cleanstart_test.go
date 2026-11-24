@@ -3,10 +3,12 @@ package executor
 import (
 	"errors"
 	"os"
+	"os/user"
 	"path/filepath"
 	"reflect"
 	"runtime"
 	"sort"
+	"strings"
 	"testing"
 	"time"
 
@@ -286,6 +288,35 @@ func TestCleanDecoyDirSkipsWhenTheAccountExists(t *testing.T) {
 	}
 }
 
+func TestAccountExistsFindsARealAccountAndNotAMadeUpOne(t *testing.T) {
+	me, err := user.Current()
+	if err != nil {
+		t.Skipf("no current user: %v", err)
+	}
+	name := me.Username[strings.LastIndex(me.Username, `\`)+1:]
+	if !lookupAccount(name) {
+		t.Errorf("lookupAccount(%q) = false for the current user", name)
+	}
+	if lookupAccount("no-such-account-6f1d2c") {
+		t.Error("lookupAccount found a made-up account")
+	}
+}
+
+func TestAccountFoundCountsOnlyNoSuchAccountAsMissing(t *testing.T) {
+	if !accountFound(nil) {
+		t.Error("no error read as no account")
+	}
+	if accountFound(user.UnknownUserError("fortika-test")) {
+		t.Error("UnknownUserError read as an account")
+	}
+	if !accountFound(errors.New("open /etc/passwd: permission denied")) {
+		t.Error("a failed lookup read as no account")
+	}
+	if got, want := accountFound(errorNoneMapped), runtime.GOOS != "windows"; got != want {
+		t.Errorf("accountFound(ERROR_NONE_MAPPED) = %v, want %v", got, want)
+	}
+}
+
 func TestCleanDecoyDirSkipsWhenAnAgentPathIsInside(t *testing.T) {
 	noAccount(t)
 	decoy := filepath.Join(t.TempDir(), "fortika-test")
@@ -475,7 +506,7 @@ func TestDefaultTargetsProtectTheAgentsOwnPaths(t *testing.T) {
 	if !tg.Wide {
 		t.Error("Wide = false, want true")
 	}
-	for _, p := range []string{exe, cfgPath, logFile, ca, work} {
+	for _, p := range []string{exe, exe + ".old", exe + ".rejected", exe + ".replaced", cfgPath, logFile, ca, work} {
 		found := false
 		for _, got := range tg.Protected {
 			found = found || got == p
@@ -486,6 +517,23 @@ func TestDefaultTargetsProtectTheAgentsOwnPaths(t *testing.T) {
 	}
 	if !equal(tg.ArtifactDirs, ArtifactDirs()) || !equal(tg.DecoyDirs, DecoyDirs()) || tg.WorkDir != work {
 		t.Errorf("targets = %+v", tg)
+	}
+}
+
+func TestCleanArtifactDirKeepsTheRollbackCopiesOfARenamedBinary(t *testing.T) {
+	dir := filepath.Join(t.TempDir(), "F0")
+	now := time.Now()
+	for _, f := range []string{"agent.exe", "agent.exe.old", "rwdrv.sys"} {
+		touch(t, filepath.Join(dir, f), now)
+	}
+	useExecutable(t, filepath.Join(dir, "agent.exe"), nil)
+	cfg := loadConfig(t, filepath.Join(t.TempDir(), "achilles-agent.yaml"), "agent_id: a\n")
+	targets := defaultTargets(cfg)
+	targets.ArtifactDirs = []string{dir}
+	var rep cleanReport
+	cleanArtifactDir(dir, beforeRun, targets, lockbit, inOneMinute(), &rep)
+	if got, want := names(t, dir), []string{"agent.exe", "agent.exe.old"}; !equal(got, want) {
+		t.Errorf("left %v, want %v", got, want)
 	}
 }
 
@@ -518,6 +566,11 @@ func TestDefaultTargetsFailClosed(t *testing.T) {
 	useExecutable(t, "", errors.New("no executable"))
 	if defaultTargets(cfg).Wide {
 		t.Error("an unknown executable gave Wide = true")
+	}
+
+	useExecutable(t, "", nil)
+	if defaultTargets(cfg).Wide {
+		t.Error("an empty executable path gave Wide = true")
 	}
 
 	useExecutable(t, filepath.Join(tmp, "achilles-agent.exe"), nil)

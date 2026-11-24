@@ -1,6 +1,7 @@
 package executor
 
 import (
+	"errors"
 	"log"
 	"os"
 	"os/user"
@@ -8,6 +9,7 @@ import (
 	"runtime"
 	"sort"
 	"strings"
+	"syscall"
 	"time"
 
 	"github.com/f0rt1ka/achilles-agent/internal/config"
@@ -92,7 +94,7 @@ type cleanTargets struct {
 	ArtifactDirs []string // C:\F0, /tmp/F0
 	DecoyDirs    []string // fortika-test
 	WorkDir      string
-	Protected    []string // absolute: executable, config, log, CA cert, work dir
+	Protected    []string // absolute: executable and its rollback copies, config, log, CA cert, work dir
 	Wide         bool     // false = executable or config path unknown: fail closed
 }
 
@@ -267,13 +269,42 @@ func cleanArtifactDir(dir string, pass cleanPass, t cleanTargets, testUUID strin
 // decoy documents.
 const decoyAccount = "fortika-test"
 
-// accountExists reports whether a local account with this name exists. With
-// CGO disabled, macOS only sees accounts listed in /etc/passwd, so a
-// directory-service account is not detected there. A variable so tests can
-// replace it.
-var accountExists = func(name string) bool {
+// accountExists reports whether a local account with this name exists. A
+// variable so tests can replace it; lookupAccount is the real check.
+var accountExists = lookupAccount
+
+// lookupAccount looks the account up on this computer. On Windows the name is
+// qualified with the computer name, so a domain-joined host asks its own
+// account database and not a domain controller. With CGO disabled, Linux reads
+// only /etc/passwd and so misses directory accounts; macOS resolves through
+// the system library. On Linux and macOS dirIsTrusted also refuses a real
+// user's home, because that user owns it.
+func lookupAccount(name string) bool {
+	if runtime.GOOS == "windows" {
+		if host, err := os.Hostname(); err == nil && host != "" {
+			name = host + `\` + name
+		}
+	}
 	_, err := user.Lookup(name)
-	return err == nil
+	return accountFound(err)
+}
+
+// errorNoneMapped is Windows' ERROR_NONE_MAPPED, what os/user returns there for
+// an account that does not exist (it returns UnknownUserError elsewhere).
+const errorNoneMapped = syscall.Errno(1332)
+
+// accountFound reads the error of a lookup. Only "no such account" means the
+// account does not exist; any other error counts as found, so a failed lookup
+// skips the folder instead of emptying a person's home.
+func accountFound(err error) bool {
+	if err == nil {
+		return true
+	}
+	var unknown user.UnknownUserError
+	if errors.As(err, &unknown) {
+		return false
+	}
+	return !(runtime.GOOS == "windows" && errors.Is(err, errorNoneMapped))
 }
 
 // DecoyDirs returns the decoy home folder the tests fill on this OS.
@@ -377,9 +408,12 @@ var targetsFor = defaultTargets
 
 // defaultTargets builds the real targets from the agent's config. Wide is
 // true only when the executable and the config file are both known, because
-// those two decide what the agent must never delete. Every protected path is
-// made absolute first, since a relative one would never match a folder entry;
-// if any of them can't be, Wide is false.
+// those two decide what the agent must never delete. The rollback copies the
+// updater and the service placement leave next to the binary (.old,
+// .rejected, .replaced) are protected too, since a binary that isn't named
+// achilles-* doesn't keep them by name. Every protected path is made absolute
+// first, since a relative one would never match a folder entry; if any of
+// them can't be, Wide is false.
 func defaultTargets(cfg *config.Config) cleanTargets {
 	t := cleanTargets{
 		ArtifactDirs: ArtifactDirs(),
@@ -387,11 +421,12 @@ func defaultTargets(cfg *config.Config) cleanTargets {
 		WorkDir:      cfg.WorkDir,
 	}
 	exe, err := executablePath()
-	if err != nil || cfg.ConfigPath() == "" {
+	if err != nil || exe == "" || cfg.ConfigPath() == "" {
 		return t
 	}
 	t.Wide = true
-	for _, p := range []string{exe, cfg.ConfigPath(), cfg.LogFile, cfg.CACert, cfg.WorkDir} {
+	for _, p := range []string{exe, exe + ".old", exe + ".rejected", exe + ".replaced",
+		cfg.ConfigPath(), cfg.LogFile, cfg.CACert, cfg.WorkDir} {
 		if p == "" {
 			continue
 		}
