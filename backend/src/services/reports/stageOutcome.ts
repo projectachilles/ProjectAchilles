@@ -13,7 +13,7 @@
 
 import type { OutcomeCounts, StageOutcome } from '../../types/reports.js';
 import { EDR_VENDOR_KEYS, edrFlagField, edrOwnDetectedClause, hasOwnEdrDetection } from '../outcomes/vendors.js';
-import type { EdrVendorKey } from '../outcomes/vendors.js';
+import type { EdrGroupRollup, EdrVendorKey } from '../outcomes/vendors.js';
 
 export const STAGE_OUTCOMES: readonly StageOutcome[] = [
   'protected', 'prevented', 'detected', 'unprotected', 'inconclusive', 'skipped',
@@ -94,6 +94,22 @@ export function stagePreventedBy(source: Record<string, unknown>, vendor: EdrVen
   const code = exitCodeOf(source);
   if (code === undefined || code === 0 || CONCLUSIVE_EXIT_CODES.includes(code)) return false;
   return vendorStagePrevented(source, vendor);
+}
+
+/**
+ * A run's (bundle group's) per-vendor flags from its member docs. Detected when
+ * any member carries that vendor's test-level `<v>_detected`; Prevented only
+ * when a member stage is itself Prevented on that vendor's own evidence
+ * (stagePreventedBy), never from a test-level `<v>_prevented` that a skipped or
+ * completed stage, or an errored sibling without its own action, can carry.
+ */
+export function rollupEdrFlags(memberSources: Array<Record<string, unknown>>): EdrGroupRollup {
+  const rollup: EdrGroupRollup = {};
+  for (const v of EDR_VENDOR_KEYS) {
+    rollup[`${v}Detected`] = memberSources.some((src) => flag(src, `${v}_detected`));
+    rollup[`${v}Prevented`] = memberSources.some((src) => stagePreventedBy(src, v));
+  }
+  return rollup;
 }
 
 /** Classify one stage or standalone-test result exactly like the console's ExecResultLabel. */

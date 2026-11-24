@@ -1309,6 +1309,33 @@ describe('elasticsearch.ts', () => {
       expect(result.groups[0].members).toHaveLength(3);
     });
 
+    it('a prevention flag on an errored sibling without its own stage action does not make the run Prevented', async () => {
+      const completed = makeHitSource({
+        'f0rtika.is_bundle_control': true,
+        'f0rtika.bundle_id': 'bundle-001',
+        'event.ERROR': 101,
+        'f0rtika.defender_detected': true,
+        'f0rtika.defender_stage_detected': true,
+      });
+      const erroredSibling = makeHitSource({
+        'f0rtika.is_bundle_control': true,
+        'f0rtika.bundle_id': 'bundle-001',
+        'event.ERROR': 999,
+        'f0rtika.defender_detected': true,
+        'f0rtika.defender_prevented': true,
+        'f0rtika.defender_prevention_action': 'process_killed',
+      });
+
+      mockCount.mockResolvedValue(esCountResponse(2));
+      mockSearch.mockResolvedValue(makeGroupedSearchResponse([makeGroupBucket('bundle::bundle-001::host-a', [completed, erroredSibling])], 1));
+
+      const svc = createService();
+      const result = await svc.getGroupedPaginatedExecutions(makePaginatedParams());
+
+      expect(result.groups[0].defenderDetected).toBe(true);
+      expect(result.groups[0].defenderPrevented).toBe(false);
+    });
+
     it('caps pageSize at 100 and reflects in terms agg size', async () => {
       mockCount.mockResolvedValue(esCountResponse(0));
       mockSearch.mockResolvedValue(makeGroupedSearchResponse([], 0));

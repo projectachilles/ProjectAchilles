@@ -78,6 +78,27 @@ function stagePrevented(source: Record<string, unknown>): boolean {
   return stagePreventedBy(source, 'crowdstrike') || stagePreventedBy(source, 'defender');
 }
 
+/**
+ * A run's (bundle group's) per-vendor flags from its member docs. Detected when
+ * any member carries that vendor's test-level `<v>_detected`; Prevented only
+ * when a member stage is itself Prevented on that vendor's own evidence
+ * (stagePreventedBy), never from a test-level `<v>_prevented` that a skipped or
+ * completed stage, or an errored sibling without its own action, can carry.
+ */
+export function rollupEdrFlags(memberSources: Array<Record<string, unknown>>): {
+  defenderDetected: boolean;
+  crowdstrikeDetected: boolean;
+  defenderPrevented: boolean;
+  crowdstrikePrevented: boolean;
+} {
+  return {
+    defenderDetected: memberSources.some((src) => flag(src, 'defender_detected')),
+    crowdstrikeDetected: memberSources.some((src) => flag(src, 'crowdstrike_detected')),
+    defenderPrevented: memberSources.some((src) => stagePreventedBy(src, 'defender')),
+    crowdstrikePrevented: memberSources.some((src) => stagePreventedBy(src, 'crowdstrike')),
+  };
+}
+
 /** Classify one stage or standalone-test result exactly like the console's ExecResultLabel. */
 export function classifyStage(source: Record<string, unknown>): StageOutcome {
   const code = exitCodeOf(source);

@@ -5,7 +5,7 @@ import { createEsClient } from './client.js';
 import { RiskAcceptanceService } from '../risk-acceptance/risk-acceptance.service.js';
 import { attackSimulationExclusions } from './attack-simulation-filter.js';
 import { NOT_STAGELESS } from './enrichment-eligibility.js';
-import { EDR_PREVENTED_ERROR_STAGE, SKIPPED as SKIPPED_FILTER } from '../reports/stageOutcome.js';
+import { EDR_PREVENTED_ERROR_STAGE, SKIPPED as SKIPPED_FILTER, rollupEdrFlags } from '../reports/stageOutcome.js';
 import { AppError } from '../../middleware/error.middleware.js';
 import {
   MAX_FRESHNESS_DAYS,
@@ -32,7 +32,7 @@ import {
   edrPreventedTerms,
   hasOwnEdrDetection,
 } from '../outcomes/vendors.js';
-import type { EdrGroupRollup, EdrResultFlags } from '../outcomes/vendors.js';
+import type { EdrResultFlags } from '../outcomes/vendors.js';
 import type {
   ExecutionActivityResponse,
   AnalyticsSettings,
@@ -2995,19 +2995,12 @@ export class ElasticsearchService {
         protectedCount,
         unprotectedCount,
         totalCount: members.length,
+        // Per-vendor badges from the raw member docs: Detected when any member
+        // carries the vendor's flag, Prevented only when a member stage is
+        // itself Prevented on that vendor's own evidence (rollupEdrFlags).
+        ...rollupEdrFlags(memberHits.map((h: any) => h._source ?? {})),
       };
     });
-
-    // Roll up each vendor's <key>_detected / <key>_prevented from member
-    // docs. The enrichment passes populate f0rtika.* flags on each eligible
-    // doc; the badges show if any stage of a bundle group is detected/prevented.
-    for (const group of groups) {
-      const rollup = group as EdrGroupRollup;
-      for (const v of EDR_VENDOR_KEYS) {
-        rollup[`${v}Detected`] = group.members.some((m) => m[`${v}_detected`] === true);
-        rollup[`${v}Prevented`] = group.members.some((m) => m[`${v}_prevented`] === true);
-      }
-    }
 
     return {
       groups,

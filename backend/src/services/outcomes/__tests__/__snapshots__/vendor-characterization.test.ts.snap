@@ -3803,11 +3803,11 @@ exports[`EDR vendor characterization (pre-registry refactor) > grouped execution
 [
   {
     "crowdstrikeDetected": false,
-    "crowdstrikePrevented": true,
+    "crowdstrikePrevented": false,
     "defenderDetected": true,
     "defenderPrevented": false,
     "sentineloneDetected": true,
-    "sentinelonePrevented": true,
+    "sentinelonePrevented": false,
   },
 ]
 `;
