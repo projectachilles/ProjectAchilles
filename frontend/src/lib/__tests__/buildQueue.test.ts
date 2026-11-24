@@ -308,17 +308,27 @@ describe('runBuildQueue', () => {
       expect(deps.buildTest).not.toHaveBeenCalled();
     });
 
-    it('a 429 storm ends when Stop is pressed instead of looping forever', async () => {
+    it('a 429 storm ends when Stop is pressed, within the 60 s wait instead of after it', async () => {
       let stop = false;
       let n = 0;
-      const sleep = vi.fn(async () => {
+      let slicesInWait = 0;
+      const getBuildInfo = vi.fn<BuildQueueDeps['getBuildInfo']>(async () => {
         n += 1;
-        if (n >= 200) stop = true;
+        slicesInWait = 0;
+        throw httpError(429);
       });
-      const getBuildInfo = vi.fn<BuildQueueDeps['getBuildInfo']>().mockRejectedValue(httpError(429));
+      const sleep = vi.fn(async () => {
+        // waits 1-5 double from 2 s; the 6th is the first 60 s one, and Stop lands on its 2nd slice
+        if (n >= 6) {
+          slicesInWait += 1;
+          if (slicesInWait === 2) stop = true;
+        }
+      });
       const { end, results } = await runBuildQueue(items(1), makeDeps({ getBuildInfo }), { sleep, shouldStop: () => stop });
       expect(end).toBe('stopped');
       expect(results).toEqual([]);
+      expect(n).toBe(6);
+      expect(slicesInWait).toBe(2);
     });
 
     it('a 429 resets the consecutive-failure count', async () => {
