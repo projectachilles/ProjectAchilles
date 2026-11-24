@@ -22,15 +22,17 @@ export function hasRunVersions(runs: ReportRun[]): boolean {
 }
 
 /**
- * The Execution log's Version cell: the 7-character commit, followed by "older" when the test has
- * changed since; a run with no commit gets its state's label, and a dash when it has no state either.
+ * The run's version line in the Execution log: the 7-character commit, then "older" when the test
+ * has changed since; with no commit, its state's label. null when there is nothing to print.
  */
-export function runVersionText(run: ReportRun): string {
+export function runVersionLine(run: ReportRun): { commit: string | null; word: string | null } | null {
   const v = run.version;
-  if (!v) return '';
-  const commit = v.commit?.slice(0, 7);
-  if (commit) return v.state === 'older' ? `${commit} ${VERSION_STATE_LABEL.older}` : commit;
-  return v.state ? VERSION_STATE_LABEL[v.state] : '—';
+  if (!v) return null;
+  const commit = v.commit?.slice(0, 7) || null;
+  const word = commit
+    ? (v.state === 'older' ? VERSION_STATE_LABEL.older : null)
+    : (v.state ? VERSION_STATE_LABEL[v.state] : null);
+  return commit || word ? { commit, word } : null;
 }
 
 /** The run's earliest alert. An alert whose time does not parse is never first. */

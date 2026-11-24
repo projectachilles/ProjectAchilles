@@ -1,7 +1,7 @@
 import type { ExecutionReport, ReportRun } from '@/services/api/reports';
 import { conclusive, defended } from '../lib/outcomes';
 import { fmtCount, fmtDate, fmtLatency, fmtTime, plural, truncate } from '../lib/format';
-import { agentKillText, countStages, firstAlert, hasRunVersions, runVersionText, vendorName } from '../lib/runs';
+import { agentKillText, countStages, firstAlert, runVersionLine, vendorName } from '../lib/runs';
 import { GlyphRow, OutcomeLegend } from '../diagrams/StageGlyph';
 import { Sheet, type SheetHead } from './Sheet';
 import { AlertsIncompleteNote } from './scope';
@@ -23,7 +23,6 @@ function firstAlertText(run: ReportRun): string {
 export function ExecutionLog({ report, head }: { report: ExecutionReport; head: SheetHead }) {
   const tz = report.meta.tz;
   const edr = report.meta.edrVendors.length > 0;
-  const versions = hasRunVersions(report.runs);
   const runs = [...report.runs].sort((a, b) => Date.parse(b.completedAt) - Date.parse(a.completedAt));
   const summary = report.meta.truncation.runs
     ? `Newest first. The newest ${fmtCount(runs.length)} of ${fmtCount(report.totals.runs, report.totals.runsApproximate)} runs.`
@@ -38,18 +37,27 @@ export function ExecutionLog({ report, head }: { report: ExecutionReport; head: 
       <table className="rp-table">
         <thead>
           <tr>
-            <th>Completed</th>{versions && <th>Version</th>}<th>Endpoint</th><th>Test</th><th>Stages</th><th className="rp-num">Defended</th>
+            <th>Completed</th><th>Endpoint</th><th>Test</th><th>Stages</th><th className="rp-num">Defended</th>
             {edr && <th className="rp-num">First alert</th>}
           </tr>
         </thead>
         <tbody>
           {runs.map((r) => {
             const c = countStages(r.stages);
+            const version = runVersionLine(r);
             return (
               <tr key={r.key}>
-                <td className="rp-mono rp-nowrap">{fmtDate(r.completedAt, tz)} {fmtTime(r.completedAt, tz)}</td>
-                {/* Wraps between the commit and its state: on one line it widened the table past A4 next to a 16-glyph Stages cell. */}
-                {versions && <td className="rp-mono">{runVersionText(r)}</td>}
+                {/* The version line sits under the time: a column of its own widened the table past A4 next to a full Stages cell. */}
+                <td className="rp-mono rp-nowrap">
+                  {`${fmtDate(r.completedAt, tz)} ${fmtTime(r.completedAt, tz)}`}
+                  {version && (
+                    <p className="rp-caption rp-version">
+                      {version.commit && <span className="rp-mono">{version.commit}</span>}
+                      {version.commit && version.word && ' '}
+                      {version.word}
+                    </p>
+                  )}
+                </td>
                 <td className="rp-mono rp-id">{r.hostname}</td>
                 <td>{truncate(r.testName, 40)}</td>
                 {/* A kill run's one doc is the whole test, not a stage: its stages are unknown. */}

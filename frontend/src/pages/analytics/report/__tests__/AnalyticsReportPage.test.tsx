@@ -217,15 +217,15 @@ describe('AnalyticsReportPage', () => {
 });
 
 describe('ReportDocument', () => {
-  it('shows the Version column and its Method sentence only when the runs carry versions', () => {
+  it('shows the run versions and their Method sentence only when the runs carry versions', () => {
     const { unmount } = render(<ReportDocument report={makeReport({ runs: versionedRuns() })} paper="A4" marking="None" />);
-    expect(screen.getByRole('columnheader', { name: 'Version' })).toBeInTheDocument();
+    expect(screen.getByText('def5678')).toBeInTheDocument();
     expect(screen.getByText('Sources.').closest('p')).toHaveTextContent('when this report was generated (13 Oct 2026, 23:40 UTC)');
     unmount();
 
     const { container } = render(<ReportDocument report={makeReport()} paper="A4" marking="None" />);
     expect(screen.queryByRole('columnheader', { name: 'Version' })).toBeNull();
-    expect(container.textContent).not.toContain('Version column');
+    expect(container.textContent).not.toContain('Under each run\'s completion time');
   });
 
   afterEach(() => vi.restoreAllMocks());

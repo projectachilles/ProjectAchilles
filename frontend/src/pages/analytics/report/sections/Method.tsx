@@ -41,7 +41,7 @@ export function Method({ head, edrVendors = [...EDR_VENDOR_KEYS], versions }: {
         <p>
           <b>Sources.</b> Stage results come from the ProjectAchilles agent.
           {edr && ` EDR alerts come from ${edrVendors.map((v) => findEdrVendor(v)?.productName ?? v).join(' and ')}, matched to a run by test binary, endpoint and a window from 5 minutes before to 30 minutes after the run completed.`}
-          {versions && ` The Version column gives the commit each run's test was built from; “older” marks a test that has changed since, compared with the test library synced on the console when this report was generated (${fmtDateTime(versions.generatedAt, versions.tz)} ${tzName(versions.generatedAt, versions.tz)}).`}
+          {versions && ` Under each run's completion time, the execution log gives the commit the run's test was built from; “older” marks a test that has changed since, compared with the test library synced on the console when this report was generated (${fmtDateTime(versions.generatedAt, versions.tz)} ${tzName(versions.generatedAt, versions.tz)}).`}
         </p>
         <p>
           <b>Limits.</b> Stages within a run are not timed individually; every stage carries the run's completion time.

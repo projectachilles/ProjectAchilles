@@ -513,43 +513,52 @@ describe('ExecutionLog', () => {
   });
 
   describe('test version', () => {
-    const versionCell = (hostname: string) => within(hostRow(hostname)).getAllByRole('cell')[1];
+    const completedCell = (hostname: string) => within(hostRow(hostname)).getAllByRole('cell')[0];
+    const versionLine = (hostname: string) => completedCell(hostname).querySelector('.rp-caption');
 
-    it('adds a narrow Version column after Completed', () => {
+    it('prints it under the completion time, with no column of its own', () => {
       render(<ExecutionLog report={makeReport({ runs: versionedRuns() })} head={head} />);
       expect(screen.getAllByRole('columnheader').map((h) => h.textContent))
-        .toEqual(['Completed', 'Version', 'Endpoint', 'Test', 'Stages', 'Defended', 'First alert']);
-      // Mono, but free to wrap between the commit and its state, so the column stays one commit wide.
-      expect(versionCell('WS-FIN-014')).toHaveClass('rp-mono');
-      expect(versionCell('WS-FIN-014')).not.toHaveClass('rp-nowrap');
+        .toEqual(['Completed', 'Endpoint', 'Test', 'Stages', 'Defended', 'First alert']);
+      const cell = completedCell('WS-FIN-014');
+      expect(cell).toHaveClass('rp-mono', 'rp-nowrap');
+      expect(cell.firstChild?.textContent).toBe('12 Oct 2026 12:47');
+      expect(versionLine('WS-FIN-014')?.tagName).toBe('P');
     });
 
-    it('prints the 7-character commit, and the word older only for an older version', () => {
+    it('prints the 7-character commit in mono, and the word older only for an older version', () => {
       render(<ExecutionLog report={makeReport({ runs: versionedRuns() })} head={head} />);
-      expect(versionCell('WS-FIN-014')).toHaveTextContent(/^abc1234$/);
-      expect(versionCell('WS-0042')).toHaveTextContent(/^def5678 older$/);
+      expect(versionLine('WS-FIN-014')).toHaveTextContent(/^abc1234$/);
+      expect(versionLine('WS-FIN-014')?.querySelector('.rp-mono')).toHaveTextContent(/^abc1234$/);
+      expect(versionLine('WS-0042')).toHaveTextContent(/^def5678 older$/);
+      expect(versionLine('WS-0042')?.querySelector('.rp-mono')).toHaveTextContent(/^def5678$/);
     });
 
     it('names the state of a run with no commit', () => {
       render(<ExecutionLog report={makeReport({ runs: versionedRuns() })} head={head} />);
-      expect(versionCell('WS-0043')).toHaveTextContent(/^version unknown$/);
-      expect(versionCell('WS-OPS-022')).toHaveTextContent(/^not recorded$/);
+      expect(versionLine('WS-0043')).toHaveTextContent(/^version unknown$/);
+      expect(versionLine('WS-OPS-022')).toHaveTextContent(/^not recorded$/);
+      expect(versionLine('WS-OPS-022')?.querySelector('.rp-mono')).toBeNull();
     });
 
-    it('prints the commit alone, or a dash, when the versions could not be compared', () => {
+    it('prints the commit alone when the versions could not be compared, and no line when there is nothing to say', () => {
       const runs = [
         makeRun({ version: { commit: COMMIT } }),
         makeRun({ hostname: 'WS-OPS-022', completedAt: '2026-10-11T09:12:00.000Z', taskId: '9e1b7c52-3d84-4a6f-b0c9-5f2a8d71e346', version: { commit: null } }),
       ];
       render(<ExecutionLog report={makeReport({ runs })} head={head} />);
-      expect(versionCell('WS-FIN-014')).toHaveTextContent(/^abc1234$/);
-      expect(versionCell('WS-OPS-022')).toHaveTextContent(/^—$/);
+      expect(versionLine('WS-FIN-014')).toHaveTextContent(/^abc1234$/);
+      expect(versionLine('WS-OPS-022')).toBeNull();
     });
 
-    it('has no Version column when no run carries a version (a server without the feature)', () => {
+    it('adds no line when no run carries a version (a server without the feature)', () => {
       const { container } = render(<ExecutionLog report={makeReport()} head={head} />);
       expect(screen.getAllByRole('columnheader').map((h) => h.textContent))
         .toEqual(['Completed', 'Endpoint', 'Test', 'Stages', 'Defended', 'First alert']);
+      for (const host of ['WS-FIN-014', 'WS-OPS-022']) {
+        expect(completedCell(host).childElementCount).toBe(0);
+        expect(completedCell(host).textContent).toMatch(/^\d{1,2} \w{3} \d{4} \d{2}:\d{2}$/);
+      }
       expect(container.textContent).not.toMatch(/not recorded|version unknown/);
     });
   });
@@ -691,18 +700,18 @@ describe('Method', () => {
     expect(screen.getByText('Defense Score')).toBeInTheDocument();
   });
 
-  it('says what the Version column is and what older is compared with, as of the report\'s generation', () => {
+  it('says where the run versions are and what older is compared with, as of the report\'s generation', () => {
     render(<Method head={head} versions={{ generatedAt: '2026-10-13T23:40:00.000Z', tz: 'UTC' }} />);
     const sources = screen.getByText('Sources.').closest('p') as HTMLElement;
     expect(sources).toHaveTextContent(
-      'The Version column gives the commit each run\'s test was built from; “older” marks a test that has changed since, '
-      + 'compared with the test library synced on the console when this report was generated (13 Oct 2026, 23:40 UTC).',
+      'Under each run\'s completion time, the execution log gives the commit the run\'s test was built from; “older” marks a test '
+      + 'that has changed since, compared with the test library synced on the console when this report was generated (13 Oct 2026, 23:40 UTC).',
     );
   });
 
   it('has no version sentence for a report without versions', () => {
     const { container } = render(<Method head={head} />);
-    expect(container.textContent).not.toMatch(/Version column|older/);
+    expect(container.textContent).not.toMatch(/commit|older/);
   });
 
   it('defines every outcome in the report\'s vocabulary', () => {
