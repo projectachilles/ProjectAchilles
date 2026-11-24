@@ -1,7 +1,7 @@
 // Section order, page breaks and the @page rules (spec §5.4).
 import type { ExecutionReport } from '@/services/api/reports';
 import { RUN_STRIP_MAX_RUNS } from './lib/outcomes';
-import { hasRunVersions } from './lib/runs';
+import { runVersionsBasis } from './lib/runs';
 import { Sheet, type SheetHead } from './sections/Sheet';
 import { ScopeList, orgLabel, windowText } from './sections/scope';
 import { Cover } from './sections/Cover';
@@ -55,6 +55,7 @@ export function ReportDocument({ report, paper, marking }: { report: ExecutionRe
   const showStrips = report.totals.runs > 0
     && report.totals.runs <= RUN_STRIP_MAX_RUNS
     && report.runs.length === report.totals.runs;
+  const versionsBasis = runVersionsBasis(report.runs);
 
   return (
     <>
@@ -80,7 +81,7 @@ export function ReportDocument({ report, paper, marking }: { report: ExecutionRe
             <Method
               head={head}
               edrVendors={report.meta.edrVendors}
-              versions={hasRunVersions(report.runs) ? { generatedAt: report.meta.generatedAt, tz: report.meta.tz } : undefined}
+              versions={versionsBasis ? { basis: versionsBasis, generatedAt: report.meta.generatedAt, tz: report.meta.tz } : undefined}
             />
           </>
         )}

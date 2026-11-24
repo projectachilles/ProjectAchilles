@@ -1,6 +1,8 @@
 import { describe, it, expect } from 'vitest';
-import { alertActionText, alertStageText, firstAlert, resolveRunStage, stageForAlert, vendorName } from '../runs';
-import { makeReport, makeRun, makeTest } from '../../__tests__/fixtures';
+import {
+  alertActionText, alertStageText, firstAlert, resolveRunStage, runVersionLine, runVersionsBasis, stageForAlert, vendorName,
+} from '../runs';
+import { COMMIT, makeReport, makeRun, makeTest } from '../../__tests__/fixtures';
 import type { ReportRun, ReportRunStage, ReportTest } from '@/services/api/reports';
 
 /** What a big-scope payload ships for a stage: no name, techniques or tactics. */
@@ -175,5 +177,66 @@ describe('alertActionText', () => {
   it('a standalone test uses its one result', () => {
     const solo = makeRun({ stages: [{ ...run.stages[0], controlId: null }] });
     expect(alertActionText([makeTest({ isBundle: false })], solo, { ...lsass, stageControlId: null, actedAfterRun: true })).toBe('blocked after the run');
+  });
+});
+
+describe('runVersionLine', () => {
+  const line = (version: ReportRun['version']) => runVersionLine(makeRun(version === undefined ? {} : { version }));
+
+  it.each([
+    ['current', 'current'],
+    ['older', 'older'],
+    ['unknown', 'version unknown'],
+  ] as const)('a commit with state %s prints the commit and the state', (state, word) => {
+    expect(line({ commit: COMMIT, state })).toEqual({ commit: 'abc1234', word });
+  });
+
+  it('a commit with no state (not compared) prints the commit alone', () => {
+    expect(line({ commit: COMMIT })).toEqual({ commit: 'abc1234', word: null });
+  });
+
+  it.each([
+    ['not_recorded', 'not recorded'],
+    ['unknown', 'version unknown'],
+    ['current', 'current'],
+    ['older', 'older'],
+  ] as const)('no commit with state %s prints the state', (state, word) => {
+    expect(line({ commit: null, state })).toEqual({ commit: null, word });
+  });
+
+  it('no commit and no state prints version unknown', () => {
+    expect(line({ commit: null })).toEqual({ commit: null, word: 'version unknown' });
+  });
+
+  it('no version (a server without the feature) prints no line', () => {
+    expect(makeRun().version).toBeUndefined();
+    expect(line(undefined)).toBeNull();
+  });
+});
+
+describe('runVersionsBasis (the Method page\'s version sentence)', () => {
+  const runs = (...versions: Array<ReportRun['version']>) => versions.map((version) => makeRun(version === undefined ? {} : { version }));
+
+  it('compared when a run has a state other than not recorded', () => {
+    expect(runVersionsBasis(runs({ commit: null, state: 'not_recorded' }, { commit: COMMIT, state: 'current' }))).toBe('compared');
+    expect(runVersionsBasis(runs({ commit: null, state: 'unknown' }))).toBe('compared');
+    expect(runVersionsBasis(runs({ commit: COMMIT }, { commit: COMMIT, state: 'older' }))).toBe('compared');
+  });
+
+  it('not compared when no run has such a state and a run has a commit', () => {
+    expect(runVersionsBasis(runs({ commit: COMMIT }, { commit: null, state: 'not_recorded' }))).toBe('not_compared');
+  });
+
+  it('not compared when a run has neither a state nor a commit (it prints version unknown)', () => {
+    expect(runVersionsBasis(runs({ commit: null }, { commit: null, state: 'not_recorded' }))).toBe('not_compared');
+  });
+
+  it('not recorded when every versioned run is not recorded', () => {
+    expect(runVersionsBasis(runs({ commit: null, state: 'not_recorded' }, undefined))).toBe('not_recorded');
+  });
+
+  it('none when no run carries a version', () => {
+    expect(runVersionsBasis(runs(undefined, undefined))).toBeNull();
+    expect(runVersionsBasis([])).toBeNull();
   });
 });

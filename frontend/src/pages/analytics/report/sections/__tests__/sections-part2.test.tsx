@@ -526,12 +526,19 @@ describe('ExecutionLog', () => {
       expect(versionLine('WS-FIN-014')?.tagName).toBe('P');
     });
 
-    it('prints the 7-character commit in mono, and the word older only for an older version', () => {
+    it('prints the 7-character commit in mono, then the state of every compared run', () => {
       render(<ExecutionLog report={makeReport({ runs: versionedRuns() })} head={head} />);
-      expect(versionLine('WS-FIN-014')).toHaveTextContent(/^abc1234$/);
+      expect(versionLine('WS-FIN-014')).toHaveTextContent(/^abc1234 current$/);
       expect(versionLine('WS-FIN-014')?.querySelector('.rp-mono')).toHaveTextContent(/^abc1234$/);
       expect(versionLine('WS-0042')).toHaveTextContent(/^def5678 older$/);
       expect(versionLine('WS-0042')?.querySelector('.rp-mono')).toHaveTextContent(/^def5678$/);
+    });
+
+    it('prints a commit with version unknown when it could not be compared', () => {
+      const runs = [makeRun({ version: { commit: COMMIT, state: 'unknown' } })];
+      render(<ExecutionLog report={makeReport({ runs })} head={head} />);
+      expect(versionLine('WS-FIN-014')).toHaveTextContent(/^abc1234 version unknown$/);
+      expect(versionLine('WS-FIN-014')?.querySelector('.rp-mono')).toHaveTextContent(/^abc1234$/);
     });
 
     it('names the state of a run with no commit', () => {
@@ -541,14 +548,15 @@ describe('ExecutionLog', () => {
       expect(versionLine('WS-OPS-022')?.querySelector('.rp-mono')).toBeNull();
     });
 
-    it('prints the commit alone when the versions could not be compared, and no line when there is nothing to say', () => {
+    it('prints the commit alone when the versions could not be compared, and version unknown with neither', () => {
       const runs = [
         makeRun({ version: { commit: COMMIT } }),
         makeRun({ hostname: 'WS-OPS-022', completedAt: '2026-10-11T09:12:00.000Z', taskId: '9e1b7c52-3d84-4a6f-b0c9-5f2a8d71e346', version: { commit: null } }),
       ];
       render(<ExecutionLog report={makeReport({ runs })} head={head} />);
       expect(versionLine('WS-FIN-014')).toHaveTextContent(/^abc1234$/);
-      expect(versionLine('WS-OPS-022')).toBeNull();
+      expect(versionLine('WS-OPS-022')).toHaveTextContent(/^version unknown$/);
+      expect(versionLine('WS-OPS-022')?.querySelector('.rp-mono')).toBeNull();
     });
 
     it('adds no line when no run carries a version (a server without the feature)', () => {
@@ -700,18 +708,45 @@ describe('Method', () => {
     expect(screen.getByText('Defense Score')).toBeInTheDocument();
   });
 
-  it('says where the run versions are and what older is compared with, as of the report\'s generation', () => {
-    render(<Method head={head} versions={{ generatedAt: '2026-10-13T23:40:00.000Z', tz: 'UTC' }} />);
-    const sources = screen.getByText('Sources.').closest('p') as HTMLElement;
-    expect(sources).toHaveTextContent(
-      'Under each run\'s completion time, the execution log gives the commit the run\'s test was built from; “older” marks a test '
-      + 'that has changed since, compared with the test library synced on the console when this report was generated (13 Oct 2026, 23:40 UTC).',
-    );
+  describe('test versions', () => {
+    const at = { generatedAt: '2026-10-13T23:40:00.000Z', tz: 'UTC' };
+    const paragraph = () => screen.getByText('Test versions.').closest('p') as HTMLElement;
+
+    it('compared: says what the commit is, what current and older compare with as of generation, and the other two states', () => {
+      render(<Method head={head} versions={{ basis: 'compared', ...at }} />);
+      expect(paragraph()).toHaveTextContent(
+        'Test versions. The commit under each run\'s completion time is the version of the test that ran. '
+        + '“current” and “older” compare it with the test library synced on this console when this report was generated '
+        + '(13 Oct 2026, 23:40 UTC). “version unknown” means it could not be compared; “not recorded” means the run predates version recording.',
+      );
+    });
+
+    it('not compared: says what the commit is and that versions could not be compared', () => {
+      render(<Method head={head} versions={{ basis: 'not_compared', ...at }} />);
+      expect(paragraph()).toHaveTextContent(
+        'Test versions. The commit under each run\'s completion time is the version of the test that ran. '
+        + 'Versions could not be compared with the test library when this report was generated.',
+      );
+      expect(paragraph().textContent).not.toMatch(/current|older/);
+    });
+
+    it('all not recorded: says only what not recorded means', () => {
+      render(<Method head={head} versions={{ basis: 'not_recorded', ...at }} />);
+      expect(paragraph()).toHaveTextContent(
+        'Test versions. “not recorded” under a run\'s completion time means the run predates version recording.',
+      );
+      expect(paragraph().textContent).not.toMatch(/commit|current|older|compared/);
+    });
+
+    it('keeps the version sentence out of the Sources paragraph', () => {
+      render(<Method head={head} versions={{ basis: 'compared', ...at }} />);
+      expect(screen.getByText('Sources.').closest('p')?.textContent).not.toMatch(/commit|older/);
+    });
   });
 
   it('has no version sentence for a report without versions', () => {
     const { container } = render(<Method head={head} />);
-    expect(container.textContent).not.toMatch(/commit|older/);
+    expect(container.textContent).not.toMatch(/commit|older|Test versions/);
   });
 
   it('defines every outcome in the report\'s vocabulary', () => {
