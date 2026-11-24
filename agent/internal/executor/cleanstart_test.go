@@ -3,7 +3,9 @@ package executor
 import (
 	"os"
 	"path/filepath"
+	"reflect"
 	"sort"
+	"strings"
 	"testing"
 	"time"
 )
@@ -189,6 +191,8 @@ func TestCleanArtifactDirKeepsStateAndQueueWhenItIsTheWorkDir(t *testing.T) {
 	targets := cleanTargets{ArtifactDirs: []string{dir}, WorkDir: dir, Protected: []string{dir}, Wide: true}
 	var rep cleanReport
 	cleanArtifactDir(dir, beforeRun, targets, lockbit, inOneMinute(), &rep)
+	// queue is the entry that proves the work-dir branch: state.json is also
+	// kept by the undo word "state".
 	if got, want := names(t, dir), []string{"queue", "state.json"}; !equal(got, want) {
 		t.Errorf("left %v, want %v", got, want)
 	}
@@ -201,7 +205,7 @@ func TestCleanArtifactDirToleratesAMissingDir(t *testing.T) {
 	dir := filepath.Join(t.TempDir(), "absent")
 	var rep cleanReport
 	cleanArtifactDir(dir, beforeRun, cleanTargets{Wide: true}, lockbit, inOneMinute(), &rep)
-	if len(rep.Removed) != 0 || rep.Decoys != 0 || rep.RunFolders != 0 || rep.Failed != 0 || rep.OutOfTime {
+	if !reflect.DeepEqual(rep, cleanReport{}) {
 		t.Errorf("rep = %+v, want zero", rep)
 	}
 	if _, err := os.Lstat(dir); !os.IsNotExist(err) {
@@ -219,5 +223,185 @@ func TestCleanArtifactDirStopsWhenOutOfTime(t *testing.T) {
 	}
 	if !rep.OutOfTime {
 		t.Error("OutOfTime not set")
+	}
+}
+
+// noAccount makes cleanDecoyDir see no local fortika-test account.
+func noAccount(t *testing.T) {
+	t.Helper()
+	old := accountExists
+	accountExists = func(string) bool { return false }
+	t.Cleanup(func() { accountExists = old })
+}
+
+func decoyTargets(dir string) cleanTargets {
+	return cleanTargets{DecoyDirs: []string{dir}, Wide: true}
+}
+
+func TestCleanDecoyDirEmptiesItAndKeepsTheFolder(t *testing.T) {
+	noAccount(t)
+	decoy := filepath.Join(t.TempDir(), "fortika-test")
+	now := time.Now()
+	for _, f := range []string{"README_RESTORE.txt", "backup.docx", "Documents/a/b.xlsx.locked"} {
+		touch(t, filepath.Join(decoy, f), now)
+	}
+	var rep cleanReport
+	cleanDecoyDir(decoy, decoyTargets(decoy), inOneMinute(), &rep)
+	if got := names(t, decoy); len(got) != 0 {
+		t.Errorf("left %v", got)
+	}
+	if rep.Decoys != 3 {
+		t.Errorf("Decoys = %d, want 3", rep.Decoys)
+	}
+}
+
+func TestCleanDecoyDirSkipsARealWindowsProfile(t *testing.T) {
+	noAccount(t)
+	decoy := filepath.Join(t.TempDir(), "fortika-test")
+	touch(t, filepath.Join(decoy, "NTUSER.DAT"), time.Now())
+	touch(t, filepath.Join(decoy, "Documents", "a.txt"), time.Now())
+	var rep cleanReport
+	cleanDecoyDir(decoy, decoyTargets(decoy), inOneMinute(), &rep)
+	if got, want := names(t, decoy), []string{"Documents", "NTUSER.DAT"}; !equal(got, want) {
+		t.Errorf("left %v, want %v", got, want)
+	}
+	if rep.Decoys != 0 {
+		t.Errorf("Decoys = %d, want 0", rep.Decoys)
+	}
+}
+
+func TestCleanDecoyDirSkipsWhenTheAccountExists(t *testing.T) {
+	old := accountExists
+	accountExists = func(name string) bool { return name == "fortika-test" }
+	t.Cleanup(func() { accountExists = old })
+	decoy := filepath.Join(t.TempDir(), "fortika-test")
+	touch(t, filepath.Join(decoy, "a.txt"), time.Now())
+	var rep cleanReport
+	cleanDecoyDir(decoy, decoyTargets(decoy), inOneMinute(), &rep)
+	if got, want := names(t, decoy), []string{"a.txt"}; !equal(got, want) {
+		t.Errorf("left %v, want %v", got, want)
+	}
+}
+
+func TestCleanDecoyDirSkipsWhenAnAgentPathIsInside(t *testing.T) {
+	noAccount(t)
+	decoy := filepath.Join(t.TempDir(), "fortika-test")
+	touch(t, filepath.Join(decoy, "a.txt"), time.Now())
+	tg := decoyTargets(decoy)
+	tg.Protected = []string{filepath.Join(decoy, "agent.log")}
+	var rep cleanReport
+	cleanDecoyDir(decoy, tg, inOneMinute(), &rep)
+	if got, want := names(t, decoy), []string{"a.txt"}; !equal(got, want) {
+		t.Errorf("left %v, want %v", got, want)
+	}
+}
+
+func TestCleanDecoyDirFailsClosedAndToleratesAMissingDir(t *testing.T) {
+	noAccount(t)
+	decoy := filepath.Join(t.TempDir(), "fortika-test")
+	touch(t, filepath.Join(decoy, "a.txt"), time.Now())
+	var rep cleanReport
+	cleanDecoyDir(decoy, cleanTargets{DecoyDirs: []string{decoy}}, inOneMinute(), &rep)
+	if got, want := names(t, decoy), []string{"a.txt"}; !equal(got, want) {
+		t.Errorf("Wide=false left %v, want %v", got, want)
+	}
+	absent := filepath.Join(t.TempDir(), "absent")
+	rep = cleanReport{}
+	cleanDecoyDir(absent, decoyTargets(absent), inOneMinute(), &rep)
+	if !reflect.DeepEqual(rep, cleanReport{}) {
+		t.Errorf("rep = %+v, want zero", rep)
+	}
+	if _, err := os.Lstat(absent); !os.IsNotExist(err) {
+		t.Errorf("the missing folder was created: %v", err)
+	}
+}
+
+func TestRemoveRunFoldersRemovesEveryRunFolderOfAnyAge(t *testing.T) {
+	work := filepath.Join(t.TempDir(), "work")
+	now := time.Now()
+	touch(t, filepath.Join(work, "task-aaa-1", "x"), now)
+	touch(t, filepath.Join(work, "cmd-bbb-2", "y"), now.Add(-2*time.Hour))
+	touch(t, filepath.Join(work, "queue", "q.json"), now)
+	touch(t, filepath.Join(work, "state.json"), now)
+	touch(t, filepath.Join(work, "notes", "z"), now)
+	var rep cleanReport
+	removeRunFolders(work, inOneMinute(), &rep)
+	if got, want := names(t, work), []string{"notes", "queue", "state.json"}; !equal(got, want) {
+		t.Errorf("left %v, want %v", got, want)
+	}
+	if rep.RunFolders != 2 {
+		t.Errorf("RunFolders = %d, want 2", rep.RunFolders)
+	}
+}
+
+// passTargets builds an artifact folder, a decoy folder and a work folder.
+func passTargets(t *testing.T) (cleanTargets, string, string, string) {
+	t.Helper()
+	noAccount(t)
+	base := t.TempDir()
+	art := filepath.Join(base, "F0")
+	decoy := filepath.Join(base, "fortika-test")
+	work := filepath.Join(base, "work")
+	now := time.Now()
+	touch(t, filepath.Join(art, "rwdrv.sys"), now)
+	touch(t, filepath.Join(art, "achilles-agent.exe"), now)
+	touch(t, filepath.Join(decoy, "a.txt"), now)
+	touch(t, filepath.Join(work, "task-old-1", "x"), now)
+	return cleanTargets{
+		ArtifactDirs: []string{art}, DecoyDirs: []string{decoy}, WorkDir: work,
+		Protected: []string{filepath.Join(art, "achilles-agent.exe"), work}, Wide: true,
+	}, art, decoy, work
+}
+
+func TestRunCleanPassBeforeRunCleansAllThreePlaces(t *testing.T) {
+	tg, art, decoy, work := passTargets(t)
+	rep := runCleanPass(beforeRun, tg, lockbit, inOneMinute())
+	if got, want := names(t, art), []string{"achilles-agent.exe"}; !equal(got, want) {
+		t.Errorf("artifact dir left %v, want %v", got, want)
+	}
+	if got := names(t, decoy); len(got) != 0 {
+		t.Errorf("decoy left %v", got)
+	}
+	if got := names(t, work); len(got) != 0 {
+		t.Errorf("work left %v", got)
+	}
+	if rep.Decoys != 1 || rep.RunFolders != 1 {
+		t.Errorf("rep = %+v", rep)
+	}
+}
+
+func TestRunCleanPassAfterRunLeavesRunFoldersAlone(t *testing.T) {
+	tg, art, decoy, work := passTargets(t)
+	runCleanPass(afterRun, tg, lockbit, inOneMinute())
+	if got, want := names(t, work), []string{"task-old-1"}; !equal(got, want) {
+		t.Errorf("work left %v, want %v", got, want)
+	}
+	if got, want := names(t, art), []string{"achilles-agent.exe"}; !equal(got, want) {
+		t.Errorf("artifact dir left %v, want %v", got, want)
+	}
+	if got := names(t, decoy); len(got) != 0 {
+		t.Errorf("decoy left %v", got)
+	}
+}
+
+func TestRunCleanPassOutOfTimeTouchesNothing(t *testing.T) {
+	tg, art, decoy, work := passTargets(t)
+	rep := runCleanPass(beforeRun, tg, lockbit, time.Now().Add(-time.Second))
+	if !rep.OutOfTime {
+		t.Error("OutOfTime not set")
+	}
+	for dir, want := range map[string][]string{
+		art: {"achilles-agent.exe", "rwdrv.sys"}, decoy: {"a.txt"}, work: {"task-old-1"},
+	} {
+		if got := names(t, dir); !equal(got, want) {
+			t.Errorf("%s left %v, want %v", dir, got, want)
+		}
+	}
+}
+
+func TestDecoyDirs(t *testing.T) {
+	got := DecoyDirs()
+	if len(got) != 1 || !strings.HasSuffix(filepath.ToSlash(got[0]), "fortika-test") {
+		t.Errorf("DecoyDirs() = %v", got)
 	}
 }

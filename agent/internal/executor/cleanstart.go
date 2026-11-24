@@ -2,7 +2,10 @@ package executor
 
 import (
 	"log"
+	"os"
+	"os/user"
 	"path/filepath"
+	"runtime"
 	"sort"
 	"strings"
 	"time"
@@ -128,11 +131,36 @@ func protectedTops(dir string, protected []string) (tops []string, selfIsWorkDir
 	return tops, selfIsWorkDir
 }
 
+// removeEntries removes, through the trusted root, every top-level entry of
+// root that selected accepts, and returns their names. A failed delete is
+// logged and counted in rep.Failed; the walk stops, setting rep.OutOfTime, once
+// the deadline has passed (checked before each entry). dir is only used in log
+// lines.
+func removeEntries(dir string, root *os.Root, deadline time.Time, rep *cleanReport, selected func(os.DirEntry) bool) []string {
+	var removed []string
+	for _, e := range readRoot(root) {
+		if time.Now().After(deadline) {
+			rep.OutOfTime = true
+			return removed
+		}
+		if !selected(e) {
+			continue
+		}
+		name := e.Name()
+		if err := root.RemoveAll(name); err != nil {
+			log.Printf("[cleanup] could not remove %s: %v", filepath.Join(dir, name), err)
+			rep.Failed++
+			continue
+		}
+		removed = append(removed, name)
+	}
+	return removed
+}
+
 // cleanArtifactDir empties the top level of an artifact folder except what
 // keepInArtifactDir keeps. Without the agent's own paths (Wide false) it
 // removes only testUUID's binaries. Every delete goes through the trusted
-// root, which never follows a link. A failed delete is logged and counted; the
-// pass stops, setting rep.OutOfTime, once the deadline has passed.
+// root, which never follows a link.
 func cleanArtifactDir(dir string, pass cleanPass, t cleanTargets, testUUID string, deadline time.Time, rep *cleanReport) {
 	if !t.Wide {
 		rep.Removed = append(rep.Removed, removeTestBinaries(dir, testUUID)...)
@@ -147,20 +175,93 @@ func cleanArtifactDir(dir string, pass cleanPass, t cleanTargets, testUUID strin
 	if selfIsWorkDir {
 		tops = append(tops, "state.json", "queue")
 	}
-	for _, e := range readRoot(root) {
-		if time.Now().After(deadline) {
-			rep.OutOfTime = true
+	rep.Removed = append(rep.Removed, removeEntries(dir, root, deadline, rep, func(e os.DirEntry) bool {
+		return !keepInArtifactDir(e.Name(), pass, tops)
+	})...)
+}
+
+// decoyAccount is the local account whose home folder the tests fill with
+// decoy documents.
+const decoyAccount = "fortika-test"
+
+// accountExists reports whether a local account with this name exists. With
+// CGO disabled, macOS only sees accounts listed in /etc/passwd, so a
+// directory-service account is not detected there. A variable so tests can
+// replace it.
+var accountExists = func(name string) bool {
+	_, err := user.Lookup(name)
+	return err == nil
+}
+
+// DecoyDirs returns the decoy home folder the tests fill on this OS.
+func DecoyDirs() []string {
+	switch runtime.GOOS {
+	case "windows":
+		return []string{`C:\Users\` + decoyAccount}
+	case "darwin":
+		return []string{"/Users/" + decoyAccount}
+	}
+	return []string{"/home/" + decoyAccount}
+}
+
+// pathInside reports whether p is dir or lies inside it, comparing the paths as
+// given.
+func pathInside(dir, p string) bool {
+	rel, err := filepath.Rel(filepath.Clean(dir), filepath.Clean(p))
+	return err == nil && !filepath.IsAbs(rel) && rel != ".." && !strings.HasPrefix(rel, ".."+string(filepath.Separator))
+}
+
+// cleanDecoyDir empties a decoy home folder but keeps the folder. It does
+// nothing when an agent path lies inside it, or when it looks like a real
+// user's home (the account exists, or it holds NTUSER.DAT), so a mistaken
+// folder name can never wipe a person's files.
+func cleanDecoyDir(dir string, t cleanTargets, deadline time.Time, rep *cleanReport) {
+	if !t.Wide {
+		return
+	}
+	for _, p := range t.Protected {
+		if p != "" && pathInside(dir, p) {
+			log.Printf("[cleanup] skipping %s: it holds an agent path", dir)
 			return
 		}
-		name := e.Name()
-		if keepInArtifactDir(name, pass, tops) {
-			continue
-		}
-		if err := root.RemoveAll(name); err != nil {
-			log.Printf("[cleanup] could not remove %s: %v", filepath.Join(dir, name), err)
-			rep.Failed++
-			continue
-		}
-		rep.Removed = append(rep.Removed, name)
 	}
+	root := openTrustedDir(dir)
+	if root == nil {
+		return
+	}
+	defer root.Close()
+	if _, err := root.Lstat("NTUSER.DAT"); err == nil || accountExists(decoyAccount) {
+		log.Printf("[cleanup] skipping %s: it is a user's home folder", dir)
+		return
+	}
+	rep.Decoys += len(removeEntries(dir, root, deadline, rep, func(os.DirEntry) bool { return true }))
+}
+
+// removeRunFolders removes the task-* and cmd-* folders of earlier runs from
+// the agent's work folder, whatever their age.
+func removeRunFolders(workDir string, deadline time.Time, rep *cleanReport) {
+	root := openTrustedDir(workDir)
+	if root == nil {
+		return
+	}
+	defer root.Close()
+	rep.RunFolders += len(removeEntries(workDir, root, deadline, rep, func(e os.DirEntry) bool {
+		return e.IsDir() && (strings.HasPrefix(e.Name(), "task-") || strings.HasPrefix(e.Name(), "cmd-"))
+	}))
+}
+
+// runCleanPass runs one pass over the artifact folders, the decoy folders and,
+// before a run, the work folder's old run folders.
+func runCleanPass(pass cleanPass, t cleanTargets, testUUID string, deadline time.Time) cleanReport {
+	var rep cleanReport
+	for _, dir := range t.ArtifactDirs {
+		cleanArtifactDir(dir, pass, t, testUUID, deadline, &rep)
+	}
+	for _, dir := range t.DecoyDirs {
+		cleanDecoyDir(dir, t, deadline, &rep)
+	}
+	if pass == beforeRun && t.Wide && t.WorkDir != "" {
+		removeRunFolders(t.WorkDir, deadline, &rep)
+	}
+	return rep
 }

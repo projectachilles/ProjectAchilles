@@ -5,6 +5,7 @@ package executor
 import (
 	"os"
 	"path/filepath"
+	"reflect"
 	"testing"
 	"time"
 )
@@ -45,7 +46,7 @@ func TestCleanArtifactDirRefusesASymlinkedDir(t *testing.T) {
 	if got, want := names(t, real), []string{"rwdrv.sys"}; !equal(got, want) {
 		t.Errorf("followed a symlinked dir: left %v", got)
 	}
-	if len(rep.Removed) != 0 || rep.Failed != 0 {
+	if !reflect.DeepEqual(rep, cleanReport{}) {
 		t.Errorf("rep = %+v, want zero", rep)
 	}
 }
@@ -69,5 +70,41 @@ func TestCleanArtifactDirCountsAFailureAndGoesOn(t *testing.T) {
 	}
 	if rep.Failed != 1 {
 		t.Errorf("Failed = %d, want 1", rep.Failed)
+	}
+}
+
+func TestCleanDecoyDirRemovesASymlinkNotItsTarget(t *testing.T) {
+	noAccount(t)
+	outside := filepath.Join(t.TempDir(), "outside")
+	keep := filepath.Join(outside, "keep.txt")
+	touch(t, keep, time.Now())
+	decoy := filepath.Join(t.TempDir(), "fortika-test")
+	if err := os.MkdirAll(decoy, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(outside, filepath.Join(decoy, "link")); err != nil {
+		t.Fatal(err)
+	}
+	var rep cleanReport
+	cleanDecoyDir(decoy, decoyTargets(decoy), inOneMinute(), &rep)
+	if got := names(t, decoy); len(got) != 0 {
+		t.Errorf("link left: %v", got)
+	}
+	if _, err := os.Stat(keep); err != nil {
+		t.Errorf("the link target was removed: %v", err)
+	}
+}
+
+func TestCleanDecoyDirSkipsAWorldWritableDir(t *testing.T) {
+	noAccount(t)
+	decoy := filepath.Join(t.TempDir(), "fortika-test")
+	touch(t, filepath.Join(decoy, "a.txt"), time.Now())
+	if err := os.Chmod(decoy, 0o777); err != nil {
+		t.Fatal(err)
+	}
+	var rep cleanReport
+	cleanDecoyDir(decoy, decoyTargets(decoy), inOneMinute(), &rep)
+	if got, want := names(t, decoy), []string{"a.txt"}; !equal(got, want) {
+		t.Errorf("left %v, want %v", got, want)
 	}
 }
