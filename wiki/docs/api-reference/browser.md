@@ -121,7 +121,7 @@ POST /api/browser/tests/updates/check
 The published, synced and built version of every test, as shown on the Tests page and the **Version** card. See [Test Versions](../user-guide/test-browser/test-versions) for what each status means. Not available on `backend-serverless`, which reports `testVersions: false` in `/api/capabilities`.
 
 - `GET /tests/versions` needs `tests:library:read`. It reads the result of the last check and never contacts the test repository.
-- `POST /tests/updates/check` also needs `tests:sync:execute` (the **Check now** button). It fetches the published branch of the configured test repository, compares, and answers with the same payload as the read route. It never changes the synced files.
+- `POST /tests/updates/check` also needs `tests:sync:execute` (the **Check now** button). It fetches the published branch of the configured test repository, compares, and answers with the same payload as the read route. It never changes the synced files. With git sync off there is no published branch: it answers 200 with the same payload without fetching anything.
 
 Both answer `{ "success": true, "data": { "library": {...}, "tests": {...} } }`:
 

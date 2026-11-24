@@ -221,8 +221,9 @@ interface VoidedMeta {
   raw: string;
   /**
    * For a meta with no version stamp: the artifact's SHA-256 taken just
-   * before the void, null when there was none. A stamped meta is proven by
-   * its stamp instead, so this stays null for it.
+   * before the void. null when there was no artifact, when it can't be hashed,
+   * and on the build_all.sh path (which never puts the meta back). A stamped
+   * meta is proven by its stamp instead, so this stays null for it.
    */
   hashBefore: string | null;
 }
@@ -1560,7 +1561,7 @@ const ARTIFACT_DIR = \`${artifactDir}\`
       this.writeFileAtomic(metaFile, JSON.stringify(meta, null, 2));
       return { raw, hashBefore };
     } catch (err) {
-      console.warn('Build of %s could not clear the previous version stamp: %s', uuid,
+      console.warn('Build of %s could not rewrite the previous build record: %s', uuid,
         err instanceof Error ? err.message : String(err));
       return null;
     }
@@ -1589,7 +1590,8 @@ const ARTIFACT_DIR = \`${artifactDir}\`
    * build still holds its marker and the artifact provably is untouched: its
    * SHA-256 still equals the one the stamp recorded or, for a meta with no
    * stamp, the one taken just before the void (none when there was no
-   * artifact: nothing to prove). go writes the output only after a
+   * artifact, nothing to prove, or it could not be hashed, nothing proven:
+   * either way the meta stays voided). go writes the output only after a
    * successful link, but this does not rely on it. A superseded build never
    * restores: the build that took over may already be writing the artifact,
    * and its own void has rewritten the meta this one would put back.

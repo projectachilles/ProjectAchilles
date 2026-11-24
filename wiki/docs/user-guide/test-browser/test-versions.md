@@ -50,9 +50,9 @@ While a build replaces a test's binary, the test reads **Unknown build**, also w
 
 ## Documentation changes
 
-A change to a test's documents (Markdown, HTML) or to its detection and defense files shows as **Update available: documentation changed**, so you know to sync. The detection and defense files are the KQL, YARA, Elastic, Sigma and LimaCharlie D&R rules and the hardening scripts that come with each test. Such a change never asks for a rebuild: after the Sync, the binary still matches the synced version.
+A change to a test's documents (Markdown, HTML) or to its detection and defense files shows as **Update available: documentation changed**, so you know to sync. The detection and defense files are the KQL, YARA, Elastic, Sigma and LimaCharlie D&R rules and the hardening scripts that come with each test. The Sigma and D&R rules and the hardening scripts count only under the names the test library gives them, which start with the test's ID, for example `<test-id>_sigma_rules.yml` or `<test-id>_hardening.ps1`. Such a change never asks for a rebuild: after the Sync, the binary still matches the synced version.
 
-Every other file in the test's folder counts as source, other PowerShell and shell scripts included. A change to the test's source, to the shared libraries it builds with, or to an embedded file asks for a rebuild.
+Every other file in the test's folder counts as source, other PowerShell and shell scripts included, for example a script named `apply_hardening.ps1`. A change to the test's source, to the shared libraries it builds with (tests synced with git), or to an embedded file asks for a rebuild.
 
 ## How the console knows what is published
 
@@ -78,14 +78,14 @@ When a test task is created, the console copies the version of the binary it sen
 |-------|---------------|------------|
 | **current** | The binary was built from the source you have synced now. | Nothing. |
 | **older** | The synced source has changed since that binary was built. | Open the test and rebuild it; the next runs read **current**. |
-| **version unknown** | The run recorded which build it used, but not a version that can be compared: an uploaded binary, a build with no recorded version or from changed source, a task created while a rebuild was replacing the binary, a test that is no longer in the library, or the console can't read the test's synced version now. | For a test still in the library, **Build & Sign** it so that new runs can be compared. |
+| **version unknown** | The run recorded which build it used, but not a version that can be compared: an uploaded binary, a build with no recorded version or from changed source, a task created while a rebuild was replacing the binary, a test that is no longer in the library, or the console can't read the test's synced version now. | For a test still in the library, **Build & Sign** it so that new runs can be compared. When the console can't read the test's synced version, a build doesn't help: the library must be readable again. The **Tests** page header then says **The test library could not be read**. |
 | **not recorded** | The run has no version: its task was created before this console recorded versions. | Nothing. New runs record it. |
 
 Where they show:
 
 - **Analytics → All Executions**: each run shows the short commit and its state. The run's detail has a **Test version** block with the commit, the source date and the build date, and for an **older** result a link to the test. The **Version** filter (**Older version**, **Current version**, **Version unknown**, **Not recorded**) narrows the list to one state and is kept in the page address. The CSV export ends with two columns, `version` (the short commit) and `version_state`. See [Execution Table](../analytics/execution-table).
-- **Campaign run page**: under each test name, the short commit and its state, or **mixed versions** when the hosts ran different versions (hover for each version and its number of hosts). The **As of** line adds that the states compare with the synced test library as of that time, and it prints with the page. The CSV ends with the same two columns. See [Campaigns](../agent-management/campaigns#exporting-evidence).
-- **PDF report**: in the execution log, under each run's completion time, the short commit, with **older** when the test has changed since. A run without a commit shows its state alone, for example **not recorded**. See [Execution Report](../analytics/execution-report).
+- **Campaign run page**: under each test name, the short commit and its state, or **mixed versions** when the hosts ran different versions (hover for each version and its number of hosts). The **As of** line adds that the states compare with the synced test library as of that time, or, when they could not be compared, says "Version states could not be compared with the test library when this page was generated." It prints with the page. The CSV ends with the same two columns. See [Campaigns](../agent-management/campaigns#exporting-evidence).
+- **PDF report**: in the execution log, under each run's completion time, the short commit and its state, for example `abc1234 current` or `abc1234 older`. A run without a commit shows its state alone, for example **not recorded**. A commit alone means its state could not be compared. The Method page says what the states mean and when the report compared them. See [Execution Report](../analytics/execution-report).
 
 When the console can't read a test's synced version, its results read **version unknown**. If the console can't read its test library at all, the states can't be worked out: All Executions then shows no version on its rows, and the campaign page and the report show recorded commits without a state (the report also when the read takes more than 5 seconds).
 

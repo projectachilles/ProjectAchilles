@@ -20,10 +20,13 @@ export interface TestLocation {
   relPath: string;
 }
 
-// NOTE: changing any of the input lists below (excluded extensions, excluded
-// names, shared inputs, disk exclusions) or the hash line format changes every
-// fingerprint, so every stored fingerprint compares as older once. Change them
-// deliberately.
+// NOTE: these lists decide which fingerprints exist, so change them
+// deliberately. The hash line format changes every fingerprint. An excluded
+// extension, excluded name or disk exclusion changes the fingerprints of the
+// tests that have such a file. A shared prefix changes those of the git tests
+// whose shared files it adds or removes. Each changed fingerprint makes that
+// test's stored results read `older` once. Bump FINGERPRINT_RULE_VERSION with
+// any change to the lists or to the hash format.
 
 /**
  * The rule that made a fingerprint: bump it with any change to the input
@@ -39,18 +42,20 @@ export const BUILD_INPUT_EXCLUDED_EXT: readonly string[] = [
 
 /**
  * Detection and defence files the test library generates next to each test,
- * matched on the base name (case-sensitive, at the end of the name):
- * `<uuid>_sigma_rules.yml`, `<uuid>_dr_rules.yaml`, `<uuid>_hardening.ps1`,
- * `<uuid>_hardening_linux.sh` and `<uuid>_hardening_macos.sh` (any
- * `_hardening_<word>.ps1` or `.sh`, `<word>` being one or more of a-z, 0-9).
- * Matched by name, not by extension: `.ps1`,
- * `.sh` and `.yml` files are real build inputs in other tests (embedded
- * scripts, build_all.sh, a test's own configuration). A test that embeds one
- * of these files is covered by the build's embedded-files hash instead
- * (getEmbedDependencies in buildService.ts), but only when the file is named
- * literally as the first file on its `//go:embed` line: the parser reads only
- * the first token, so one embedded through a glob (`//go:embed *.ps1`) or as a
- * later token on the line is covered by nothing. A known gap.
+ * matched on the whole base name (case-sensitive): a lowercase UUID, `_`, then
+ * `sigma_rules.yml`, `dr_rules.yaml`, `hardening.ps1`, or
+ * `hardening_<word>.ps1` / `.sh` (`<word>` one or more of a-z, 0-9), e.g.
+ * `<uuid>_hardening_linux.sh`. Every library file follows that form; a name
+ * without the UUID prefix (`apply_hardening.ps1`, `custom_sigma_rules.yml`) is
+ * a real script or configuration and stays a build input. Matched by name, not
+ * by extension: `.ps1`, `.sh` and `.yml` files are real build inputs in other
+ * tests (embedded scripts, build_all.sh, a test's own configuration). A test
+ * that embeds one of these files is covered by the build's embedded-files hash
+ * instead (getEmbedDependencies in buildService.ts), but only when the file,
+ * or a folder containing it, is named as the first token of its `//go:embed`
+ * line: the parser reads only that token, so one embedded through a glob
+ * (`//go:embed *.ps1`) or as a later token on the line is covered by nothing.
+ * A known gap.
  */
 export const BUILD_INPUT_EXCLUDED_NAME =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}_(?:sigma_rules\.yml|dr_rules\.yaml|hardening(?:_[a-z0-9]+)?\.ps1|hardening_[a-z0-9]+\.sh)$/;
