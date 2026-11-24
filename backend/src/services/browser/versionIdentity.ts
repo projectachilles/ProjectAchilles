@@ -58,12 +58,12 @@ export const BUILD_INPUT_EXCLUDED_EXT: readonly string[] = [
  * a real script or configuration and stays a build input. Matched by name, not
  * by extension: `.ps1`, `.sh` and `.yml` files are real build inputs in other
  * tests (embedded scripts, build_all.sh, a test's own configuration). A test
- * that embeds one of these files is covered by the build's embedded-files hash
- * instead (getEmbedDependencies in buildService.ts), but only when the file,
- * or a folder containing it, is named as the first token of its `//go:embed`
- * line: the parser reads only that token, so one embedded through a glob
- * (`//go:embed *.ps1`) or as a later token on the line is covered by nothing.
- * A known gap.
+ * that embeds one of these files gets no comparable version: the build stamp
+ * lists the file (`embeds_left_out`, from every pattern of every //go:embed
+ * line: services/tests/embeddedFiles.ts), its status is Unknown build and its
+ * results say "version unknown". The build's embedded-files hash
+ * (getEmbedDependencies in buildService.ts) still covers the file when it is
+ * the first token of its line, which only decides when a rebuild is asked for.
  */
 export const BUILD_INPUT_EXCLUDED_NAME =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}_(?:sigma_rules\.yml|dr_rules\.yaml|hardening(?:_[a-z0-9]+)?\.ps1|hardening_[a-z0-9]+\.sh)$/;

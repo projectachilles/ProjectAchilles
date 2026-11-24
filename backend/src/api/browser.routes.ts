@@ -8,7 +8,7 @@ import { asyncHandler, AppError } from '../middleware/error.middleware.js';
 import { TestIndexer } from '../services/browser/testIndexer.js';
 import { CheckBusyError, getTestVersionsService } from '../services/browser/testVersions.service.js';
 import type { TestVersionsService } from '../services/browser/testVersions.service.js';
-import { deriveStatus } from '../services/browser/testVersionStatus.js';
+import { deriveStatus, embedsLeftOutFiles } from '../services/browser/testVersionStatus.js';
 import type { BuildService } from '../services/tests/buildService.js';
 import type {
   TestVersionIdentity, TestVersionRow, TestVersionsResponse, VersionRef,
@@ -222,7 +222,7 @@ export function createBrowserRouter(options: {
           // false "Rebuild needed" after every Sync.
           currentOutputsHash: info.exists && !hasGit ? builds.currentOutputsHash(t.uuid) : undefined,
         });
-        const stamp = info.version && !info.version.modified ? info.version : undefined;
+        const stamp = info.version && !info.version.modified && !embedsLeftOutFiles(info.version) ? info.version : undefined;
         row = {
           status: derived.status,
           ...(derived.reason ? { reason: derived.reason } : {}),

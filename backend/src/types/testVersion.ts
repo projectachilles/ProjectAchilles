@@ -29,6 +29,14 @@ export interface BuildVersionStamp extends TestVersionIdentity {
    */
   outputs_hash?: string | null;
   modified: boolean;
+  /**
+   * Files the binary embeds that the fingerprint leaves out (by extension or
+   * by name), relative to the test folder. Set only when there is at least
+   * one. The fingerprint then says which source was built but not what the
+   * binary carries, so such a build is never given a version results are
+   * compared by (embedsLeftOutFiles in testVersionStatus.ts).
+   */
+  embeds_left_out?: string[];
   /** filename -> sha256 hex */
   binaries: Record<string, string>;
 }
@@ -56,6 +64,7 @@ export type VersionReason =
   | 'dependency_changed'
   | 'documentation_changed'
   | 'modified_source'
+  | 'embeds_excluded_file'
   | 'no_stamp';
 
 export type ResultVersionState = 'current' | 'older' | 'unknown' | 'not_recorded';

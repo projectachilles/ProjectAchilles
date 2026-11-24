@@ -169,6 +169,25 @@ describe('GET /api/browser/tests/versions', () => {
       });
     });
 
+    it('is unknown_build, with no built commit shown, when the build embeds a file its fingerprint leaves out', async () => {
+      const builds = matchingBuild();
+      builds.getBuildInfo.mockImplementation(((uuid: string) => (uuid === U_REBUILD
+        ? { exists: true, source: 'built', builtAt: '2026-11-11T00:00:00Z', signed: true,
+            version: stamp('same', { deps_hash: DEPS, embeds_left_out: ['x_hardening.ps1'] }) }
+        : { exists: false })) as never);
+
+      const res = await request(makeApp({ buildService: builds as never })).get('/api/browser/tests/versions');
+
+      // Everything else matches (the test above is up_to_date with this stamp
+      // minus the list): only the embedded file keeps the build from vouching.
+      expect(res.body.data.tests[U_REBUILD]).toEqual({
+        status: 'unknown_build', reason: 'embeds_excluded_file', custom: false,
+        published: { commit: 'commit-same', commitDate: '2026-01-01T00:00:00Z', fingerprint: 'same' },
+        synced: { commit: 'commit-same', commitDate: '2026-01-01T00:00:00Z', fingerprint: 'same' },
+        built: { commit: null, commitDate: null, fingerprint: null, builtAt: '2026-11-11T00:00:00Z', signed: true },
+      });
+    });
+
     it('is not_checked with no published side when no check has succeeded yet', async () => {
       const svc = makeService({ published: vi.fn(() => published({ checkedAt: null })) });
       const res = await request(makeApp({ testVersions: svc as never, buildService: matchingBuild() as never }))

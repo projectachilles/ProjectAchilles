@@ -15,6 +15,7 @@ export type VersionReason =
   | 'dependency_changed'
   | 'documentation_changed'
   | 'modified_source'
+  | 'embeds_excluded_file'
   | 'no_stamp';
 
 export type ResultVersionState = 'current' | 'older' | 'unknown' | 'not_recorded';

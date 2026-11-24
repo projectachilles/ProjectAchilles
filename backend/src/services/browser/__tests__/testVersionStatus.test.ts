@@ -5,7 +5,7 @@ import type {
   TaskTestVersion,
   TestVersionIdentity,
 } from '../../../types/testVersion.js';
-import { deriveStatus, resultStateForTest, resultVersionState } from '../testVersionStatus.js';
+import { deriveStatus, embedsLeftOutFiles, resultStateForTest, resultVersionState } from '../testVersionStatus.js';
 import type { StatusInput } from '../testVersionStatus.js';
 
 function identity(over: Partial<TestVersionIdentity> = {}): TestVersionIdentity {
@@ -68,6 +68,37 @@ describe('deriveStatus', () => {
       input({ build: { exists: true, source: 'built', version: stamp({ modified: true }) } }),
     );
     expect(r).toEqual({ status: 'unknown_build', reason: 'modified_source' });
+  });
+
+  describe('a build that embeds a file its fingerprint leaves out', () => {
+    it('is unknown_build / embeds_excluded_file, although its fingerprint equals the synced one', () => {
+      const r = deriveStatus(
+        input({ build: { exists: true, source: 'built', version: stamp({ embeds_left_out: ['x_hardening.ps1'] }) } }),
+      );
+      expect(r).toEqual({ status: 'unknown_build', reason: 'embeds_excluded_file' });
+    });
+
+    it('modified source is reported first', () => {
+      const r = deriveStatus(
+        input({ build: { exists: true, source: 'built', version: stamp({ modified: true, embeds_left_out: ['a.md'] }) } }),
+      );
+      expect(r).toEqual({ status: 'unknown_build', reason: 'modified_source' });
+    });
+
+    it('an empty list, or none, changes nothing', () => {
+      const plain = deriveStatus(input({ build: { exists: true, source: 'built', version: stamp() } }));
+      expect(deriveStatus(input({ build: { exists: true, source: 'built', version: stamp({ embeds_left_out: [] }) } })))
+        .toEqual(plain);
+      expect(plain.status).not.toBe('unknown_build');
+    });
+
+    it('embedsLeftOutFiles: a list with entries, and anything that is not a list, counts', () => {
+      expect(embedsLeftOutFiles({})).toBe(false);
+      expect(embedsLeftOutFiles({ embeds_left_out: [] })).toBe(false);
+      expect(embedsLeftOutFiles({ embeds_left_out: ['a.md'] })).toBe(true);
+      expect(embedsLeftOutFiles({ embeds_left_out: 'a.md' })).toBe(true);
+      expect(embedsLeftOutFiles({ embeds_left_out: null })).toBe(true);
+    });
   });
 
   it('unknown_build with no reason when there is no synced identity', () => {

@@ -39,7 +39,7 @@ Each test has one status, shown under its name in the test list and at the top o
 | **Rebuild needed** | The synced version is newer than the binary. Reason: test source changed, shared libraries changed, or an embedded file changed. | **Build & Sign**. |
 | **Not built** | The test has no binary. With "update available" next to it, a newer version is published. | **Build & Sign**. With "update available", Sync first, then build. |
 | **Uploaded** | The binary was uploaded by hand, so the console doesn't know its version. | To record a version, build it on the server (the **Rebuild** icon in the **Deploy** panel). |
-| **Unknown build** | The binary's version was not recorded (it was built before versions were recorded, or a build is replacing it or stopped part-way), or it was built from source that was changed on the server and differs from the synced commit. Also shown when the console can't read its synced library. | **Build & Sign**. |
+| **Unknown build** | The binary's version was not recorded (it was built before versions were recorded, or a build is replacing it or stopped part-way), or it was built from source that was changed on the server and differs from the synced commit. Also shown when the console can't read its synced library, and for a test that embeds a file versions do not cover (see below). | **Build & Sign**. For an embedded file versions do not cover, a build does not help: see below. |
 | **Built, not checked** | The binary was built from the synced version, but no check of the published version has succeeded yet. | **Check now**, or wait for the next check. |
 
 A test that has a newer published version and an out-of-date binary shows **Update available**: sync first, then rebuild.
@@ -80,7 +80,7 @@ When a test task is created, the console copies the version of the binary it sen
 |-------|---------------|------------|
 | **current** | The binary was built from the source you have synced now. | Nothing. |
 | **older** | The synced source has changed since that binary was built. | Open the test and rebuild it; the next runs read **current**. |
-| **version unknown** | The run recorded which build it used, but not a version that can be compared: an uploaded binary, a build with no recorded version or from changed source, a task created while a rebuild was replacing the binary, a test that is no longer in the library, or the console can't read the test's synced version now. | For a test still in the library, **Build & Sign** it so that new runs can be compared. When the console can't read the test's synced version, a build doesn't help: the library, or that test's folder, must be readable again. When git can't read the synced library, the **Tests** page header says **The test library could not be read**. When only the files of a custom test, or of any test with git sync off, can't be read, the header says nothing and the reason is in the server log. |
+| **version unknown** | The run recorded which build it used, but not a version that can be compared: an uploaded binary, a build with no recorded version or from changed source, a test that embeds a file versions do not cover, a task created while a rebuild was replacing the binary, a test that is no longer in the library, or the console can't read the test's synced version now. | For a test still in the library, **Build & Sign** it so that new runs can be compared. When the console can't read the test's synced version, a build doesn't help: the library, or that test's folder, must be readable again. When git can't read the synced library, the **Tests** page header says **The test library could not be read**. When only the files of a custom test, or of any test with git sync off, can't be read, the header says nothing and the reason is in the server log. |
 | **not recorded** | The run has no version: its task was created before this console recorded versions. | Nothing. New runs record it. |
 
 Where they show:
@@ -104,6 +104,14 @@ Results recorded before the upgrade, and results of tasks created before it (a R
 :::note[What current compares]
 A result is **current** when the source its binary was built from equals the source synced now: the test's own files and, for a test synced with git, the shared libraries it builds with. A result of a library test built from the commit that is synced now is **current**. It does not look at files uploaded for the build (embedded dependencies), the signing certificate, or the target platform. A documentation change, as described under [Documentation changes](#documentation-changes), never makes a result **older**.
 :::
+
+## A test that embeds a file versions do not cover
+
+A test's version is a fingerprint of its build inputs. Documentation and detection content is left out on purpose, so that editing a rule never asks for a rebuild: files ending in `.md`, `.html`, `.kql`, `.yar`, `.yara` or `.ndjson`, and the library's own `<uuid>_sigma_rules.yml`, `<uuid>_dr_rules.yaml` and `<uuid>_hardening*.ps1` / `.sh` files.
+
+If a test's Go code embeds one of those files (`//go:embed`, by name, through a pattern such as `*.ps1`, or inside an embedded folder), the file is part of the binary but not of the fingerprint: changing it changes what runs on endpoints while the version stays the same. The console does not vouch for such a build. The test reads **Unknown build** with the reason "embeds a file that versions do not cover", and the results of its runs say **version unknown**, never **current**.
+
+Building again does not change this. To get versions back, change the test: stop embedding the file, or give it a name that is a build input (for example `apply_hardening.ps1` instead of `<uuid>_hardening.ps1`), then Sync and build. No test in the published library embeds such a file. Files that `build_all.sh` generates are not counted.
 
 ## Without git, and custom tests
 

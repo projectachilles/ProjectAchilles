@@ -12,6 +12,7 @@ import { BuildJobs } from './buildJobs.js';
 import { describeCommandFailure } from '../shared/commandFailure.js';
 import { buildSubprocessEnv } from './buildEnv.js';
 import { writePrivateTempFile } from './privateTempFile.js';
+import { embeddedFilesLeftOut } from './embeddedFiles.js';
 import type { PrivateTempFile } from './privateTempFile.js';
 import { isUsableSourceRoot } from '../browser/repositoryRoot.js';
 import { hashFiles, isBuildInput } from '../browser/versionIdentity.js';
@@ -996,6 +997,23 @@ const ARTIFACT_DIR = \`${artifactDir}\`
     return this.embedDependenciesHash(uuid, true);
   }
 
+  /**
+   * Files the test embeds that its fingerprint leaves out by extension or by
+   * name (every pattern of every //go:embed line, globs and folders included:
+   * embeddedFiles.ts), relative to the test folder. What build_all.sh makes
+   * is not counted: it comes from source the fingerprint covers. A build
+   * with such a file is stamped with the list, and is then never compared by
+   * fingerprint (embedsLeftOutFiles).
+   */
+  private embeddedFilesOutsideFingerprint(uuid: string): string[] {
+    const testDir = this.findTestDir(uuid);
+    if (!testDir) return [];
+    const built = this.getEmbedDependencies(uuid).filter(d => d.sourceBuilt).map(d => d.filename);
+    return embeddedFilesLeftOut(testDir).filter(
+      file => !built.some(name => file === name || file.startsWith(`${name}/`)),
+    );
+  }
+
   /** Write an uploaded embed dependency into the test folder, under the test folder lock (409 while a build runs). */
   saveUploadedFile(uuid: string, filename: string, buffer: Buffer): void {
     const testDir = this.findTestDir(uuid);
@@ -1691,11 +1709,13 @@ const ARTIFACT_DIR = \`${artifactDir}\`
       // can't prove nothing else wrote to the test folder or the artifacts
       // (ownsMarker logs the warning, once per build).
       if (!this.ownsMarker(marker, uuid)) return null;
+      const leftOut = this.embeddedFilesOutsideFingerprint(uuid);
       return {
         ...before.identity,
         deps_hash: this.currentDepsHash(uuid),
         outputs_hash: this.currentOutputsHash(uuid),
         modified: before.modified,
+        ...(leftOut.length > 0 ? { embeds_left_out: leftOut } : {}),
         binaries,
       };
     } catch (err) {
