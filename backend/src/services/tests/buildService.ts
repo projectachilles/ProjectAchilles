@@ -986,8 +986,6 @@ const ARTIFACT_DIR = \`${artifactDir}\`
     const buildDir = this.ensureBuildDir(uuid);
     const outputPath = path.join(buildDir, filename);
 
-    fs.writeFileSync(outputPath, buffer);
-
     const meta: BuildMetadata = {
       platform: { os: platform.os, arch: platform.arch },
       builtAt: new Date().toISOString(),
@@ -996,7 +994,11 @@ const ARTIFACT_DIR = \`${artifactDir}\`
       filename,
       source: 'uploaded',
     };
+    // The meta (no version stamp) first: a crash before the binary write
+    // then leaves "uploaded" beside the old bytes, never the old stamp beside
+    // the new ones.
     fs.writeFileSync(this.metaPath(uuid), JSON.stringify(meta, null, 2));
+    fs.writeFileSync(outputPath, buffer);
 
     return {
       exists: true,
@@ -1211,8 +1213,15 @@ const ARTIFACT_DIR = \`${artifactDir}\`
           this.resolveInside(testDir, filename),
         ];
         let found = false;
+        // The first write that replaces the previous artifact: its stamp goes first.
+        let stampVoided = false;
+        const voidStampOnce = (): void => {
+          if (!stampVoided) this.voidPreviousStamp(uuid);
+          stampVoided = true;
+        };
         for (const candidate of candidates) {
           if (candidate && fs.existsSync(candidate)) {
+            voidStampOnce();
             fs.copyFileSync(candidate, outputPath);
             found = true;
             break;
@@ -1226,6 +1235,7 @@ const ARTIFACT_DIR = \`${artifactDir}\`
               const files = fs.readdirSync(buildSubdir);
               const first = files.length > 0 ? this.resolveInside(buildSubdir, files[0]) : null;
               if (first) {
+                voidStampOnce();
                 fs.copyFileSync(first, outputPath);
                 found = true;
                 break;
@@ -1296,11 +1306,20 @@ const ARTIFACT_DIR = \`${artifactDir}\`
           // File-list mode ("go build a.go b.go") doesn't resolve cross-platform build tags
           // on transitive dependencies, causing failures for windows-only imports on Linux.
           this.refreshBuildMarker(marker);
-          await runBuildCommand('go', ['build', '-o', outputPath, '.'], {
-            cwd: testDir,
-            env,
-            timeout: BUILD_TIMEOUT,
-          });
+          // go build writes the artifact in place: void the previous stamp
+          // first, and put it back only when the step failed and the artifact
+          // provably still is the stamped one.
+          const voided = this.voidPreviousStamp(uuid);
+          try {
+            await runBuildCommand('go', ['build', '-o', outputPath, '.'], {
+              cwd: testDir,
+              env,
+              timeout: BUILD_TIMEOUT,
+            });
+          } catch (err) {
+            if (voided !== null) this.restoreStampIfUntouched(uuid, voided, filename, outputPath);
+            throw err;
+          }
         } finally {
           // Clean up auto-generated module files to avoid dirtying the test source tree
           if (!hadGoMod) {
@@ -1417,6 +1436,66 @@ const ARTIFACT_DIR = \`${artifactDir}\`
       source: 'built',
       ...(version ? { version } : {}),
     };
+  }
+
+  /** Write `file` through a temp file in the same directory and a rename (atomic). */
+  private writeFileAtomic(file: string, content: string): void {
+    const tmp = `${file}.${crypto.randomBytes(8).toString('hex')}.tmp`;
+    try {
+      fs.writeFileSync(tmp, content, { flag: 'wx' });
+      fs.renameSync(tmp, file);
+    } catch (err) {
+      try { fs.unlinkSync(tmp); } catch { /* not created */ }
+      throw err;
+    }
+  }
+
+  /**
+   * Before a build first writes over the previous artifact: rewrite
+   * build-meta.json without its version stamp (every other field kept), so a
+   * build that then fails, is superseded or dies leaves "Unknown build", never
+   * the old stamp beside bytes it does not describe. A successful build writes
+   * its full meta at the end. Returns the original text when a stamp was
+   * voided, else null. Never fails the build: a meta that can't be read,
+   * parsed or rewritten is left as it is, with a warning (an unparseable one
+   * already reads as no build).
+   */
+  private voidPreviousStamp(uuid: string): string | null {
+    const metaFile = this.metaPath(uuid);
+    if (!fs.existsSync(metaFile)) return null;
+    try {
+      const raw = fs.readFileSync(metaFile, 'utf8');
+      const parsed: unknown = JSON.parse(raw);
+      if (typeof parsed !== 'object' || parsed === null || Array.isArray(parsed)) {
+        throw new Error('build-meta.json is not an object');
+      }
+      if (!('version' in parsed)) return null;
+      const meta: Record<string, unknown> = { ...parsed };
+      delete meta.version;
+      this.writeFileAtomic(metaFile, JSON.stringify(meta, null, 2));
+      return raw;
+    } catch (err) {
+      console.warn('Build of %s could not clear the previous version stamp: %s', uuid,
+        err instanceof Error ? err.message : String(err));
+      return null;
+    }
+  }
+
+  /**
+   * After a failed `go build`: put the voided meta back only when the
+   * artifact's SHA-256 still equals the one its stamp recorded (go writes the
+   * output only after a successful link, but this does not rely on it).
+   * Anything else, or any error, leaves the stamp voided.
+   */
+  private restoreStampIfUntouched(uuid: string, raw: string, filename: string, outputPath: string): void {
+    try {
+      const stamped = (JSON.parse(raw) as { version?: { binaries?: Record<string, unknown> } }).version?.binaries?.[filename];
+      if (typeof stamped !== 'string') return;
+      const now = crypto.createHash('sha256').update(fs.readFileSync(outputPath)).digest('hex');
+      if (now === stamped) this.writeFileAtomic(this.metaPath(uuid), raw);
+    } catch {
+      // Stays voided: "Unknown build" until the next build.
+    }
   }
 
   /**

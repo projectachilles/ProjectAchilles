@@ -2759,6 +2759,171 @@ var data string
         });
       });
 
+      describe('the previous stamp is voided before a build replaces the artifact (controller ruling)', () => {
+        const metaPath = `${BUILDS_DIR}/${VALID_UUID}/build-meta.json`;
+        const outputPath = `${BUILDS_DIR}/${VALID_UUID}/${VALID_UUID}.exe`;
+        const readMeta = () => JSON.parse(String(files.get(metaPath))) as Record<string, unknown>;
+        const withoutVersion = (m: Record<string, unknown>) => {
+          const copy = { ...m };
+          delete copy.version;
+          return copy;
+        };
+        const metaTemps = () => [...files.keys()].filter(f => f.startsWith(`${metaPath}.`));
+        let warn: ReturnType<typeof vi.spyOn>;
+        beforeEach(() => { warn = vi.spyOn(console, 'warn').mockImplementation(() => {}); });
+        afterEach(() => { warn.mockRestore(); });
+
+        /** A successful build first, so there is a stamped build-meta.json to protect. */
+        async function stampedBuild(svc = service()): Promise<{ raw: string; meta: Record<string, unknown> }> {
+          await svc.buildAndSign(VALID_UUID);
+          const raw = String(files.get(metaPath));
+          const meta = JSON.parse(raw) as Record<string, unknown>;
+          expect(meta.version).toBeDefined();
+          return { raw, meta };
+        }
+
+        /** The plain path: no build_all.sh, go build writes `bytes` to its -o path (or fails). */
+        function plainPath(goBuild: (out: string) => void): void {
+          files.delete(`${testDir}/build_all.sh`);
+          mockExecFileAsync.mockImplementation(async (cmd: string, args: string[]) => {
+            if (cmd === 'go' && args[0] === 'build') goBuild(args[2]);
+            return { stdout: '', stderr: '' };
+          });
+        }
+
+        it('a build that fails after its artifact was copied leaves build-meta.json without version, every other field intact', async () => {
+          const prior = await stampedBuild();
+          const base = mockStatSync.getMockImplementation()!;
+          mockStatSync.mockImplementation(((p: string) => {
+            if (p === outputPath) throw Object.assign(new Error('EIO: i/o error'), { code: 'EIO' });
+            return base(p);
+          }) as never);
+
+          await expect(service().buildAndSign(VALID_UUID)).rejects.toThrow('EIO');
+
+          mockStatSync.mockImplementation(base);
+          expect(readMeta()).not.toHaveProperty('version');
+          expect(readMeta()).toEqual(withoutVersion(prior.meta));
+          expect(service().getBuildInfo(VALID_UUID)).toMatchObject({ exists: true, source: 'built' });
+          expect(service().getBuildInfo(VALID_UUID)).not.toHaveProperty('version');
+          expect(metaTemps()).toEqual([]);
+          expect(warn).not.toHaveBeenCalled();
+        });
+
+        it('a superseded build that had reached the copy leaves build-meta.json without version', async () => {
+          const prior = await stampedBuild();
+          const svc = new BuildService(createMockSettingsService({
+            getActiveCertPfxPath: vi.fn().mockReturnValue({ pfxPath: '/certs/active.pfx', password: 'pw' }),
+          }), TESTS_SOURCE, { current: async () => ({ identity, modified: false }) });
+          const base = mockExecFileAsync.getMockImplementation()!;
+          mockExecFileAsync.mockImplementation(async (cmd: string, args: string[], opts?: unknown) => {
+            if (cmd === 'osslsigncode') {
+              put(marker, FOREIGN);
+              return { stdout: '', stderr: '' };
+            }
+            return base(cmd, args, opts);
+          });
+
+          await expect(svc.buildAndSign(VALID_UUID)).rejects.toThrow('Build was superseded by another build of this test');
+
+          expect(readMeta()).toEqual(withoutVersion(prior.meta));
+        });
+
+        it('build_all.sh exiting non-zero before any copy leaves the previous stamp untouched', async () => {
+          const prior = await stampedBuild();
+          mockExecFileAsync.mockImplementation(async (cmd: string) => {
+            if (cmd === 'bash') throw Object.assign(new Error('exit 1'), { stderr: 'script failed' });
+            return { stdout: '', stderr: '' };
+          });
+
+          await expect(service().buildAndSign(VALID_UUID)).rejects.toThrow(/script failed/);
+
+          expect(String(files.get(metaPath))).toBe(prior.raw);
+        });
+
+        it('a go build compile error leaves the previous stamp untouched (the artifact is provably the stamped one)', async () => {
+          plainPath(out => put(out, 'plain binary v1'));
+          const prior = await stampedBuild();
+          plainPath(() => { throw Object.assign(new Error('exit 1'), { stderr: './main.go:3: undefined: foo' }); });
+
+          await expect(service().buildAndSign(VALID_UUID)).rejects.toThrow(/undefined: foo/);
+
+          expect(String(files.get(metaPath))).toBe(prior.raw);
+          expect(metaTemps()).toEqual([]);
+        });
+
+        it('a go build that wrote the artifact and then failed leaves the stamp voided', async () => {
+          plainPath(out => put(out, 'plain binary v1'));
+          const prior = await stampedBuild();
+          plainPath(out => {
+            put(out, 'half-written');
+            throw Object.assign(new Error('exit 1'), { stderr: 'write failed' });
+          });
+
+          await expect(service().buildAndSign(VALID_UUID)).rejects.toThrow(/write failed/);
+
+          expect(readMeta()).toEqual(withoutVersion(prior.meta));
+        });
+
+        it('a successful rebuild ends with the new stamp', async () => {
+          await stampedBuild();
+          const newer = { ...identity, fingerprint: 'e'.repeat(64) };
+          const svc = new BuildService(createMockSettingsService(), TESTS_SOURCE, {
+            current: async () => ({ identity: newer, modified: false }),
+          });
+
+          await svc.buildAndSign(VALID_UUID);
+
+          expect((readMeta().version as { fingerprint: string }).fingerprint).toBe(newer.fingerprint);
+          expect(metaTemps()).toEqual([]);
+          expect(warn).not.toHaveBeenCalled();
+        });
+
+        it('a failing rewrite only warns, once, with the uuid; the build still succeeds and stamps', async () => {
+          await stampedBuild();
+          const base = mockRenameSync.getMockImplementation()!;
+          mockRenameSync.mockImplementation(((from: string, to: string) => {
+            if (to === metaPath) throw Object.assign(new Error('EACCES: permission denied'), { code: 'EACCES' });
+            return base(from, to);
+          }) as never);
+
+          const info = await service().buildAndSign(VALID_UUID);
+
+          expect(info.version).toBeDefined();
+          expect(readMeta().version).toBeDefined();
+          expect(metaTemps()).toEqual([]);
+          expect(warn).toHaveBeenCalledTimes(1);
+          expect(warn.mock.calls[0].map(String).join(' ')).toContain(VALID_UUID);
+        });
+
+        it('an unparseable build-meta.json is left alone with one warning, and the build still succeeds', async () => {
+          put(metaPath, 'not json{');
+
+          const info = await service().buildAndSign(VALID_UUID);
+
+          expect(info.version).toBeDefined();
+          expect(warn).toHaveBeenCalledTimes(1);
+          expect(warn.mock.calls[0].map(String).join(' ')).toContain(VALID_UUID);
+        });
+
+        it('uploadBinary writes its meta (no version) before the binary: a failed binary write never leaves the old stamp', async () => {
+          await stampedBuild();
+          const order: string[] = [];
+          const base = mockWriteFileSync.getMockImplementation()!;
+          mockWriteFileSync.mockImplementation(((p: string, ...rest: unknown[]) => {
+            if (p === metaPath || p === outputPath) order.push(p === metaPath ? 'meta' : 'binary');
+            if (p === outputPath) throw Object.assign(new Error('ENOSPC: no space left on device'), { code: 'ENOSPC' });
+            return (base as (...a: unknown[]) => unknown)(p, ...rest);
+          }) as never);
+
+          expect(() => service().uploadBinary(VALID_UUID, Buffer.from([0x4D, 0x5A, 1, 2]))).toThrow('ENOSPC');
+
+          expect(order).toEqual(['meta', 'binary']);
+          expect(readMeta()).not.toHaveProperty('version');
+          expect(readMeta()).toMatchObject({ source: 'uploaded' });
+        });
+      });
+
       it('a refreshed marker keeps a second instance\'s isBuildingAnywhere true past the stale bound', async () => {
         vi.useFakeTimers({ toFake: ['Date'] });
         try {
