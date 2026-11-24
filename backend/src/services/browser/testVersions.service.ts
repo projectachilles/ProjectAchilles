@@ -100,6 +100,8 @@ export class TestVersionsService implements BuildVersionSource {
   private readonly embedDependencyFiles: (uuid: string) => string[];
 
   private gitCache: { commit: { hash: string; date: string }; ids: Map<string, TestVersionIdentity> } | null = null;
+  /** The last read of the git tests at HEAD failed (syncedError); its sanitized detail, logged once. */
+  private syncedFailure: string | null = null;
   private diskCache: { at: number; ids: Map<string, TestVersionIdentity> } | null = null;
   private readonly stateFile: string;
   private loadedMtimeMs = -1;
@@ -157,16 +159,37 @@ export class TestVersionsService implements BuildVersionSource {
       const relPath = this.gitRelPath(t);
       if (relPath) gitTests.push({ uuid: t.uuid, relPath });
     }
-    if (gitTests.length === 0) return none;
+    if (gitTests.length === 0) {
+      this.syncedFailure = null;
+      return none;
+    }
     try {
       const commit = await this.gitSync.commitInfo('HEAD');
-      if (this.gitCache && this.gitCache.commit.hash === commit.hash) return this.gitCache;
-      const entries = await this.gitSync.listTree('HEAD');
-      this.gitCache = { commit, ids: identitiesFromTree(entries, gitTests, commit) };
+      if (!(this.gitCache && this.gitCache.commit.hash === commit.hash)) {
+        const entries = await this.gitSync.listTree('HEAD');
+        this.gitCache = { commit, ids: identitiesFromTree(entries, gitTests, commit) };
+      }
+      this.syncedFailure = null;
       return this.gitCache;
     } catch (error) {
+      const detail = sanitizeGitError(error instanceof Error ? error.message : String(error), process.env.GITHUB_TOKEN);
+      // Every request reads this: log a failure once, not on every request.
+      if (detail !== this.syncedFailure) {
+        console.warn('Could not read the synced test library at HEAD: %s', detail);
+      }
+      this.syncedFailure = detail;
       return { ...none, error };
     }
+  }
+
+  /**
+   * Why the last read of the synced library failed, for the page:
+   * 'The test library could not be read' while git can't read the HEAD tree
+   * or commit of the git tests (they then have no identity and show "Unknown
+   * build"); null once a read succeeds, and always without git.
+   */
+  syncedError(): string | null {
+    return this.syncedFailure === null ? null : 'The test library could not be read';
   }
 
   private async loadSynced(): Promise<SyncedSnapshot> {

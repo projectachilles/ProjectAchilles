@@ -263,6 +263,66 @@ describe('TestVersionsService', () => {
     await expect(svc.current(UUID_A)).rejects.toThrow('bad object');
   });
 
+  describe('syncedError (the synced library could not be read)', () => {
+    it('is null before any read and after a successful one', async () => {
+      const svc = makeService();
+      expect(svc.syncedError()).toBeNull();
+      await svc.synced();
+      expect(svc.syncedError()).toBeNull();
+      expect(warn).not.toHaveBeenCalled();
+    });
+
+    it('is set when the HEAD tree or commit cannot be read for git tests, and cleared by the next successful read', async () => {
+      const svc = makeService();
+      fake.listTree.mockRejectedValueOnce(new Error('fatal: bad object HEAD'));
+      const synced = await svc.synced();
+      expect(synced.has(UUID_A)).toBe(false);
+      expect(svc.syncedError()).toBe('The test library could not be read');
+
+      await svc.synced();
+      expect(svc.syncedError()).toBeNull();
+
+      fake.commitInfo.mockRejectedValueOnce(new Error('fatal: ambiguous argument HEAD'));
+      await svc.synced();
+      expect(svc.syncedError()).toBe('The test library could not be read');
+    });
+
+    it('logs the sanitized detail once for repeated identical failures, and again for a different one', async () => {
+      const svc = makeService();
+      fake.listTree.mockRejectedValue(new Error("fatal: unable to read tree in 'https://user:s3cret@example.invalid/lib.git'"));
+      await svc.synced();
+      await svc.synced();
+      await svc.syncedCommit();
+      expect(warn).toHaveBeenCalledTimes(1);
+      const logged = warn.mock.calls[0].map(String).join(' ');
+      expect(logged).toContain('unable to read tree');
+      expect(logged).not.toContain('s3cret');
+
+      fake.listTree.mockRejectedValue(new Error('fatal: bad object HEAD'));
+      await svc.synced();
+      await svc.synced();
+      expect(warn).toHaveBeenCalledTimes(2);
+      expect(warn.mock.calls[1].map(String).join(' ')).toContain('bad object');
+
+      // After a good read, the same failure is news again (HEAD's tree is
+      // cached now, so it is the commit read that fails).
+      fake.listTree.mockResolvedValue(treeFor(UUID_A, 'h1'));
+      await svc.synced();
+      expect(svc.syncedError()).toBeNull();
+      fake.commitInfo.mockRejectedValueOnce(new Error('fatal: bad object HEAD'));
+      await svc.synced();
+      expect(warn).toHaveBeenCalledTimes(3);
+    });
+
+    it('stays null without git (every test is read from its folder)', async () => {
+      fake.listTree.mockRejectedValue(new Error('fatal: bad object HEAD'));
+      const svc = makeService({ git: false });
+      await svc.synced();
+      expect(svc.syncedError()).toBeNull();
+      expect(warn).not.toHaveBeenCalled();
+    });
+  });
+
   it('a git test missing from the HEAD tree gets no identity and no stamp', async () => {
     fake.listTree.mockResolvedValue([]);
     const svc = makeService();

@@ -74,6 +74,7 @@ function makeService(over: Record<string, unknown> = {}) {
       [U_CUSTOM, ident('c', { provenance: 'custom', commit: null, commit_date: null })],
     ])),
     syncedCommit: vi.fn(async () => ({ hash: 'sync1', date: '2026-11-01T00:00:00Z' })),
+    syncedError: vi.fn((): string | null => null),
     published: vi.fn(() => published()),
     check: vi.fn(async () => published()),
     recordPublishedFromLocal: vi.fn(async () => undefined),
@@ -266,6 +267,53 @@ describe('GET /api/browser/tests/versions', () => {
       expect(JSON.stringify(res.body)).not.toContain('/srv/clone');
       expect(Object.keys(res.body.data.tests)).toHaveLength(4);
       expect(warn.mock.calls[0].join(' ')).toContain('bad object');
+    } finally {
+      warn.mockRestore();
+    }
+  });
+
+  describe('when git could not read the synced library (synced() resolves without the git tests)', () => {
+    function unreadable(over: Record<string, unknown> = {}) {
+      return makeService({
+        synced: vi.fn(async () => new Map<string, TestVersionIdentity>([
+          [U_CUSTOM, ident('c', { provenance: 'custom', commit: null, commit_date: null })],
+        ])),
+        syncedError: vi.fn(() => 'The test library could not be read'),
+        ...over,
+      });
+    }
+
+    it('the built git tests are unknown_build and checkError says the library could not be read', async () => {
+      const res = await request(makeApp({ testVersions: unreadable() as never })).get('/api/browser/tests/versions');
+      expect(res.status).toBe(200);
+      const { library, tests: rows } = res.body.data;
+      expect(rows[U_UPDATE].status).toBe('unknown_build');
+      expect(rows[U_REBUILD].status).toBe('unknown_build');
+      expect(rows[U_NEWNOTE].status).toBe('not_built');
+      expect(Object.values(rows).some(r => (r as { status: string }).status === 'up_to_date')).toBe(false);
+      expect(library.checkError).toBe('The test library could not be read');
+      expect(library.updatesAvailable).toBe(0);
+      expect(library.rebuildsNeeded).toBe(0);
+    });
+
+    it('wins over a published-check error', async () => {
+      const svc = unreadable({
+        published: vi.fn(() => published({ error: 'Could not reach the test repository', errorAt: '2026-11-23T11:00:00Z' })),
+      });
+      const res = await request(makeApp({ testVersions: svc as never })).get('/api/browser/tests/versions');
+      expect(res.body.data.library.checkError).toBe('The test library could not be read');
+    });
+  });
+
+  it('a synced() rejection also wins over a published-check error', async () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    try {
+      const svc = makeService({
+        synced: vi.fn(async () => { throw new Error('fatal: bad object'); }),
+        published: vi.fn(() => published({ error: 'Could not reach the test repository', errorAt: '2026-11-23T11:00:00Z' })),
+      });
+      const res = await request(makeApp({ testVersions: svc as never })).get('/api/browser/tests/versions');
+      expect(res.body.data.library.checkError).toBe('The test library could not be read');
     } finally {
       warn.mockRestore();
     }

@@ -260,7 +260,9 @@ export function createBrowserRouter(options: {
         publishedCommit: published.commit,
         publishedCommitDate: published.commitDate,
         checkedAt: published.checkedAt,
-        checkError: published.error ?? syncError,
+        // The library not being readable is the more serious error: every git
+        // test is then "Unknown build". It wins over a failed published check.
+        checkError: syncError ?? versions.syncedError() ?? published.error,
         updatesAvailable,
         rebuildsNeeded,
         newTests: published.newTests,
