@@ -341,6 +341,7 @@ export default function TestsPage() {
           onSync={() => void handleSync()}
           onCheck={showCheckInHeader ? () => void versionState.checkNow() : undefined}
           checking={versionState.checking}
+          note={versions && !versions.library.gitEnabled ? 'Git sync is off: published versions are not checked' : undefined}
         />
       </PageHeader>
 

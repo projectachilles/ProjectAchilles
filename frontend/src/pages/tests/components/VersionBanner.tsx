@@ -6,10 +6,9 @@ import type { TestVersionsResponse } from '@/types/testVersion';
 
 type Library = TestVersionsResponse['library'];
 
-/** True when the library has something to say: a counter, an error, or git sync being off. */
+/** True when the library has something to act on: a counter or a failed check. */
 export function versionBannerVisible(library: Library): boolean {
   return (
-    !library.gitEnabled ||
     library.checkError != null ||
     library.updatesAvailable > 0 ||
     library.rebuildsNeeded > 0 ||
@@ -55,9 +54,6 @@ export function VersionBanner({ library, canSync, syncing, checking, actionError
             {line}
           </span>
         ))}
-        {!library.gitEnabled && (
-          <span className="text-muted">Git sync is off: published versions are not checked</span>
-        )}
         {library.checkError != null && (
           <span className="text-warning" title={library.checkError}>
             Could not check for updates

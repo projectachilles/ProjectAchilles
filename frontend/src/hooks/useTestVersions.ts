@@ -15,7 +15,6 @@ export interface UseTestVersions {
   reload: () => Promise<void>;
 }
 
-/** Version status of every test. Makes no request when the backend has no versions endpoint. */
 function checkFailureMessage(err: unknown): string {
   if (axios.isAxiosError(err) && err.response?.status === 403) {
     return "You don't have permission to check for updates";
@@ -24,6 +23,7 @@ function checkFailureMessage(err: unknown): string {
   return `Could not check for updates: ${typeof serverMessage === 'string' && serverMessage ? serverMessage : 'request failed'}`;
 }
 
+/** Version status of every test. Makes no request when the backend has no versions endpoint. */
 export function useTestVersions(): UseTestVersions {
   const { testVersions } = useCapabilities();
   const [data, setData] = useState<TestVersionsResponse | null>(null);

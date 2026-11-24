@@ -17,7 +17,7 @@ export const VERSION_REASON_LABEL: Record<VersionReason, string> = {
   dependency_changed: 'an uploaded dependency changed',
   documentation_changed: 'documentation changed',
   modified_source: 'built from source that differs from the synced commit',
-  no_stamp: 'built before versions were recorded',
+  no_stamp: 'version was not recorded',
 };
 
 const TONE: Record<TestVersionStatus, string> = {

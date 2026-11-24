@@ -218,11 +218,27 @@ describe('TestsPage version status', () => {
     expect(screen.queryByText(/network down/)).toBeNull();
   });
 
-  it('says git sync is off and offers no Check now', async () => {
-    state.data = response({ gitEnabled: false });
+  it('says git sync is off in the library line, shows no banner for it and offers no Check now', async () => {
+    state.data = response({ gitEnabled: false, checkEnabled: false });
     await renderPage();
-    expect(screen.getByText('Git sync is off: published versions are not checked')).toBeTruthy();
+    const note = screen.getByText('Git sync is off: published versions are not checked');
+    expect(note.className).toContain('text-muted');
+    expect(screen.queryByRole('status')).toBeNull();
     expect(screen.queryByRole('button', { name: 'Check now' })).toBeNull();
+  });
+
+  it('with git sync off, a banner still shows rebuilds, without the git sync note in it', async () => {
+    state.data = response({ gitEnabled: false, checkEnabled: false, rebuildsNeeded: 2 });
+    await renderPage();
+    const banner = screen.getByRole('status');
+    expect(within(banner).getByText('2 tests need a rebuild')).toBeTruthy();
+    expect(within(banner).queryByText(/Git sync is off/)).toBeNull();
+    expect(screen.getAllByText('Git sync is off: published versions are not checked')).toHaveLength(1);
+  });
+
+  it('shows no git sync note when git sync is on', async () => {
+    await renderPage();
+    expect(screen.queryByText(/Git sync is off/)).toBeNull();
   });
 
   it('hides Check now without the sync permission', async () => {
