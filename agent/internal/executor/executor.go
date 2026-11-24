@@ -159,6 +159,8 @@ func executableName(goos, name string) string {
 
 // Execute downloads the test binary for the given task, verifies its integrity,
 // runs it with the specified arguments and timeout, and returns the execution result.
+// It runs the clean start's before pass (CleanBeforeRun) itself. The caller owns
+// the after pass: it must call CleanAfterRun once the result is reported.
 func Execute(ctx context.Context, client *httpclient.Client, task Task, cfg *config.Config) (*Result, error) {
 	// Step 1: Notify server we are downloading.
 	if err := patchStatus(ctx, client, task.ID, "downloading"); err != nil {
@@ -170,15 +172,15 @@ func Execute(ctx context.Context, client *httpclient.Client, task Task, cfg *con
 		return nil, fmt.Errorf("create work dir: %w", err)
 	}
 
+	// Start the test on clean folders. This runs before the run's own folder
+	// exists, because the pass removes every task-* folder in the work dir.
+	CleanBeforeRun(cfg, task.Payload.TestUUID)
+
 	tempDir, err := os.MkdirTemp(cfg.WorkDir, "task-"+task.ID+"-")
 	if err != nil {
 		return nil, fmt.Errorf("create temp dir: %w", err)
 	}
 	defer os.RemoveAll(tempDir)
-	// The test's stage binaries land in the shared artifact folder, not
-	// tempDir: remove them once the run is over (cleanup.go). Deferred, so it
-	// runs after bundle_results.json is read and on every early return.
-	defer cleanupAfterRun(task.Payload.TestUUID)
 
 	// Step 2: Download the binary. Scope the context to MaxDownloadTimeout
 	// so a slow link can't tie up the agent forever; large binaries (e.g.

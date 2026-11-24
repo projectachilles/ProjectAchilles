@@ -6,6 +6,8 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
+	"net/http"
+	"net/http/httptest"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -14,6 +16,7 @@ import (
 	"time"
 
 	"github.com/f0rt1ka/achilles-agent/internal/config"
+	"github.com/f0rt1ka/achilles-agent/internal/httpclient"
 	"github.com/f0rt1ka/achilles-agent/internal/store"
 )
 
@@ -148,6 +151,70 @@ func buildTestBinary(t *testing.T, dir string, source string) (string, string) {
 	digest := hex.EncodeToString(h[:])
 
 	return binPath, digest
+}
+
+// TestExecuteStartsTheTestOnCleanFolders runs Execute against a local server.
+// The run succeeds, so the before pass ran before the run's own folder was
+// made, and the pass emptied the artifact and decoy folders and the old run
+// folders. The test UUID is made up, so Execute's legacy bundle read can't
+// match a real file in the shared folder.
+func TestExecuteStartsTheTestOnCleanFolders(t *testing.T) {
+	if testing.Short() {
+		t.Skip("skipping Execute test in short mode")
+	}
+	noAccount(t)
+	base := t.TempDir()
+	art, decoy, work := filepath.Join(base, "F0"), filepath.Join(base, "fortika-test"), filepath.Join(base, "work")
+	now := time.Now()
+	touch(t, filepath.Join(art, "marker.sys"), now)
+	touch(t, filepath.Join(decoy, "a.txt"), now)
+	touch(t, filepath.Join(work, "task-old-1", "x"), now)
+	useTargets(t, func(cfg *config.Config) cleanTargets {
+		return cleanTargets{
+			ArtifactDirs: []string{art}, DecoyDirs: []string{decoy}, WorkDir: work,
+			Protected: []string{work}, Wide: true,
+		}
+	})
+
+	binPath, digest := buildTestBinary(t, t.TempDir(), "package main\nfunc main() {}\n")
+	bin, err := os.ReadFile(binPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch {
+		case r.Method == http.MethodPatch && r.URL.Path == "/api/agent/tasks/clean-start-1/status":
+			w.WriteHeader(http.StatusOK)
+		case r.Method == http.MethodGet && r.URL.Path == "/api/agent/binary/testbin":
+			_, _ = w.Write(bin)
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	defer srv.Close()
+
+	cfg := config.DefaultConfig()
+	cfg.ServerURL = srv.URL
+	cfg.WorkDir = work
+	task := Task{ID: "clean-start-1", Type: "execute_test", Payload: TaskPayload{
+		TestUUID:         "00000000-0000-4000-8000-0000000000f5",
+		BinaryName:       "testbin",
+		BinarySHA256:     digest,
+		BinarySize:       int64(len(bin)),
+		ExecutionTimeout: 60,
+	}}
+	res, err := Execute(context.Background(), httpclient.NewClient(&cfg, "test"), task, &cfg)
+	if err != nil {
+		t.Fatalf("Execute: %v", err)
+	}
+	if res.ExitCode != 0 {
+		t.Errorf("exit code = %d, want 0", res.ExitCode)
+	}
+	for dir, want := range map[string][]string{art: nil, decoy: nil, work: nil} {
+		if got := names(t, dir); !equal(got, want) {
+			t.Errorf("%s left %v, want %v", dir, got, want)
+		}
+	}
 }
 
 // TestSHA256Verification verifies that the executor correctly computes and compares SHA256 hashes.

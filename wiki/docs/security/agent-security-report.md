@@ -40,7 +40,7 @@ The agent is a statically compiled Go binary that runs as a system service. It c
 
 ### Task Execution
 - Binaries run in isolated temp directories (mode 0700)
-- Directories cleaned after execution; the test's binaries are removed from the shared artifact folder after each run, and stale leftovers are swept at startup
+- Directories cleaned after execution; before and after every run the agent empties the shared artifact folder and the decoy folder, keeping its own files and undo files (names containing `cleanup`, `restore`, `backup` or `state`). With an unknown agent path it deletes only the test's own binaries. Symlinks and junctions are removed as links, never followed. Stale leftovers are also swept at startup
 - On Windows the agent folder (`C:\F0`) is restricted to SYSTEM and Administrators
 - Exit codes and output captured for reporting
 

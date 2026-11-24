@@ -18,10 +18,12 @@ import (
 // A run that dies mid-way (the agent killed by an EDR) also leaves its
 // task-<id>-* folder, because the deferred RemoveAll never runs.
 //
-// Only Achilles test binaries are ever removed: <uuid>.exe or
-// <uuid>-<control>[.NNN].exe, or the same with no extension. The agent's own
-// files, logs, outputs, bundle_results.json, the result queue and the state
-// store never match.
+// The per-run cleaning lives in cleanstart.go. This file keeps what it builds
+// on: the trust check that guards every delete, the UUID match that
+// recognises a test binary (<uuid>.exe or <uuid>-<control>[.NNN].exe, or the
+// same with no extension), and the start-up sweep of stale leftovers. That
+// match never touches the agent's own files, logs, outputs,
+// bundle_results.json, the result queue or the state store.
 
 // testBinaryPattern: a test UUID, an optional -<control> (controls may carry
 // numeric parts, e.g. -t1003.001), then .exe or nothing.
@@ -111,15 +113,6 @@ func removeTestBinaries(dir, testUUID string) []string {
 		removed = append(removed, e.Name())
 	}
 	return removed
-}
-
-// cleanupAfterRun removes the run's test binaries from every artifact folder.
-func cleanupAfterRun(testUUID string) {
-	for _, dir := range ArtifactDirs() {
-		if removed := removeTestBinaries(dir, testUUID); len(removed) > 0 {
-			log.Printf("[cleanup] removed %d test binar%s of %s from %s", len(removed), plural(len(removed)), testUUID, dir)
-		}
-	}
 }
 
 // SweepStale removes what runs that died left behind: task-* and cmd-* run
