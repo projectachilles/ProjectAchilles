@@ -25,6 +25,7 @@ function stoppedLine(state: BuildQueueState): string | null {
   const notStarted = state.total - state.results.length;
   if (state.end === 'completed' || state.end == null || notStarted <= 0) return null;
   if (state.end === 'unreachable') return `Stopped: the server could not be reached. ${notStarted} not started`;
+  if (state.end === 'denied') return `Stopped: the server refused the request. ${notStarted} not started`;
   return `Stopped: ${notStarted} not started`;
 }
 
@@ -57,7 +58,12 @@ export function BuildQueueBar({ onResult }: BuildQueueBarProps) {
               {`Built ${built} of ${resultCount} · ${failed} failed · ${skipped} skipped`}
             </span>
             {stopped && (
-              <span className={state.end === 'unreachable' ? 'text-warning' : 'text-muted'}>{stopped}</span>
+              <span className={state.end === 'unreachable' || state.end === 'denied' ? 'text-warning' : 'text-muted'}>
+                {stopped}
+              </span>
+            )}
+            {stopped && state.end === 'denied' && (
+              <span className="text-muted">Sign in again, or check that your role can build tests.</span>
             )}
           </div>
           <div className="flex shrink-0 items-center gap-2">

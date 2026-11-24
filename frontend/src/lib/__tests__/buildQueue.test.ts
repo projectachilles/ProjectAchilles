@@ -281,6 +281,60 @@ describe('runBuildQueue', () => {
     });
   });
 
+  describe('a refused session', () => {
+    it.each([403, 401])('a %i on getBuildInfo ends the run as denied, records nothing for that item and calls nothing else', async (status) => {
+      const getBuildInfo = vi
+        .fn<BuildQueueDeps['getBuildInfo']>()
+        .mockResolvedValueOnce(info())
+        .mockRejectedValue(httpError(status, { error: 'Forbidden' }));
+      const sleep = vi.fn(async () => {});
+      const onResult = vi.fn();
+      const deps = makeDeps({ getBuildInfo });
+      const { results, end } = await runBuildQueue(items(3), deps, { sleep, onResult });
+      expect(end).toBe('denied');
+      expect(results.map((r) => [r.uuid, r.outcome])).toEqual([['u1', 'built']]);
+      expect(onResult).toHaveBeenCalledTimes(1);
+      expect(getBuildInfo).toHaveBeenCalledTimes(2);
+      expect(deps.getEmbedDependencies).toHaveBeenCalledTimes(1);
+      expect(deps.buildTest).toHaveBeenCalledTimes(1);
+      expect(sleep).not.toHaveBeenCalled();
+    });
+
+    it('a 403 on getEmbedDependencies ends the run as denied too', async () => {
+      const getEmbedDependencies = vi.fn<BuildQueueDeps['getEmbedDependencies']>().mockRejectedValue(httpError(403));
+      const deps = makeDeps({ getEmbedDependencies });
+      const { results, end } = await runBuildQueue(items(2), deps, { sleep: async () => {} });
+      expect(end).toBe('denied');
+      expect(results).toEqual([]);
+      expect(deps.getBuildInfo).toHaveBeenCalledTimes(1);
+      expect(deps.buildTest).not.toHaveBeenCalled();
+    });
+
+    it('a 404 on getBuildInfo still fails only that item', async () => {
+      const getBuildInfo = vi
+        .fn<BuildQueueDeps['getBuildInfo']>()
+        .mockRejectedValueOnce(httpError(404, { error: 'No such test' }))
+        .mockResolvedValue(info());
+      const { results, end } = await runBuildQueue(items(2), makeDeps({ getBuildInfo }), { sleep: async () => {} });
+      expect(end).toBe('completed');
+      expect(results.map((r) => r.outcome)).toEqual(['failed', 'built']);
+    });
+
+    it('a 403 from buildTest fails that item and the run goes on, ending at the next pre-check if refused again', async () => {
+      const buildTest = vi.fn<BuildQueueDeps['buildTest']>().mockRejectedValue(httpError(403, { error: 'Forbidden' }));
+      const getBuildInfo = vi
+        .fn<BuildQueueDeps['getBuildInfo']>()
+        .mockResolvedValueOnce(info())
+        .mockRejectedValue(httpError(403, { error: 'Forbidden' }));
+      const deps = makeDeps({ buildTest, getBuildInfo });
+      const { results, end } = await runBuildQueue(items(3), deps, { sleep: async () => {} });
+      expect(results).toEqual([expect.objectContaining({ uuid: 'u1', outcome: 'failed', reason: 'Forbidden' })]);
+      expect(end).toBe('denied');
+      expect(getBuildInfo).toHaveBeenCalledTimes(2);
+      expect(buildTest).toHaveBeenCalledTimes(1);
+    });
+  });
+
   describe('Stop and counting during waits', () => {
     it('Stop is honoured between 1 s slices of a 60 s wait', async () => {
       let stop = false;

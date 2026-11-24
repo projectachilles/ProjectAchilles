@@ -143,6 +143,15 @@ describe('BuildQueueBar', () => {
     expect(screen.queryByText('Stopped: 40 not started')).toBeNull();
   });
 
+  it('a run the server refused says so, how many were not started, and what to do', () => {
+    setState({ status: 'done', total: 10, results: results({ built: 3 }), end: 'denied' });
+    renderBar();
+    expect(screen.getByText('Built 3 of 3 · 0 failed · 0 skipped')).toBeTruthy();
+    expect(screen.getByText('Stopped: the server refused the request. 7 not started')).toBeTruthy();
+    expect(screen.getByText('Sign in again, or check that your role can build tests.')).toBeTruthy();
+    expect(screen.queryByText('Stopped: 7 not started')).toBeNull();
+  });
+
   it('calls onResult once for each new result, not on other renders', () => {
     setState({ status: 'running', total: 3, current: item(1), results: [] });
     const { rerender, onResult } = renderBar();

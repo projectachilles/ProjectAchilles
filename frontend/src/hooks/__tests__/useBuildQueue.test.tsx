@@ -10,6 +10,7 @@ vi.mock('@clerk/clerk-react', () => ({
   useAuth: () => ({ isLoaded: auth.isLoaded, isSignedIn: auth.userId != null, userId: auth.userId }),
 }));
 
+import { testsApi } from '@/services/api/tests';
 import { BuildQueueProvider, useBuildQueue } from '../useBuildQueue';
 
 const built = { exists: true, source: 'built' } as BuildInfo;
@@ -243,6 +244,20 @@ describe('useBuildQueue', () => {
     await waitFor(() => expect(result.current.state.status).toBe('done'));
     expect(result.current.state.end).toBe('stopped');
     expect(errors).toHaveBeenCalled();
+  });
+
+  it('by default builds through the API and polls every 5 s, not the page default of 2 s', async () => {
+    vi.spyOn(testsApi, 'getBuildInfo').mockResolvedValue({ exists: false } as BuildInfo);
+    vi.spyOn(testsApi, 'getEmbedDependencies').mockResolvedValue([]);
+    const buildTest = vi.spyOn(testsApi, 'buildTest').mockResolvedValue(built);
+    const wrapper = ({ children }: { children: ReactNode }) => <BuildQueueProvider>{children}</BuildQueueProvider>;
+    const { result } = renderHook(() => useBuildQueue(), { wrapper });
+    act(() => {
+      result.current.start([A]);
+    });
+    await waitFor(() => expect(result.current.state.status).toBe('done'));
+    expect(buildTest).toHaveBeenCalledTimes(1);
+    expect(buildTest).toHaveBeenCalledWith('a', expect.objectContaining({ intervalMs: 5000, signal: expect.any(AbortSignal) }));
   });
 
   it('throws outside the provider', () => {

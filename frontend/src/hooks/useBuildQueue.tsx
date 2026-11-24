@@ -28,10 +28,14 @@ interface BuildQueueContextValue {
 
 const IDLE: BuildQueueState = { status: 'idle', total: 0, current: null, results: [], end: null };
 
+// A run polls each build more slowly than the single Build & Sign (2 s): the
+// per-user API limit is shared with every other page, and a run lasts hours.
+const QUEUE_BUILD_POLL_MS = 5000;
+
 const defaultDeps: BuildQueueDeps = {
   getBuildInfo: (uuid) => testsApi.getBuildInfo(uuid),
   getEmbedDependencies: (uuid) => testsApi.getEmbedDependencies(uuid),
-  buildTest: (uuid, opts) => testsApi.buildTest(uuid, opts),
+  buildTest: (uuid, opts) => testsApi.buildTest(uuid, { ...opts, intervalMs: QUEUE_BUILD_POLL_MS }),
 };
 
 const BuildQueueContext = createContext<BuildQueueContextValue | null>(null);

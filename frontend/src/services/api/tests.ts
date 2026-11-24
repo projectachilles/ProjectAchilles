@@ -185,9 +185,10 @@ export const testsApi = {
   /**
    * Build & sign a test. The build runs in the background on the server
    * (a cold Go build outlasts proxy timeouts), so this starts it with
-   * ?async=true and polls until it finishes.
+   * ?async=true and polls until it finishes, every `intervalMs` (default
+   * BUILD_POLL_INTERVAL_MS).
    */
-  async buildTest(uuid: string, opts: { signal?: AbortSignal } = {}): Promise<BuildInfo> {
+  async buildTest(uuid: string, opts: { intervalMs?: number; signal?: AbortSignal } = {}): Promise<BuildInfo> {
     // The single backend instance can be briefly unavailable while it restarts
     // (a load spike recycles it). A transient failure on the *start* request
     // shouldn't surface as a build failure — retry a few times with backoff,

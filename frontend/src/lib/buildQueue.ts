@@ -1,3 +1,4 @@
+import { isAxiosError } from 'axios';
 import type { BuildInfo, EmbedDependency } from '@/types/test';
 import { isRateLimited, isTransientPollError, sleep as defaultSleep } from '@/services/api/tests';
 
@@ -12,7 +13,7 @@ export interface BuildQueueResult {
   outcome: BuildQueueOutcome;
   reason?: string;
 }
-export type BuildQueueEnd = 'completed' | 'stopped' | 'aborted' | 'unreachable';
+export type BuildQueueEnd = 'completed' | 'stopped' | 'aborted' | 'unreachable' | 'denied';
 export interface BuildQueueRun {
   results: BuildQueueResult[];
   end: BuildQueueEnd;
@@ -47,7 +48,7 @@ type RunOpts = {
 };
 
 // Why a pre-check ended the run instead of producing a value.
-type Halt = 'stopped' | 'aborted' | 'unreachable';
+type Halt = 'stopped' | 'aborted' | 'unreachable' | 'denied';
 class HaltRun extends Error {
   readonly end: Halt;
   constructor(end: Halt) {
@@ -66,10 +67,19 @@ class RunnerFault extends Error {
   }
 }
 
+// A 401 or 403: signed out elsewhere, or the role changed. Not the item's
+// fault and not transient, so it would fail every test left.
+function isSessionRefused(err: unknown): boolean {
+  if (!isAxiosError(err)) return false;
+  const status = err.response?.status;
+  return status === 401 || status === 403;
+}
+
 /**
  * Runs a pre-check, waiting out a transient outage. A 429 retries without
  * limit and is not an attempt; other transient errors give up after
- * PRECHECK_MAX_ATTEMPTS in a row. A non-transient error is rethrown.
+ * PRECHECK_MAX_ATTEMPTS in a row. A 401 or 403 ends the run; any other
+ * non-transient error is rethrown.
  */
 async function withRetry<T>(call: () => Promise<T>, opts: RunOpts): Promise<T> {
   const sleep = opts.sleep ?? defaultSleep;
@@ -80,6 +90,7 @@ async function withRetry<T>(call: () => Promise<T>, opts: RunOpts): Promise<T> {
       return await call();
     } catch (err) {
       if (opts.signal?.aborted) throw new HaltRun('aborted');
+      if (isSessionRefused(err)) throw new HaltRun('denied');
       if (!isTransientPollError(err)) throw err;
       if (opts.shouldStop?.()) throw new HaltRun('stopped');
       if (isRateLimited(err)) {
