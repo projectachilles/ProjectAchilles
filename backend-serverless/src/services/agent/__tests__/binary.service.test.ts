@@ -5,9 +5,11 @@ import { describe, it, expect, beforeEach, vi } from 'vitest';
 const mockBlobRead = vi.fn();
 const mockBlobHead = vi.fn();
 const mockBlobUrl = vi.fn();
+const mockBlobReadText = vi.fn();
 
 vi.mock('../../storage.js', () => ({
   blobRead: (...args: unknown[]) => mockBlobRead(...args),
+  blobReadText: (...args: unknown[]) => mockBlobReadText(...args),
   blobHead: (...args: unknown[]) => mockBlobHead(...args),
   blobUrl: (...args: unknown[]) => mockBlobUrl(...args),
 }));
@@ -33,6 +35,9 @@ describe('binary.service (Blob)', () => {
     vi.clearAllMocks();
     mockBlobRead.mockResolvedValue(null);
     mockBlobUrl.mockResolvedValue(null);
+    // The build record of UUID names its binary.
+    mockBlobReadText.mockImplementation(async (key: string) =>
+      key === `builds/${UUID}/build-meta.json` ? JSON.stringify({ filename: BINARY_NAME }) : null);
   });
 
   // ── getBinaryInfo ──────────────────────────────────────────
@@ -58,25 +63,44 @@ describe('binary.service (Blob)', () => {
       expect(info.sha256).toMatch(/^[a-f0-9]{64}$/);
     });
 
-    it('prevents path traversal in UUID parameter', async () => {
-      mockBlobRead.mockResolvedValue(null);
-
-      await expect(getBinaryInfo('../../../etc', 'passwd'))
-        .rejects.toThrow('Binary not found');
-
-      // Should have called blobRead with safe path (no ..)
-      const calledKey = mockBlobRead.mock.calls[0][0];
-      expect(calledKey).not.toContain('..');
+    it('refuses a test id that is not one name, without reading any blob', async () => {
+      for (const id of ['../../../etc', `x/../${UUID}`, '..', '']) {
+        await expect(getBinaryInfo(id, BINARY_NAME)).rejects.toMatchObject({ statusCode: 404 });
+      }
+      expect(mockBlobReadText).not.toHaveBeenCalled();
+      expect(mockBlobRead).not.toHaveBeenCalled();
     });
 
-    it('prevents path traversal in binaryName parameter', async () => {
-      mockBlobRead.mockResolvedValue(null);
+    it.each(['build-meta.json', '../../secret.txt', 'other.exe', `sub/${BINARY_NAME}`])(
+      'refuses %s: only a file the build record names is served',
+      async (name) => {
+        mockBlobRead.mockResolvedValue(Buffer.from('in the blob store'));
+        mockBlobUrl.mockResolvedValue('https://blob.test/key');
 
-      await expect(getBinaryInfo(UUID, '../../secret.txt'))
-        .rejects.toThrow('Binary not found');
+        await expect(getBinaryInfo(UUID, name)).rejects.toMatchObject({ statusCode: 404 });
+        expect(mockBlobRead).not.toHaveBeenCalled();
+      },
+    );
 
-      const calledKey = mockBlobRead.mock.calls[0][0];
-      expect(calledKey).not.toContain('..');
+    it('serves every per-OS binary a record lists', async () => {
+      mockBlobReadText.mockResolvedValue(JSON.stringify({
+        filename: BINARY_NAME,
+        binaries: { windows: { filename: BINARY_NAME }, linux: { filename: UUID } },
+      }));
+      mockBlobRead.mockResolvedValue(Buffer.from('bin'));
+      mockBlobUrl.mockResolvedValue('https://blob.test/key');
+
+      await expect(getBinaryInfo(UUID, UUID)).resolves.toMatchObject({ name: UUID });
+      expect(mockBlobRead).toHaveBeenCalledWith(`builds/${UUID}/${UUID}`);
+    });
+
+    it('serves nothing when there is no build record, or it cannot be read', async () => {
+      mockBlobRead.mockResolvedValue(Buffer.from('bin'));
+      mockBlobReadText.mockResolvedValue(null);
+      await expect(getBinaryInfo(UUID, BINARY_NAME)).rejects.toMatchObject({ statusCode: 404 });
+      mockBlobReadText.mockResolvedValue('{ not json');
+      await expect(getBinaryInfo(UUID, BINARY_NAME)).rejects.toMatchObject({ statusCode: 404 });
+      expect(mockBlobRead).not.toHaveBeenCalled();
     });
 
     it('computes correct SHA256 hash', async () => {

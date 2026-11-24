@@ -37,14 +37,29 @@ const TargetIndexSchema = z.string()
   .regex(/^achilles-results-[a-z0-9][a-z0-9._-]*$/, 'target_index must be an Achilles results index (achilles-results-…)')
   .optional();
 
+// ── Test id and binary name ──────────────────────────────────────────────────
+
+/**
+ * A test id as the test library writes it: UUID-shaped, any version (library
+ * ids are not all RFC 4122 values, so not z.uuid()). The id becomes part of
+ * the blob key `builds/<id>/…` and is copied to tasks, agents and result
+ * documents. Same rule as backend/.
+ */
+export const TestUuidSchema = z.string()
+  .regex(/^[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}$/i, 'test_uuid must be a test id (UUID)');
+
+/** A plain file name: no path separators, no leading dot. Same rule as backend/. */
+export const BinaryNameSchema = z.string()
+  .regex(/^[A-Za-z0-9_][A-Za-z0-9._-]{0,254}$/, 'binary_name must be a file name');
+
 // ── Create tasks (execute_test) ──────────────────────────────────────────────
 
 export const CreateTaskSchema = z.object({
   org_id: z.string().min(1, 'org_id is required'),
   agent_ids: z.array(z.string()).min(1, 'At least one agent_id is required'),
-  test_uuid: z.string().min(1),
+  test_uuid: TestUuidSchema,
   test_name: z.string().min(1),
-  binary_name: z.string().min(1),
+  binary_name: BinaryNameSchema,
   execution_timeout: z.number().int().positive().optional(),
   arguments: z.array(z.string()).optional(),
   priority: z.number().int().min(0).max(10).optional(),
@@ -142,9 +157,9 @@ export const CreateScheduleSchema = z.object({
   name: z.string().optional(),
   agent_ids: z.array(z.string()).min(1),
   org_id: z.string().min(1, 'org_id is required'),
-  test_uuid: z.string().min(1),
+  test_uuid: TestUuidSchema,
   test_name: z.string().min(1),
-  binary_name: z.string().min(1),
+  binary_name: BinaryNameSchema,
   execution_timeout: z.number().int().positive().optional(),
   priority: z.number().int().min(0).max(10).optional(),
   metadata: TaskTestMetadataSchema,

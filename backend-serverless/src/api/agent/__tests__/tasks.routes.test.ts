@@ -75,7 +75,7 @@ function setupBlobMocks() {
 }
 
 const SECRET_TASK_PAYLOAD = JSON.stringify({
-  test_uuid: 'secret-test-uuid',
+  test_uuid: '5ec2e700-0000-4000-8000-000000000001',
   test_name: 'Credentialed Test',
   binary_name: 'secret-test.exe',
   binary_sha256: 'abc123',
@@ -130,7 +130,7 @@ describe('tasks routes', () => {
         .send({
           org_id: 'org-001',
           agent_ids: ['agent-001'],
-          test_uuid: 'test-uuid-001',
+          test_uuid: '11111111-1111-4111-8111-111111111111',
           test_name: 'Test',
           binary_name: 'test.exe',
         });
@@ -147,7 +147,7 @@ describe('tasks routes', () => {
         .post('/admin/tasks')
         .send({
           agent_ids: ['agent-001'],
-          test_uuid: 'uuid',
+          test_uuid: '22222222-2222-4222-8222-222222222222',
           test_name: 'name',
           binary_name: 'bin.exe',
         });
@@ -163,7 +163,7 @@ describe('tasks routes', () => {
         .post('/admin/tasks')
         .send({
           org_id: 'org-001',
-          test_uuid: 'uuid',
+          test_uuid: '22222222-2222-4222-8222-222222222222',
           test_name: 'name',
           binary_name: 'bin.exe',
         });
@@ -179,7 +179,7 @@ describe('tasks routes', () => {
         .send({
           org_id: 'org-001',
           agent_ids: [],
-          test_uuid: 'uuid',
+          test_uuid: '22222222-2222-4222-8222-222222222222',
           test_name: 'name',
           binary_name: 'bin.exe',
         });

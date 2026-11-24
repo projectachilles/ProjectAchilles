@@ -166,6 +166,10 @@ Streams the test binary named in the task payload. The agent must hold a task fo
 (`assigned`, `downloading` or `executing`); otherwise the answer is `404` (`Binary not found`),
 the same as for a binary that does not exist.
 
+Only the binaries the test's build record lists are served (one per operating system the test
+was built for). Any other file name gets the same `404`, also when a file of that name is in
+the test's build folder.
+
 ### Report Result
 
 ```

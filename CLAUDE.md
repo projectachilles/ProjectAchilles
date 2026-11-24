@@ -246,7 +246,9 @@ Some bundles (baseline, identity-endpoint) use a multi-binary architecture where
 - `F0_SIGN_CERT_PATH` — absolute path to the active PFX certificate
 - `F0_SIGN_CERT_PASS_FILE` — path to a temporary file containing the cert password (cleaned up after build)
 
-These env vars are set automatically in `buildService.ts` when a `build_all.sh` is detected and the target platform is Windows. The inner cert password file uses mode `0o600` and is deleted in a `finally` block.
+These env vars are set automatically in `buildService.ts` when a `build_all.sh` is detected and the target platform is Windows. Password files (this one and the one for `osslsigncode -readpass`) are written by `writePrivateTempFile()` (`services/tests/privateTempFile.ts`): mode `0o600`, in a `0700` directory of their own under the system temp directory, removed in a `finally` block. Never write one into `~/.projectachilles/builds/<uuid>/`: the agent download route serves from that folder.
+
+**Build folder access:** an agent downloads from `builds/<uuid>/` only the names the build record lists (`servableBinaryNames()` in `services/agent/testArtifacts.ts`; `backend-serverless/` has its own copy in `binary.service.ts`). `getBuildDir()` returns null for an id that is not one folder name, and `test_uuid` / `binary_name` are validated in the task, schedule and campaign schemas (`TestUuidSchema`, `BinaryNameSchema`). A new file kept in a build folder needs no rule of its own; a new kind of downloadable artifact must be listed in the build record.
 
 **Build environment:** build subprocesses (`go build`, `go mod`, `build_all.sh`) get an allowlisted environment from `buildSubprocessEnv()` (`services/tests/buildEnv.ts`), never `process.env`, so test-library code can't read the backend's secrets from it. Add a name to the allowlist (or to `BUILD_ENV_PASSTHROUGH` on one install) when a build needs it. It is not a sandbox: scripts still run as the backend user. A bubblewrap sandbox was tried and rejected (#799): bwrap can't create namespaces under Docker's default seccomp profile, and the library's scripts need the network (`go mod download`) and the signing cert.
 
