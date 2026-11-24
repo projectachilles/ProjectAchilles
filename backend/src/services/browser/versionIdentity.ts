@@ -20,14 +20,30 @@ export interface TestLocation {
   relPath: string;
 }
 
-// NOTE: changing any of the input lists below (excluded extensions, shared
-// inputs, disk exclusions) or the hash line format changes every fingerprint,
-// so every stored fingerprint compares as older once. Change them deliberately.
+// NOTE: changing any of the input lists below (excluded extensions, excluded
+// names, shared inputs, disk exclusions) or the hash line format changes every
+// fingerprint, so every stored fingerprint compares as older once. Change them
+// deliberately.
 
 /** Files with these extensions inside a test folder are not build inputs. */
 export const BUILD_INPUT_EXCLUDED_EXT: readonly string[] = [
   '.md', '.html', '.kql', '.yar', '.yara', '.ndjson',
 ];
+
+/**
+ * Detection and defence files the test library generates next to each test,
+ * matched on the base name (case-sensitive, at the end of the name):
+ * `<uuid>_sigma_rules.yml`, `<uuid>_dr_rules.yaml`, `<uuid>_hardening.ps1`,
+ * `<uuid>_hardening_linux.sh` and `<uuid>_hardening_macos.sh` (any
+ * `_hardening_<word>.ps1` or `.sh`, `<word>` being one or more of a-z, 0-9).
+ * Matched by name, not by extension: `.ps1`,
+ * `.sh` and `.yml` files are real build inputs in other tests (embedded
+ * scripts, build_all.sh, a test's own configuration). A test that embeds one
+ * of these files is covered by the build's embedded-files hash instead
+ * (getEmbedDependencies in buildService.ts).
+ */
+export const BUILD_INPUT_EXCLUDED_NAME =
+  /_(?:sigma_rules\.yml|dr_rules\.yaml|hardening(?:_[a-z0-9]+)?\.ps1|hardening_[a-z0-9]+\.sh)$/;
 
 /** Compiled output never counts as source when hashing a folder on disk. */
 const DISK_BINARY_EXT: readonly string[] = ['.exe', '.dll', '.so', '.dylib', '.bin'];
@@ -72,7 +88,8 @@ export function sharedInputPrefixes(relPath: string): string[] {
 
 /** Whether a file inside the test folder is a build input (not documentation/detection content). */
 export function isBuildInput(pathInTest: string): boolean {
-  return !BUILD_INPUT_EXCLUDED_EXT.includes(extOf(pathInTest));
+  const base = pathInTest.slice(pathInTest.lastIndexOf('/') + 1);
+  return !BUILD_INPUT_EXCLUDED_EXT.includes(extOf(pathInTest)) && !BUILD_INPUT_EXCLUDED_NAME.test(base);
 }
 
 function hashLines(lines: Array<{ path: string; hash: string }>): string {

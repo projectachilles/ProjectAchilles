@@ -12,7 +12,7 @@ import { BuildJobs } from './buildJobs.js';
 import { describeCommandFailure } from '../shared/commandFailure.js';
 import { buildSubprocessEnv } from './buildEnv.js';
 import { isUsableSourceRoot } from '../browser/repositoryRoot.js';
-import { hashFiles } from '../browser/versionIdentity.js';
+import { hashFiles, isBuildInput } from '../browser/versionIdentity.js';
 import { sanitizeGitError } from '../browser/gitSyncService.js';
 import { AppError } from '../../middleware/error.middleware.js';
 import type { BuildVersionStamp, TestVersionIdentity } from '../../types/testVersion.js';
@@ -935,7 +935,9 @@ const ARTIFACT_DIR = \`${artifactDir}\`
       while ((match = embedRegex.exec(content)) !== null) {
         const filename = match[1];
         // Skip .go and .ps1 files — those are source that build_all.sh handles
-        if (filename.endsWith('.go') || filename.endsWith('.ps1')) continue;
+        // A .ps1 normally counts through the source fingerprint; one the fingerprint
+        // leaves out by name must be covered here, or nothing would notice it change.
+        if (filename.endsWith('.go') || (filename.endsWith('.ps1') && isBuildInput(filename))) continue;
         const exists = fs.existsSync(path.join(testDir, filename));
         const sourceBuilt = isSourceBuiltBinary(filename, uuid, goFileSet, buildScript);
         deps.push({ filename, sourceFile: goFile, exists, sourceBuilt });

@@ -2001,6 +2001,44 @@ var data string
       expect(createService().currentDepsHash(VALID_UUID)).not.toBe(first);
     });
 
+    // Files the content fingerprint leaves out by name (versionIdentity.ts).
+    // When a test embeds one, the embedded-files hash must still see it change.
+    describe('an embedded file the fingerprint leaves out by name', () => {
+      function embedding(name: string, content: string) {
+        mockExistsSync.mockImplementation((p: string) => p === testDir || p === `${testDir}/${name}`);
+        mockReadFileSync.mockImplementation((p: string) =>
+          p === `${testDir}/main.go` ? `//go:embed ${name}\nvar f []byte\n` : Buffer.from(content));
+        return createService();
+      }
+
+      it.each([
+        `${VALID_UUID}_hardening.ps1`,
+        `${VALID_UUID}_hardening_linux.sh`,
+        `${VALID_UUID}_sigma_rules.yml`,
+      ])('%s is an uploaded embed dependency and changes currentDepsHash', (name) => {
+        const svc = embedding(name, 'one');
+        expect(svc.getEmbedDependencies(VALID_UUID)).toEqual([
+          { filename: name, sourceFile: 'main.go', exists: true, sourceBuilt: false },
+        ]);
+        const first = svc.currentDepsHash(VALID_UUID);
+        expect(first).toMatch(/^[0-9a-f]{64}$/);
+        expect(embedding(name, 'two').currentDepsHash(VALID_UUID)).not.toBe(first);
+      });
+
+      it('an embedded emergency_restore.ps1 (a fingerprint input) is still not an embed dependency', () => {
+        const svc = embedding('emergency_restore.ps1', 'one');
+        expect(svc.getEmbedDependencies(VALID_UUID)).toEqual([]);
+        expect(svc.currentDepsHash(VALID_UUID)).toBeNull();
+        expect(embedding('emergency_restore.ps1', 'two').currentDepsHash(VALID_UUID)).toBeNull();
+      });
+
+      it('an embedded .go file is still not an embed dependency', () => {
+        const svc = embedding('helper.go', 'package main');
+        expect(svc.getEmbedDependencies(VALID_UUID)).toEqual([]);
+        expect(svc.currentDepsHash(VALID_UUID)).toBeNull();
+      });
+    });
+
     it('versionSource.current is called before the compile step', async () => {
       const order: string[] = [];
       mockExecFileAsync.mockImplementation(async (cmd: string, args: string[]) => {

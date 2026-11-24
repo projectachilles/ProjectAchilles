@@ -148,10 +148,69 @@ describe('identitiesFromTree', () => {
     expect(map.has(UUID_B)).toBe(false);
   });
 
-  it('isBuildInput excludes documentation and detection extensions only', () => {
+  it('isBuildInput excludes documentation and detection extensions', () => {
     expect(isBuildInput('docs/README.MD')).toBe(false);
     expect(isBuildInput('stage.go')).toBe(true);
     expect(isBuildInput('go.mod')).toBe(true);
+  });
+
+  const DETECTION_NAMES = [
+    'x_sigma_rules.yml',
+    'x_dr_rules.yaml',
+    'x_hardening.ps1',
+    'x_hardening_linux.sh',
+    'x_hardening_macos.sh',
+    'x_hardening_linux.ps1',
+  ];
+
+  it.each(DETECTION_NAMES.flatMap(n => [n, `sub/${n}`, `a/b/${n}`]))(
+    'isBuildInput is false for the detection and defence file %s',
+    (p) => {
+      expect(isBuildInput(p)).toBe(false);
+    },
+  );
+
+  it.each([
+    'emergency_restore.ps1',
+    'build_all.sh',
+    'config.yml',
+    'rules.yaml',
+    'hardening.ps1',
+    'x_hardening.ps1.bak',
+    'x_sigma_rules.yaml',
+    'X_SIGMA_RULES.YML',
+    'x_hardening_.sh',
+    'sub/emergency_restore.ps1',
+  ])('isBuildInput stays true for %s', (p) => {
+    expect(isBuildInput(p)).toBe(true);
+  });
+
+  describe('detection and defence files by name', () => {
+    const SIGMA = `${REL_A}/${UUID_A}_sigma_rules.yml`;
+    const HARDENING = `${REL_A}/${UUID_A}_hardening.ps1`;
+    const PAYLOAD = `${REL_A}/payload.ps1`;
+    const entries = () => [
+      ...baseEntries(),
+      blob(SIGMA, 'h-sigma'),
+      blob(HARDENING, 'h-hard'),
+      blob(PAYLOAD, 'h-payload'),
+    ];
+
+    it.each([SIGMA, HARDENING])('a change to %s keeps fingerprint and source_hash, changes test_tree', (p) => {
+      const before = idOf(entries());
+      const after = idOf(change(entries(), p, 'changed').map(e =>
+        e.path === REL_A ? { ...e, hash: 'tree-a2' } : e));
+      expect(after.fingerprint).toBe(before.fingerprint);
+      expect(after.source_hash).toBe(before.source_hash);
+      expect(after.test_tree).not.toBe(before.test_tree);
+    });
+
+    it('a change to an embedded-style payload.ps1 changes the fingerprint', () => {
+      const before = idOf(entries());
+      const after = idOf(change(entries(), PAYLOAD, 'changed'));
+      expect(after.source_hash).not.toBe(before.source_hash);
+      expect(after.fingerprint).not.toBe(before.fingerprint);
+    });
   });
 });
 
@@ -277,6 +336,27 @@ describe('identityFromDisk', () => {
     write('README.md', 'docs');
     write('rules.kql', 'q');
     expect(identityFromDisk(dir, UUID_A)).toEqual(before);
+  });
+
+  it.each([`${UUID_A}_sigma_rules.yml`, `${UUID_A}_hardening.ps1`])(
+    'a change to %s keeps fingerprint and source_hash',
+    (name) => {
+      write(name, 'one');
+      const before = identityFromDisk(dir, UUID_A);
+      write(name, 'two');
+      const after = identityFromDisk(dir, UUID_A);
+      expect(after.fingerprint).toBe(before.fingerprint);
+      expect(after.source_hash).toBe(before.source_hash);
+    },
+  );
+
+  it('a change to an embedded-style payload.ps1 changes the fingerprint', () => {
+    write('payload.ps1', 'one');
+    const before = identityFromDisk(dir, UUID_A);
+    write('payload.ps1', 'two');
+    const after = identityFromDisk(dir, UUID_A);
+    expect(after.source_hash).not.toBe(before.source_hash);
+    expect(after.fingerprint).not.toBe(before.fingerprint);
   });
 
   describe('hashFiles on what a //go:embed token can name', () => {
