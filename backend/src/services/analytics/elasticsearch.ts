@@ -80,6 +80,8 @@ import { createAchillesIndex } from '../shared/esIndexCreate.js';
 // Canonical error code map lives in outcomes/exitCodes.ts; re-exported for existing importers.
 import { ERROR_CODE_MAP, resolveErrorName } from '../outcomes/exitCodes.js';
 import { splitFilterList } from './filterList.js';
+import type { ResultVersionState } from '../../types/testVersion.js';
+import { documentVersion, versionStateClauses } from './testVersionState.js';
 export { ERROR_CODE_MAP, resolveErrorName };
 
 /** Get field value from ES _source — handles both flattened (dot-key) and nested formats */
@@ -2172,7 +2174,9 @@ export class ElasticsearchService {
   }
 
   // Get recent test executions
-  async getRecentExecutions(params: AnalyticsQueryParams): Promise<TestExecution[]> {
+  async getRecentExecutions(
+    params: AnalyticsQueryParams & { currentFingerprints?: Map<string, string> },
+  ): Promise<TestExecution[]> {
     const filters: any[] = [
       this.buildTestDataFilter(),
       this.buildDateFilter(params.from, params.to)
@@ -2203,6 +2207,7 @@ export class ElasticsearchService {
         timestamp: getField(source, 'routing.event_time') || '',
         error_code: getField(source, 'event.ERROR'),
         error_name: resolveErrorName(getField(source, 'event.ERROR'), getField(source, 'f0rtika.error_name')),
+        ...documentVersion(source, params.currentFingerprints),
       };
     });
   }
@@ -2796,7 +2801,11 @@ export class ElasticsearchService {
    * Build all extended filters (base + filter-bar clauses). Public: the
    * execution report reuses it so its scope is exactly the tab's.
    */
-  buildExtendedFilters(params: Partial<ExtendedAnalyticsQueryParams> & { verdict?: ExecutionVerdict }): any[] {
+  buildExtendedFilters(params: Partial<ExtendedAnalyticsQueryParams> & {
+    verdict?: ExecutionVerdict;
+    versionState?: ResultVersionState;
+    currentFingerprints?: Map<string, string>;
+  }): any[] {
     const filters: any[] = [
       this.buildTestDataFilter(),
       this.buildDateFilter(params.from, params.to)
@@ -2814,6 +2823,10 @@ export class ElasticsearchService {
         { bool: { must_not: [{ term: { 'f0rtika.category': 'cyber-hygiene' } }] } },
         ...this.buildVerdictClauses(params.verdict),
       );
+    }
+
+    if (params.versionState) {
+      filters.push(...versionStateClauses(params.versionState, params.currentFingerprints));
     }
 
     return filters;
@@ -2873,7 +2886,7 @@ export class ElasticsearchService {
     });
 
     const data: EnrichedTestExecution[] = response.hits.hits.map(
-      (hit: any) => this.mapHitToExecution(hit)
+      (hit: any) => this.mapHitToExecution(hit, params.currentFingerprints)
     );
 
     const totalPages = Math.ceil(totalItems / pageSize);
@@ -2958,9 +2971,9 @@ export class ElasticsearchService {
       const groupKey: string = bucket.key;
       const isBundle = groupKey.startsWith('bundle::');
       const memberHits = bucket.members?.hits?.hits || [];
-      const mapped: EnrichedTestExecution[] = memberHits.map((hit: any) => this.mapHitToExecution(hit));
+      const mapped: EnrichedTestExecution[] = memberHits.map((hit: any) => this.mapHitToExecution(hit, params.currentFingerprints));
       const members = isBundle ? sortBundleMembers(mapped) : mapped;
-      const representative = members[0] || this.mapHitToExecution({ _source: {} });
+      const representative = members[0] || this.mapHitToExecution({ _source: {} }, params.currentFingerprints);
 
       // Warn if top_hits were truncated (bundle exceeds 100 controls)
       if (isBundle && memberHits.length >= 100) {
@@ -3011,7 +3024,7 @@ export class ElasticsearchService {
   }
 
   // Map a single ES hit (from search or inner_hits) to EnrichedTestExecution
-  private mapHitToExecution(hit: any): EnrichedTestExecution {
+  private mapHitToExecution(hit: any, currentFingerprints?: Map<string, string>): EnrichedTestExecution {
     const source = hit._source;
     const orgUuid = getField(source, 'routing.oid') || '';
 
@@ -3049,6 +3062,7 @@ export class ElasticsearchService {
       edr_launch_blocked: getField(source, 'f0rtika.edr_launch_blocked') ?? false,
       launch_block_vendors: getField(source, 'f0rtika.launch_block.vendors'),
       launch_block_alert_ids: getField(source, 'f0rtika.launch_block.alert_ids'),
+      ...documentVersion(source, currentFingerprints),
     };
   }
 
