@@ -105,6 +105,48 @@ describe('useBuildQueue', () => {
     expect(buildTest).toHaveBeenCalledTimes(1);
   });
 
+  it('a Stop pressed as the last build settles, before React renders, still ends in done', async () => {
+    const { buildTest, gates } = gated();
+    const { result } = setup(buildTest);
+    act(() => {
+      result.current.start([A]);
+    });
+    await waitFor(() => expect(gates).toHaveLength(1));
+    // One act scope: the run's end is queued but not rendered when Stop is pressed.
+    await act(async () => {
+      gates[0]();
+      await new Promise((r) => setTimeout(r, 0));
+      result.current.stop();
+    });
+    expect(result.current.state).toMatchObject({ status: 'done', end: 'completed' });
+    act(() => result.current.dismiss());
+    expect(result.current.state.status).toBe('idle');
+  });
+
+  it('dismiss and start in the same tick the run ends act on the ended run', async () => {
+    const { buildTest, gates } = gated();
+    const { result } = setup(buildTest);
+    act(() => {
+      result.current.start([A]);
+    });
+    await waitFor(() => expect(gates).toHaveLength(1));
+    let ok = false;
+    await act(async () => {
+      gates[0]();
+      await new Promise((r) => setTimeout(r, 0));
+      ok = result.current.start([B]);
+    });
+    expect(ok).toBe(true);
+    expect(result.current.state).toMatchObject({ status: 'running', total: 1, results: [] });
+    await waitFor(() => expect(gates).toHaveLength(2));
+    await act(async () => {
+      gates[1]();
+      await new Promise((r) => setTimeout(r, 0));
+      result.current.dismiss();
+    });
+    expect(result.current.state.status).toBe('idle');
+  });
+
   it('dismiss resets done, and does nothing while running', async () => {
     const { buildTest, gates } = gated();
     const { result } = setup(buildTest);

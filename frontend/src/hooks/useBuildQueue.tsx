@@ -96,6 +96,12 @@ export function BuildQueueProvider({ children, deps = defaultDeps }: { children:
 
     // False once this run is no longer the provider's: unmounted, or ended by a session change.
     const owns = () => mountedRef.current && controllerRef.current === controller;
+    // The ref moves to 'done' at once, not at the next render, so a Stop,
+    // Dismiss or Start in the same tick acts on the ended run.
+    const finish = (end: BuildQueueEnd) => {
+      stateRef.current = { ...stateRef.current, status: 'done', current: null, end };
+      setState((s) => ({ ...s, status: 'done', current: null, end }));
+    };
     void runBuildQueue(items, depsRef.current, {
       signal: controller.signal,
       shouldStop: () => stopRef.current,
@@ -111,12 +117,12 @@ export function BuildQueueProvider({ children, deps = defaultDeps }: { children:
         // A real unmount aborts without a state update; any other abort must
         // still end in 'done' so the provider is never stuck in 'running'.
         if (controller.signal.aborted && !mountedRef.current) return;
-        setState((s) => ({ ...s, status: 'done', current: null, end: run.end }));
+        finish(run.end);
       })
       .catch((err: unknown) => {
         console.error('Build queue failed', err);
         if (controllerRef.current !== controller || !mountedRef.current) return;
-        setState((s) => ({ ...s, status: 'done', current: null, end: 'stopped' }));
+        finish('stopped');
       });
     return true;
   }, []);
@@ -124,7 +130,8 @@ export function BuildQueueProvider({ children, deps = defaultDeps }: { children:
   const stop = useCallback(() => {
     if (stateRef.current.status !== 'running') return;
     stopRef.current = true;
-    setState((s) => ({ ...s, status: 'stopping' }));
+    // Only a running run can be stopping: a run that ended first stays done.
+    setState((s) => (s.status === 'running' ? { ...s, status: 'stopping' } : s));
   }, []);
 
   const dismiss = useCallback(() => {
