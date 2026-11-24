@@ -3,6 +3,7 @@
 
 import type { EdrVendorKey } from '../services/outcomes/vendors.js';
 import type { StageCoverageResponse } from './analytics.js';
+import type { ResultVersionState } from './testVersion.js';
 
 export type StageOutcome =
   | 'protected'
@@ -205,6 +206,14 @@ export interface ReportAlert {
   autoResolvedAt: string | null;
 }
 
+/** The version of the test that produced a run, from its documents' f0rtika.test_version. */
+export interface ReportRunVersion {
+  /** Full commit the test binary was built from; null for a custom test, an unstamped build or no record. */
+  commit: string | null;
+  /** Omitted when the synced library could not be read while the report was built. */
+  state?: ResultVersionState;
+}
+
 export interface ReportRun {
   key: string;
   testKey: string;
@@ -224,6 +233,8 @@ export interface ReportRun {
   alertsChecked: boolean;
   /** Set when the EDR killed the agent during this run: protected as a whole, stages unknown. */
   agentTerminated?: { vendors: EdrVendorKey[]; alertIds: string[] };
+  /** Compared with the test library synced on the console when the report was generated. */
+  version: ReportRunVersion;
 }
 
 export interface AcceptedRiskRow {

@@ -94,10 +94,28 @@ export function deriveStatus(i: StatusInput): DerivedStatus {
 
 /** How the version recorded on a stored result relates to the synced one. */
 export function resultVersionState(
-  v: TaskTestVersion | undefined,
+  v: Pick<TaskTestVersion, 'fingerprint'> | undefined,
   syncedFingerprint: string | undefined,
 ): ResultVersionState {
   if (!v) return 'not_recorded';
   if (!v.fingerprint || !syncedFingerprint) return 'unknown';
   return v.fingerprint === syncedFingerprint ? 'current' : 'older';
+}
+
+/**
+ * The state of a result of one test, given the current fingerprint of every
+ * test that can be read (uuid -> fingerprint). The one rule for the Executions
+ * rows and the campaign evidence matrix: no recorded version is not_recorded;
+ * a test missing from `current` (removed, or its identity unreadable now) is
+ * unknown, never older.
+ */
+export function resultStateForTest(
+  version: { fingerprint?: string } | undefined,
+  testUuid: string,
+  current: Map<string, string>,
+): ResultVersionState {
+  if (!version) return 'not_recorded';
+  const fingerprint = current.get(testUuid);
+  if (fingerprint === undefined) return 'unknown';
+  return resultVersionState(version, fingerprint);
 }

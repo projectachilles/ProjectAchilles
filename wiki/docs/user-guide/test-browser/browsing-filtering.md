@@ -10,7 +10,7 @@ The **Tests** page (`/tests`) is the primary interface for discovering and runni
 
 ## Test Library List
 
-The Tests page is a list with a filter rail on the left. The header shows how many tests match (`42/187 tests`) and the [sync status](#git-sync-status). Each row shows the test name, then `actor · subcategory` (or "No attributed actor" when the test has none), the fleet result, the test score, and the favorite and run actions. The score shows "—" when it is missing or zero.
+The Tests page is a list with a filter rail on the left. The header shows how many tests match (`42/187 tests`) and the [sync status](#git-sync-status). Each row shows the test name, then `actor · subcategory` (or "No attributed actor" when the test has none), the fleet result, the test score, and the favorite and run actions. The score shows "—" when it is missing or zero. Under the name is the test's version status (for example **Up to date** or **Rebuild needed**), and the **All versions** menu lists only the tests in one status; see [Test Versions](./test-versions).
 
 ![Tests — facet rail beside the test list, with techniques, platform, stages, fleet result and score per row](/img/screenshots/tests.png)
 

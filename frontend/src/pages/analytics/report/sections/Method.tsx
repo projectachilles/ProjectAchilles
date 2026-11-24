@@ -3,6 +3,9 @@ import { OUTCOME_LABEL } from '../lib/outcomes';
 import { GlyphIcon } from '../diagrams/StageGlyph';
 import { Sheet, type SheetHead } from './Sheet';
 import { EDR_VENDOR_KEYS, findEdrVendor } from '@/lib/edrVendors';
+import { fmtDateTime, tzName } from '../lib/format';
+import type { RunVersionsBasis } from '../lib/runs';
+import { VERSION_STATE_LABEL } from '../../components/executions/versionLabels';
 
 const DEFINITIONS: [StageOutcome, string][] = [
   ['protected', 'The test exited 105, 126 or 127: the security stack blocked or quarantined it.'],
@@ -12,8 +15,33 @@ const DEFINITIONS: [StageOutcome, string][] = [
   ['inconclusive', 'The test could not reach a verdict (for example exit 200, 259, 260 or 999). Excluded from rates.'],
 ];
 
-/** `edrVendors` is meta.edrVendors: the sources and alert-window text name only configured vendors, and are omitted when there are none. */
-export function Method({ head, edrVendors = [...EDR_VENDOR_KEYS] }: { head: SheetHead; edrVendors?: ExecutionReport['meta']['edrVendors'] }) {
+const quoted = (state: keyof typeof VERSION_STATE_LABEL) => `“${VERSION_STATE_LABEL[state]}”`;
+const COMMIT_SENTENCE = 'The commit under each run\'s completion time is the version of the test that ran.';
+
+/** The Method page's version sentence for what the runs carry. */
+function versionsText({ basis, generatedAt, tz }: { basis: RunVersionsBasis; generatedAt: string; tz: string }): string {
+  switch (basis) {
+    case 'compared':
+      return `${COMMIT_SENTENCE} ${quoted('current')} and ${quoted('older')} compare it with the test library synced on this console`
+        + ` when this report was generated (${fmtDateTime(generatedAt, tz)} ${tzName(generatedAt, tz)}).`
+        + ` ${quoted('unknown')} means it could not be compared; ${quoted('not_recorded')} means the run predates version recording.`;
+    case 'not_compared':
+      return `${COMMIT_SENTENCE} Versions could not be compared with the test library when this report was generated.`;
+    case 'not_recorded':
+      return `${quoted('not_recorded')} under a run's completion time means the run predates version recording.`;
+  }
+}
+
+/**
+ * `edrVendors` is meta.edrVendors: the sources and alert-window text name only configured vendors, and are omitted when there are none.
+ * `versions` is set when the runs carry test versions: which sentence they need (runVersionsBasis) and the report's
+ * generation time, which the version states compare as of.
+ */
+export function Method({ head, edrVendors = [...EDR_VENDOR_KEYS], versions }: {
+  head: SheetHead;
+  edrVendors?: ExecutionReport['meta']['edrVendors'];
+  versions?: { basis: RunVersionsBasis; generatedAt: string; tz: string };
+}) {
   const edr = edrVendors.length > 0;
   return (
     <Sheet label="Method" head={head}>
@@ -34,6 +62,7 @@ export function Method({ head, edrVendors = [...EDR_VENDOR_KEYS] }: { head: Shee
           <b>Sources.</b> Stage results come from the ProjectAchilles agent.
           {edr && ` EDR alerts come from ${edrVendors.map((v) => findEdrVendor(v)?.productName ?? v).join(' and ')}, matched to a run by test binary, endpoint and a window from 5 minutes before to 30 minutes after the run completed.`}
         </p>
+        {versions && <p><b>Test versions.</b> {versionsText(versions)}</p>}
         <p>
           <b>Limits.</b> Stages within a run are not timed individually; every stage carries the run's completion time.
           {edr && ' Alerts raised more than 5 minutes before a long run completed can fall outside the window, as in the console.'}

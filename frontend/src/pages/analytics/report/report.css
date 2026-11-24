@@ -83,6 +83,8 @@ html:has(.report-print) body {
 .report-print .rp-muted { color: var(--rp-ink-2); }
 .report-print .rp-mono { font-family: var(--rp-mono); }
 .report-print .rp-caption { font-size: 8.5pt; color: var(--rp-ink-2); margin-top: 4px; }
+/* A run's version line sits in the mono Completed cell: the caption is sans, its commit stays mono. */
+.report-print .rp-version { font-family: var(--rp-sans); }
 .report-print .rp-banner { border: 1px solid var(--rp-inconclusive); background: var(--rp-partial); padding: 8px 10px; font-size: 9pt; }
 .report-print .rp-notice { border: 1px solid var(--rp-rule); background: var(--rp-tint); padding: 8px 10px; font-size: 9pt; display: grid; gap: 6px; }
 .report-print .rp-notice ul { margin: 0; padding-left: 1.2em; }

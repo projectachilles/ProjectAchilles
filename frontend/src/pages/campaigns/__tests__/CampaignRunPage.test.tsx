@@ -6,7 +6,7 @@ import { MemoryRouter, Route, Routes } from 'react-router-dom';
 const api = vi.hoisted(() => ({ getRun: vi.fn(), exportRunCsv: vi.fn() }));
 vi.mock('@/services/api/campaigns', () => ({ campaignsApi: api }));
 
-import type { RunMatrix, CellState, RunNotice } from '@/services/api/campaigns';
+import type { RunMatrix, CellState, CellVersion, RunNotice } from '@/services/api/campaigns';
 import CampaignRunPage from '../CampaignRunPage';
 
 const cell = (state: CellState, reason: string | null = null, stages: RunMatrix['cells'][string][string]['stages'] = []) =>
@@ -245,5 +245,139 @@ describe('CampaignRunPage', () => {
     expect(document.head.querySelector('style[data-campaign-print]')?.textContent).toContain('size: landscape');
     unmount();
     expect(document.head.querySelector('style[data-campaign-print]')).toBeNull();
+  });
+
+  describe('test version', () => {
+    const COMMIT_A = 'abc1234' + 'f'.repeat(33);
+    const COMMIT_B = 'def5678' + 'e'.repeat(33);
+    const current: CellVersion = { commit: COMMIT_A, fingerprint: 'fp-a', state: 'current' };
+    const older: CellVersion = { commit: COMMIT_B, fingerprint: 'fp-b', state: 'older' };
+
+    /** One test on N hosts (hosts as rows, so the test is a column header), cell i carrying versions[i]. */
+    function versioned(versions: (CellVersion | undefined)[]): RunMatrix {
+      const m = matrix(versions.map(() => 'protected'));
+      versions.forEach((v, i) => { if (v) m.cells.t1[`a${i}`] = { ...m.cells.t1[`a${i}`], version: v }; });
+      return m;
+    }
+    const testHeader = async () => {
+      const table = await screen.findByRole('table');
+      return within(table).getAllByRole('columnheader').find((h) => h.textContent?.startsWith('Test One'))!;
+    };
+
+    it('shows the 7-character commit under the test name, with the full commit and state in the title', async () => {
+      api.getRun.mockResolvedValue(versioned([current, current, current]));
+      setup();
+      const th = await testHeader();
+      expect(within(th).getByTestId('test-version')).toHaveTextContent('abc1234 · current');
+      expect(th.getAttribute('title')).toContain(COMMIT_A);
+      expect(th.getAttribute('title')).toContain('current');
+    });
+
+    it('shows the version under a test that is a row header too', async () => {
+      const m = matrix(['protected']);
+      m.tests = [{ uuid: 't1', name: 'Test One' }, { uuid: 't2', name: 'Test Two' }];
+      m.cells.t1.a0 = { ...m.cells.t1.a0, version: current };
+      m.cells.t2 = { a0: { ...cell('unprotected'), version: older } };
+      api.getRun.mockResolvedValue(m);
+      setup();
+      const table = await screen.findByRole('table');
+      const rowHeaders = within(table).getAllByRole('rowheader');
+      expect(within(rowHeaders[0]).getByTestId('test-version')).toHaveTextContent('abc1234 · current');
+      expect(within(rowHeaders[1]).getByTestId('test-version')).toHaveTextContent('def5678 · older');
+      expect(rowHeaders[1].getAttribute('title')).toContain(COMMIT_B);
+    });
+
+    it('says mixed versions when the hosts ran different versions, and lists them with host counts', async () => {
+      api.getRun.mockResolvedValue(versioned([current, older, current]));
+      setup();
+      const th = await testHeader();
+      expect(within(th).getByTestId('test-version')).toHaveTextContent('mixed versions');
+      expect(th.getAttribute('title')).toContain(`${COMMIT_A} · current: 2 hosts`);
+      expect(th.getAttribute('title')).toContain(`${COMMIT_B} · older: 1 host`);
+    });
+
+    it('not recorded, and a custom test shows its state without a commit', async () => {
+      const notRecorded: CellVersion = { commit: null, fingerprint: null, state: 'not_recorded' };
+      api.getRun.mockResolvedValueOnce(versioned([notRecorded, notRecorded]));
+      const { unmount } = setup();
+      expect(within(await testHeader()).getByTestId('test-version')).toHaveTextContent(/^not recorded$/);
+      unmount();
+      api.getRun.mockResolvedValueOnce(versioned([{ commit: null, fingerprint: 'fp-c', state: 'unknown' }, { commit: null, fingerprint: 'fp-c', state: 'unknown' }]));
+      setup();
+      expect(within(await testHeader()).getByTestId('test-version')).toHaveTextContent(/^version unknown$/);
+    });
+
+    const NOT_COMPARED = 'Version states could not be compared with the test library when this page was generated.';
+
+    it('without states (library unreadable) shows the commit, no state text, and says the states could not be compared', async () => {
+      api.getRun.mockResolvedValue(versioned([{ commit: COMMIT_A, fingerprint: 'fp-a' }, { commit: COMMIT_A, fingerprint: 'fp-a' }]));
+      const { container } = setup();
+      const th = await testHeader();
+      expect(within(th).getByTestId('test-version')).toHaveTextContent(/^abc1234$/);
+      const basis = screen.getByTestId('version-basis');
+      expect(basis).toHaveTextContent(NOT_COMPARED);
+      expect(basis.textContent).not.toMatch(/compare each test/);
+      // Printed too: inside the printed area, never print-hidden.
+      expect(container.querySelector('.campaign-run-print')).toContainElement(basis);
+      expect(basis.closest('.print\\:hidden')).toBeNull();
+    });
+
+    it('a matrix wider than a page, without states, prints the could-not-compare sentence', async () => {
+      const m = matrix(['protected']);
+      m.tests = Array.from({ length: 30 }, (_, i) => ({ uuid: `t${i}`, name: `Test ${i}` }));
+      m.agents = Array.from({ length: 40 }, (_, i) => ({ id: `a${i}`, hostname: `host${i}`, os: 'windows' }));
+      m.cells = Object.fromEntries(m.tests.map((t, ti) => [t.uuid, Object.fromEntries(m.agents.map((a) => [
+        a.id, { ...cell('protected'), version: ti % 2 === 0 ? { commit: COMMIT_A, fingerprint: 'fp-a' } : { commit: null, fingerprint: null, state: 'not_recorded' } },
+      ]))]));
+      api.getRun.mockResolvedValue(m);
+      const { container } = setup();
+      const blocks = await screen.findByTestId('print-blocks');
+      expect(within(blocks).getAllByTestId('test-version')[0]).toHaveTextContent(/^abc1234$/);
+      const basis = screen.getByTestId('version-basis');
+      expect(basis).toHaveTextContent(NOT_COMPARED);
+      expect(container.querySelector('.campaign-run-print')).toContainElement(basis);
+      expect(basis.closest('.print\\:hidden')).toBeNull();
+    });
+
+    it('all not recorded: no version sentence', async () => {
+      const notRecorded: CellVersion = { commit: null, fingerprint: null, state: 'not_recorded' };
+      api.getRun.mockResolvedValue(versioned([notRecorded, notRecorded]));
+      setup();
+      expect(within(await testHeader()).getByTestId('test-version')).toHaveTextContent(/^not recorded$/);
+      expect(screen.queryByTestId('version-basis')).toBeNull();
+    });
+
+    it('a matrix from a server without versions renders exactly as before', async () => {
+      api.getRun.mockResolvedValue(matrix(['protected', 'unprotected', 'error']));
+      const { container } = setup();
+      const th = await testHeader();
+      expect(th).toHaveAttribute('title', 'Test One');
+      expect(th).toHaveTextContent(/^Test One$/);
+      expect(screen.queryByTestId('test-version')).toBeNull();
+      expect(screen.queryByTestId('version-basis')).toBeNull();
+      expect(container.textContent).not.toMatch(/version|not recorded/i);
+    });
+
+    it('prints a version line per test and says what the states compare with, as of the matrix time', async () => {
+      const m = matrix(['protected']);
+      m.tests = Array.from({ length: 30 }, (_, i) => ({ uuid: `t${i}`, name: `Test ${i}` }));
+      m.agents = Array.from({ length: 40 }, (_, i) => ({ id: `a${i}`, hostname: `host${i}`, os: 'windows' }));
+      m.cells = Object.fromEntries(m.tests.map((t, ti) => [t.uuid, Object.fromEntries(m.agents.map((a) => [
+        a.id, { ...cell('protected'), version: ti % 2 === 0 ? current : older },
+      ]))]));
+      api.getRun.mockResolvedValue(m);
+      const { container } = setup();
+      const blocks = await screen.findByTestId('print-blocks');
+      const lines = within(blocks).getAllByTestId('test-version');
+      expect(lines).toHaveLength(30);
+      expect(lines[0]).toHaveTextContent('abc1234 · current');
+      expect(lines[1]).toHaveTextContent('def5678 · older');
+      const basis = screen.getByTestId('version-basis');
+      expect(basis).toHaveTextContent(
+        `Version states compare each test with the synced test library as of ${new Date(m.as_of).toLocaleString()}.`,
+      );
+      expect(container.querySelector('.campaign-run-print')).toContainElement(basis);
+      expect(basis.closest('.print\\:hidden')).toBeNull();
+    });
   });
 });

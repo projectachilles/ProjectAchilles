@@ -80,6 +80,7 @@ For local development, `start.sh` creates this key automatically from the `elast
 | `GITHUB_TOKEN` | PAT for private repos (test library and agent source) |
 | `TESTS_SOURCE_PATH` | Local `tests_source` folder, used when Git sync is off |
 | `CUSTOM_TESTS_PATH` | Folder for your own tests. They are listed before the synced library and win when two tests share a UUID (default: `~/.projectachilles/custom-tests`) |
+| `TESTS_UPDATE_CHECK` | `off` turns off the timed check of the published test versions (2 minutes after start, then every 6 hours) and the check after a re-index of the library. **Check now** still works, and a Sync still records what it fetched as the published version. Restart the backend after changing it. Not used on Vercel. See [Test Versions](../user-guide/test-browser/test-versions#how-the-console-knows-what-is-published). Default: on |
 
 ### Test Builds
 

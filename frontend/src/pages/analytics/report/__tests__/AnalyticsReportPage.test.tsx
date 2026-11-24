@@ -2,7 +2,7 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { MemoryRouter, Route, Routes } from 'react-router-dom';
-import { counts, makeReport } from './fixtures';
+import { COMMIT, counts, makeReport, makeRun, versionedRuns } from './fixtures';
 import { stubMemoryStorage } from './memoryStorage';
 
 const { getReportMock } = vi.hoisted(() => ({ getReportMock: vi.fn() }));
@@ -217,6 +217,37 @@ describe('AnalyticsReportPage', () => {
 });
 
 describe('ReportDocument', () => {
+  it('shows the run versions and their Method sentence only when the runs carry versions', () => {
+    const { unmount } = render(<ReportDocument report={makeReport({ runs: versionedRuns() })} paper="A4" marking="None" />);
+    expect(screen.getByText('def5678')).toBeInTheDocument();
+    expect(screen.getByText('Test versions.').closest('p'))
+      .toHaveTextContent('“current” and “older” compare it with the test library synced on this console when this report was generated (13 Oct 2026, 23:40 UTC).');
+    unmount();
+
+    const { container } = render(<ReportDocument report={makeReport()} paper="A4" marking="None" />);
+    expect(container.querySelector('.rp-version')).toBeNull();
+    expect(container.textContent).not.toContain('Test versions.');
+  });
+
+  it('picks the Method sentence from what the runs carry', () => {
+    const method = () => within(screen.getByLabelText('Method')).getByText('Test versions.').closest('p')?.textContent ?? '';
+    const notCompared = [makeRun({ version: { commit: COMMIT } }), makeRun({ hostname: 'WS-OPS-022', version: { commit: null, state: 'not_recorded' } })];
+    const first = render(<ReportDocument report={makeReport({ runs: notCompared })} paper="A4" marking="None" />);
+    expect(method()).toContain('Versions could not be compared with the test library when this report was generated.');
+    first.unmount();
+
+    const allNotRecorded = [makeRun({ version: { commit: null, state: 'not_recorded' } })];
+    render(<ReportDocument report={makeReport({ runs: allNotRecorded })} paper="A4" marking="None" />);
+    expect(method()).toBe('Test versions. “not recorded” under a run\'s completion time means the run predates version recording.');
+  });
+
+  it('a report from a server without the feature has no version line and no version sentence', () => {
+    const { container } = render(<ReportDocument report={makeReport()} paper="A4" marking="None" />);
+    expect(container.querySelector('.rp-version')).toBeNull();
+    expect(within(screen.getByLabelText('Method')).queryByText('Test versions.')).toBeNull();
+    expect(container.textContent).not.toMatch(/not recorded|version unknown|Test versions/);
+  });
+
   afterEach(() => vi.restoreAllMocks());
 
   it('orders the sections cover, summary, coverage, test pages, findings, log, run strips, method', () => {

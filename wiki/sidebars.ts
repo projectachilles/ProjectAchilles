@@ -69,6 +69,7 @@ const sidebars: SidebarsConfig = {
             'user-guide/test-browser/browsing-filtering',
             'user-guide/test-browser/test-detail-pages',
             'user-guide/test-browser/building-signing',
+            'user-guide/test-browser/test-versions',
             'user-guide/test-browser/custom-tests',
           ],
         },

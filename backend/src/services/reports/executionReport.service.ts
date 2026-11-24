@@ -22,6 +22,7 @@ import { orgShortName } from '../analytics/orgNames.js';
 import { ConsoleIdentityService } from '../consoleIdentity/consoleIdentity.service.js';
 import { RiskAcceptanceService, type RiskAcceptance } from '../risk-acceptance/risk-acceptance.service.js';
 import { getTestDirectory, getTestMetadata } from '../agent/test-catalog.service.js';
+import { currentFingerprintMap } from '../browser/currentFingerprints.js';
 import { AppError } from '../../middleware/error.middleware.js';
 import { getRunStartTimes } from './taskTiming.js';
 import { readDefenseGuidance } from './guidanceExcerpt.js';
@@ -81,6 +82,9 @@ export interface ExecutionReportDeps {
   readGuidance: (testKey: string) => string | null;
   getRunStartTimes: (taskIds: string[]) => Promise<Map<string, string>>;
   getAcceptances: (testNames: string[], org?: string) => Promise<Record<string, RiskAcceptance[]>>;
+  /** Current fingerprint of every synced test (uuid -> fingerprint), for the runs' version states;
+   *  undefined when the library can't be read within `limitMs` (currentFingerprintMap bounds it). */
+  getCurrentFingerprints: (limitMs?: number) => Promise<Map<string, string> | undefined>;
   budgetMs: number;
   vendorBudgetMs: number;
   /** Raw name of the organization this deployment serves: the console identity's full name
@@ -320,6 +324,7 @@ export class ExecutionReportService {
       getRunStartTimes: deps.getRunStartTimes ?? getRunStartTimes,
       getAcceptances: deps.getAcceptances
         ?? ((names, org) => new RiskAcceptanceService(realClient()).getAcceptancesForControls(names, org)),
+      getCurrentFingerprints: deps.getCurrentFingerprints ?? currentFingerprintMap,
       budgetMs: deps.budgetMs ?? REPORT_BUDGET_MS,
       vendorBudgetMs: deps.vendorBudgetMs ?? VENDOR_BUDGET_MS,
       getDeploymentName: deps.getDeploymentName ?? (() => consoleIdentity.get().name),
@@ -352,6 +357,12 @@ export class ExecutionReportService {
     const filterParams: FilterParams = { ...pickFilters(params), from: window.effectiveFrom, to: window.effectiveTo };
     const filters = this.deps.es.buildExtendedFilters(filterParams);
     const shardFailures: ShardFailures = { failed: 0, total: 0, indices: new Set(), reasons: new Set() };
+    // Read alongside the required queries, within the time left to the deadline (currentFingerprintMap
+    // also caps it at VERSION_READ_BUDGET_MS). Not an enrichment: without it the runs only lose their
+    // version state. The catch only guards an injected reader: currentFingerprintMap never rejects.
+    const currentFingerprints = Promise.resolve()
+      .then(() => this.deps.getCurrentFingerprints(Math.max(0, deadline - Date.now())))
+      .catch((): undefined => undefined);
 
     // ── Required phase ──
     let scopeRes: unknown;
@@ -399,7 +410,7 @@ export class ExecutionReportService {
       }
     }
     meta.partial = await this.probePartialFailure(shardFailures, filters, deadline, warnings);
-    const runs = parseRuns(runsRes);
+    const runs = parseRuns(runsRes, await currentFingerprints);
 
     // ── Optional phase ──
     const unavailable = new Set<ReportEnrichment>();

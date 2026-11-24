@@ -81,6 +81,7 @@ under the main column on narrow screens):
   document they come from.
 - **Detection**: the first four rows of the detection audit. **All n** opens
   the Info card tab.
+- **Version**: the published, synced and built version of the test, its status and what to do next. See [Test Versions](./test-versions).
 - **Deploy**: the build panel (platform, signing, size, embedded files, build,
   download, rebuild and delete). Shown only if you can build tests and the test
   has source code. See [Building & Signing](./building-signing).

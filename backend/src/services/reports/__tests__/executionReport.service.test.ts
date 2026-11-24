@@ -8,6 +8,10 @@ vi.mock('../../analytics/client.js', () => ({ createEsClient: vi.fn() }));
 import { createEsClient } from '../../analytics/client.js';
 import { STAGE_OUTCOMES } from '../stageOutcome.js';
 import { ExecutionReportService, ORG_NAME_MAX, deploymentOrgName } from '../executionReport.service.js';
+import { VERSION_READ_BUDGET_MS, currentFingerprintMap } from '../../browser/currentFingerprints.js';
+import { setTestVersionsService } from '../../browser/testVersions.service.js';
+import type { TestVersionsService } from '../../browser/testVersions.service.js';
+import type { TestVersionIdentity } from '../../../types/testVersion.js';
 import { ConsoleIdentityService } from '../../consoleIdentity/consoleIdentity.service.js';
 import type { OutcomeCounts } from '../../../types/reports.js';
 import type { AnalyticsSettings } from '../../../types/analytics.js';
@@ -60,21 +64,23 @@ function testsResponse() {
   }] } } };
 }
 
-const memberHit = (controlId: string, validator: string, exit: number, tactic: string) => ({
+const memberHit = (controlId: string, validator: string, exit: number, tactic: string, testVersion?: Record<string, unknown>) => ({
   _id: `${TASK}::${controlId}`,
   _source: {
     event: { ERROR: exit }, routing: { hostname: 'WS-FIN-014' },
     f0rtika: {
       is_bundle_control: true, bundle_id: BUNDLE, bundle_name: 'LockBit 3.0 Double Extortion Kill Chain', control_id: controlId,
       control_validator: validator, test_name: controlId, techniques: [controlId], tactics: [tactic],
+      ...(testVersion ? { test_version: testVersion } : {}),
     },
   },
 });
 
-function runsResponse() {
+/** `testVersion`: the f0rtika.test_version stamped on the second member only (the first lacks it). */
+function runsResponse(testVersion?: Record<string, unknown>) {
   return { aggregations: { runs: { buckets: [{
     key: `bundle::${BUNDLE}::WS-FIN-014::${T_RUN}`, doc_count: 2, completed: { value: T_RUN },
-    members: { hits: { hits: [memberHit('T1486', 'Stage 5', 126, 'impact'), memberHit('T1567.002', 'Stage 4', 101, 'exfiltration')] } },
+    members: { hits: { hits: [memberHit('T1486', 'Stage 5', 126, 'impact'), memberHit('T1567.002', 'Stage 4', 101, 'exfiltration', testVersion)] } },
   }] } } };
 }
 
@@ -134,6 +140,7 @@ function makeDeps(over: Record<string, unknown> = {}): any {
     readGuidance: vi.fn(() => '| [T1567.002](x) — Exfiltration to Cloud Storage | Exfiltration | [M1021](y) Restrict Web-Based Content |'),
     getRunStartTimes: vi.fn(async () => new Map([[TASK, '2026-10-12T12:41:06.000Z']])),
     getAcceptances: vi.fn(async () => ({})),
+    getCurrentFingerprints: vi.fn(async (): Promise<Map<string, string> | undefined> => undefined),
     budgetMs: 5_000,
     vendorBudgetMs: 5_000,
     // A fresh service per report, so env stubs made before generate() are read.
@@ -152,6 +159,7 @@ beforeEach(() => {
 });
 afterEach(() => {
   warn.mockRestore();
+  setTestVersionsService(undefined);
 });
 
 describe('ExecutionReportService.generate', () => {
@@ -548,6 +556,178 @@ describe('ExecutionReportService.generate', () => {
   it('rejects an unknown time zone with a 400', async () => {
     await expect(new ExecutionReportService(settings, makeDeps()).generate(params({ tz: 'Nope/Nowhere' }), NOW))
       .rejects.toMatchObject({ statusCode: 400 });
+  });
+});
+
+describe('test version of each run', () => {
+  const COMMIT = 'abc1234' + '0'.repeat(33);
+  const stamp = (over: Record<string, unknown> = {}) => ({ built_at: '2026-11-20T10:00:00.000Z', build_source: 'built', commit: COMMIT, fingerprint: 'fp-1', ...over });
+  const stampedSearch = (testVersion?: Record<string, unknown>) => async (req: { aggs: Record<string, any> }) =>
+    (req.aggs.runs?.terms ? runsResponse(testVersion) : routeSearch()(req));
+
+  it('reads the current fingerprints once and states each run\'s version', async () => {
+    const deps = makeDeps({ getCurrentFingerprints: vi.fn(async () => new Map([[BUNDLE, 'fp-1']])) });
+    deps.client.search.mockImplementation(stampedSearch(stamp()));
+    const report = await new ExecutionReportService(settings, deps).generate(params(), NOW);
+    expect(deps.getCurrentFingerprints).toHaveBeenCalledTimes(1);
+    expect(report.runs.map((r) => r.version)).toEqual([{ commit: COMMIT, state: 'current' }]);
+  });
+
+  it('reads them in parallel with the report queries, not after them', async () => {
+    let called!: () => void;
+    const lookupStarted = new Promise<void>((resolve) => { called = resolve; });
+    const deps = makeDeps({ getCurrentFingerprints: vi.fn(async () => { called(); return new Map([[BUNDLE, 'fp-1']]); }) });
+    // The runs query answers only once the lookup has started (or fails after 500 ms).
+    deps.client.search.mockImplementation(async (req: { aggs: Record<string, any> }) => {
+      if (req.aggs.runs?.terms) {
+        await Promise.race([lookupStarted, new Promise((_, reject) => setTimeout(() => reject(new Error('lookup not started')), 500))]);
+      }
+      return stampedSearch(stamp())(req);
+    });
+    const report = await new ExecutionReportService(settings, deps).generate(params(), NOW);
+    expect(report.runs[0].version).toEqual({ commit: COMMIT, state: 'current' });
+  });
+
+  it('says older when the fingerprint differs from the current one', async () => {
+    const deps = makeDeps({ getCurrentFingerprints: vi.fn(async () => new Map([[BUNDLE, 'fp-2']])) });
+    deps.client.search.mockImplementation(stampedSearch(stamp()));
+    const report = await new ExecutionReportService(settings, deps).generate(params(), NOW);
+    expect(report.runs[0].version).toEqual({ commit: COMMIT, state: 'older' });
+  });
+
+  it('says not recorded when no member carries a version', async () => {
+    const deps = makeDeps({ getCurrentFingerprints: vi.fn(async () => new Map([[BUNDLE, 'fp-1']])) });
+    const report = await new ExecutionReportService(settings, deps).generate(params(), NOW);
+    expect(report.runs[0].version).toEqual({ commit: null, state: 'not_recorded' });
+  });
+
+  it.each([
+    ['resolves undefined', () => Promise.resolve(undefined)],
+    ['rejects', () => Promise.reject(new Error('library unreadable'))],
+    ['throws', () => { throw new Error('library unreadable'); }],
+  ])('drops the state but keeps the commit when the fingerprint lookup %s', async (_label, impl) => {
+    const deps = makeDeps({ getCurrentFingerprints: vi.fn(impl) });
+    deps.client.search.mockImplementation(stampedSearch(stamp()));
+    const report = await new ExecutionReportService(settings, deps).generate(params(), NOW);
+    expect(report.runs[0].version).toEqual({ commit: COMMIT });
+    expect(report.meta.unavailable).toEqual([]);
+    expect(report.meta.warnings).toEqual([]);
+    expect(report.defenseScore).not.toBeNull();
+  });
+
+  it('still says not recorded for a run without a version when the lookup fails', async () => {
+    const deps = makeDeps({ getCurrentFingerprints: vi.fn(async () => { throw new Error('library unreadable'); }) });
+    const report = await new ExecutionReportService(settings, deps).generate(params(), NOW);
+    expect(report.runs[0].version).toEqual({ commit: null, state: 'not_recorded' });
+    expect(report.meta.unavailable).toEqual([]);
+  });
+
+  it('passes the time left to its deadline as the read\'s limit', async () => {
+    const deps = makeDeps({ budgetMs: 3_000, getCurrentFingerprints: vi.fn(async () => new Map([[BUNDLE, 'fp-1']])) });
+    deps.client.search.mockImplementation(stampedSearch(stamp()));
+    await new ExecutionReportService(settings, deps).generate(params(), NOW);
+    const [limit] = deps.getCurrentFingerprints.mock.calls[0] as unknown as [number];
+    expect(limit).toBeGreaterThan(2_000);
+    expect(limit).toBeLessThanOrEqual(3_000);
+  });
+
+  // The bound lives in currentFingerprintMap(): these run the real one over a versions
+  // service whose synced() is the read under test.
+  describe('its own time limit', () => {
+    beforeEach(() => { vi.useFakeTimers(); });
+    afterEach(() => { vi.useRealTimers(); });
+
+    /** A versions service whose synced() resolves `read`'s fingerprints as identities. */
+    function libraryReading(read: () => Promise<Map<string, string> | undefined>): void {
+      const synced = async () => new Map(
+        [...((await read()) ?? new Map<string, string>())].map(([uuid, fingerprint]) => [uuid, { fingerprint } as TestVersionIdentity]),
+      );
+      setTestVersionsService({ synced } as unknown as TestVersionsService);
+    }
+
+    /** generate() under fake timers, with a report budget far above the read's own limit. */
+    function start(read: () => Promise<Map<string, string> | undefined>, withStamp = true) {
+      libraryReading(read);
+      const deps = makeDeps({ budgetMs: 60_000, getCurrentFingerprints: currentFingerprintMap });
+      if (withStamp) deps.client.search.mockImplementation(stampedSearch(stamp()));
+      let settled = false;
+      const report = new ExecutionReportService(settings, deps).generate(params(), NOW).finally(() => { settled = true; });
+      return { report, isSettled: () => settled };
+    }
+
+    it('gives up on a read that never settles after VERSION_READ_BUDGET_MS', async () => {
+      expect(VERSION_READ_BUDGET_MS).toBe(5_000);
+      const { report, isSettled } = start(() => new Promise(() => {}));
+      await vi.advanceTimersByTimeAsync(VERSION_READ_BUDGET_MS - 1);
+      expect(isSettled()).toBe(false);
+      await vi.advanceTimersByTimeAsync(1);
+      const done = await report;
+      expect(done.runs[0].version).toEqual({ commit: COMMIT });
+      expect(done.meta.unavailable).toEqual([]);
+      expect(done.meta.warnings).toEqual([]);
+    });
+
+    it('still says not recorded for a run without a version when the read times out', async () => {
+      const { report } = start(() => new Promise(() => {}), false);
+      await vi.advanceTimersByTimeAsync(VERSION_READ_BUDGET_MS);
+      const done = await report;
+      expect(done.runs[0].version).toEqual({ commit: null, state: 'not_recorded' });
+      expect(done.meta.unavailable).toEqual([]);
+    });
+
+    it('uses a read that settles inside the limit, and leaves no timer behind', async () => {
+      const { report } = start(() => new Promise((resolve) => setTimeout(() => resolve(new Map([[BUNDLE, 'fp-1']])), VERSION_READ_BUDGET_MS - 1_000)));
+      await vi.advanceTimersByTimeAsync(VERSION_READ_BUDGET_MS - 1_000);
+      const done = await report;
+      expect(done.runs[0].version).toEqual({ commit: COMMIT, state: 'current' });
+      expect(vi.getTimerCount()).toBe(0);
+    });
+
+    it('never waits past the report deadline', async () => {
+      libraryReading(() => new Promise(() => {}));
+      const deps = makeDeps({ budgetMs: 1_000, getCurrentFingerprints: currentFingerprintMap });
+      deps.client.search.mockImplementation(stampedSearch(stamp()));
+      let settled = false;
+      const report = new ExecutionReportService(settings, deps).generate(params(), NOW).finally(() => { settled = true; });
+      await vi.advanceTimersByTimeAsync(1_000);
+      expect(settled).toBe(true);
+      const done = await report;
+      expect(done.runs[0].version).toEqual({ commit: COMMIT });
+      expect(done.totals.runs).toBe(1);
+      // The budget it used up can cost enrichments (their own warnings); the read adds no warning of its own.
+      expect(done.meta.warnings.filter((w) => /version/i.test(w))).toEqual([]);
+    });
+
+    it('swallows a late rejection of the abandoned read', async () => {
+      const unhandled = vi.fn();
+      process.on('unhandledRejection', unhandled);
+      try {
+        const { report } = start(() => new Promise((_, reject) => setTimeout(() => reject(new Error('library unreadable')), VERSION_READ_BUDGET_MS + 1_000)));
+        await vi.advanceTimersByTimeAsync(VERSION_READ_BUDGET_MS);
+        expect((await report).runs[0].version).toEqual({ commit: COMMIT });
+        await vi.advanceTimersByTimeAsync(2_000);
+        await vi.useRealTimers();
+        await new Promise((resolve) => setTimeout(resolve, 10));
+        expect(unhandled).not.toHaveBeenCalled();
+      } finally {
+        process.off('unhandledRejection', unhandled);
+      }
+    });
+  });
+
+  it('changes nothing else in the payload', async () => {
+    const before = await new ExecutionReportService(settings, makeDeps()).generate(params(), NOW);
+    const deps = makeDeps({ getCurrentFingerprints: vi.fn(async () => new Map([[BUNDLE, 'fp-2']])) });
+    deps.client.search.mockImplementation(stampedSearch(stamp()));
+    const after = await new ExecutionReportService(settings, deps).generate(params(), NOW);
+    expect(after.runs[0].version).toEqual({ commit: COMMIT, state: 'older' });
+    const withoutVersion = (r: typeof before) => ({
+      ...r,
+      meta: { ...r.meta, reportId: 'RPT' },
+      runs: r.runs.map(({ version: _version, ...run }) => run),
+    });
+    expect(withoutVersion(after)).toEqual(withoutVersion(before));
+    expect(Object.keys(after.runs[0]).sort()).toEqual([...Object.keys(withoutVersion(before).runs[0]), 'version'].sort());
   });
 });
 

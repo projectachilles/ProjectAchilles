@@ -13,6 +13,19 @@ import type { EdrTermination } from '../edr/agent-kill-evidence.js';
 import { edrVendor } from '../outcomes/vendors.js';
 import type { EdrVendorKey } from '../outcomes/vendors.js';
 import { configuredVendorKeys } from '../edr/vendor-settings.js';
+import { validTestVersion } from '../agent/testVersionPayload.js';
+import { resultStateForTest } from '../browser/testVersionStatus.js';
+import { currentFingerprintMap } from '../browser/currentFingerprints.js';
+import type { ResultVersionState } from '../../types/testVersion.js';
+
+/** The test version a cell's task ran (payload.test_version), and how it relates to the synced library now. */
+export interface CellVersion {
+  /** Full commit the binary was built from; null for a custom test or an unstamped build. */
+  commit: string | null;
+  fingerprint: string | null;
+  /** Omitted when the synced library can't be read now. `not_recorded` never needs the library. */
+  state?: ResultVersionState;
+}
 
 export interface MatrixCell {
   state: CellState;
@@ -28,6 +41,8 @@ export interface MatrixCell {
   stages: StageView[];
   /** Compact stage list for the CSV. */
   stages_text: string;
+  /** Present on every cell that has a task; absent on cells with no task. */
+  version?: CellVersion;
 }
 
 export interface RunMatrix {
@@ -69,6 +84,8 @@ interface PairTask {
   stderr_tail: string | null;
   /** JSON text of result.edr_terminated: set once a watchdog-failed run was proved EDR-killed. */
   edr_terminated: string | null;
+  /** JSON text of payload.test_version (null for tasks created before versions). */
+  test_version: string | null;
 }
 
 const STATES: CellState[] = [
@@ -91,7 +108,7 @@ function latestTasksByPair(runId: string): Map<string, PairTask> {
   const rows = getDatabase()
     .prepare(
       `SELECT id, agent_id, test_uuid, status, exit_code, error, techniques, completed_at, notice_id,
-              category, controls, stderr_tail, edr_terminated FROM (
+              category, controls, stderr_tail, edr_terminated, test_version FROM (
          SELECT id, agent_id, json_extract(payload, '$.test_uuid') AS test_uuid, status,
                 json_extract(result, '$.exit_code') AS exit_code,
                 json_extract(result, '$.error') AS error,
@@ -101,6 +118,7 @@ function latestTasksByPair(runId: string): Map<string, PairTask> {
                 CASE WHEN status = 'completed' THEN json_extract(result, '$.bundle_results.controls') END AS controls,
                 CASE WHEN status = 'completed' THEN substr(json_extract(result, '$.stderr'), -400) END AS stderr_tail,
                 json_extract(result, '$.edr_terminated') AS edr_terminated,
+                json_extract(payload, '$.test_version') AS test_version,
                 ROW_NUMBER() OVER (
                   PARTITION BY json_extract(payload, '$.test_uuid'), agent_id
                   ORDER BY created_at DESC, rowid DESC) AS rn
@@ -144,6 +162,28 @@ function parseTermination(raw: string | null): EdrTermination | null {
   } catch {
     return null;
   }
+}
+
+function parseJson(raw: unknown): unknown {
+  if (typeof raw !== 'string') return undefined;
+  try {
+    return JSON.parse(raw);
+  } catch {
+    return undefined;
+  }
+}
+
+/**
+ * The version of a cell's task, by the rules ingestion and Analytics →
+ * Executions use (validTestVersion, resultStateForTest). `current` is the
+ * synced fingerprint of every readable test; undefined leaves recorded
+ * versions without a state rather than guessing one.
+ */
+function cellVersion(raw: string | null, testUuid: string, current: Map<string, string> | undefined): CellVersion {
+  const v = validTestVersion(parseJson(raw));
+  const out: CellVersion = { commit: v?.commit ?? null, fingerprint: v?.fingerprint ?? null };
+  if (!v) return { ...out, state: 'not_recorded' };
+  return current ? { ...out, state: resultStateForTest(v, testUuid, current) } : out;
 }
 
 /** Result-doc ids of a completed cell (none while running, or for cyber-hygiene bundles). */
@@ -218,7 +258,17 @@ export function matrixEdrSources(svc: IntegrationsSettingsService = new Integrat
   return configuredVendorKeys(svc).map((k) => MATRIX_LABEL_OVERRIDE[k] ?? edrVendor(k).label);
 }
 
-async function build(row: CampaignRunRow): Promise<RunMatrix> {
+/**
+ * `readCurrent`: reads the synced fingerprint of every test, for the cells'
+ * version states. It starts together with the Elasticsearch read and is
+ * bounded (currentFingerprintMap never rejects). Only getRunMatrix passes it;
+ * the totals and list paths don't (they run once per listed run and never
+ * show a version).
+ */
+async function build(
+  row: CampaignRunRow,
+  readCurrent?: () => Promise<Map<string, string> | undefined>,
+): Promise<RunMatrix> {
   const snap = JSON.parse(row.snapshot) as RunSnapshot;
   const nowIso = new Date().toISOString();
   const byPair = latestTasksByPair(row.id);
@@ -226,7 +276,7 @@ async function build(row: CampaignRunRow): Promise<RunMatrix> {
   const noticeIds = [...byPair.values()].map((t) => t.notice_id).filter((id): id is string => !!id);
   const scope: NoticeScope = { kind: 'org', orgId: row.org_id };
   const notices = getNoticeSummaries(noticeIds, scope);
-  const edr = await fetchEdrDocs([...byPair.values()].flatMap(docIdsFor));
+  const [edr, currentMap] = await Promise.all([fetchEdrDocs([...byPair.values()].flatMap(docIdsFor)), readCurrent?.()]);
 
   const cells: RunMatrix['cells'] = {};
   for (const t of snap.tests) {
@@ -238,7 +288,7 @@ async function build(row: CampaignRunRow): Promise<RunMatrix> {
       cells[t.uuid][a.id] = reason !== undefined
         ? { state: 'na', exit_code: null, task_id: null, completed_at: null, reason, techniques: [], ...EMPTY }
         : task
-          ? cellFor(task, notices, nowIso, edr)
+          ? { ...cellFor(task, notices, nowIso, edr), version: cellVersion(task.test_version, t.uuid, currentMap) }
           : { state: 'not_run', exit_code: null, task_id: null, completed_at: null, reason: null, techniques: [], ...EMPTY };
     }
   }
@@ -263,7 +313,8 @@ async function build(row: CampaignRunRow): Promise<RunMatrix> {
 }
 
 export async function getRunMatrix(runId: string, callerOrg: string | undefined): Promise<RunMatrix> {
-  return build(findRun(runId, callerOrg));
+  const row = findRun(runId, callerOrg);
+  return build(row, () => currentFingerprintMap());
 }
 
 export async function computeRunTotals(runId: string): Promise<RunMatrix['totals']> {
@@ -345,10 +396,26 @@ export async function listAllRuns(callerOrg: string | undefined, limit: number, 
 /**
  * CSV header (Ruling C10, extended). Every pair is a row: skipped pairs are
  * `na`. `reason` explains every outcome. `exit_code` is blank for na and
- * not_run (no verdict, so no exit code is evidence of anything). `stages` and
- * `edr` were appended later, at the end, so existing parsers keep working.
+ * not_run (no verdict, so no exit code is evidence of anything). `stages`,
+ * `edr`, then `version` (first 7 characters of the commit) and
+ * `version_state` were appended later, at the end, so existing parsers keep
+ * working. `version_state` compares with the synced library as of `as_of`;
+ * it is blank when there is no task, and for a recorded version when the
+ * library could not be read (`not recorded` needs no library).
  */
-export const RUN_CSV_HEADER = 'test,techniques,host,os,outcome,exit_code,reason,completed_at,as_of,stages,edr';
+export const RUN_CSV_HEADER = 'test,techniques,host,os,outcome,exit_code,reason,completed_at,as_of,stages,edr,version,version_state';
+
+/**
+ * The CSV's names of the version states. Must equal the frontend's
+ * VERSION_STATE_LABEL (frontend/src/pages/analytics/components/executions/versionLabels.ts):
+ * versionLabels.parity.test.ts there reads this object and fails when they differ.
+ */
+export const VERSION_STATE_CSV_LABEL: Record<ResultVersionState, string> = {
+  current: 'current',
+  older: 'older',
+  unknown: 'version unknown',
+  not_recorded: 'not recorded',
+};
 
 export function runMatrixCsv(m: RunMatrix): string {
   const lines = [RUN_CSV_HEADER];
@@ -369,6 +436,8 @@ export function runMatrixCsv(m: RunMatrix): string {
           csvCell(m.as_of),
           csvCell(c.stages_text),
           csvCell(c.edr ?? ''),
+          csvCell(c.version?.commit?.slice(0, 7) ?? ''),
+          c.version?.state ? VERSION_STATE_CSV_LABEL[c.version.state] : '',
         ].join(','),
       );
     }
