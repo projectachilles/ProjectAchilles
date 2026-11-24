@@ -36,9 +36,11 @@ The console builds and signs the tests one at a time, each the same build as **B
 - A test that needs a file uploaded first (an external embed dependency) is skipped, not attempted. Upload the file on the test's page and build it there
 - A failed or skipped test never stops the run
 - **Stop** lets the build in progress finish and starts no other; the summary says how many were not started
-- If the server can't be reached between builds (a restart, for example), the console waits and goes on. If it stays unreachable, the run stops and says so
+- If the server can't be reached between builds (a restart, for example), the console waits and goes on. The build in progress when the server restarts is reported failed, because its real outcome is unknown, and the run continues with the next test once the server answers. If the server stays unreachable, the run stops and says so
 
-The run lives in your browser tab, not on the server. It keeps going while the console stays open in that tab, also when you open other pages. Closing or reloading the tab ends it (the browser asks first), and so does signing out. To finish an interrupted run, filter and select what is left and build again: built tests no longer read **Unknown build**.
+The run lives in your browser tab, not on the server. It keeps going while the console stays open in that tab, also when you open other pages. Closing or reloading the tab ends it (the browser asks first), and so does signing out. After an update of the console itself during a run, opening a page the tab had not loaded yet reloads the tab, which ends the run; select what is left and start again. To finish an interrupted run, filter and select what is left and build again: built tests no longer read **Unknown build**. A test built from source that was changed locally is the exception: it stays **Unknown build** and is built again on every resume.
+
+On a backend started with `CLUSTER_WORKERS` set to 2 or more, builds can overlap and a test can be reported failed while its build is still running. Run it on a single-process backend (the default).
 
 **Build N** needs the permission to build tests and a backend that builds them; it is not shown on a Vercel (`backend-serverless`) install.
 
