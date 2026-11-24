@@ -3056,6 +3056,8 @@ var data string
           // The build's own error, not a superseded one.
           await expect(service().buildAndSign(VALID_UUID)).rejects.toThrow(/undefined: foo/);
 
+          // voidedFields() strips version too: only this line fails on a put-back.
+          expect(readMeta()).not.toHaveProperty('version');
           expect(voidedFields()).toEqual(withoutVersion(prior.meta));
           expect(String(files.get(marker))).toBe(FOREIGN);
         });

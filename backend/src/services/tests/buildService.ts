@@ -1527,10 +1527,13 @@ const ARTIFACT_DIR = \`${artifactDir}\`
    * successful build writes its full meta at the end. With `artifact` (the
    * go build path, whose failure may put the meta back), an unstamped meta's
    * artifact is hashed first: the proof restoreStampIfUntouched needs, since
-   * there is no stamped hash. Returns the original text (and that hash) when
-   * the meta was rewritten, else null. Never fails the build: a meta that
-   * can't be read, parsed or rewritten is left as it is, with a warning (an
-   * unparseable one already reads as no build).
+   * there is no stamped hash. A missing artifact proves nothing, and neither
+   * does one that can't be hashed (with a warning): the meta is still
+   * rewritten, and a failed build never puts it back, as for a stamped meta
+   * whose artifact changed. Returns the original text (and that hash, or
+   * null) when the meta was rewritten, else null. Never fails the build: a
+   * meta that can't be read, parsed or rewritten is left as it is, with a
+   * warning (an unparseable one already reads as no build).
    */
   private voidPreviousStamp(uuid: string, artifact?: string): VoidedMeta | null {
     const metaFile = this.metaPath(uuid);
