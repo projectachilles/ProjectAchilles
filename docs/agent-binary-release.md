@@ -40,7 +40,7 @@ The Makefile has no Linux arm64 target. For that platform use **Build Agent Bina
 make build-all VERSION=0.2.0
 ```
 
-Without `VERSION`, the build is stamped with the version in `agent/Makefile` (currently `0.7.4`).
+Without `VERSION`, the build is stamped with the version in `agent/Makefile` (currently `0.7.6`).
 
 ### Optional: sign the binaries
 
