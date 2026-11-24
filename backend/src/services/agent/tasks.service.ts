@@ -17,7 +17,7 @@ import type {
   ListTasksRequest,
 } from '../../types/agent.js';
 import { withCatalogMetadata } from './testMetadata.js';
-import { readBuildMeta, resolveTestArtifact } from './testArtifacts.js';
+import { readBuildMeta, resolveTestArtifact, taskTestVersion } from './testArtifacts.js';
 import { IntegrationsSettingsService } from '../integrations/settings.js';
 import { recordEvent } from './events.service.js';
 import { taskBreakdown, outcomeWindowSql, outcomeResultSql, parseOutcomeResult } from '../outcomes/taskOutcome.js';
@@ -261,6 +261,10 @@ export function createTasks(
     };
     if (envVars) {
       payload.env_vars = envVars;
+    }
+    const testVersion = taskTestVersion(buildMeta, artifact);
+    if (testVersion) {
+      payload.test_version = testVersion;
     }
     payloadByAgentId.set(agentId, JSON.stringify(payload));
   }
