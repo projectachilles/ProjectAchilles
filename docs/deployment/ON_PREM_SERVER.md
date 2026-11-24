@@ -252,8 +252,8 @@ the checkout is on a release tag. To stop this request, set
 The backend also fetches the configured test repository (github.com for the
 default library) two minutes after start and every 6 hours, to see whether
 newer test versions are published. `TESTS_UPDATE_CHECK=off` in the same file
-turns that off. An install with no internet access simply shows its built tests
-as "Built, not checked".
+turns that off. If the check can't reach the repository, tests keep the last
+result it got, or show "Built, not checked" if no check has succeeded yet.
 
 | Symptom | Check |
 |---------|-------|

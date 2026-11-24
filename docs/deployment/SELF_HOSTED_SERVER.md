@@ -162,8 +162,9 @@ newest releases; it sends nothing about the install, and `RELEASE_CHECK=off` in
 `backend/.env` turns it off. The backend also fetches the configured test
 repository (github.com for the default library) two minutes after start and
 every 6 hours to see whether newer test versions are published;
-`TESTS_UPDATE_CHECK=off` turns that off. An install with no internet access
-simply shows its built tests as "Built, not checked".
+`TESTS_UPDATE_CHECK=off` turns that off. If the check can't reach the
+repository, tests keep the last result it got, or show "Built, not checked" if
+no check has succeeded yet.
 
 ```bash
 # From the repo dir on the server:
