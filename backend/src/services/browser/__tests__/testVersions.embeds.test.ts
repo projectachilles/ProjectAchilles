@@ -9,6 +9,8 @@ import * as path from 'path';
 import { BuildService } from '../../tests/buildService.js';
 import type { TestsSettingsService } from '../../tests/settings.js';
 import { TestVersionsService } from '../testVersions.service.js';
+import { deriveStatus } from '../testVersionStatus.js';
+import type { BuildVersionStamp } from '../../../types/testVersion.js';
 
 const UUID = 'e1b2c3d4-e5f6-7890-abcd-ef1234567890';
 
@@ -72,6 +74,56 @@ describe('a custom multi-stage test without git', () => {
 
     const after = (await services().versions.synced()).get(UUID)!.fingerprint;
     expect(after).toBe(before);
+  });
+
+  describe('an authored file in the folder build_all.sh creates', () => {
+    // What buildAndSign stamps, taken the way it takes it: the identity read
+    // before the build, the hashes once the build has written its outputs.
+    async function buildAndStamp(): Promise<BuildVersionStamp> {
+      const { versions, builds } = services();
+      const current = (await versions.current(UUID))!;
+      const depsHash = builds.currentDepsHash(UUID);
+      write(`${UUID}-T1.exe.gz`, Buffer.from([0x1f, 0x8b, 0x08, 0x00, 1, 2, 3]));
+      write('generated/x.pem', '-----BEGIN CERTIFICATE-----\nAAAA\n-----END CERTIFICATE-----\n');
+      return {
+        ...current.identity,
+        deps_hash: depsHash,
+        outputs_hash: builds.currentOutputsHash(UUID),
+        modified: current.modified,
+        binaries: {},
+      };
+    }
+
+    async function statusNow(version: BuildVersionStamp) {
+      const { versions, builds } = services();
+      return deriveStatus({
+        build: { exists: true, source: 'built', version },
+        synced: (await versions.synced()).get(UUID),
+        published: undefined,
+        publishedKnown: false,
+        hasGit: false,
+        currentDepsHash: builds.currentDepsHash(UUID),
+        currentOutputsHash: builds.currentOutputsHash(UUID),
+      });
+    }
+
+    beforeEach(() => {
+      write('generated/config.json', '{"stage":"T1"}\n');
+    });
+
+    it('is up_to_date right after the build', async () => {
+      const version = await buildAndStamp();
+      expect(version.outputs_hash).toMatch(/^[0-9a-f]{64}$/);
+      expect(await statusNow(version)).toEqual({ status: 'up_to_date' });
+    });
+
+    it('editing it gives rebuild_needed / dependency_changed, though the fingerprint is unchanged', async () => {
+      const version = await buildAndStamp();
+      write('generated/config.json', '{"stage":"T2"}\n');
+
+      expect((await services().versions.synced()).get(UUID)!.fingerprint).toBe(version.fingerprint);
+      expect(await statusNow(version)).toEqual({ status: 'rebuild_needed', reason: 'dependency_changed' });
+    });
   });
 
   it('still sees a change to the test source', async () => {

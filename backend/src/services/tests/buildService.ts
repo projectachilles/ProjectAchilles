@@ -585,18 +585,33 @@ const ARTIFACT_DIR = \`${artifactDir}\`
     return this.getEmbedDependencies(uuid).map(d => d.filename);
   }
 
+  /** Hash of the embed dependencies on disk that are (or are not) built from source; null when none. */
+  private embedDependenciesHash(uuid: string, sourceBuilt: boolean): string | null {
+    const testDir = this.findTestDir(uuid);
+    if (!testDir) return null;
+    const names = this.getEmbedDependencies(uuid)
+      .filter(d => d.exists && d.sourceBuilt === sourceBuilt)
+      .map(d => d.filename);
+    return hashFiles(testDir, names);
+  }
+
   /**
    * Hash of the embed dependencies that are on disk and not built from source
    * (uploaded payloads: they are not in git, so they are not in the source
    * identity). null when the test has none.
    */
   currentDepsHash(uuid: string): string | null {
-    const testDir = this.findTestDir(uuid);
-    if (!testDir) return null;
-    const names = this.getEmbedDependencies(uuid)
-      .filter(d => d.exists && !d.sourceBuilt)
-      .map(d => d.filename);
-    return hashFiles(testDir, names);
+    return this.embedDependenciesHash(uuid, false);
+  }
+
+  /**
+   * Hash of the embed dependencies that are on disk and built by build_all.sh
+   * (files and folders, including anything the test author put in a folder
+   * the script creates). They are in neither the content fingerprint nor
+   * currentDepsHash. null when the test has none.
+   */
+  currentOutputsHash(uuid: string): string | null {
+    return this.embedDependenciesHash(uuid, true);
   }
 
   saveUploadedFile(uuid: string, filename: string, buffer: Buffer): void {
@@ -1047,8 +1062,11 @@ const ARTIFACT_DIR = \`${artifactDir}\`
 
   /**
    * Final stamp: the identity read before the build plus the SHA-256 of every
-   * artifact as it is now (after signing, which rewrites the file). null when
-   * an artifact can't be read: no stamp is better than a wrong one.
+   * artifact as it is now (after signing, which rewrites the file), and the
+   * source-built embed dependencies as the build left them (build_all.sh and
+   * every cleanup step have finished; nothing after this point touches the
+   * test folder). null when an artifact can't be read: no stamp is better
+   * than a wrong one.
    */
   private stampVersion(
     uuid: string,
@@ -1063,7 +1081,13 @@ const ARTIFACT_DIR = \`${artifactDir}\`
         const bytes = fs.readFileSync(path.join(buildDir, path.basename(artifact.filename)));
         binaries[artifact.filename] = crypto.createHash('sha256').update(bytes).digest('hex');
       }
-      return { ...before.identity, deps_hash: before.depsHash, modified: before.modified, binaries };
+      return {
+        ...before.identity,
+        deps_hash: before.depsHash,
+        outputs_hash: this.currentOutputsHash(uuid),
+        modified: before.modified,
+        binaries,
+      };
     } catch (err) {
       console.warn('Build of %s will not record its version: could not hash its artifacts: %s',
         uuid, err instanceof Error ? err.message : String(err));

@@ -32,6 +32,7 @@ function input(over: Partial<StatusInput> = {}): StatusInput {
     publishedKnown: true,
     hasGit: true,
     currentDepsHash: 'd1',
+    currentOutputsHash: undefined,
     ...over,
   };
 }
@@ -179,6 +180,55 @@ describe('deriveStatus', () => {
     expect(r.reason).toBe('test_source_changed');
   });
 
+  describe('embedded files the build produced (outputs hash)', () => {
+    const withOutputs = (o: string | null) =>
+      ({ exists: true, source: 'built', version: stamp({ outputs_hash: o }) }) as const;
+
+    it('rebuild_needed / dependency_changed when the outputs hash differs', () => {
+      expect(deriveStatus(input({ build: withOutputs('o1'), currentOutputsHash: 'o2' }))).toEqual({
+        status: 'rebuild_needed',
+        reason: 'dependency_changed',
+      });
+    });
+
+    it('a stamped hash against none now (or the reverse) differs', () => {
+      expect(deriveStatus(input({ build: withOutputs('o1'), currentOutputsHash: null })).status)
+        .toBe('rebuild_needed');
+      expect(deriveStatus(input({ build: withOutputs(null), currentOutputsHash: 'o1' })).status)
+        .toBe('rebuild_needed');
+    });
+
+    it('up_to_date when the outputs hashes are equal (null included)', () => {
+      expect(deriveStatus(input({ build: withOutputs('o1'), currentOutputsHash: 'o1' })))
+        .toEqual({ status: 'up_to_date' });
+      expect(deriveStatus(input({ build: withOutputs(null), currentOutputsHash: null })))
+        .toEqual({ status: 'up_to_date' });
+    });
+
+    it('currentOutputsHash undefined: not compared', () => {
+      expect(deriveStatus(input({ build: withOutputs('o1'), currentOutputsHash: undefined })))
+        .toEqual({ status: 'up_to_date' });
+    });
+
+    it('a stamp written before outputs_hash existed: not compared', () => {
+      expect(deriveStatus(input({ currentOutputsHash: 'o2' }))).toEqual({ status: 'up_to_date' });
+    });
+
+    it('a fingerprint difference still wins with its own reason', () => {
+      const r = deriveStatus(
+        input({
+          build: {
+            exists: true,
+            source: 'built',
+            version: stamp({ fingerprint: 'old', shared_hash: 'old', outputs_hash: 'o1' }),
+          },
+          currentOutputsHash: 'o2',
+        }),
+      );
+      expect(r).toEqual({ status: 'rebuild_needed', reason: 'shared_changed' });
+    });
+  });
+
   it('up_to_date when built = synced = published', () => {
     expect(deriveStatus(input())).toEqual({ status: 'up_to_date' });
   });
@@ -234,7 +284,10 @@ describe('deriveStatus never guesses up_to_date', () => {
     ['uploaded', { exists: true, source: 'uploaded' }],
     ['unstamped', { exists: true, source: 'built' }],
     ['modified', { exists: true, source: 'built', version: stamp({ modified: true }) }],
+    ['outputs o1', { exists: true, source: 'built', version: stamp({ outputs_hash: 'o1' }) }],
+    ['outputs null', { exists: true, source: 'built', version: stamp({ outputs_hash: null }) }],
   ];
+  const currentOutputs: Array<string | null | undefined> = ['o1', 'o2', null, undefined];
   const synceds = [identity(), undefined];
   const publisheds: Array<[string, TestVersionIdentity | undefined]> = [
     ['equal', identity()],
@@ -248,7 +301,8 @@ describe('deriveStatus never guesses up_to_date', () => {
       for (const hasGit of [true, false])
         for (const publishedKnown of [true, false])
           for (const [pName, published] of publisheds)
-            it(`${bName} / synced ${synced ? 'set' : 'undefined'} / git ${hasGit} / known ${publishedKnown} / published ${pName}`, () => {
+            for (const currentOutputsHash of currentOutputs)
+            it(`${bName} / synced ${synced ? 'set' : 'undefined'} / git ${hasGit} / known ${publishedKnown} / published ${pName} / outputs ${String(currentOutputsHash)}`, () => {
               const i: StatusInput = {
                 build,
                 synced,
@@ -256,6 +310,7 @@ describe('deriveStatus never guesses up_to_date', () => {
                 publishedKnown,
                 hasGit,
                 currentDepsHash: 'd1',
+                currentOutputsHash,
               };
               const r = deriveStatus(i);
               if (r.status !== 'up_to_date') return;
@@ -265,6 +320,9 @@ describe('deriveStatus never guesses up_to_date', () => {
               expect(synced).toBeDefined();
               expect(v?.fingerprint).toBe(synced?.fingerprint);
               expect(v?.deps_hash).toBe(i.currentDepsHash);
+              if (v?.outputs_hash !== undefined && currentOutputsHash !== undefined) {
+                expect(v.outputs_hash).toBe(currentOutputsHash);
+              }
               if (hasGit) {
                 expect(publishedKnown).toBe(true);
                 // a test missing from a successful check counts as published = synced

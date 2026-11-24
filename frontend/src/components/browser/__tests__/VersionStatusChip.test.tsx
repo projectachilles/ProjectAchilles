@@ -61,7 +61,7 @@ describe('VersionStatusChip', () => {
     const reasons: Record<VersionReason, string> = {
       test_source_changed: 'test source changed',
       shared_changed: 'shared libraries changed',
-      dependency_changed: 'an uploaded dependency changed',
+      dependency_changed: 'an embedded file changed',
       documentation_changed: 'documentation changed',
       modified_source: 'built from source that differs from the synced commit',
       no_stamp: 'version was not recorded',

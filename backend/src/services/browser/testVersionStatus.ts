@@ -17,6 +17,11 @@ export interface StatusInput {
   /** false for custom tests and when git sync is off */
   hasGit: boolean;
   currentDepsHash: string | null;
+  /**
+   * Source-built embed dependencies now (BuildService.currentOutputsHash);
+   * undefined = not applicable, not compared.
+   */
+  currentOutputsHash: string | null | undefined;
 }
 
 export interface DerivedStatus {
@@ -70,6 +75,16 @@ export function deriveStatus(i: StatusInput): DerivedStatus {
     return { status: 'rebuild_needed', reason: changeReason(built, synced) };
   }
   if (built.deps_hash !== i.currentDepsHash) {
+    return { status: 'rebuild_needed', reason: 'dependency_changed' };
+  }
+  // Source-built outputs only change when a build runs, and a build rewrites
+  // the stamp: a difference means the files were changed after the build. A
+  // stamp from before outputs_hash was recorded can't be compared on it.
+  if (
+    i.currentOutputsHash !== undefined &&
+    built.outputs_hash !== undefined &&
+    built.outputs_hash !== i.currentOutputsHash
+  ) {
     return { status: 'rebuild_needed', reason: 'dependency_changed' };
   }
 

@@ -213,6 +213,14 @@ export function createBrowserRouter(options: {
           publishedKnown,
           hasGit,
           currentDepsHash: info.exists ? builds.currentDepsHash(t.uuid) : null,
+          // Embeds that build_all.sh makes are left out of a folder test's
+          // fingerprint, so a file the author put in such a folder is only
+          // seen here. Sound because those outputs only change when a build
+          // runs, and a build rewrites the stamp. Not for git tests: their
+          // authored content is already in the tree fingerprint, and Sync's
+          // `git clean` can remove untracked build outputs, which would show a
+          // false "Rebuild needed" after every Sync.
+          currentOutputsHash: info.exists && !hasGit ? builds.currentOutputsHash(t.uuid) : undefined,
         });
         const stamp = info.version && !info.version.modified ? info.version : undefined;
         row = {

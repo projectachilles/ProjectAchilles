@@ -94,6 +94,7 @@ function makeBuild() {
   return {
     getBuildInfo: vi.fn((uuid: string) => infos[uuid] ?? { exists: false }),
     currentDepsHash: vi.fn(() => null),
+    currentOutputsHash: vi.fn((_uuid: string): string | null => null),
   };
 }
 
@@ -177,6 +178,66 @@ describe('GET /api/browser/tests/versions', () => {
       expect(res.body.data.library.updatesAvailable).toBe(0);
       expect(Object.values(res.body.data.tests).map(r => (r as { status: string }).status))
         .not.toContain('up_to_date');
+    });
+  });
+
+  describe('embedded files the build produced (outputs hash)', () => {
+    const built = (version: Record<string, unknown>) =>
+      ({ exists: true, source: 'built', builtAt: '2026-11-11T00:00:00Z', signed: true, version });
+
+    function buildsWith(uuid: string, version: Record<string, unknown>, now: string | null) {
+      const builds = makeBuild();
+      builds.getBuildInfo.mockImplementation(((u: string) => (u === uuid ? built(version) : { exists: false })) as never);
+      builds.currentOutputsHash.mockImplementation(() => now);
+      return builds;
+    }
+
+    const customStamp = () => ({
+      ...ident('c', { provenance: 'custom', commit: null, commit_date: null }),
+      deps_hash: null, modified: false, binaries: {}, outputs_hash: 'o1',
+    });
+
+    it('a custom test compares them: a different hash now is rebuild_needed / dependency_changed', async () => {
+      const builds = buildsWith(U_CUSTOM, customStamp(), 'o2');
+      const res = await request(makeApp({ buildService: builds as never })).get('/api/browser/tests/versions');
+      expect(res.body.data.tests[U_CUSTOM]).toMatchObject({
+        custom: true, status: 'rebuild_needed', reason: 'dependency_changed',
+      });
+      expect(builds.currentOutputsHash).toHaveBeenCalledWith(U_CUSTOM);
+      expect(res.body.data.library.rebuildsNeeded).toBe(1);
+    });
+
+    it('a custom test with the same hash now is up_to_date', async () => {
+      const builds = buildsWith(U_CUSTOM, customStamp(), 'o1');
+      const res = await request(makeApp({ buildService: builds as never })).get('/api/browser/tests/versions');
+      expect(res.body.data.tests[U_CUSTOM]).toMatchObject({ custom: true, status: 'up_to_date' });
+    });
+
+    it('a git test does not compare them: its folder content is in the tree fingerprint', async () => {
+      const builds = buildsWith(U_REBUILD, stamp('same', { outputs_hash: 'o1' }), 'o2');
+      const res = await request(makeApp({ buildService: builds as never })).get('/api/browser/tests/versions');
+      expect(res.body.data.tests[U_REBUILD].status).toBe('up_to_date');
+      expect(builds.currentOutputsHash).not.toHaveBeenCalledWith(U_REBUILD);
+    });
+
+    it('with git sync off every test compares them', async () => {
+      const svc = makeService({
+        gitEnabled: false,
+        published: vi.fn(() => published({ checkedAt: null, commit: null, commitDate: null, byTest: new Map(), newTests: 0 })),
+        syncedCommit: vi.fn(async () => null),
+        synced: vi.fn(async () => new Map<string, TestVersionIdentity>([
+          [U_REBUILD, ident('same', { commit: null, commit_date: null, test_tree: null })],
+        ])),
+      });
+      const builds = buildsWith(
+        U_REBUILD,
+        stamp('same', { commit: null, commit_date: null, test_tree: null, outputs_hash: 'o1' }),
+        'o2',
+      );
+      const res = await request(makeApp({ testVersions: svc as never, buildService: builds as never }))
+        .get('/api/browser/tests/versions');
+      expect(res.body.data.tests[U_REBUILD]).toMatchObject({ status: 'rebuild_needed', reason: 'dependency_changed' });
+      expect(builds.currentOutputsHash).toHaveBeenCalledWith(U_REBUILD);
     });
   });
 

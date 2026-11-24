@@ -1815,6 +1815,8 @@ var data string
       expect(meta.version).toEqual({
         ...identity,
         deps_hash: svc.currentDepsHash(VALID_UUID),
+        // dep.dat is uploaded, not built: no embedded file the build produces
+        outputs_hash: null,
         modified: false,
         binaries: { [`${VALID_UUID}.exe`]: binarySha },
       });
@@ -1943,6 +1945,183 @@ var data string
       // The metadata is rewritten whole, so a stamp from an earlier build is gone
       expect(writtenMeta()).not.toHaveProperty('version');
       expect(writtenMeta().source).toBe('uploaded');
+    });
+  });
+
+  describe('version stamp — embedded files a build_all.sh produces (outputs hash)', () => {
+    const testDir = `${TESTS_SOURCE}/cyber-hygiene/${VALID_UUID}`;
+    const stageName = `${VALID_UUID}-T1.exe`;
+    const identity: TestVersionIdentity = {
+      fingerprint: 'f'.repeat(64),
+      source_hash: 's'.repeat(64),
+      shared_hash: 'h'.repeat(64),
+      test_tree: null,
+      commit: null,
+      commit_date: null,
+      provenance: 'custom',
+    };
+
+    // A small in-memory filesystem behind the fs mocks, so build_all.sh can
+    // "write" its outputs and the hashes read them back.
+    const files = new Map<string, Buffer>();
+    const dirs = new Set<string>();
+    let buildRuns = 0;
+    let removeStageAtEnd = false;
+
+    function addDir(p: string): void {
+      for (let d = p; d !== '/' && !dirs.has(d); d = d.slice(0, d.lastIndexOf('/')) || '/') dirs.add(d);
+      dirs.add('/');
+    }
+    function put(p: string, content: string | Buffer): void {
+      addDir(p.slice(0, p.lastIndexOf('/')) || '/');
+      files.set(p, Buffer.isBuffer(content) ? Buffer.from(content) : Buffer.from(content, 'utf8'));
+    }
+    function enoent(p: string): Error {
+      return Object.assign(new Error(`ENOENT: ${p}`), { code: 'ENOENT' });
+    }
+
+    function service() {
+      return new BuildService(createMockSettingsService(), TESTS_SOURCE, {
+        current: async () => ({ identity, modified: false }),
+      });
+    }
+    function writtenStamp() {
+      const write = [...mockWriteFileSync.mock.calls].reverse().find(
+        (c) => typeof c[0] === 'string' && c[0].endsWith('build-meta.json'),
+      );
+      expect(write).toBeDefined();
+      return JSON.parse(String(write![1])).version;
+    }
+
+    beforeEach(() => {
+      files.clear();
+      dirs.clear();
+      buildRuns = 0;
+      removeStageAtEnd = false;
+      put(`${testDir}/main.go`, [
+        'package main',
+        '//go:embed generated',
+        'var certs embed.FS',
+        `//go:embed ${stageName}`,
+        'var stage []byte',
+        '//go:embed payload.dat',
+        'var payload []byte',
+        '',
+      ].join('\n'));
+      put(`${testDir}/stage-T1.go`, 'package main\n');
+      put(`${testDir}/build_all.sh`, [
+        'SCRIPT_DIR="$(dirname "${BASH_SOURCE[0]}")"',
+        'mkdir -p generated',
+        `go build -o ${stageName} stage-T1.go`,
+        '',
+      ].join('\n'));
+      // Written by the test author into the folder the script also creates.
+      put(`${testDir}/generated/authored.txt`, 'hand-written');
+      // Uploaded (not source-built): covered by deps_hash.
+      put(`${testDir}/payload.dat`, 'uploaded payload');
+
+      const exists = (p: string) => files.has(p) || dirs.has(p);
+      mockExistsSync.mockImplementation(exists);
+      mockStatSync.mockImplementation((p: string) => {
+        if (!exists(p)) throw enoent(p);
+        return { isDirectory: () => dirs.has(p), isFile: () => files.has(p), size: files.get(p)?.length ?? 0 };
+      });
+      mockLstatSync.mockImplementation(((p: string) => {
+        if (!exists(p)) throw enoent(p);
+        return { isSymbolicLink: () => false, isFile: () => files.has(p), isDirectory: () => dirs.has(p) };
+      }) as never);
+      mockReaddirSync.mockImplementation(((p: string) => {
+        if (!dirs.has(p)) throw enoent(p);
+        const names = new Set<string>();
+        for (const entry of [...files.keys(), ...dirs]) {
+          if (entry !== p && entry.startsWith(`${p}/`)) names.add(entry.slice(p.length + 1).split('/')[0]);
+        }
+        return [...names].sort();
+      }) as never);
+      mockReadFileSync.mockImplementation(((p: string, enc?: unknown) => {
+        const b = files.get(p);
+        if (!b) throw enoent(p);
+        return enc ? b.toString('utf8') : b;
+      }) as never);
+      mockWriteFileSync.mockImplementation(((p: string, data: string | Buffer) => put(p, data)) as never);
+      mockCopyFileSync.mockImplementation(((from: string, to: string) => {
+        const b = files.get(from);
+        if (!b) throw enoent(from);
+        put(to, b);
+      }) as never);
+      mockMkdirSync.mockImplementation(((p: string) => addDir(p)) as never);
+      mockUnlinkSync.mockImplementation(((p: string) => files.delete(p)) as never);
+      mockExecFileAsync.mockImplementation(async (cmd: string) => {
+        if (cmd === 'bash') {
+          buildRuns++;
+          // What the script makes: a generated file, the stage, the output.
+          put(`${testDir}/generated/cert.pem`, `generated by run ${buildRuns}`);
+          put(`${testDir}/${stageName}`, `stage binary ${buildRuns}`);
+          put(`${testDir}/build/${VALID_UUID}/${VALID_UUID}.exe`, 'orchestrator');
+          if (removeStageAtEnd) {
+            files.delete(`${testDir}/${stageName}`);
+            files.delete(`${testDir}/generated/cert.pem`);
+            files.delete(`${testDir}/generated/authored.txt`);
+            dirs.delete(`${testDir}/generated`);
+          }
+        }
+        return { stdout: '', stderr: '' };
+      });
+    });
+
+    afterEach(() => {
+      // Hand the later suites back the default fs mocks (plain no-ops, and
+      // lstat following existsSync).
+      for (const m of [mockWriteFileSync, mockCopyFileSync, mockMkdirSync, mockUnlinkSync]) {
+        m.mockImplementation(() => undefined);
+      }
+      mockLstatSync.mockImplementation((p: string) => {
+        if (!mockExistsSync(p)) throw Object.assign(new Error(`ENOENT: ${p}`), { code: 'ENOENT' });
+        return { isSymbolicLink: () => false, isFile: () => true, isDirectory: () => false };
+      });
+    });
+
+    it('classes the folder and the stage as source-built and the payload as uploaded', () => {
+      const deps = service().getEmbedDependencies(VALID_UUID);
+      expect(deps.map(d => [d.filename, d.sourceBuilt])).toEqual([
+        ['generated', true], [stageName, true], ['payload.dat', false],
+      ]);
+    });
+
+    it('stamps outputs_hash from the source-built embeds as they are after the build', async () => {
+      const svc = service();
+      const beforeBuild = svc.currentOutputsHash(VALID_UUID);
+
+      await svc.buildAndSign(VALID_UUID);
+
+      const stamp = writtenStamp();
+      expect(stamp.outputs_hash).toMatch(/^[0-9a-f]{64}$/);
+      // Taken after the build: it covers what the build wrote, not what was there before.
+      expect(stamp.outputs_hash).not.toBe(beforeBuild);
+      expect(svc.currentOutputsHash(VALID_UUID)).toBe(stamp.outputs_hash);
+      // The uploaded payload stays in deps_hash, not in the outputs hash.
+      expect(stamp.deps_hash).toBe(svc.currentDepsHash(VALID_UUID));
+      put(`${testDir}/payload.dat`, 'another payload');
+      expect(svc.currentOutputsHash(VALID_UUID)).toBe(stamp.outputs_hash);
+    });
+
+    it('currentOutputsHash changes when a file inside a source-built folder is edited', async () => {
+      const svc = service();
+      await svc.buildAndSign(VALID_UUID);
+      const stamped = writtenStamp().outputs_hash;
+
+      put(`${testDir}/generated/authored.txt`, 'hand-written, edited');
+
+      expect(svc.currentOutputsHash(VALID_UUID)).not.toBe(stamped);
+      expect(svc.currentDepsHash(VALID_UUID)).toBe(writtenStamp().deps_hash);
+    });
+
+    it('outputs_hash is null when the build leaves no source-built embed behind', async () => {
+      removeStageAtEnd = true;
+      const svc = service();
+      await svc.buildAndSign(VALID_UUID);
+      expect(writtenStamp().outputs_hash).toBeNull();
+      expect(svc.currentOutputsHash(VALID_UUID)).toBeNull();
     });
   });
   // ── go.mod restore ────────────────────────────────────────
