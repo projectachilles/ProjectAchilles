@@ -169,6 +169,10 @@ describe('alertActionText', () => {
     expect(alertActionText(tests, run, onCompleted)).toBe('process killed, stage still completed');
   });
 
+  it('a failed kill is never qualified, even on a stage that exited 101 (same rule as the badge)', () => {
+    expect(alertActionText(tests, run, { ...lsass, stageControlId: 't1021.002', preventionAction: 'kill_failed' })).toBe('kill failed');
+  });
+
   it('an action on a stage that did not exit 101 (or a bundle-level alert) prints as is', () => {
     expect(alertActionText(tests, run, lsass)).toBe('blocked'); // T1003.001 exited 126
     expect(alertActionText(tests, run, { ...lsass, stageControlId: null })).toBe('blocked');

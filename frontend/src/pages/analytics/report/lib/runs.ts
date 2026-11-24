@@ -6,6 +6,7 @@ import { timeOf, truncate } from './format';
 import { emptyCounts } from './outcomes';
 import { findEdrVendor } from '@/lib/edrVendors';
 import { VERSION_STATE_LABEL } from '../../components/executions/versionLabels';
+import { isConfirmedPrevention } from '../../utils/prevention';
 
 /** Longest stage name printed beside a stage label in an alert row. */
 const STAGE_NAME_MAX = 34;
@@ -119,13 +120,17 @@ export function alertStageText(tests: ReportTest[], run: ReportRun, token: strin
 
 /**
  * The alert's action as the report prints it, or null: "<action>", or
- * "<action>, stage still completed" when the stage it is attributed to exited
- * 101 (it ran to completion, so the action did not stop it and the stage reads
- * Detected; same rule as the verdict). A standalone test uses its one result.
+ * "<action>, stage still completed" when the action is a confirmed one
+ * (quarantined, process killed, blocked) and the stage it is attributed to
+ * exited 101 (it ran to completion, so the action did not stop it and the
+ * stage reads Detected; same rule as the verdict and the console badge). A
+ * standalone test uses its one result. A failed kill is never qualified: it
+ * prints as "kill failed" whatever the exit code.
  */
 export function alertActionText(tests: ReportTest[], run: ReportRun, alert: ReportAlert): string | null {
   if (!alert.preventionAction) return null;
   const action = alert.preventionAction.replace(/_/g, ' ');
+  if (!isConfirmedPrevention(alert.preventionAction)) return action;
   const test = testOf(tests, run);
   const named = stageForAlert(run, alert.stageControlId);
   const stage = test && !test.isBundle ? run.stages[0] : run.stages.find((s) => s === named);

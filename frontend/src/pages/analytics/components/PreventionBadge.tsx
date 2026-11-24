@@ -1,5 +1,5 @@
 import { ShieldAlert, ShieldCheck } from 'lucide-react';
-import { formatPreventionAction } from '../utils/prevention';
+import { formatPreventionAction, isConfirmedPrevention } from '../utils/prevention';
 
 interface PreventionBadgeProps {
   /** Normalized prevention action (shared vendor vocabulary). */
@@ -15,9 +15,6 @@ interface PreventionBadgeProps {
   stageCompleted?: boolean;
 }
 
-/** Actions that would have stopped the stage had it not already completed. */
-const CONFIRMED_ACTIONS = new Set(['quarantined', 'process_killed', 'blocked']);
-
 /**
  * Vendor-confirmed prevention badge for an EDR alert row (Defender and
  * CrowdStrike share the normalized action vocabulary). Renders the action
@@ -29,7 +26,7 @@ const CONFIRMED_ACTIONS = new Set(['quarantined', 'process_killed', 'blocked']);
 export default function PreventionBadge({ action, rawStatus, stageCompleted }: PreventionBadgeProps) {
   const label = formatPreventionAction(action);
   if (!label) return null;
-  if (stageCompleted && action && CONFIRMED_ACTIONS.has(action)) {
+  if (stageCompleted && isConfirmedPrevention(action)) {
     return (
       <span
         className="inline-flex items-center gap-1 rounded border border-border px-1.5 py-0.5 text-[10px] font-medium text-muted"
