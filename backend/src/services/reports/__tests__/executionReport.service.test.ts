@@ -7,7 +7,7 @@ vi.mock('../../analytics/client.js', () => ({ createEsClient: vi.fn() }));
 
 import { createEsClient } from '../../analytics/client.js';
 import { STAGE_OUTCOMES } from '../stageOutcome.js';
-import { ExecutionReportService, ORG_NAME_MAX, deploymentOrgName } from '../executionReport.service.js';
+import { ExecutionReportService, ORG_NAME_MAX, VERSION_READ_BUDGET_MS, deploymentOrgName } from '../executionReport.service.js';
 import { ConsoleIdentityService } from '../../consoleIdentity/consoleIdentity.service.js';
 import type { OutcomeCounts } from '../../../types/reports.js';
 import type { AnalyticsSettings } from '../../../types/analytics.js';
@@ -627,6 +627,74 @@ describe('test version of each run', () => {
     expect(report.totals.runs).toBe(1);
     // The budget it used up can cost enrichments (their own warnings); the lookup adds no warning of its own.
     expect(report.meta.warnings.filter((w) => /version/i.test(w))).toEqual([]);
+  });
+
+  describe('its own time limit', () => {
+    beforeEach(() => { vi.useFakeTimers(); });
+    afterEach(() => { vi.useRealTimers(); });
+
+    /** generate() under fake timers, with a report budget far above the read's own limit. */
+    function start(read: () => Promise<Map<string, string> | undefined>, withStamp = true) {
+      const deps = makeDeps({ budgetMs: 60_000, getCurrentFingerprints: vi.fn(read) });
+      if (withStamp) deps.client.search.mockImplementation(stampedSearch(stamp()));
+      let settled = false;
+      const report = new ExecutionReportService(settings, deps).generate(params(), NOW).finally(() => { settled = true; });
+      return { report, isSettled: () => settled };
+    }
+
+    it('gives up on a read that never settles after VERSION_READ_BUDGET_MS', async () => {
+      expect(VERSION_READ_BUDGET_MS).toBe(5_000);
+      const { report, isSettled } = start(() => new Promise(() => {}));
+      await vi.advanceTimersByTimeAsync(VERSION_READ_BUDGET_MS - 1);
+      expect(isSettled()).toBe(false);
+      await vi.advanceTimersByTimeAsync(1);
+      const done = await report;
+      expect(done.runs[0].version).toEqual({ commit: COMMIT });
+      expect(done.meta.unavailable).toEqual([]);
+      expect(done.meta.warnings).toEqual([]);
+    });
+
+    it('still says not recorded for a run without a version when the read times out', async () => {
+      const { report } = start(() => new Promise(() => {}), false);
+      await vi.advanceTimersByTimeAsync(VERSION_READ_BUDGET_MS);
+      const done = await report;
+      expect(done.runs[0].version).toEqual({ commit: null, state: 'not_recorded' });
+      expect(done.meta.unavailable).toEqual([]);
+    });
+
+    it('uses a read that settles inside the limit, and leaves no timer behind', async () => {
+      const { report } = start(() => new Promise((resolve) => setTimeout(() => resolve(new Map([[BUNDLE, 'fp-1']])), VERSION_READ_BUDGET_MS - 1_000)));
+      await vi.advanceTimersByTimeAsync(VERSION_READ_BUDGET_MS - 1_000);
+      const done = await report;
+      expect(done.runs[0].version).toEqual({ commit: COMMIT, state: 'current' });
+      expect(vi.getTimerCount()).toBe(0);
+    });
+
+    it('never waits past the report deadline', async () => {
+      const deps = makeDeps({ budgetMs: 1_000, getCurrentFingerprints: vi.fn(() => new Promise(() => {})) });
+      deps.client.search.mockImplementation(stampedSearch(stamp()));
+      let settled = false;
+      const report = new ExecutionReportService(settings, deps).generate(params(), NOW).finally(() => { settled = true; });
+      await vi.advanceTimersByTimeAsync(1_000);
+      expect(settled).toBe(true);
+      expect((await report).runs[0].version).toEqual({ commit: COMMIT });
+    });
+
+    it('swallows a late rejection of the abandoned read', async () => {
+      const unhandled = vi.fn();
+      process.on('unhandledRejection', unhandled);
+      try {
+        const { report } = start(() => new Promise((_, reject) => setTimeout(() => reject(new Error('library unreadable')), VERSION_READ_BUDGET_MS + 1_000)));
+        await vi.advanceTimersByTimeAsync(VERSION_READ_BUDGET_MS);
+        expect((await report).runs[0].version).toEqual({ commit: COMMIT });
+        await vi.advanceTimersByTimeAsync(2_000);
+        await vi.useRealTimers();
+        await new Promise((resolve) => setTimeout(resolve, 10));
+        expect(unhandled).not.toHaveBeenCalled();
+      } finally {
+        process.off('unhandledRejection', unhandled);
+      }
+    });
   });
 
   it('changes nothing else in the payload', async () => {

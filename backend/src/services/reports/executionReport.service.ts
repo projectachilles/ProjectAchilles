@@ -46,6 +46,8 @@ import type {
 
 export const REPORT_BUDGET_MS = 45_000;
 export const VENDOR_BUDGET_MS = 15_000;
+/** Longest wait for the synced library's fingerprints (the runs' version states); never past the report deadline. */
+export const VERSION_READ_BUDGET_MS = 5_000;
 /** Longest organization name the report prints, in characters; it shares the page header with the date range. */
 export const ORG_NAME_MAX = 56;
 
@@ -550,12 +552,14 @@ export class ExecutionReportService {
   }
 
   /**
-   * The synced library's fingerprints, bounded by the report budget. Never rejects: a failure or
-   * timeout is undefined, and the runs then carry no version state (never a guess).
+   * The synced library's fingerprints, within VERSION_READ_BUDGET_MS and the report deadline. Never
+   * rejects: a failure or timeout is undefined, and the runs then carry no version state (never a
+   * guess). A read abandoned at the limit stays handled by the race, so its late rejection is swallowed.
    */
   private async currentFingerprints(deadline: number): Promise<Map<string, string> | undefined> {
     try {
-      return await withDeadline(Promise.resolve().then(() => this.deps.getCurrentFingerprints()), deadline);
+      const limit = Math.min(deadline, Date.now() + VERSION_READ_BUDGET_MS);
+      return await withDeadline(Promise.resolve().then(() => this.deps.getCurrentFingerprints()), limit);
     } catch (err) {
       console.warn(`Execution report: current test versions unavailable (${err instanceof Error ? err.name : 'error'})`);
       return undefined;
