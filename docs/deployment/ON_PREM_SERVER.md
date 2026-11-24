@@ -246,8 +246,14 @@ extras:
 the newest, for the console's About dialog. It sends nothing about the install.
 On a network with no outbound access the dialog still shows the installed
 release and its notes, and the install still reads as an official release when
-the checkout is on a release tag. To make no request at all, set
+the checkout is on a release tag. To stop this request, set
 `RELEASE_CHECK=off` in `backend/.env` and restart the backend.
+
+The backend also fetches the configured test repository (github.com for the
+default library) two minutes after start and every 6 hours, to see whether
+newer test versions are published. `TESTS_UPDATE_CHECK=off` in the same file
+turns that off. An install with no internet access simply shows its built tests
+as "Built, not checked".
 
 | Symptom | Check |
 |---------|-------|

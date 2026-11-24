@@ -159,7 +159,11 @@ extra CA configuration is needed on the agent.
 The console's **about** button shows which release the server runs and whether a
 newer one exists. For that, the backend asks `api.github.com` once a day for the
 newest releases; it sends nothing about the install, and `RELEASE_CHECK=off` in
-`backend/.env` turns it off.
+`backend/.env` turns it off. The backend also fetches the configured test
+repository (github.com for the default library) two minutes after start and
+every 6 hours to see whether newer test versions are published;
+`TESTS_UPDATE_CHECK=off` turns that off. An install with no internet access
+simply shows its built tests as "Built, not checked".
 
 ```bash
 # From the repo dir on the server:
