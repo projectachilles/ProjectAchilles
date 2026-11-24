@@ -5,6 +5,7 @@ import { ClerkProvider } from '@clerk/clerk-react';
 import { ThemeProvider } from './hooks/useTheme';
 import { AnalyticsAuthProvider } from './hooks/useAnalyticsAuth';
 import { ConsoleIdentityProvider } from './hooks/useConsoleIdentity';
+import { BuildQueueProvider } from './hooks/useBuildQueue';
 import { useAuthenticatedApi } from './hooks/useAuthenticatedApi';
 import { store } from './store';
 import { ErrorBoundary } from './components/shared/ErrorBoundary';
@@ -23,7 +24,9 @@ function AppContent() {
         <ErrorBoundary>
           <BrowserRouter>
             <ConsoleIdentityProvider>
-              <AppRouter />
+              <BuildQueueProvider>
+                <AppRouter />
+              </BuildQueueProvider>
             </ConsoleIdentityProvider>
           </BrowserRouter>
         </ErrorBoundary>
