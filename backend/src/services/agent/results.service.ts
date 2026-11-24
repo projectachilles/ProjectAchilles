@@ -80,7 +80,11 @@ function sanitizeExitCode(exitCode: number): { code: number; raw?: string } {
 // Lazy-initialised ES client and per-index ensure cache
 let esClient: Client | null = null;
 const ensuredIndices = new Set<string>();
-const edrMappedIndices = new Set<string>();
+/** index|fields keys whose mapping update succeeded (kept for the process life). */
+const mappedFieldSets = new Set<string>();
+/** index|fields key -> time (ms) of the last failed mapping update. */
+const failedMappingAttempts = new Map<string, number>();
+const MAPPING_RETRY_MS = 10 * 60 * 1000;
 
 /** Initialise (or re-use) the ES client from the current analytics settings. */
 async function getClient(): Promise<{ client: Client }> {
@@ -230,7 +234,7 @@ export async function ingestResult(task: Task, result: TaskResult): Promise<void
   // Standard single-document path (unchanged)
   const doc = buildStandardDoc(task, result.completed_at, result.hostname, result.exit_code);
 
-  await ensureTestVersionMapping(client, index, task);
+  await ensureTestVersionMapping(client, index, 'test_version' in doc.f0rtika);
   await client.index({ index, id: task.id, document: doc });
 }
 
@@ -246,7 +250,11 @@ const TEST_VERSION_FIELDS = ['test_version'] as const;
  * Indices created before these fields existed would map them dynamically
  * (arrays as text, `commit` as text + .keyword). Add the canonical definitions
  * of just these fields once per process per index; additive and idempotent,
- * so failure is non-fatal.
+ * so failure is non-fatal. A success is remembered for the process life. A
+ * failure (a 403 key, a conflicting index, Elasticsearch briefly down) is
+ * remembered too, and retried no sooner than MAPPING_RETRY_MS later, so a bad
+ * index costs one round-trip and one warning per 10 minutes, not one per
+ * write. Same for every caller (EDR-terminated fields and test_version).
  */
 async function ensureResultsFieldMappings(
   client: Client,
@@ -254,13 +262,17 @@ async function ensureResultsFieldMappings(
   fields: readonly (keyof typeof RESULTS_INDEX_MAPPING.mappings.properties.f0rtika.properties)[],
 ): Promise<void> {
   const key = `${index}|${fields.join(',')}`;
-  if (edrMappedIndices.has(key)) return;
+  if (mappedFieldSets.has(key)) return;
+  const failedAt = failedMappingAttempts.get(key);
+  if (failedAt !== undefined && Date.now() - failedAt < MAPPING_RETRY_MS) return;
   try {
     const all = RESULTS_INDEX_MAPPING.mappings.properties.f0rtika.properties;
     const properties = Object.fromEntries(fields.map((k) => [k, all[k]]));
     await client.indices.putMapping({ index, properties: { f0rtika: { properties } } });
-    edrMappedIndices.add(key);
+    mappedFieldSets.add(key);
+    failedMappingAttempts.delete(key);
   } catch (err) {
+    failedMappingAttempts.set(key, Date.now());
     console.warn(`[Results] putMapping failed for ${index}: ${err instanceof Error ? err.message : String(err)}`);
   }
 }
@@ -271,8 +283,8 @@ async function ensureResultsFieldMappings(
  * `achilles-results-*` indices, but not for an explicit target_index, a custom
  * prefix, or a key that may not create indices (403 tolerated).
  */
-async function ensureTestVersionMapping(client: Client, index: string, task: Task): Promise<void> {
-  if ('test_version' in testVersionField(task)) await ensureResultsFieldMappings(client, index, TEST_VERSION_FIELDS);
+async function ensureTestVersionMapping(client: Client, index: string, hasVersion: boolean): Promise<void> {
+  if (hasVersion) await ensureResultsFieldMappings(client, index, TEST_VERSION_FIELDS);
 }
 
 /**
@@ -300,7 +312,7 @@ export async function ingestEdrTerminatedResult(
     stages_unknown: true,
   };
   await ensureResultsFieldMappings(client, index, EDR_TERMINATED_FIELDS);
-  await ensureTestVersionMapping(client, index, task);
+  await ensureTestVersionMapping(client, index, 'test_version' in f0rtika);
   await client.index({ index, id: task.id, document: { ...doc, f0rtika } });
 }
 
@@ -343,6 +355,7 @@ async function ingestBundleControls(
     tenantLabel = azureSettings?.label || 'Azure Tenant';
   }
 
+  const versionField = testVersionField(task);
   const operations = bundle.controls.flatMap((control) => {
     const controlExitCode = sanitizeExitCode(control.exit_code);
     return [
@@ -396,14 +409,14 @@ async function ingestBundleControls(
           endpoint_context: bundle.endpoint_context,
           ...(control.description ? { control_description: control.description } : {}),
           is_bundle_control: true,
-          ...testVersionField(task),
+          ...versionField,
           ...(tenantLabel ? { tenant_label: tenantLabel } : {}),
         },
       },
     ];
   });
 
-  await ensureTestVersionMapping(client, index, task);
+  await ensureTestVersionMapping(client, index, 'test_version' in versionField);
   const response = await client.bulk({ operations });
   if (response?.errors) {
     const failures: string[] = [];
@@ -426,5 +439,6 @@ async function ingestBundleControls(
 export function resetClient(): void {
   esClient = null;
   ensuredIndices.clear();
-  edrMappedIndices.clear();
+  mappedFieldSets.clear();
+  failedMappingAttempts.clear();
 }

@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach, vi } from 'vitest';
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import type { Task, TaskResult, BundleResults } from '../../../types/agent.js';
 
 // ── Mock setup ──────────────────────────────────────────────────────
@@ -599,6 +599,13 @@ describe('test version on result documents', () => {
     expect(mockEsIndex.mock.calls[0][0].document.f0rtika.test_version).toEqual(TEST_VERSION);
   });
 
+  it('maps test_version before the bulk write of a bundle', async () => {
+    await ingestResult(versionedTask(), makeResult({ bundle_results: makeBundle() }));
+    expect(mockPutMapping).toHaveBeenCalledTimes(1);
+    expect(Object.keys(mockPutMapping.mock.calls[0][0].properties.f0rtika.properties)).toEqual(['test_version']);
+    expect(mockPutMapping.mock.invocationCallOrder[0]).toBeLessThan(mockEsBulk.mock.invocationCallOrder[0]);
+  });
+
   it('writes the same test_version on every bundle control document', async () => {
     await ingestResult(versionedTask(), makeResult({ bundle_results: makeBundle() }));
     const docs = mockEsBulk.mock.calls[0][0].operations.filter((_: unknown, i: number) => i % 2 === 1);
@@ -661,6 +668,71 @@ describe('test version on result documents', () => {
     expect(mockEsIndex).toHaveBeenCalledTimes(1);
     expect(warn).toHaveBeenCalled();
     warn.mockRestore();
+  });
+});
+
+describe('failed mapping updates are retried only after 10 minutes', () => {
+  const T0 = new Date('2026-11-23T10:00:00Z');
+  let warn: ReturnType<typeof vi.spyOn>;
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    vi.useFakeTimers();
+    vi.setSystemTime(T0);
+    resetClient();
+    mockIsConfigured.mockReturnValue(true);
+    mockGetSettings.mockReturnValue(configuredSettings());
+    mockEsIndex.mockResolvedValue({});
+    mockCreateResultsIndex.mockResolvedValue({ created: true, message: 'ok' });
+    mockPutMapping.mockResolvedValue({});
+    warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+  });
+  afterEach(() => {
+    warn.mockRestore();
+    vi.useRealTimers();
+  });
+
+  it.each([
+    ['403', Object.assign(new Error('security_exception'), { statusCode: 403 })],
+    ['400', Object.assign(new Error('illegal_argument_exception'), { statusCode: 400 })],
+  ])('after a %s, tries once, writes every document, warns once, retries after 10 minutes', async (_n, err) => {
+    mockPutMapping.mockRejectedValue(err);
+    await ingestResult(versionedTask(), makeResult());
+    vi.setSystemTime(new Date(T0.getTime() + 9 * 60 * 1000));
+    await ingestResult(versionedTask(), makeResult());
+    expect(mockPutMapping).toHaveBeenCalledTimes(1);
+    expect(mockEsIndex).toHaveBeenCalledTimes(2);
+    expect(warn).toHaveBeenCalledTimes(1);
+
+    vi.setSystemTime(new Date(T0.getTime() + 10 * 60 * 1000 + 1));
+    await ingestResult(versionedTask(), makeResult());
+    expect(mockPutMapping).toHaveBeenCalledTimes(2);
+    expect(mockEsIndex).toHaveBeenCalledTimes(3);
+    expect(warn).toHaveBeenCalledTimes(2);
+  });
+
+  it('never retries a success', async () => {
+    await ingestResult(versionedTask(), makeResult());
+    vi.setSystemTime(new Date(T0.getTime() + 60 * 60 * 1000));
+    await ingestResult(versionedTask(), makeResult());
+    expect(mockPutMapping).toHaveBeenCalledTimes(1);
+  });
+
+  it('a later success after a failure is remembered', async () => {
+    mockPutMapping.mockRejectedValueOnce(new Error('down'));
+    await ingestResult(versionedTask(), makeResult());
+    vi.setSystemTime(new Date(T0.getTime() + 11 * 60 * 1000));
+    await ingestResult(versionedTask(), makeResult());
+    await ingestResult(versionedTask(), makeResult());
+    expect(mockPutMapping).toHaveBeenCalledTimes(2);
+  });
+
+  it('resetClient clears the failure record', async () => {
+    mockPutMapping.mockRejectedValue(new Error('down'));
+    await ingestResult(versionedTask(), makeResult());
+    resetClient();
+    await ingestResult(versionedTask(), makeResult());
+    expect(mockPutMapping).toHaveBeenCalledTimes(2);
   });
 });
 
