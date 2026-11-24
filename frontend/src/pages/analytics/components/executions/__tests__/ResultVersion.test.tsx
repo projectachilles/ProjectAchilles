@@ -35,34 +35,43 @@ function exec(over: Partial<EnrichedTestExecution> = {}): EnrichedTestExecution 
 
 const wrap = (ui: React.ReactElement) => <MemoryRouter>{ui}</MemoryRouter>;
 
+const rowText = (c: HTMLElement) => c.querySelector('[data-result-version]')?.textContent ?? null;
+
 describe('ResultVersion (row)', () => {
   it('shows the 7-character commit and the state', () => {
-    render(<ResultVersion exec={exec()} />);
-    const el = screen.getByText('a41c9e2 current');
-    expect(el).toHaveAttribute('title', FULL_COMMIT);
+    const { container } = render(<ResultVersion exec={exec()} />);
+    expect(rowText(container)).toBe('a41c9e2 current');
+    expect(container.querySelector('[data-result-version]')).toHaveAttribute('title', FULL_COMMIT);
   });
 
   it('shows older in the warning tone, as text', () => {
-    render(<ResultVersion exec={exec({ version_state: 'older', test_version: { built_at: '2026-10-10T08:00:00Z', commit: '7be01d3aaaaaaaa' } })} />);
-    const el = screen.getByText('7be01d3 older');
-    expect(el.className).toContain('text-warning');
+    const { container } = render(<ResultVersion exec={exec({ version_state: 'older', test_version: { built_at: '2026-10-10T08:00:00Z', commit: '7be01d3aaaaaaaa' } })} />);
+    expect(rowText(container)).toBe('7be01d3 older');
+    expect(container.querySelector('[data-result-version]')!.className).toContain('text-warning');
   });
 
   it('keeps current muted, not green', () => {
-    render(<ResultVersion exec={exec()} />);
-    const cls = screen.getByText('a41c9e2 current').className;
+    const { container } = render(<ResultVersion exec={exec()} />);
+    const cls = container.querySelector('[data-result-version]')!.className;
     expect(cls).toContain('text-muted');
     expect(cls).not.toMatch(/success|accent/);
   });
 
+  it('lets the commit truncate but never the state label', () => {
+    render(<ResultVersion exec={exec()} />);
+    expect(screen.getByText('a41c9e2').className).toContain('truncate');
+    expect(screen.getByText('current').className).toContain('shrink-0');
+    expect(screen.getByText('current').className).not.toContain('truncate');
+  });
+
   it('shows the state label alone without a commit', () => {
-    render(<ResultVersion exec={exec({ version_state: 'unknown', test_version: { built_at: '2026-10-10T08:00:00Z', build_source: 'uploaded' } })} />);
-    expect(screen.getByText('version unknown')).toBeInTheDocument();
+    const { container } = render(<ResultVersion exec={exec({ version_state: 'unknown', test_version: { built_at: '2026-10-10T08:00:00Z', build_source: 'uploaded' } })} />);
+    expect(rowText(container)).toBe('version unknown');
   });
 
   it('labels a result from before versions were tracked', () => {
-    render(<ResultVersion exec={exec({ version_state: 'not_recorded', test_version: undefined })} />);
-    expect(screen.getByText('not recorded')).toBeInTheDocument();
+    const { container } = render(<ResultVersion exec={exec({ version_state: 'not_recorded', test_version: undefined })} />);
+    expect(rowText(container)).toBe('not recorded');
   });
 
   it('renders nothing when the backend sent no version_state', () => {
@@ -111,8 +120,8 @@ describe('versions in the run list', () => {
   const standalone: DisplayRow = { type: 'standalone', key: 's', execution: exec() };
 
   it('shows the version on a row when enabled', () => {
-    render(<RunList rows={[standalone]} selectedKey={null} onSelect={noop} checkedKeys={null} onToggleChecked={noop} showVersions />);
-    expect(screen.getByText('a41c9e2 current')).toBeInTheDocument();
+    const { container } = render(<RunList rows={[standalone]} selectedKey={null} onSelect={noop} checkedKeys={null} onToggleChecked={noop} showVersions />);
+    expect(rowText(container)).toBe('a41c9e2 current');
   });
 
   it('shows nothing when versions are off', () => {
@@ -128,9 +137,9 @@ describe('versions in the run list', () => {
       protectedCount: 0, unprotectedCount: 3, totalCount: 3,
     };
     const rows = mapGroupsToDisplayRows([group]);
-    render(<RunList rows={rows} selectedKey={null} onSelect={noop} checkedKeys={null} onToggleChecked={noop} showVersions />);
-    expect(screen.getAllByText(/a41c9e2/)).toHaveLength(1);
-    expect(screen.getByText('a41c9e2 older')).toBeInTheDocument();
+    const { container } = render(<RunList rows={rows} selectedKey={null} onSelect={noop} checkedKeys={null} onToggleChecked={noop} showVersions />);
+    expect(container.querySelectorAll('[data-result-version]')).toHaveLength(1);
+    expect(rowText(container)).toBe('a41c9e2 older');
   });
 });
 

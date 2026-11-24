@@ -47,12 +47,19 @@ export function ResultVersion({ exec, detail = false }: ResultVersionProps) {
   const commit = shortCommit(exec);
 
   if (!detail) {
+    // The label always survives a narrow row; only the commit gives way.
     return (
       <span
+        data-result-version=""
         title={exec.test_version?.commit}
-        className={cn('min-w-0 truncate whitespace-nowrap text-[11px]', TONE[state])}
+        className={cn('flex min-w-0 items-baseline gap-1 whitespace-nowrap text-[11px]', TONE[state])}
       >
-        {commit ? `${commit} ${label}` : label}
+        {commit && (
+          <>
+            <span className="min-w-0 truncate font-mono">{commit}</span>{' '}
+          </>
+        )}
+        <span className="shrink-0">{label}</span>
       </span>
     );
   }

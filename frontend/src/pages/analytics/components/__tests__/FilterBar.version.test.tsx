@@ -31,14 +31,12 @@ describe('FilterBar Version control', () => {
     ]);
   });
 
-  it('sets the filter, shows a chip, and Clear All resets it', async () => {
+  it('sets the filter and Clear All resets it', async () => {
     renderBar({ showVersionFilter: true });
     await userEvent.selectOptions(screen.getByLabelText('Version'), 'Older version');
     expect(screen.getByTestId('state')).toHaveTextContent('older');
-    expect(screen.getByText('Version: Older version')).toBeInTheDocument();
     await userEvent.click(screen.getByRole('button', { name: /Clear All/ }));
     expect(screen.getByTestId('state')).toHaveTextContent('null');
-    expect(screen.queryByText('Version: Older version')).toBeNull();
   });
 
   it('is hidden when versions are not available', () => {

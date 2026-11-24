@@ -114,14 +114,6 @@ export default function FilterBar({
       onClear: () => setBundleNames([]),
     });
   }
-  if (showVersionFilter && filters.versionState) {
-    const option = VERSION_FILTER_OPTIONS.find((o) => o.value === filters.versionState);
-    activeFilterTags.push({
-      label: `Version: ${option?.label ?? filters.versionState}`,
-      onClear: () => setVersionState(null),
-    });
-  }
-
   return (
     <div className="bg-card text-card-foreground border border-border rounded-lg p-4 mb-4">
       {/* Filter Controls */}

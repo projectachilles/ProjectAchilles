@@ -1506,8 +1506,10 @@ describe('ExecutionsDataTable — test versions', () => {
   beforeEach(() => { caps.testVersions = true; });
 
   it('shows the bundle version once on the run row', () => {
-    renderTable([versioned(), versioned({ test_uuid: `${BUNDLE_UUID}::T1059` })]);
-    expect(screen.getAllByText('7be01d3 older')).toHaveLength(1);
+    const { container } = renderTable([versioned(), versioned({ test_uuid: `${BUNDLE_UUID}::T1059` })]);
+    const rows = container.querySelectorAll('[role="option"] [data-result-version]');
+    expect(rows).toHaveLength(1);
+    expect(rows[0].textContent).toBe('7be01d3 older');
   });
 
   it('adds the two version columns at the end of the CSV', async () => {
@@ -1522,6 +1524,6 @@ describe('ExecutionsDataTable — test versions', () => {
     expect(header).not.toContain('version');
     expect(header).not.toContain('version_state');
     expect(header[header.length - 1]).toBe('Time');
-    expect(screen.queryByText('7be01d3 older')).toBeNull();
+    expect(screen.queryByText('7be01d3')).toBeNull();
   });
 });
