@@ -649,6 +649,52 @@ describe('test version on result documents', () => {
     expect('test_version' in mockEsIndex.mock.calls[0][0].document.f0rtika).toBe(false);
   });
 
+  // Elasticsearch maps these fields as `date` (strict_date_optional_time) and
+  // rejects the WHOLE document on a value it cannot parse, so only the ISO
+  // 8601 shapes the server writes (toISOString(), git's %cI) pass. A date
+  // without a time is refused too: the server never writes one.
+  describe('only ISO 8601 date-times pass (final review C2)', () => {
+    it.each([
+      ['a space instead of T', '2026-11-23 10:00:00'],
+      ['a textual date', 'Nov 23 2026'],
+      ['a date without a time', '2026-11-23'],
+      ['no seconds', '2026-11-23T10:00Z'],
+      ['no zone', '2026-11-23T10:00:00'],
+      ['a day the month does not have', '2026-02-30T10:00:00Z'],
+      ['hour 24', '2026-11-23T24:00:00Z'],
+      ['a minute out of range', '2026-11-23T10:60:00Z'],
+    ])('rejects %s as built_at: the document is indexed with no test_version key', async (_label, value) => {
+      await ingestResult(versionedTask({ ...TEST_VERSION, built_at: value }), makeResult());
+      expect(mockEsIndex).toHaveBeenCalledTimes(1);
+      expect('test_version' in mockEsIndex.mock.calls[0][0].document.f0rtika).toBe(false);
+    });
+
+    it.each([
+      ['a toISOString() value', new Date('2026-11-23T10:00:00Z').toISOString()],
+      ['an offset (git %cI)', '2026-11-23T10:00:00-04:00'],
+      ['a positive offset', '2026-11-23T10:00:00+05:30'],
+      ['Z without a fraction', '2026-11-23T10:00:00Z'],
+      ['29 February of a leap year', '2028-02-29T10:00:00Z'],
+    ])('accepts %s as built_at', async (_label, value) => {
+      await ingestResult(versionedTask({ ...TEST_VERSION, built_at: value }), makeResult());
+      expect(mockEsIndex.mock.calls[0][0].document.f0rtika.test_version).toEqual({ ...TEST_VERSION, built_at: value });
+    });
+
+    it('drops a non-ISO commit_date and keeps the rest', async () => {
+      await ingestResult(versionedTask({ ...TEST_VERSION, commit_date: '2026-11-23 10:00:00' }), makeResult());
+      const tv = mockEsIndex.mock.calls[0][0].document.f0rtika.test_version;
+      expect('commit_date' in tv).toBe(false);
+      expect(tv).toMatchObject({ built_at: TEST_VERSION.built_at, commit: TEST_VERSION.commit });
+    });
+
+    it('a bundle with a bad built_at is still indexed, with no test_version on any control', async () => {
+      await ingestResult(versionedTask({ ...TEST_VERSION, built_at: 'Nov 23 2026' }), makeResult({ bundle_results: makeBundle() }));
+      const docs = mockEsBulk.mock.calls[0][0].operations.filter((_: unknown, i: number) => i % 2 === 1);
+      expect(docs).toHaveLength(2);
+      for (const d of docs) expect('test_version' in d.f0rtika).toBe(false);
+    });
+  });
+
   it('adds the version mapping to an explicit target index before writing, once', async () => {
     const t = versionedTask(TEST_VERSION, { target_index: 'custom-results' });
     await ingestResult(t, makeResult());

@@ -148,7 +148,21 @@ async function prepareWrite(task: Task, timestamp: string | undefined): Promise<
 }
 
 const VERSION_TEXT_MAX = 128;
-const isDateString = (v: unknown): v is string => typeof v === 'string' && v !== '' && !Number.isNaN(Date.parse(v));
+// The ISO 8601 date-time shapes the server writes: toISOString()
+// (`2026-11-23T10:00:00.000Z`) and git's %cI (`2026-11-23T10:00:00-04:00`).
+// Elasticsearch's strict_date_optional_time rejects much of what Date.parse
+// takes (`2026-11-23 10:00:00`, `Nov 23 2026`, 30 February, hour 24), and a
+// rejected date field loses the whole result document.
+const ISO_DATE_TIME = /^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2}):(\d{2})(?:\.\d{1,9})?(?:Z|[+-]\d{2}:\d{2})$/;
+const isDateString = (v: unknown): v is string => {
+  if (typeof v !== 'string') return false;
+  const m = ISO_DATE_TIME.exec(v);
+  if (!m || Number.isNaN(Date.parse(v))) return false;
+  const [year, month, day, hour] = [m[1], m[2], m[3], m[4]].map(Number);
+  // Date.parse rolls 30 February over to March and takes 24:00; ES does not.
+  const daysInMonth = new Date(Date.UTC(year, month, 0)).getUTCDate();
+  return month >= 1 && month <= 12 && day >= 1 && day <= daysInMonth && hour <= 23;
+};
 const isShortString = (v: unknown): v is string =>
   typeof v === 'string' && v !== '' && v.length <= VERSION_TEXT_MAX;
 
