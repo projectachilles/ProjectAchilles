@@ -219,7 +219,8 @@ describe('EdrAgentKillReconciler.runPass', () => {
     const { id, document } = mockIndex.mock.calls[0][0];
     expect(id).toBe('archived-kill');
     expect(document.f0rtika).toMatchObject({ edr_terminated: true, test_uuid: LOCKBIT_UUID });
-    expect(document.f0rtika.test_version).toEqual(testVersion);
+    // The archived payload's version, its offset commit date stored in UTC.
+    expect(document.f0rtika.test_version).toEqual({ ...testVersion, commit_date: '2026-10-24T22:00:00.000Z' });
   });
 
   it('reconciles the LT3938 rphcp.exe kill', async () => {

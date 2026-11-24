@@ -157,6 +157,12 @@ const TEST_VERSION = {
   build_source: 'built' as const,
 };
 
+/**
+ * TEST_VERSION as the document stores it: every date in UTC as toISOString()
+ * writes it (built_at already is; git's commit date gains milliseconds).
+ */
+const STORED_TEST_VERSION = { ...TEST_VERSION, commit_date: '2026-11-01T10:00:00.000Z' };
+
 function versionedTask(tv: unknown = TEST_VERSION, overrides: Partial<Task> = {}): Task {
   const base = makeTask(overrides);
   return { ...base, payload: { ...base.payload, test_version: tv } } as Task;
@@ -596,7 +602,7 @@ describe('test version on result documents', () => {
 
   it('writes test_version on a standalone document', async () => {
     await ingestResult(versionedTask(), makeResult());
-    expect(mockEsIndex.mock.calls[0][0].document.f0rtika.test_version).toEqual(TEST_VERSION);
+    expect(mockEsIndex.mock.calls[0][0].document.f0rtika.test_version).toEqual(STORED_TEST_VERSION);
   });
 
   it('maps test_version before the bulk write of a bundle', async () => {
@@ -610,7 +616,7 @@ describe('test version on result documents', () => {
     await ingestResult(versionedTask(), makeResult({ bundle_results: makeBundle() }));
     const docs = mockEsBulk.mock.calls[0][0].operations.filter((_: unknown, i: number) => i % 2 === 1);
     expect(docs).toHaveLength(2);
-    for (const d of docs) expect(d.f0rtika.test_version).toEqual(TEST_VERSION);
+    for (const d of docs) expect(d.f0rtika.test_version).toEqual(STORED_TEST_VERSION);
   });
 
   it('leaves test_version out entirely when the task has none', async () => {
@@ -669,15 +675,49 @@ describe('test version on result documents', () => {
       expect('test_version' in mockEsIndex.mock.calls[0][0].document.f0rtika).toBe(false);
     });
 
+    // Accepted dates are written as one canonical form, toISOString() (UTC,
+    // milliseconds, Z): an offset outside Java's ZoneOffset range (±18:00),
+    // which a commit date can carry, never reaches Elasticsearch.
     it.each([
-      ['a toISOString() value', new Date('2026-11-23T10:00:00Z').toISOString()],
-      ['an offset (git %cI)', '2026-11-23T10:00:00-04:00'],
-      ['a positive offset', '2026-11-23T10:00:00+05:30'],
-      ['Z without a fraction', '2026-11-23T10:00:00Z'],
-      ['29 February of a leap year', '2028-02-29T10:00:00Z'],
-    ])('accepts %s as built_at', async (_label, value) => {
+      ['a toISOString() value (unchanged byte for byte)', '2026-11-23T10:00:00.000Z', '2026-11-23T10:00:00.000Z'],
+      ['an offset (git %cI)', '2026-11-23T10:00:00-04:00', '2026-11-23T14:00:00.000Z'],
+      ['a positive offset', '2026-11-23T10:00:00+05:30', '2026-11-23T04:30:00.000Z'],
+      ['+19:00 (beyond ±18:00)', '2026-11-21T14:03:11+19:00', '2026-11-20T19:03:11.000Z'],
+      ['+23:59', '2026-11-21T14:03:11+23:59', '2026-11-20T14:04:11.000Z'],
+      ['-22:00', '2026-11-21T14:03:11-22:00', '2026-11-22T12:03:11.000Z'],
+      ['Z without a fraction', '2026-11-23T10:00:00Z', '2026-11-23T10:00:00.000Z'],
+      ['a nanosecond fraction', '2026-11-23T10:00:00.123456789Z', '2026-11-23T10:00:00.123Z'],
+      ['29 February of a leap year', '2028-02-29T10:00:00Z', '2028-02-29T10:00:00.000Z'],
+    ])('accepts %s and stores the UTC instant, as built_at and as commit_date', async (_label, value, stored) => {
+      await ingestResult(versionedTask({ ...TEST_VERSION, built_at: value, commit_date: value }), makeResult());
+      expect(mockEsIndex.mock.calls[0][0].document.f0rtika.test_version).toEqual({
+        ...TEST_VERSION, built_at: stored, commit_date: stored,
+      });
+    });
+
+    it('stores a commit date with a +19:00 offset in UTC on every bundle control', async () => {
+      await ingestResult(
+        versionedTask({ ...TEST_VERSION, commit_date: '2026-11-21T14:03:11+19:00' }),
+        makeResult({ bundle_results: makeBundle() }),
+      );
+      const docs = mockEsBulk.mock.calls[0][0].operations.filter((_: unknown, i: number) => i % 2 === 1);
+      expect(docs).toHaveLength(2);
+      for (const d of docs) expect(d.f0rtika.test_version.commit_date).toBe('2026-11-20T19:03:11.000Z');
+    });
+
+    it.each([
+      ['year 0', '0000-01-01T00:00:00Z'],
+      ['year 0 once in UTC', '0001-01-01T00:00:00+01:00'],
+      ['year 10000 once in UTC', '9999-12-31T23:00:00-04:00'],
+      ['a five-digit year', '10000-01-01T00:00:00Z'],
+      ['an offset hour of 24', '2026-11-21T14:03:11+24:00'],
+    ])('rejects %s: no test_version as built_at, no commit_date as commit_date', async (_label, value) => {
       await ingestResult(versionedTask({ ...TEST_VERSION, built_at: value }), makeResult());
-      expect(mockEsIndex.mock.calls[0][0].document.f0rtika.test_version).toEqual({ ...TEST_VERSION, built_at: value });
+      expect('test_version' in mockEsIndex.mock.calls[0][0].document.f0rtika).toBe(false);
+      await ingestResult(versionedTask({ ...TEST_VERSION, commit_date: value }), makeResult());
+      const tv = mockEsIndex.mock.calls[1][0].document.f0rtika.test_version;
+      expect('commit_date' in tv).toBe(false);
+      expect(tv.built_at).toBe(TEST_VERSION.built_at);
     });
 
     it('drops a non-ISO commit_date and keeps the rest', async () => {

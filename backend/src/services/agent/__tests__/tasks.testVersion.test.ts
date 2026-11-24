@@ -306,6 +306,12 @@ describe('test_version from task creation to the result document (final review C
   });
   afterEach(() => { azureCredentials = null; });
 
+  /** A task's test_version as the result document stores it: both dates in UTC (toISOString()). */
+  const stored = (tv: Record<string, string>) => ({
+    ...tv,
+    built_at: new Date(tv.built_at).toISOString(),
+    commit_date: new Date(tv.commit_date).toISOString(),
+  });
   const azureReq = () => ({
     ...req(['agent-win']),
     metadata: { integrations: ['azure'] } as never,
@@ -337,7 +343,10 @@ describe('test_version from task creation to the result document (final review C
     await ingestResult(completed, result(id) as never);
     expect(mockEsIndex).toHaveBeenCalledTimes(1);
     expect(mockEsIndex.mock.calls[0][0].id).toBe(id);
-    expect(mockEsIndex.mock.calls[0][0].document.f0rtika.test_version).toEqual(created);
+    // The same version, its dates in UTC as toISOString() writes them; the
+    // task in SQLite keeps the original strings.
+    expect(mockEsIndex.mock.calls[0][0].document.f0rtika.test_version).toEqual(stored(created));
+    expect(payloadOf(id).test_version.commit_date).toBe('2026-11-01T10:00:00Z');
   });
 
   it('the retry worker ingests the same version from the stored row', async () => {
@@ -350,6 +359,6 @@ describe('test_version from task creation to the result document (final review C
     const [pending] = getPendingIngestionTasks();
     expect(pending.id).toBe(id);
     await ingestResult(pending, pending.result as never);
-    expect(mockEsIndex.mock.calls[0][0].document.f0rtika.test_version).toEqual(created);
+    expect(mockEsIndex.mock.calls[0][0].document.f0rtika.test_version).toEqual(stored(created));
   });
 });

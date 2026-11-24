@@ -154,15 +154,31 @@ const VERSION_TEXT_MAX = 128;
 // takes (`2026-11-23 10:00:00`, `Nov 23 2026`, 30 February, hour 24), and a
 // rejected date field loses the whole result document.
 const ISO_DATE_TIME = /^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2}):(\d{2})(?:\.\d{1,9})?(?:Z|[+-]\d{2}:\d{2})$/;
-const isDateString = (v: unknown): v is string => {
-  if (typeof v !== 'string') return false;
+
+/**
+ * The date as the document stores it: the same instant as toISOString()
+ * writes it (UTC, milliseconds, `Z`), or undefined when it is not a valid
+ * ISO 8601 date-time. Normalising, rather than bounding the offset, means
+ * Elasticsearch only ever sees one form: a commit date with an offset Java
+ * can't hold (beyond ±18:00, e.g. a mistyped GIT_COMMITTER_DATE) is stored
+ * as its UTC instant instead of failing the whole document. A date whose UTC
+ * year falls outside 0001-9999 is refused.
+ */
+function canonicalDate(v: unknown): string | undefined {
+  if (typeof v !== 'string') return undefined;
   const m = ISO_DATE_TIME.exec(v);
-  if (!m || Number.isNaN(Date.parse(v))) return false;
+  if (!m) return undefined;
   const [year, month, day, hour] = [m[1], m[2], m[3], m[4]].map(Number);
   // Date.parse rolls 30 February over to March and takes 24:00; ES does not.
   const daysInMonth = new Date(Date.UTC(year, month, 0)).getUTCDate();
-  return month >= 1 && month <= 12 && day >= 1 && day <= daysInMonth && hour <= 23;
-};
+  if (month < 1 || month > 12 || day < 1 || day > daysInMonth || hour > 23) return undefined;
+  const ms = Date.parse(v);
+  if (Number.isNaN(ms)) return undefined;
+  const utc = new Date(ms);
+  const utcYear = utc.getUTCFullYear();
+  if (utcYear < 1 || utcYear > 9999) return undefined;
+  return utc.toISOString();
+}
 const isShortString = (v: unknown): v is string =>
   typeof v === 'string' && v !== '' && v.length <= VERSION_TEXT_MAX;
 
@@ -170,7 +186,8 @@ const isShortString = (v: unknown): v is string =>
  * `f0rtika.test_version` for a task's documents: the one place the three
  * ingestion paths (standard, EDR-terminated, bundle fan-out) get it from.
  * The task payload is validated first, because Elasticsearch rejects a whole
- * document whose date field does not parse, and that would lose the result.
+ * document whose date field does not parse, and that would lose the result;
+ * the dates are written in UTC (canonicalDate). The task keeps its own strings.
  * A task without a usable stamp (created before versions, or malformed)
  * yields no key at all, never null or an empty object.
  */
@@ -178,11 +195,14 @@ export function testVersionField(
   task: Task,
 ): { test_version: Partial<TaskTestVersion> } | Record<string, never> {
   const v = task.payload.test_version as Partial<Record<keyof TaskTestVersion, unknown>> | null | undefined;
-  if (!v || typeof v !== 'object' || !isDateString(v.built_at)) return {};
-  const out: Partial<TaskTestVersion> = { built_at: v.built_at };
+  if (!v || typeof v !== 'object') return {};
+  const builtAt = canonicalDate(v.built_at);
+  if (!builtAt) return {};
+  const out: Partial<TaskTestVersion> = { built_at: builtAt };
   if (v.build_source === 'built' || v.build_source === 'uploaded') out.build_source = v.build_source;
   if (isShortString(v.commit)) out.commit = v.commit;
-  if (isDateString(v.commit_date)) out.commit_date = v.commit_date;
+  const commitDate = canonicalDate(v.commit_date);
+  if (commitDate) out.commit_date = commitDate;
   if (isShortString(v.fingerprint)) out.fingerprint = v.fingerprint;
   return { test_version: out };
 }
