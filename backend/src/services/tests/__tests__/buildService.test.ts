@@ -1046,6 +1046,28 @@ var data string
 
   // ── Group 7: buildAndSign — build_all.sh Mode ─────────────
 
+  describe('resolveInside', () => {
+    type WithResolveInside = { resolveInside(root: string, ...parts: string[]): string | null };
+    const resolveInside = (root: string, ...parts: string[]) =>
+      (service as unknown as WithResolveInside).resolveInside(root, ...parts);
+
+    it('returns the resolved path for a child of the root', () => {
+      expect(resolveInside('/repo', 'build', VALID_UUID, `${VALID_UUID}.exe`))
+        .toBe(`/repo/build/${VALID_UUID}/${VALID_UUID}.exe`);
+      expect(resolveInside('/repo/./tests/..', 'a.exe')).toBe('/repo/a.exe');
+    });
+
+    it.each([
+      ['a parent segment', ['../x']],
+      ['a parent segment inside a part', ['build', '../../x']],
+      ['an absolute part', ['/etc/passwd']],
+      ['the root itself', []],
+      ['a part that resolves to the root', ['build', '..']],
+    ])('returns null for %s', (_label, parts) => {
+      expect(resolveInside('/repo', ...parts)).toBeNull();
+    });
+  });
+
   describe('buildAndSign — build_all.sh mode', () => {
     const testDir = `${TESTS_SOURCE}/cyber-hygiene/${VALID_UUID}`;
 
@@ -1210,6 +1232,47 @@ var data string
         `${testDir}/${VALID_UUID}.exe`,
         expect.stringContaining(VALID_UUID),
       );
+    });
+
+    it('falls back to the first file in a build/<uuid> folder when no candidate exists', async () => {
+      const repoBuildDir = `/build/${VALID_UUID}`;
+      const testBuildDir = `${testDir}/build/${VALID_UUID}`;
+
+      mockExistsSync.mockImplementation((p: string) =>
+        p === testDir || p === `${testDir}/build_all.sh` || p === repoBuildDir || p === testBuildDir);
+      mockStatSync.mockImplementation((p: string) => {
+        if (p === testDir) return { isDirectory: () => true };
+        return { size: 2048 };
+      });
+      mockReaddirSync.mockImplementation((p: string) => {
+        if (p === repoBuildDir) return []; // empty: try the next base
+        if (p === testBuildDir) return ['orchestrator.exe', 'second.exe'];
+        return [];
+      });
+      mockReadFileSync.mockReturnValue('SCRIPT_DIR="$(dirname "${BASH_SOURCE[0]}")"');
+
+      const info = await service.buildAndSign(VALID_UUID);
+
+      expect(info.exists).toBe(true);
+      expect(mockReaddirSync).toHaveBeenCalledWith(repoBuildDir);
+      expect(mockCopyFileSync).toHaveBeenCalledTimes(1);
+      expect(mockCopyFileSync).toHaveBeenCalledWith(
+        `${testBuildDir}/orchestrator.exe`,
+        `${BUILDS_DIR}/${VALID_UUID}/${VALID_UUID}.exe`,
+      );
+    });
+
+    it('still fails when neither a candidate nor a build/<uuid> file exists', async () => {
+      mockExistsSync.mockImplementation((p: string) => p === testDir || p === `${testDir}/build_all.sh`);
+      mockStatSync.mockImplementation((p: string) => {
+        if (p === testDir) return { isDirectory: () => true };
+        return { size: 2048 };
+      });
+      mockReaddirSync.mockReturnValue([]);
+      mockReadFileSync.mockReturnValue('SCRIPT_DIR="$(dirname "${BASH_SOURCE[0]}")"');
+
+      await expect(service.buildAndSign(VALID_UUID)).rejects.toThrow('build_all.sh completed but output binary not found');
+      expect(mockCopyFileSync).not.toHaveBeenCalled();
     });
 
     it('records a per-OS binaries map for a cross-platform build_all.sh build', async () => {

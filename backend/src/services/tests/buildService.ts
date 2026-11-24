@@ -470,6 +470,26 @@ const ARTIFACT_DIR = \`${artifactDir}\`
     return resolved;
   }
 
+  /**
+   * Resolve `parts` under `root` and verify the result stays strictly inside
+   * it. Used for the build_all.sh output lookup, whose paths contain the test
+   * UUID: UUID_REGEX already rules out traversal, but CodeQL's
+   * js/path-injection query doesn't accept a regex as a sanitiser.
+   *
+   * Uses the same path.resolve → path.relative pattern as findTestDir and
+   * safeBinaryPath, which CodeQL recognises. Returning the resolved value
+   * (not the raw join result) is what makes the data flow recognised as safe
+   * downstream, so callers must use it for every fs call. null for the root
+   * itself or anything outside it (`..`, an absolute part).
+   */
+  private resolveInside(root: string, ...parts: string[]): string | null {
+    const resolvedRoot = path.resolve(root);
+    const resolved = path.resolve(resolvedRoot, ...parts);
+    const rel = path.relative(resolvedRoot, resolved);
+    if (rel === '' || rel.startsWith('..') || path.isAbsolute(rel)) return null;
+    return resolved;
+  }
+
   getBuildInfo(uuid: string): BuildInfo {
     const metaFile = this.metaPath(uuid);
     if (!fs.existsSync(metaFile)) {
@@ -864,13 +884,13 @@ const ARTIFACT_DIR = \`${artifactDir}\`
 
         // Locate output binary — check repo-root build dir (build_all.sh output location) too
         const candidates = [
-          path.join(repoRoot, 'build', uuid, filename),
-          path.join(testDir, 'build', uuid, filename),
-          path.join(testDir, filename),
+          this.resolveInside(repoRoot, 'build', uuid, filename),
+          this.resolveInside(testDir, 'build', uuid, filename),
+          this.resolveInside(testDir, filename),
         ];
         let found = false;
         for (const candidate of candidates) {
-          if (fs.existsSync(candidate)) {
+          if (candidate && fs.existsSync(candidate)) {
             fs.copyFileSync(candidate, outputPath);
             found = true;
             break;
@@ -879,11 +899,12 @@ const ARTIFACT_DIR = \`${artifactDir}\`
         if (!found) {
           // Try to find any file in build/<uuid>/ under repo root or testDir
           for (const base of [repoRoot, testDir]) {
-            const buildSubdir = path.join(base, 'build', uuid);
-            if (fs.existsSync(buildSubdir)) {
+            const buildSubdir = this.resolveInside(base, 'build', uuid);
+            if (buildSubdir && fs.existsSync(buildSubdir)) {
               const files = fs.readdirSync(buildSubdir);
-              if (files.length > 0) {
-                fs.copyFileSync(path.join(buildSubdir, files[0]), outputPath);
+              const first = files.length > 0 ? this.resolveInside(buildSubdir, files[0]) : null;
+              if (first) {
+                fs.copyFileSync(first, outputPath);
                 found = true;
                 break;
               }
