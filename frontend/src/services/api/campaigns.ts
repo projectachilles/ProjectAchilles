@@ -1,5 +1,6 @@
 import { apiClient } from '@/hooks/useAuthenticatedApi';
 import type { NoticeSummary } from '@/types/agent';
+import type { ResultVersionState } from '@/services/api/analytics';
 
 export type CellState =
   | 'waiting_for_notice'
@@ -49,6 +50,16 @@ export interface MatrixCell {
   /** Per-stage results of a multi-stage test (empty otherwise). */
   stages: { label: string; exit_code: number | null; outcome: string }[];
   stages_text: string;
+  /** The test version the cell's task ran. Absent on cells with no task, and from servers without versions. */
+  version?: CellVersion;
+}
+
+export interface CellVersion {
+  /** Full commit the binary was built from; null for a custom test or an unstamped build. */
+  commit: string | null;
+  fingerprint: string | null;
+  /** Compared with the synced library as of the matrix's as_of; absent when the library couldn't be read. */
+  state?: ResultVersionState;
 }
 
 /** The run's notice plus its delivery record. */

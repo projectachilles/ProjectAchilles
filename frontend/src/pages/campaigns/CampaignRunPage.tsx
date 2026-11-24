@@ -6,6 +6,7 @@ import { Button } from '@/components/shared/ui/Button';
 import { Alert } from '@/components/shared/ui/Alert';
 import { Spinner } from '@/components/shared/ui/Spinner';
 import { campaignsApi, type CellState, type RunMatrix, type RunNotice } from '@/services/api/campaigns';
+import { summarizeTestVersion, versionHeader } from './testVersionSummary';
 
 const POLL_MS = 15_000;
 /** Printed columns per block: more than this and the matrix prints in blocks, one per page. */
@@ -46,7 +47,24 @@ const TERMINAL: CellState[] = ['protected', 'prevented', 'detected', 'unprotecte
 const COVERED: CellState[] = ['protected', 'prevented', 'detected'];
 
 type Cell = RunMatrix['cells'][string][string];
-interface Axis { key: string; label: string; sub?: string }
+interface Axis {
+  key: string;
+  label: string;
+  sub?: string;
+  /** A test's version line (muted, under its name) and tooltip. */
+  version?: { text: string; title: string };
+}
+
+/** Header tooltip: the name, then the version when there is one. */
+function axisTitle(a: Axis): string {
+  return a.version ? `${a.label}\n${a.version.title}` : a.label;
+}
+
+/** True when some cell's version was compared with the synced library (not_recorded needs no comparison). */
+function hasVersionComparison(m: RunMatrix): boolean {
+  return Object.values(m.cells).some((row) =>
+    Object.values(row).some((c) => c.version?.state !== undefined && c.version.state !== 'not_recorded'));
+}
 
 /** "covered/conclusive" for a row or column of cells, or "—" when nothing is conclusive. */
 function coverage(cells: (Cell | undefined)[]): string {
@@ -179,7 +197,10 @@ export default function CampaignRunPage() {
 
   // The longer list goes down the side, so the matrix grows downward, not sideways.
   const hostsAsRows = agents.length > tests.length;
-  const testAxis: Axis[] = tests.map((t) => ({ key: t.uuid, label: t.name }));
+  const testAxis: Axis[] = tests.map((t) => {
+    const version = versionHeader(summarizeTestVersion(agents.map((a) => cells[t.uuid]?.[a.id])));
+    return version ? { key: t.uuid, label: t.name, version } : { key: t.uuid, label: t.name };
+  });
   const hostAxis: Axis[] = agents.map((a) => ({ key: a.id, label: a.hostname, sub: a.os }));
   const rows = hostsAsRows ? hostAxis : testAxis;
   const cols = hostsAsRows ? testAxis : hostAxis;
@@ -189,6 +210,10 @@ export default function CampaignRunPage() {
   const edrLine = matrix.edr.status === 'unavailable'
     ? 'EDR results unavailable: outcomes use test exit codes only'
     : matrix.edr.sources.length > 0 ? `EDR results from ${matrix.edr.sources.join(' and ')}` : null;
+  const asOfLocal = new Date(matrix.as_of).toLocaleString();
+  const versionLine = (a: Axis) => a.version && (
+    <span data-testid="test-version" className="block text-xs font-normal text-muted">{a.version.text}</span>
+  );
 
   const table = (blockCols: Axis[], screen: boolean) => (
     <table className="w-full border-separate border-spacing-0 text-sm">
@@ -200,11 +225,12 @@ export default function CampaignRunPage() {
           {blockCols.map((c) => (
             <th
               key={c.key}
-              title={c.label}
+              title={axisTitle(c)}
               className={`min-w-[7rem] max-w-[14rem] border-b border-border bg-surface px-3 py-2 text-left align-bottom font-medium ${screen ? 'sticky top-0 z-20 print:static' : ''}`}
             >
               <span className="line-clamp-3 whitespace-normal">{c.label}</span>
               {c.sub && <span className="block text-xs font-normal text-muted">{c.sub}</span>}
+              {versionLine(c)}
             </th>
           ))}
           <th className={`border-b border-l border-border bg-surface px-3 py-2 text-right font-medium ${screen ? 'sticky top-0 z-20 print:static' : ''}`}>
@@ -219,10 +245,12 @@ export default function CampaignRunPage() {
             <tr key={r.key}>
               <th
                 scope="row"
+                title={r.version ? axisTitle(r) : undefined}
                 className={`border-b border-r border-border bg-background px-3 py-2 text-left font-normal ${screen ? 'sticky left-0 z-10 print:static' : ''}`}
               >
                 {r.label}
                 {r.sub && <span className="ml-2 text-xs text-muted">{r.sub}</span>}
+                {versionLine(r)}
               </th>
               {blockCols.map((c) => {
                 const cell = cellAt(r.key, c.key);
@@ -291,10 +319,15 @@ export default function CampaignRunPage() {
             <dd data-testid="notice-record">{noticeRecordText(notice)}</dd>
           </div>
           <div className="sm:col-span-2">
-            <dd className="inline font-medium">{`As of ${new Date(matrix.as_of).toLocaleString()}`}</dd>
+            <dd className="inline font-medium">{`As of ${asOfLocal}`}</dd>
             {edrLine && (
               <dd data-testid="edr-line" className={`inline ${matrix.edr.status === 'unavailable' ? 'text-warning' : 'text-muted'}`}>
                 {` · ${edrLine}`}
+              </dd>
+            )}
+            {hasVersionComparison(matrix) && (
+              <dd data-testid="version-basis" className="inline text-muted">
+                {` · Version states compare each test with the synced test library as of ${asOfLocal}.`}
               </dd>
             )}
           </div>
