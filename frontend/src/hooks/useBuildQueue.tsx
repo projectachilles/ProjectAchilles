@@ -4,6 +4,7 @@ import { testsApi } from '@/services/api/tests';
 import {
   runBuildQueue,
   type BuildQueueDeps,
+  type BuildQueueEnd,
   type BuildQueueItem,
   type BuildQueueResult,
 } from '@/lib/buildQueue';
@@ -13,6 +14,8 @@ export interface BuildQueueState {
   total: number;
   current: BuildQueueItem | null;
   results: BuildQueueResult[];
+  /** Why the run ended; null unless status is 'done'. */
+  end: BuildQueueEnd | null;
 }
 
 interface BuildQueueContextValue {
@@ -22,7 +25,7 @@ interface BuildQueueContextValue {
   dismiss(): void;
 }
 
-const IDLE: BuildQueueState = { status: 'idle', total: 0, current: null, results: [] };
+const IDLE: BuildQueueState = { status: 'idle', total: 0, current: null, results: [], end: null };
 
 const defaultDeps: BuildQueueDeps = {
   getBuildInfo: (uuid) => testsApi.getBuildInfo(uuid),
@@ -41,13 +44,21 @@ export function BuildQueueProvider({ children, deps = defaultDeps }: { children:
   const depsRef = useRef(deps);
   depsRef.current = deps;
 
-  useEffect(() => () => controllerRef.current?.abort(), []);
+  const mountedRef = useRef(true);
+  useEffect(() => {
+    mountedRef.current = true;
+    return () => {
+      mountedRef.current = false;
+      controllerRef.current?.abort();
+    };
+  }, []);
 
   const active = state.status === 'running' || state.status === 'stopping';
   useEffect(() => {
     if (!active) return;
-    const guard = (e: BeforeUnloadEvent | Event) => {
+    const guard = (e: BeforeUnloadEvent) => {
       e.preventDefault();
+      e.returnValue = '';
     };
     window.addEventListener('beforeunload', guard);
     return () => window.removeEventListener('beforeunload', guard);
@@ -59,7 +70,7 @@ export function BuildQueueProvider({ children, deps = defaultDeps }: { children:
     const controller = new AbortController();
     controllerRef.current = controller;
     stopRef.current = false;
-    const next: BuildQueueState = { status: 'running', total: items.length, current: null, results: [] };
+    const next: BuildQueueState = { status: 'running', total: items.length, current: null, results: [], end: null };
     stateRef.current = next;
     setState(next);
 
@@ -67,15 +78,24 @@ export function BuildQueueProvider({ children, deps = defaultDeps }: { children:
       signal: controller.signal,
       shouldStop: () => stopRef.current,
       onStart: (item) => {
-        if (!controller.signal.aborted) setState((s) => ({ ...s, current: item }));
+        if (mountedRef.current) setState((s) => ({ ...s, current: item }));
       },
       onResult: (result) => {
-        if (!controller.signal.aborted) setState((s) => ({ ...s, results: [...s.results, result] }));
+        if (mountedRef.current) setState((s) => ({ ...s, results: [...s.results, result] }));
       },
-    }).then(() => {
-      if (controller.signal.aborted) return;
-      setState((s) => ({ ...s, status: 'done', current: null }));
-    });
+    })
+      .then((run) => {
+        if (controllerRef.current !== controller) return;
+        // A real unmount aborts without a state update; any other abort must
+        // still end in 'done' so the provider is never stuck in 'running'.
+        if (controller.signal.aborted && !mountedRef.current) return;
+        setState((s) => ({ ...s, status: 'done', current: null, end: run.end }));
+      })
+      .catch((err: unknown) => {
+        console.error('Build queue failed', err);
+        if (controllerRef.current !== controller || !mountedRef.current) return;
+        setState((s) => ({ ...s, status: 'done', current: null, end: 'stopped' }));
+      });
     return true;
   }, []);
 

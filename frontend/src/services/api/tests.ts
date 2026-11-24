@@ -41,12 +41,12 @@ const MAX_CONSECUTIVE_POLL_FAILURES = 5;
 // for a backend restart to finish and report the interrupted build.
 const MAX_BACKOFF_STEPS = 4;
 
-function isTransientPollError(err: unknown): boolean {
+export function isTransientPollError(err: unknown): boolean {
   if (!isAxiosError(err)) return false;
   return !err.response || TRANSIENT_POLL_STATUSES.has(err.response.status);
 }
 
-function isRateLimited(err: unknown): boolean {
+export function isRateLimited(err: unknown): boolean {
   return isAxiosError(err) && err.response?.status === 429;
 }
 
@@ -64,7 +64,7 @@ function abortError(): DOMException {
   return new DOMException('Build polling aborted', 'AbortError');
 }
 
-function sleep(ms: number, signal?: AbortSignal): Promise<void> {
+export function sleep(ms: number, signal?: AbortSignal): Promise<void> {
   return new Promise((resolve, reject) => {
     if (signal?.aborted) {
       reject(abortError());
