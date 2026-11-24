@@ -160,7 +160,7 @@ Some tests use a multi-binary architecture where each validator is a separate em
 3. Validators are embedded into the final orchestrator binary
 4. The entire process runs as a single build operation from the UI
 
-The certificate reaches `build_all.sh` through two variables set for that build only: `F0_SIGN_CERT_PATH` and `F0_SIGN_CERT_PASS_FILE` (a temporary file, deleted after the build).
+The certificate reaches `build_all.sh` through two variables set for that build only: `F0_SIGN_CERT_PATH` and `F0_SIGN_CERT_PASS_FILE` (a temporary file in a private directory outside the test's build folder, deleted after the build).
 
 ## Execution Drawer
 

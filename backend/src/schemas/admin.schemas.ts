@@ -37,14 +37,34 @@ const TargetIndexSchema = z.string()
   .regex(/^achilles-results-[a-z0-9][a-z0-9._-]*$/, 'target_index must be an Achilles results index (achilles-results-…)')
   .optional();
 
+// ── Test id and binary name ──────────────────────────────────────────────────
+
+/**
+ * A test id as the test library writes it: UUID-shaped, any version (library
+ * ids are not all RFC 4122 values, so not z.uuid()). The same pattern the
+ * build service and the test indexer use, so an id that passes here is one a
+ * test can be built under. The id becomes a folder name under the builds
+ * directory and is copied to tasks, agents and result documents.
+ */
+export const TestUuidSchema = z.string()
+  .regex(/^[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}$/i, 'test_uuid must be a test id (UUID)');
+
+/**
+ * A plain file name: it is joined onto the build folder when the build record
+ * names no binary. No path separators, no leading dot (hidden and temporary
+ * files in a build folder are never test binaries).
+ */
+export const BinaryNameSchema = z.string()
+  .regex(/^[A-Za-z0-9_][A-Za-z0-9._-]{0,254}$/, 'binary_name must be a file name');
+
 // ── Create tasks (execute_test) ──────────────────────────────────────────────
 
 export const CreateTaskSchema = z.object({
   org_id: z.string().min(1, 'org_id is required'),
   agent_ids: z.array(z.string()).min(1, 'At least one agent_id is required'),
-  test_uuid: z.string().min(1),
+  test_uuid: TestUuidSchema,
   test_name: z.string().min(1),
-  binary_name: z.string().min(1),
+  binary_name: BinaryNameSchema,
   execution_timeout: z.number().int().positive().optional(),
   arguments: z.array(z.string()).optional(),
   priority: z.number().int().min(0).max(10).optional(),
@@ -154,9 +174,9 @@ export const CreateScheduleSchema = z.object({
   name: z.string().optional(),
   agent_ids: z.array(z.string()).min(1),
   org_id: z.string().min(1, 'org_id is required'),
-  test_uuid: z.string().min(1),
+  test_uuid: TestUuidSchema,
   test_name: z.string().min(1),
-  binary_name: z.string().min(1),
+  binary_name: BinaryNameSchema,
   execution_timeout: z.number().int().positive().optional(),
   priority: z.number().int().min(0).max(10).optional(),
   metadata: TaskTestMetadataSchema,

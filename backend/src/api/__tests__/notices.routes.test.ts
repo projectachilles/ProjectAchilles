@@ -55,7 +55,11 @@ const { IntegrationsSettingsService } = await import('../../services/integration
 
 const HOME = os.homedir();
 const SETTINGS_DIR = path.join(HOME, '.projectachilles');
-const TEST_UUID = 'test-uuid-001';
+// UUID-shaped, as real test ids are: the routes refuse anything else.
+const TEST_UUID = '11111111-1111-4111-8111-111111111111';
+const UUID_A = 'aaaaaaaa-1111-4111-8111-aaaaaaaaaaaa';
+const UUID_B = 'bbbbbbbb-2222-4222-8222-bbbbbbbbbbbb';
+const UUID_MISSING = 'cccccccc-3333-4333-8333-cccccccccccc';
 
 function writeSettings(opts: { smtp?: boolean; notices?: Record<string, unknown> | null } = {}) {
   const { smtp = true, notices = null } = opts;
@@ -525,15 +529,15 @@ describe('POST /api/agent/admin/tasks/batch', () => {
   beforeEach(() => {
     insertTestAgent(testDb, { id: 'agent-001' });
     insertTestAgent(testDb, { id: 'agent-002' });
-    writeBuild('uuid-a');
-    writeBuild('uuid-b');
+    writeBuild(UUID_A);
+    writeBuild(UUID_B);
   });
 
   it('runs every request under one notice and returns task ids in request order', async () => {
     writeSettings({ notices: ENABLED });
     const res = await request(app())
       .post('/api/agent/admin/tasks/batch')
-      .send({ org_id: 'org-001', requests: [req('uuid-a', ['agent-001', 'agent-002']), req('uuid-b')] });
+      .send({ org_id: 'org-001', requests: [req(UUID_A, ['agent-001', 'agent-002']), req(UUID_B)] });
     expect(res.status).toBe(201);
     const ids: string[][] = res.body.data.task_ids;
     expect(ids.map((x) => x.length)).toEqual([2, 1]);
@@ -544,20 +548,20 @@ describe('POST /api/agent/admin/tasks/batch', () => {
     expect(rows).toHaveLength(3);
     expect(rows.every((r) => r.notice_id === ns[0].id)).toBe(true);
     const uuidOf = (id: string) => JSON.parse(rows.find((r) => r.id === id)!.payload).test_uuid;
-    expect(ids[0].map(uuidOf)).toEqual(['uuid-a', 'uuid-a']);
-    expect(ids[1].map(uuidOf)).toEqual(['uuid-b']);
+    expect(ids[0].map(uuidOf)).toEqual([UUID_A, UUID_A]);
+    expect(ids[1].map(uuidOf)).toEqual([UUID_B]);
 
     await vi.waitFor(() => expect(mockSendMail).toHaveBeenCalledTimes(1));
     const html = mockSendMail.mock.calls[0][1].html as string;
-    expect(html).toContain('Test uuid-a');
-    expect(html).toContain('Test uuid-b');
+    expect(html).toContain(`Test ${UUID_A}`);
+    expect(html).toContain(`Test ${UUID_B}`);
   });
 
   it('one failing request rolls back the whole batch: no notice, no tasks', async () => {
     writeSettings({ notices: ENABLED });
     const res = await request(app())
       .post('/api/agent/admin/tasks/batch')
-      .send({ org_id: 'org-001', requests: [req('uuid-a'), req('uuid-missing')] });
+      .send({ org_id: 'org-001', requests: [req(UUID_A), req(UUID_MISSING)] });
     expect(res.status).toBe(404);
     expect(counts()).toEqual({ notices: 0, tasks: 0 });
     await new Promise((r) => setTimeout(r, 0));
@@ -568,7 +572,7 @@ describe('POST /api/agent/admin/tasks/batch', () => {
     writeSettings({ notices: { ...ENABLED, enabled: false } });
     const res = await request(app())
       .post('/api/agent/admin/tasks/batch')
-      .send({ org_id: 'org-001', requests: [req('uuid-a'), req('uuid-missing')] });
+      .send({ org_id: 'org-001', requests: [req(UUID_A), req(UUID_MISSING)] });
     expect(res.status).toBe(404);
     expect(counts()).toEqual({ notices: 0, tasks: 0 });
   });
@@ -577,7 +581,7 @@ describe('POST /api/agent/admin/tasks/batch', () => {
     writeSettings({ notices: { ...ENABLED, enabled: false } });
     const res = await request(app())
       .post('/api/agent/admin/tasks/batch')
-      .send({ org_id: 'org-001', requests: [req('uuid-a'), req('uuid-b')] });
+      .send({ org_id: 'org-001', requests: [req(UUID_A), req(UUID_B)] });
     expect(res.status).toBe(201);
     expect(counts()).toEqual({ notices: 0, tasks: 2 });
   });
@@ -587,11 +591,11 @@ describe('POST /api/agent/admin/tasks/batch', () => {
     expect(empty.status).toBe(400);
     const tooMany = await request(app())
       .post('/api/agent/admin/tasks/batch')
-      .send({ org_id: 'org-001', requests: Array.from({ length: 51 }, () => req('uuid-a')) });
+      .send({ org_id: 'org-001', requests: Array.from({ length: 51 }, () => req(UUID_A)) });
     expect(tooMany.status).toBe(400);
     const bad = await request(app())
       .post('/api/agent/admin/tasks/batch')
-      .send({ org_id: 'org-001', requests: [{ agent_ids: [], test_uuid: 'uuid-a' }] });
+      .send({ org_id: 'org-001', requests: [{ agent_ids: [], test_uuid: UUID_A }] });
     expect(bad.status).toBe(400);
     expect(counts()).toEqual({ notices: 0, tasks: 0 });
   });
@@ -600,7 +604,7 @@ describe('POST /api/agent/admin/tasks/batch', () => {
     deniedPermissions.add('endpoints:tasks:create');
     const res = await request(app())
       .post('/api/agent/admin/tasks/batch')
-      .send({ org_id: 'org-001', requests: [req('uuid-a')] });
+      .send({ org_id: 'org-001', requests: [req(UUID_A)] });
     expect(res.status).toBe(403);
   });
 });

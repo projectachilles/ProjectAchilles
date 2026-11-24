@@ -76,7 +76,8 @@ const { processSchedules } = await import('../../services/agent/schedules.servic
 const HOME = os.homedir();
 const SETTINGS_DIR = path.join(HOME, '.projectachilles');
 const SETTINGS_FILE = path.join(SETTINGS_DIR, 'integrations.json');
-const TEST_UUID = 'test-uuid-001';
+// UUID-shaped, as real test ids are: the routes refuse anything else.
+const TEST_UUID = '11111111-1111-4111-8111-111111111111';
 const MIN = 60_000;
 
 const ORG_A = 'org_A';

@@ -135,6 +135,24 @@ vi.mock('child_process', async () => {
   };
 });
 
+// Signing passwords go through writePrivateTempFile (its own test uses real
+// files). Here it is a recorder: what was written, where, and whether the
+// build removed it again.
+const privateTemp = {
+  entries: [] as Array<{ content: string; path: string; removed: boolean }>,
+};
+vi.mock('../privateTempFile.js', () => ({
+  writePrivateTempFile: (content: string) => {
+    const entry = {
+      content,
+      path: `/private-tmp/achilles-secret-${privateTemp.entries.length + 1}/secret`,
+      removed: false,
+    };
+    privateTemp.entries.push(entry);
+    return { path: entry.path, remove: () => { entry.removed = true; } };
+  },
+}));
+
 const { BuildService, BuildError, BuildSupersededError } = await import('../buildService.js');
 const { deriveStatus } = await import('../../browser/testVersionStatus.js');
 type TestsSettingsService = import('../settings.js').TestsSettingsService;
@@ -184,6 +202,7 @@ describe('BuildService', () => {
     vi.clearAllMocks();
     markerStore.enabled = true;
     markerStore.files.clear();
+    privateTemp.entries = [];
     service = createService();
     mockExistsSync.mockReturnValue(false);
     mockExecFileAsync.mockResolvedValue({ stdout: '', stderr: '' });
@@ -1191,6 +1210,65 @@ var data string
       expect(mockCopyFileSync).toHaveBeenCalled();
     });
 
+    describe('the signing password handed to build_all.sh', () => {
+      const withCert = () => new BuildService(createMockSettingsService({
+        getActiveCertPfxPath: vi.fn().mockReturnValue({ pfxPath: '/certs/cert.pfx', password: 'cert-pass' }),
+      }), TESTS_SOURCE);
+
+      beforeEach(() => {
+        mockExistsSync.mockImplementation((p: string) => {
+          if (p === testDir) return true;
+          if (p === `${testDir}/build_all.sh`) return true;
+          if (p === `/build/${VALID_UUID}/${VALID_UUID}.exe`) return true;
+          return false;
+        });
+        mockStatSync.mockImplementation((p: string) => {
+          if (p === testDir) return { isDirectory: () => true };
+          return { size: 4096 };
+        });
+        mockReadFileSync.mockReturnValue('SCRIPT_DIR="$(dirname "${BASH_SOURCE[0]}")"');
+      });
+
+      const bashEnv = (): Record<string, string> => {
+        const call = mockExecFileAsync.mock.calls.find(c => c[0] === 'bash')!;
+        return (call[2] as { env: Record<string, string> }).env;
+      };
+
+      it('is in a private temp file outside the build folder, removed when the script ends', async () => {
+        let removedWhileRunning: boolean | undefined;
+        mockExecFileAsync.mockImplementation(async (cmd: string) => {
+          if (cmd === 'bash') removedWhileRunning = privateTemp.entries[0]?.removed;
+          return { stdout: '', stderr: '' };
+        });
+
+        await withCert().buildAndSign(VALID_UUID);
+
+        const scriptPass = privateTemp.entries[0];
+        expect(scriptPass.content).toBe('cert-pass');
+        expect(bashEnv().F0_SIGN_CERT_PATH).toBe('/certs/cert.pfx');
+        expect(bashEnv().F0_SIGN_CERT_PASS_FILE).toBe(scriptPass.path);
+        expect(scriptPass.path.startsWith(BUILDS_DIR)).toBe(false);
+        expect(removedWhileRunning).toBe(false);
+        expect(privateTemp.entries.every(e => e.removed)).toBe(true);
+        const passwordWrites = mockWriteFileSync.mock.calls.filter(
+          (call) => String(call[1]).includes('cert-pass') || /\.tmp-(inner-)?pass/.test(String(call[0])),
+        );
+        expect(passwordWrites).toEqual([]);
+      });
+
+      it('is removed when the script fails', async () => {
+        mockExecFileAsync.mockImplementation(async (cmd: string) => {
+          if (cmd === 'bash') throw new Error('build_all.sh failed');
+          return { stdout: '', stderr: '' };
+        });
+
+        await expect(withCert().buildAndSign(VALID_UUID)).rejects.toThrow();
+
+        expect(privateTemp.entries).toHaveLength(1);
+        expect(privateTemp.entries[0].removed).toBe(true);
+      });
+    });
+
     it('does not hand the backend secrets in its environment to build_all.sh', async () => {
       const secrets = {
         CLERK_SECRET_KEY: 'sk_test_placeholder',
@@ -1459,7 +1537,7 @@ var data string
       ]));
     });
 
-    it('passes password via temp file (security pattern)', async () => {
+    it('hands the password to osslsigncode in a private temp file, never in the build folder', async () => {
       setupStandardBuild();
 
       const certService = createMockSettingsService({
@@ -1472,19 +1550,38 @@ var data string
 
       await svc.buildAndSign(VALID_UUID);
 
-      // Check that password was written to a temp file
-      const passWrite = mockWriteFileSync.mock.calls.find(
-        (call) => typeof call[0] === 'string' && call[0].endsWith('.tmp-pass'),
-      );
-      expect(passWrite).toBeDefined();
-      expect(passWrite![1]).toBe('cert-pass');
-      expect(passWrite![2]).toEqual({ mode: 0o600 });
+      // One private file with the password, removed after signing.
+      expect(privateTemp.entries).toEqual([
+        { content: 'cert-pass', path: expect.stringMatching(/^\/private-tmp\//), removed: true },
+      ]);
+      const signCall = mockExecFileAsync.mock.calls.find(c => c[0] === 'osslsigncode')!;
+      const readpass = signCall[1][signCall[1].indexOf('-readpass') + 1];
+      expect(readpass).toBe(privateTemp.entries[0].path);
+      expect(readpass.startsWith(BUILDS_DIR)).toBe(false);
 
-      // Temp file should be cleaned up
-      const passUnlink = mockUnlinkSync.mock.calls.find(
-        (call) => typeof call[0] === 'string' && call[0].endsWith('.tmp-pass'),
+      // The agent download route serves from the build folder: the password
+      // is never written anywhere under it (or anywhere else by the service).
+      const passwordWrites = mockWriteFileSync.mock.calls.filter(
+        (call) => String(call[1]).includes('cert-pass') || /\.tmp-(inner-)?pass/.test(String(call[0])),
       );
-      expect(passUnlink).toBeDefined();
+      expect(passwordWrites).toEqual([]);
+    });
+
+    it('removes the password file when signing fails', async () => {
+      setupStandardBuild();
+      const svc = new BuildService(createMockSettingsService({
+        getActiveCertPfxPath: vi.fn().mockReturnValue({ pfxPath: '/certs/cert.pfx', password: 'cert-pass' }),
+      }), TESTS_SOURCE);
+      mockExecFileAsync.mockImplementation(async (cmd: string) => {
+        if (cmd === 'osslsigncode') throw new Error('signing failed');
+        return { stdout: '', stderr: '' };
+      });
+
+      const result = await svc.buildAndSign(VALID_UUID);
+
+      expect(result.signed).toBe(false);
+      expect(privateTemp.entries).toHaveLength(1);
+      expect(privateTemp.entries[0].removed).toBe(true);
     });
 
     it('continues with unsigned binary when signing fails', async () => {
@@ -2749,6 +2846,7 @@ var data string
           expect(String(files.get(marker))).toBe(FOREIGN);
           // build_all.sh temp files are still cleaned up.
           expect([...files.keys()].filter(f => /\.build-patched\.sh$|\.tmp-inner-pass$/.test(f))).toEqual([]);
+          expect(privateTemp.entries.every(e => e.removed)).toBe(true);
           expect(warn).not.toHaveBeenCalled();
         });
 
@@ -2799,6 +2897,8 @@ var data string
           expect(String(files.get(outputPath))).toBe('orchestrator');
           expect(files.has(`${outputPath}.signed`)).toBe(false);
           expect(files.has(`${BUILDS_DIR}/${VALID_UUID}/.tmp-pass`)).toBe(false);
+          expect(privateTemp.entries.length).toBeGreaterThan(0);
+          expect(privateTemp.entries.every(e => e.removed)).toBe(true);
           expect(files.has(metaPath)).toBe(false);
           expect(String(files.get(marker))).toBe(FOREIGN);
         });
