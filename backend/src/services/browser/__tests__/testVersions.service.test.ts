@@ -583,6 +583,40 @@ describe('TestVersionsService', () => {
         expect(headReads()).toBe(2);
       });
 
+      it('current() reads HEAD live: a HEAD change within 5 s shows in its commit and fingerprint', async () => {
+        clockAt0();
+        const svc = makeService();
+        const before = await svc.current(UUID_A);
+        fake.commitInfo.mockImplementation(async (ref: string) =>
+          ref === 'HEAD' ? { hash: 'newhead', date: COMMIT.date } : REMOTE);
+        fake.listTree.mockImplementation(async (ref: string) =>
+          ref === 'HEAD' ? treeFor(UUID_A, 'h9') : []);
+        const after = await svc.current(UUID_A);
+        expect(before?.identity.commit).toBe('c0ffee');
+        expect(after?.identity.commit).toBe('newhead');
+        expect(after?.identity.fingerprint).not.toBe(before?.identity.fingerprint);
+      });
+
+      it('a synced() just before current() does not make current() return the stale commit', async () => {
+        clockAt0();
+        const svc = makeService();
+        await svc.synced();
+        fake.commitInfo.mockImplementation(async (ref: string) =>
+          ref === 'HEAD' ? { hash: 'newhead', date: COMMIT.date } : REMOTE);
+        const cur = await svc.current(UUID_A);
+        expect(cur?.identity.commit).toBe('newhead');
+      });
+
+      it('after current() saw a new HEAD, synced() returns identities for it', async () => {
+        clockAt0();
+        const svc = makeService();
+        await svc.synced();
+        fake.commitInfo.mockImplementation(async (ref: string) =>
+          ref === 'HEAD' ? { hash: 'newhead', date: COMMIT.date } : REMOTE);
+        await svc.current(UUID_A);
+        expect((await svc.synced()).get(UUID_A)?.commit).toBe('newhead');
+      });
+
       it('does not cache a failed read', async () => {
         clockAt0();
         const svc = makeService();

@@ -51,7 +51,12 @@ export class CheckBusyError extends Error {
 const UUID_PATTERN = /^[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}$/i;
 const FIRST_CHECK_MS = 2 * 60_000;
 const DISK_CACHE_MS = 30_000;
-/** How long a read of the library HEAD commit is reused (a listing reads it on every request). */
+/**
+ * How long a read of the library HEAD commit is reused by synced() (a listing
+ * reads it on every request). current(), the source of a build's version
+ * stamp, is excluded: it always reads HEAD live, because a sync landing during
+ * a build must change the identity and void the stamp.
+ */
 const HEAD_CACHE_MS = 5000;
 const MIN_TIMED_GAP_MS = 10 * 60_000;
 const CHECK_INTERVAL_MS = 6 * 60 * 60_000;
@@ -154,6 +159,7 @@ export class TestVersionsService implements BuildVersionSource {
    */
   private async gitIdentities(
     tests: ReturnType<TestVersionsOptions['listTests']>,
+    fresh = false,
   ): Promise<{ ids: Map<string, TestVersionIdentity>; commit: { hash: string; date: string } | null; error?: unknown }> {
     const none = { ids: new Map<string, TestVersionIdentity>(), commit: null };
     if (!this.gitSync) return none;
@@ -167,7 +173,7 @@ export class TestVersionsService implements BuildVersionSource {
       return none;
     }
     try {
-      const commit = await this.headCommit(this.gitSync);
+      const commit = await this.headCommit(this.gitSync, fresh);
       if (!(this.gitCache && this.gitCache.commit.hash === commit.hash)) {
         const entries = await this.gitSync.listTree('HEAD');
         this.gitCache = { commit, ids: identitiesFromTree(entries, gitTests, commit) };
@@ -185,10 +191,13 @@ export class TestVersionsService implements BuildVersionSource {
     }
   }
 
-  /** HEAD's commit, reused for HEAD_CACHE_MS; a failed read is never cached. */
-  private async headCommit(git: GitSyncService): Promise<{ hash: string; date: string }> {
+  /**
+   * HEAD's commit, reused for HEAD_CACHE_MS; a failed read is never cached.
+   * `fresh` reads live and never uses the cache, but refreshes it.
+   */
+  private async headCommit(git: GitSyncService, fresh: boolean): Promise<{ hash: string; date: string }> {
     const now = Date.now();
-    if (this.headCache && now - this.headCache.at < HEAD_CACHE_MS) return this.headCache.commit;
+    if (!fresh && this.headCache && now - this.headCache.at < HEAD_CACHE_MS) return this.headCache.commit;
     const commit = await git.commitInfo('HEAD');
     this.headCache = { at: now, commit };
     return commit;
@@ -301,7 +310,7 @@ export class TestVersionsService implements BuildVersionSource {
       // From the folder: the identity already is the current state.
       return { identity: this.diskIdentity(uuid, test.dir, test.provenance), modified: false };
     }
-    const { ids, error } = await this.gitIdentities(tests);
+    const { ids, error } = await this.gitIdentities(tests, true);
     if (error !== undefined) throw error;
     const identity = ids.get(uuid);
     if (!identity) return null;
