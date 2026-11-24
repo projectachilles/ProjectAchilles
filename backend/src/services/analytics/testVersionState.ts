@@ -6,7 +6,7 @@
 import type { estypes } from '@elastic/elasticsearch';
 import type { EnrichedTestExecution } from '../../types/analytics.js';
 import type { ResultVersionState } from '../../types/testVersion.js';
-import { resultVersionState } from '../browser/testVersionStatus.js';
+import { resultStateForTest } from '../browser/testVersionStatus.js';
 
 export const RESULT_VERSION_STATES: readonly ResultVersionState[] = ['current', 'older', 'unknown', 'not_recorded'];
 
@@ -66,17 +66,7 @@ export function documentVersion(source: Source, current: Map<string, string> | u
     : undefined;
   if (!current) return test_version ? { test_version } : {};
 
-  let version_state: ResultVersionState;
-  if (!test_version) {
-    version_state = 'not_recorded';
-  } else {
-    const fingerprint = current.get(documentTestUuid(source));
-    // A test missing from the map (removed, or its identity unreadable now) is
-    // unknown, never older.
-    version_state = fingerprint === undefined
-      ? 'unknown'
-      : resultVersionState({ built_at: builtAt!, build_source: 'built', fingerprint: test_version.fingerprint }, fingerprint);
-  }
+  const version_state = resultStateForTest(test_version, documentTestUuid(source), current);
   return test_version ? { test_version, version_state } : { version_state };
 }
 
