@@ -4,6 +4,7 @@ import type { BuildInfo, EmbedDependency } from '@/types/test';
 import {
   runBuildQueue,
   PRECHECK_MAX_ATTEMPTS,
+  STOP_POLL_MS,
   SKIP_UPLOADED,
   skipMissingFile,
   type BuildQueueDeps,
@@ -21,6 +22,21 @@ const dep = (over: Partial<EmbedDependency> = {}): EmbedDependency => ({
 const httpError = (status?: number, data?: unknown) =>
   new AxiosError('http', undefined, undefined, undefined,
     status ? ({ status, data, statusText: '', headers: {}, config: {} } as never) : undefined);
+/**
+ * Wraps getBuildInfo so each call opens a new "attempt" bucket; the recording
+ * sleep adds the slice to the bucket of the attempt that preceded it.
+ */
+function recorder(impl: BuildQueueDeps['getBuildInfo']) {
+  const totals: number[] = [];
+  const getBuildInfo = vi.fn<BuildQueueDeps['getBuildInfo']>(async (u) => {
+    totals.push(0);
+    return impl(u);
+  });
+  const sleep = vi.fn(async (ms: number) => {
+    totals[totals.length - 1] += ms;
+  });
+  return { totals, getBuildInfo, sleep };
+}
 const items = (n: number): BuildQueueItem[] =>
   Array.from({ length: n }, (_, i) => ({ uuid: `u${i + 1}`, name: `Test ${i + 1}` }));
 
@@ -153,25 +169,29 @@ describe('runBuildQueue', () => {
 
   describe('pre-check outage handling', () => {
     it('waits with doubling backoff on a transient error, then builds', async () => {
-      const getBuildInfo = vi
-        .fn<BuildQueueDeps['getBuildInfo']>()
-        .mockRejectedValueOnce(httpError(503))
-        .mockRejectedValueOnce(httpError())
-        .mockResolvedValue(info());
-      const sleep = vi.fn(async () => {});
+      let n = 0;
+      const { totals, getBuildInfo, sleep } = recorder(async () => {
+        n += 1;
+        if (n === 1) throw httpError(503);
+        if (n === 2) throw httpError();
+        return info();
+      });
       const { results, end } = await runBuildQueue(items(1), makeDeps({ getBuildInfo }), { sleep });
       expect(results[0].outcome).toBe('built');
       expect(end).toBe('completed');
-      expect(sleep.mock.calls.map((c) => (c as unknown[])[0])).toEqual([2000, 4000]);
+      expect(totals.slice(0, 2)).toEqual([2000, 4000]);
+      expect(Math.max(...sleep.mock.calls.map((c) => c[0]))).toBeLessThanOrEqual(STOP_POLL_MS);
     });
 
-    it('caps the wait at 60 s', async () => {
-      const getBuildInfo = vi.fn<BuildQueueDeps['getBuildInfo']>();
-      for (let i = 0; i < 7; i++) getBuildInfo.mockRejectedValueOnce(httpError(502));
-      getBuildInfo.mockResolvedValue(info());
-      const sleep = vi.fn(async () => {});
+    it('caps the wait at 60 s per attempt', async () => {
+      let n = 0;
+      const { totals, getBuildInfo, sleep } = recorder(async () => {
+        n += 1;
+        if (n <= 7) throw httpError(502);
+        return info();
+      });
       await runBuildQueue(items(1), makeDeps({ getBuildInfo }), { sleep });
-      expect(sleep.mock.calls.map((c) => (c as unknown[])[0])).toEqual([2000, 4000, 8000, 16000, 32000, 60000, 60000]);
+      expect(totals.slice(0, 7)).toEqual([2000, 4000, 8000, 16000, 32000, 60000, 60000]);
     });
 
     it('retries a 429 without limit', async () => {
@@ -258,6 +278,76 @@ describe('runBuildQueue', () => {
       expect(end).toBe('stopped');
       expect(results).toEqual([]);
       expect(deps.buildTest).not.toHaveBeenCalled();
+    });
+  });
+
+  describe('Stop and counting during waits', () => {
+    it('Stop is honoured between 1 s slices of a 60 s wait', async () => {
+      let stop = false;
+      let n = 0;
+      let slicesInLastWait = 0;
+      const getBuildInfo = vi.fn<BuildQueueDeps['getBuildInfo']>(async () => {
+        n += 1;
+        slicesInLastWait = 0;
+        throw httpError(n <= 6 ? 503 : 429);
+      });
+      const sleep = vi.fn(async () => {
+        // waits 1-6 are short; the 7th (60 s) is the one Stop interrupts
+        if (n >= 7) {
+          slicesInLastWait += 1;
+          if (slicesInLastWait === 3) stop = true;
+        }
+      });
+      const deps = makeDeps({ getBuildInfo });
+      const { results, end } = await runBuildQueue(items(2), deps, { sleep, shouldStop: () => stop });
+      expect(end).toBe('stopped');
+      expect(results).toEqual([]);
+      expect(slicesInLastWait).toBe(3);
+      expect(sleep.mock.calls.slice(-3).map((c) => (c as unknown[])[0])).toEqual([1000, 1000, 1000]);
+      expect(n).toBe(7);
+      expect(deps.buildTest).not.toHaveBeenCalled();
+    });
+
+    it('a 429 storm ends when Stop is pressed instead of looping forever', async () => {
+      let stop = false;
+      let n = 0;
+      const sleep = vi.fn(async () => {
+        n += 1;
+        if (n >= 200) stop = true;
+      });
+      const getBuildInfo = vi.fn<BuildQueueDeps['getBuildInfo']>().mockRejectedValue(httpError(429));
+      const { end, results } = await runBuildQueue(items(1), makeDeps({ getBuildInfo }), { sleep, shouldStop: () => stop });
+      expect(end).toBe('stopped');
+      expect(results).toEqual([]);
+    });
+
+    it('a 429 resets the consecutive-failure count', async () => {
+      const getBuildInfo = vi.fn<BuildQueueDeps['getBuildInfo']>();
+      for (let i = 0; i < 7; i++) getBuildInfo.mockRejectedValueOnce(httpError(503));
+      getBuildInfo.mockRejectedValueOnce(httpError(429)).mockRejectedValueOnce(httpError(503)).mockResolvedValue(info());
+      const { end, results } = await runBuildQueue(items(1), makeDeps({ getBuildInfo }), { sleep: async () => {} });
+      expect(end).toBe('completed');
+      expect(results[0].outcome).toBe('built');
+    });
+
+    it('Stop pressed as the 8th transient failure lands ends stopped, not unreachable', async () => {
+      let stop = false;
+      let calls = 0;
+      const getBuildInfo = vi.fn<BuildQueueDeps['getBuildInfo']>(async () => {
+        calls += 1;
+        if (calls === PRECHECK_MAX_ATTEMPTS) stop = true;
+        throw httpError(503);
+      });
+      const { end } = await runBuildQueue(items(1), makeDeps({ getBuildInfo }), { sleep: async () => {}, shouldStop: () => stop });
+      expect(end).toBe('stopped');
+    });
+
+    it('a sleep rejection that is not an abort propagates', async () => {
+      const getBuildInfo = vi.fn<BuildQueueDeps['getBuildInfo']>().mockRejectedValue(httpError(503));
+      const sleep = vi.fn(async () => {
+        throw new Error('timer broke');
+      });
+      await expect(runBuildQueue(items(1), makeDeps({ getBuildInfo }), { sleep })).rejects.toThrow('timer broke');
     });
   });
 });

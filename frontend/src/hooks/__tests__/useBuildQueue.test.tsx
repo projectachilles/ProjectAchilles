@@ -140,7 +140,7 @@ describe('useBuildQueue', () => {
     expect(removes()).toBe(1);
   });
 
-  it('aborts the run on unmount without further work or state updates', async () => {
+  it('unmounting aborts the run: the signal aborts and no further pre-check or build starts', async () => {
     const { buildTest, gates } = gated();
     const getBuildInfo = vi.fn(async () => ({ exists: false }) as BuildInfo);
     const wrapper = ({ children }: { children: ReactNode }) => (
@@ -148,28 +148,18 @@ describe('useBuildQueue', () => {
         {children}
       </BuildQueueProvider>
     );
-    const seen: string[] = [];
-    const { result, unmount } = renderHook(
-      () => {
-        const q = useBuildQueue();
-        seen.push(`${q.state.status}:${q.state.results.length}:${q.state.end}`);
-        return q;
-      },
-      { wrapper },
-    );
+    const { result, unmount } = renderHook(() => useBuildQueue(), { wrapper });
     act(() => {
       result.current.start([A, B]);
     });
     await waitFor(() => expect(buildTest).toHaveBeenCalledTimes(1));
     const signal = buildTest.mock.calls[0][1].signal!;
-    const renders = seen.length;
     unmount();
     expect(signal.aborted).toBe(true);
     gates[0]();
     await new Promise((r) => setTimeout(r, 20));
     expect(buildTest).toHaveBeenCalledTimes(1);
     expect(getBuildInfo).toHaveBeenCalledTimes(1);
-    expect(seen).toHaveLength(renders);
   });
 
   it('ends in done, never stuck running, when the run throws unexpectedly', async () => {

@@ -29,6 +29,8 @@ export const skipMissingFile = (names: string[]) => `Needs a file uploaded first
 export const PRECHECK_RETRY_BASE_MS = 2_000;
 export const PRECHECK_RETRY_MAX_MS = 60_000;
 export const PRECHECK_MAX_ATTEMPTS = 8;
+/** A backoff wait is cut into slices of at most this long, so Stop is noticed within it. */
+export const STOP_POLL_MS = 1_000;
 
 function errorMessage(err: unknown): string {
   const msg = err instanceof Error ? err.message : 'Build failed';
@@ -54,6 +56,16 @@ class HaltRun extends Error {
   }
 }
 
+// A failure of the runner's own machinery (not of an API call): not the item's
+// fault, so it propagates out of runBuildQueue instead of being recorded.
+class RunnerFault extends Error {
+  readonly cause: unknown;
+  constructor(cause: unknown) {
+    super('Build queue fault');
+    this.cause = cause;
+  }
+}
+
 /**
  * Runs a pre-check, waiting out a transient outage. A 429 retries without
  * limit and is not an attempt; other transient errors give up after
@@ -69,18 +81,25 @@ async function withRetry<T>(call: () => Promise<T>, opts: RunOpts): Promise<T> {
     } catch (err) {
       if (opts.signal?.aborted) throw new HaltRun('aborted');
       if (!isTransientPollError(err)) throw err;
-      if (!isRateLimited(err)) {
+      if (opts.shouldStop?.()) throw new HaltRun('stopped');
+      if (isRateLimited(err)) {
+        // The server is answering: it is busy, not away.
+        attempts = 0;
+      } else {
         attempts += 1;
         if (attempts >= PRECHECK_MAX_ATTEMPTS) throw new HaltRun('unreachable');
       }
     }
-    if (opts.shouldStop?.()) throw new HaltRun('stopped');
-    try {
-      await sleep(delay, opts.signal);
-    } catch {
-      throw new HaltRun('aborted');
+    for (let waited = 0; waited < delay; waited += STOP_POLL_MS) {
+      if (opts.shouldStop?.()) throw new HaltRun('stopped');
+      try {
+        await sleep(Math.min(STOP_POLL_MS, delay - waited), opts.signal);
+      } catch (err) {
+        if (opts.signal?.aborted) throw new HaltRun('aborted');
+        throw new RunnerFault(err);
+      }
+      if (opts.signal?.aborted) throw new HaltRun('aborted');
     }
-    if (opts.signal?.aborted) throw new HaltRun('aborted');
     if (opts.shouldStop?.()) throw new HaltRun('stopped');
     delay = Math.min(delay * 2, PRECHECK_RETRY_MAX_MS);
   }
@@ -126,6 +145,7 @@ export async function runBuildQueue(
       }
     } catch (err) {
       if (err instanceof HaltRun) return { results, end: err.end };
+      if (err instanceof RunnerFault) throw err.cause;
       if (signal?.aborted) return { results, end: 'aborted' };
       result = { ...item, outcome: 'failed', reason: errorMessage(err) };
     }
