@@ -314,6 +314,8 @@ The clone records `original_task_id` (the first task in the chain) and
 | `POST` | `/versions/build` | `endpoints:versions:create` | Builds from source. Body: `version`, `os`, `arch`. `501` when the agent source is not available |
 | `DELETE` | `/versions/:version/:os/:arch` | `endpoints:versions:delete` | Removes a version |
 
+`release_notes` on both routes is free text, with one reserved form: notes that start with `Built from source` are a `400`. The server writes that line for versions it builds, and the console shows it as the version's source commit.
+
 The four write routes are install-wide (see [Organization scope](#organization-scope)).
 Registering or uploading returns `422` when the version does not equal the version built into the binary,
 or when signing fails.
