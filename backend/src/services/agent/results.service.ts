@@ -3,6 +3,7 @@
 
 import type { Client } from '@elastic/elasticsearch';
 import type { Task, TaskResult } from '../../types/agent.js';
+import type { TaskTestVersion } from '../../types/testVersion.js';
 import type { AnalyticsSettings } from '../../types/analytics.js';
 import { ERROR_CODE_MAP } from '../analytics/elasticsearch.js';
 import { SettingsService } from '../analytics/settings.js';
@@ -142,6 +143,32 @@ async function prepareWrite(task: Task, timestamp: string | undefined): Promise<
   return { client, index };
 }
 
+const VERSION_TEXT_MAX = 128;
+const isDateString = (v: unknown): v is string => typeof v === 'string' && v !== '' && !Number.isNaN(Date.parse(v));
+const isShortString = (v: unknown): v is string =>
+  typeof v === 'string' && v !== '' && v.length <= VERSION_TEXT_MAX;
+
+/**
+ * `f0rtika.test_version` for a task's documents: the one place the three
+ * ingestion paths (standard, EDR-terminated, bundle fan-out) get it from.
+ * The task payload is validated first, because Elasticsearch rejects a whole
+ * document whose date field does not parse, and that would lose the result.
+ * A task without a usable stamp (created before versions, or malformed)
+ * yields no key at all, never null or an empty object.
+ */
+export function testVersionField(
+  task: Task,
+): { test_version: Partial<TaskTestVersion> } | Record<string, never> {
+  const v = task.payload.test_version as Partial<Record<keyof TaskTestVersion, unknown>> | null | undefined;
+  if (!v || typeof v !== 'object' || !isDateString(v.built_at)) return {};
+  const out: Partial<TaskTestVersion> = { built_at: v.built_at };
+  if (v.build_source === 'built' || v.build_source === 'uploaded') out.build_source = v.build_source;
+  if (isShortString(v.commit)) out.commit = v.commit;
+  if (isDateString(v.commit_date)) out.commit_date = v.commit_date;
+  if (isShortString(v.fingerprint)) out.fingerprint = v.fingerprint;
+  return { test_version: out };
+}
+
 /** Standard whole-test document; shared by `ingestResult` and `ingestEdrTerminatedResult`. */
 function buildStandardDoc(task: Task, eventTime: string | undefined, hostname: string | undefined, rawExitCode: number) {
   const exitCode = sanitizeExitCode(rawExitCode);
@@ -170,6 +197,7 @@ function buildStandardDoc(task: Task, eventTime: string | undefined, hostname: s
       complexity: task.payload.metadata?.complexity,
       tags: task.payload.metadata?.tags,
       score: task.payload.metadata?.score,
+      ...testVersionField(task),
     },
   };
 }
@@ -202,6 +230,7 @@ export async function ingestResult(task: Task, result: TaskResult): Promise<void
   // Standard single-document path (unchanged)
   const doc = buildStandardDoc(task, result.completed_at, result.hostname, result.exit_code);
 
+  await ensureTestVersionMapping(client, index, task);
   await client.index({ index, id: task.id, document: doc });
 }
 
@@ -211,22 +240,39 @@ const EDR_TERMINATED_FIELDS = [
   'edr_terminated_alert_ids',
   'stages_unknown',
 ] as const;
+const TEST_VERSION_FIELDS = ['test_version'] as const;
 
 /**
- * Indices created before these fields existed would dynamically map the
- * vendor/alert-id arrays as text. Add the canonical definitions once per
- * process per index; additive and idempotent, so failure is non-fatal.
+ * Indices created before these fields existed would map them dynamically
+ * (arrays as text, `commit` as text + .keyword). Add the canonical definitions
+ * of just these fields once per process per index; additive and idempotent,
+ * so failure is non-fatal.
  */
-async function ensureEdrTerminatedMapping(client: Client, index: string): Promise<void> {
-  if (edrMappedIndices.has(index)) return;
-  const all = RESULTS_INDEX_MAPPING.mappings.properties.f0rtika.properties;
-  const properties = Object.fromEntries(EDR_TERMINATED_FIELDS.map((k) => [k, all[k]]));
+async function ensureResultsFieldMappings(
+  client: Client,
+  index: string,
+  fields: readonly (keyof typeof RESULTS_INDEX_MAPPING.mappings.properties.f0rtika.properties)[],
+): Promise<void> {
+  const key = `${index}|${fields.join(',')}`;
+  if (edrMappedIndices.has(key)) return;
   try {
+    const all = RESULTS_INDEX_MAPPING.mappings.properties.f0rtika.properties;
+    const properties = Object.fromEntries(fields.map((k) => [k, all[k]]));
     await client.indices.putMapping({ index, properties: { f0rtika: { properties } } });
-    edrMappedIndices.add(index);
+    edrMappedIndices.add(key);
   } catch (err) {
     console.warn(`[Results] putMapping failed for ${index}: ${err instanceof Error ? err.message : String(err)}`);
   }
+}
+
+/**
+ * Make sure the version fields have their canonical mapping before a document
+ * carrying them is written. `createResultsIndex` does it for generated
+ * `achilles-results-*` indices, but not for an explicit target_index, a custom
+ * prefix, or a key that may not create indices (403 tolerated).
+ */
+async function ensureTestVersionMapping(client: Client, index: string, task: Task): Promise<void> {
+  if ('test_version' in testVersionField(task)) await ensureResultsFieldMappings(client, index, TEST_VERSION_FIELDS);
 }
 
 /**
@@ -253,7 +299,8 @@ export async function ingestEdrTerminatedResult(
     edr_terminated_alert_ids: t.alert_ids,
     stages_unknown: true,
   };
-  await ensureEdrTerminatedMapping(client, index);
+  await ensureResultsFieldMappings(client, index, EDR_TERMINATED_FIELDS);
+  await ensureTestVersionMapping(client, index, task);
   await client.index({ index, id: task.id, document: { ...doc, f0rtika } });
 }
 
@@ -349,12 +396,14 @@ async function ingestBundleControls(
           endpoint_context: bundle.endpoint_context,
           ...(control.description ? { control_description: control.description } : {}),
           is_bundle_control: true,
+          ...testVersionField(task),
           ...(tenantLabel ? { tenant_label: tenantLabel } : {}),
         },
       },
     ];
   });
 
+  await ensureTestVersionMapping(client, index, task);
   const response = await client.bulk({ operations });
   if (response?.errors) {
     const failures: string[] = [];

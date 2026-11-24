@@ -15,17 +15,20 @@ vi.mock('../../analytics/settings.js', () => ({
 
 const mockEsIndex = vi.fn();
 const mockEsBulk = vi.fn();
+const mockPutMapping = vi.fn();
 
 vi.mock('../../analytics/client.js', () => ({
   createEsClient: vi.fn(() => ({
     index: mockEsIndex,
     bulk: mockEsBulk,
+    indices: { putMapping: mockPutMapping },
   })),
 }));
 
 const mockCreateResultsIndex = vi.fn();
 
-vi.mock('../../analytics/index-management.service.js', () => ({
+vi.mock('../../analytics/index-management.service.js', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('../../analytics/index-management.service.js')>()),
   createResultsIndex: (...args: unknown[]) => mockCreateResultsIndex(...args),
 }));
 
@@ -146,6 +149,19 @@ function configuredSettings() {
 
 // ── Tests ────────────────────────────────────────────────────────────
 
+const TEST_VERSION = {
+  commit: 'a'.repeat(40),
+  commit_date: '2026-11-01T10:00:00Z',
+  fingerprint: 'f'.repeat(64),
+  built_at: '2026-11-20T08:30:00.000Z',
+  build_source: 'built' as const,
+};
+
+function versionedTask(tv: unknown = TEST_VERSION, overrides: Partial<Task> = {}): Task {
+  const base = makeTask(overrides);
+  return { ...base, payload: { ...base.payload, test_version: tv } } as Task;
+}
+
 describe('results.service', () => {
   beforeEach(() => {
     vi.clearAllMocks();
@@ -155,6 +171,7 @@ describe('results.service', () => {
     mockEsIndex.mockResolvedValue({});
     mockEsBulk.mockResolvedValue({});
     mockCreateResultsIndex.mockResolvedValue({ created: true, message: 'ok' });
+    mockPutMapping.mockResolvedValue({});
   });
 
   // ── Group 1: Client Initialization ─────────────────────────
@@ -564,6 +581,88 @@ describe('results.service', () => {
 });
 
 // ── No-rollover ingestion (the default) ──────────────────────────────────────
+
+describe('test version on result documents', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    resetClient();
+    mockIsConfigured.mockReturnValue(true);
+    mockGetSettings.mockReturnValue(configuredSettings());
+    mockEsIndex.mockResolvedValue({});
+    mockEsBulk.mockResolvedValue({ errors: false, items: [] });
+    mockCreateResultsIndex.mockResolvedValue({ created: true, message: 'ok' });
+    mockPutMapping.mockResolvedValue({});
+  });
+
+  it('writes test_version on a standalone document', async () => {
+    await ingestResult(versionedTask(), makeResult());
+    expect(mockEsIndex.mock.calls[0][0].document.f0rtika.test_version).toEqual(TEST_VERSION);
+  });
+
+  it('writes the same test_version on every bundle control document', async () => {
+    await ingestResult(versionedTask(), makeResult({ bundle_results: makeBundle() }));
+    const docs = mockEsBulk.mock.calls[0][0].operations.filter((_: unknown, i: number) => i % 2 === 1);
+    expect(docs).toHaveLength(2);
+    for (const d of docs) expect(d.f0rtika.test_version).toEqual(TEST_VERSION);
+  });
+
+  it('leaves test_version out entirely when the task has none', async () => {
+    await ingestResult(makeTask(), makeResult());
+    expect('test_version' in mockEsIndex.mock.calls[0][0].document.f0rtika).toBe(false);
+    await ingestResult(makeTask(), makeResult({ bundle_results: makeBundle() }));
+    const docs = mockEsBulk.mock.calls[0][0].operations.filter((_: unknown, i: number) => i % 2 === 1);
+    for (const d of docs) expect('test_version' in d.f0rtika).toBe(false);
+    expect(mockPutMapping).not.toHaveBeenCalled();
+  });
+
+  it('writes built_at and build_source only for a stamp without a fingerprint', async () => {
+    await ingestResult(
+      versionedTask({ built_at: TEST_VERSION.built_at, build_source: 'uploaded' }),
+      makeResult(),
+    );
+    expect(mockEsIndex.mock.calls[0][0].document.f0rtika.test_version).toEqual({
+      built_at: TEST_VERSION.built_at,
+      build_source: 'uploaded',
+    });
+  });
+
+  it('drops malformed parts so Elasticsearch cannot reject the whole document', async () => {
+    await ingestResult(
+      versionedTask({
+        built_at: TEST_VERSION.built_at, build_source: 'weird', commit: 'x'.repeat(129),
+        commit_date: 'not-a-date', fingerprint: '', extra: 'nope',
+      }),
+      makeResult(),
+    );
+    expect(mockEsIndex.mock.calls[0][0].document.f0rtika.test_version).toEqual({ built_at: TEST_VERSION.built_at });
+  });
+
+  it('omits the whole test_version when built_at is not a date', async () => {
+    await ingestResult(versionedTask({ ...TEST_VERSION, built_at: 'yesterday' }), makeResult());
+    expect('test_version' in mockEsIndex.mock.calls[0][0].document.f0rtika).toBe(false);
+  });
+
+  it('adds the version mapping to an explicit target index before writing, once', async () => {
+    const t = versionedTask(TEST_VERSION, { target_index: 'custom-results' });
+    await ingestResult(t, makeResult());
+    await ingestResult(t, makeResult());
+    expect(mockPutMapping).toHaveBeenCalledTimes(1);
+    const arg = mockPutMapping.mock.calls[0][0];
+    expect(arg.index).toBe('custom-results');
+    expect(Object.keys(arg.properties.f0rtika.properties)).toEqual(['test_version']);
+    expect(arg.properties.f0rtika.properties.test_version.properties.commit).toEqual({ type: 'keyword' });
+    expect(mockPutMapping.mock.invocationCallOrder[0]).toBeLessThan(mockEsIndex.mock.invocationCallOrder[0]);
+  });
+
+  it('still writes the document when putMapping rejects', async () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    mockPutMapping.mockRejectedValue(new Error('boom'));
+    await ingestResult(versionedTask(), makeResult());
+    expect(mockEsIndex).toHaveBeenCalledTimes(1);
+    expect(warn).toHaveBeenCalled();
+    warn.mockRestore();
+  });
+});
 
 describe('ingestResult without rollover', () => {
   function noneSettings() {

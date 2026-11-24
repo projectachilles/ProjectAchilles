@@ -74,6 +74,15 @@ describe('ingestEdrTerminatedResult', () => {
     expect(Object.keys(d.f0rtika).filter((k) => /_(detected|stage_detected|prevented)$/.test(k))).toEqual([]);
   });
 
+  it('carries the test version, and none when the task has none', async () => {
+    const tv = { built_at: '2026-11-20T08:30:00.000Z', build_source: 'built', commit: 'abc1234', fingerprint: 'fp1' };
+    const base = makeTask();
+    await ingestEdrTerminatedResult({ ...base, payload: { ...base.payload, test_version: tv } } as Task, 'LT4862', t, null);
+    expect(mockEsIndex.mock.calls[0][0].document.f0rtika.test_version).toEqual(tv);
+    await ingestEdrTerminatedResult(makeTask(), 'LT4862', t, null);
+    expect('test_version' in mockEsIndex.mock.calls[1][0].document.f0rtika).toBe(false);
+  });
+
   it('sets bundle_id and bundle_name for a multi-stage test', async () => {
     await ingestEdrTerminatedResult(makeTask(), 'LT4862', t, { bundleName: 'LockBit Chain' });
     const d = mockEsIndex.mock.calls[0][0].document;
