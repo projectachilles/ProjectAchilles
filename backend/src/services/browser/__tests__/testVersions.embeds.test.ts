@@ -207,11 +207,14 @@ describe('a real build whose build_all.sh produces an embed classed as external'
     // Compiles a helper, gzips it into the test folder, and leaves the
     // orchestrator where buildAndSign looks for it. `go` is a shell function
     // standing in for the toolchain: every run writes different bytes, as
-    // a signature timestamp or a gzip header would.
+    // a signature timestamp or a gzip header would. The run number comes
+    // from a counter outside the test folder (inside it, it would be source).
     write('build_all.sh', [
       '#!/bin/bash',
       'set -e',
-      'go() { printf "helper %s\\n" "$(date +%s%N)" > helper.exe; }',
+      'run=$(( $(cat ../../.build-runs 2>/dev/null || echo 0) + 1 ))',
+      'echo "$run" > ../../.build-runs',
+      'go() { printf "helper run %s\\n" "$run" > helper.exe; }',
       'go build -o helper.exe ./helper',
       'gzip -9 -k -f helper.exe',
       'rm -f helper.exe',

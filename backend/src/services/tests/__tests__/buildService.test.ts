@@ -2029,6 +2029,8 @@ var data string
     // "write" its outputs and the hashes read them back.
     const files = new Map<string, Buffer>();
     const dirs = new Set<string>();
+    // mtime per file (ms); a file without one was written "now".
+    const mtimes = new Map<string, number>();
     let buildRuns = 0;
     let removeStageAtEnd = false;
 
@@ -2060,6 +2062,7 @@ var data string
     beforeEach(() => {
       files.clear();
       dirs.clear();
+      mtimes.clear();
       buildRuns = 0;
       removeStageAtEnd = false;
       put(`${testDir}/main.go`, [
@@ -2088,7 +2091,10 @@ var data string
       mockExistsSync.mockImplementation(exists);
       mockStatSync.mockImplementation((p: string) => {
         if (!exists(p)) throw enoent(p);
-        return { isDirectory: () => dirs.has(p), isFile: () => files.has(p), size: files.get(p)?.length ?? 0 };
+        return {
+          isDirectory: () => dirs.has(p), isFile: () => files.has(p), size: files.get(p)?.length ?? 0,
+          mtimeMs: mtimes.get(p) ?? Date.now(),
+        };
       });
       mockLstatSync.mockImplementation(((p: string) => {
         if (!exists(p)) throw enoent(p);
@@ -2107,14 +2113,23 @@ var data string
         if (!b) throw enoent(p);
         return enc ? b.toString('utf8') : b;
       }) as never);
-      mockWriteFileSync.mockImplementation(((p: string, data: string | Buffer) => put(p, data)) as never);
+      mockWriteFileSync.mockImplementation(((p: string, data: string | Buffer, opts?: { flag?: string }) => {
+        if (opts?.flag === 'wx' && files.has(p)) {
+          throw Object.assign(new Error(`EEXIST: ${p}`), { code: 'EEXIST' });
+        }
+        mtimes.delete(p);
+        put(p, data);
+      }) as never);
       mockCopyFileSync.mockImplementation(((from: string, to: string) => {
         const b = files.get(from);
         if (!b) throw enoent(from);
         put(to, b);
       }) as never);
       mockMkdirSync.mockImplementation(((p: string) => addDir(p)) as never);
-      mockUnlinkSync.mockImplementation(((p: string) => files.delete(p)) as never);
+      mockUnlinkSync.mockImplementation(((p: string) => {
+        if (!files.delete(p)) throw enoent(p);
+        mtimes.delete(p);
+      }) as never);
       mockExecFileAsync.mockImplementation(async (cmd: string) => {
         if (cmd === 'bash') {
           buildRuns++;
@@ -2186,6 +2201,138 @@ var data string
       await svc.buildAndSign(VALID_UUID);
       expect(writtenStamp().outputs_hash).toBeNull();
       expect(svc.currentOutputsHash(VALID_UUID)).toBeNull();
+    });
+
+    describe('build marker (.building)', () => {
+      const marker = `${BUILDS_DIR}/${VALID_UUID}/.building`;
+      // BUILD_TIMEOUT (300 s) + the 60 s signing timeout in buildService.ts.
+      const STALE_AFTER_MS = 300_000 + 60_000;
+
+      function bashAlso(fn: () => void): void {
+        const base = mockExecFileAsync.getMockImplementation()!;
+        mockExecFileAsync.mockImplementation(async (cmd: string, args: string[], opts?: unknown) => {
+          const result = await base(cmd, args, opts);
+          if (cmd === 'bash') fn();
+          return result;
+        });
+      }
+
+      it('a build creates .building in the build directory and removes it on success, on a failed compile and on a thrown error', async () => {
+        const seen: boolean[] = [];
+        bashAlso(() => { seen.push(files.has(marker)); });
+        const svc = service();
+
+        // success
+        await svc.buildAndSign(VALID_UUID);
+        expect(seen).toEqual([true]);
+        expect(files.has(marker)).toBe(false);
+        const created = mockWriteFileSync.mock.calls.find(c => c[0] === marker);
+        expect(created?.[2]).toMatchObject({ flag: 'wx' });
+        expect(String(created?.[1])).toContain(String(process.pid));
+
+        // failed compile
+        mockExecFileAsync.mockImplementation(async (cmd: string) => {
+          if (cmd === 'bash') {
+            seen.push(files.has(marker));
+            throw Object.assign(new Error('exit 1'), { stderr: 'compile failed' });
+          }
+          return { stdout: '', stderr: '' };
+        });
+        await expect(svc.buildAndSign(VALID_UUID)).rejects.toThrow(/compile failed/);
+        expect(seen).toEqual([true, true]);
+        expect(files.has(marker)).toBe(false);
+
+        // a thrown error after the script ran (no output binary)
+        mockExecFileAsync.mockImplementation(async (cmd: string) => {
+          if (cmd === 'bash') seen.push(files.has(marker));
+          return { stdout: '', stderr: '' };
+        });
+        files.delete(`${testDir}/build/${VALID_UUID}/${VALID_UUID}.exe`);
+        await expect(svc.buildAndSign(VALID_UUID)).rejects.toThrow('output binary not found');
+        expect(seen).toEqual([true, true, true]);
+        expect(files.has(marker)).toBe(false);
+      });
+
+      it('a second BuildService instance (simulating another worker, same BUILDS_DIR) reports isBuildingAnywhere true while the first is building, and false after', async () => {
+        const worker = service();
+        const other = service();
+        const during: Array<[boolean, boolean]> = [];
+        bashAlso(() => { during.push([other.isBuilding(VALID_UUID), other.isBuildingAnywhere(VALID_UUID)]); });
+
+        expect(other.isBuildingAnywhere(VALID_UUID)).toBe(false);
+        await worker.buildAndSign(VALID_UUID);
+
+        // The other worker has no in-memory job, only the marker tells it.
+        expect(during).toEqual([[false, true]]);
+        expect(other.isBuildingAnywhere(VALID_UUID)).toBe(false);
+      });
+
+      it('a build is refused with the already-building error while a fresh marker from another process exists; a stale marker is replaced and the build runs', async () => {
+        const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+        try {
+          put(marker, '{"pid":1,"startedAt":"2026-11-23T00:00:00.000Z"}');
+          mtimes.set(marker, Date.now() - 1_000);
+          const svc = service();
+          expect(svc.isBuildingAnywhere(VALID_UUID)).toBe(true);
+
+          const refused = svc.buildAndSign(VALID_UUID);
+          await expect(refused).rejects.toMatchObject({ statusCode: 409, message: 'Build in progress for this test' });
+          expect(mockExecFileAsync.mock.calls.some(c => c[0] === 'bash')).toBe(false);
+          // The other process's marker is left alone.
+          expect(files.has(marker)).toBe(true);
+
+          mtimes.set(marker, Date.now() - STALE_AFTER_MS - 1_000);
+          expect(svc.isBuildingAnywhere(VALID_UUID)).toBe(false);
+
+          const info = await svc.buildAndSign(VALID_UUID);
+          expect(info.exists).toBe(true);
+          expect(mockExecFileAsync.mock.calls.some(c => c[0] === 'bash')).toBe(true);
+          expect(files.has(marker)).toBe(false);
+          expect(warn).toHaveBeenCalledTimes(1);
+          expect(warn.mock.calls[0].map(String).join(' ')).toContain(VALID_UUID);
+        } finally {
+          warn.mockRestore();
+        }
+      });
+
+      it('a dependency present before the build and missing at stamp time yields no stamp and a warning naming it', async () => {
+        const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+        try {
+          // e.g. a Sync's `git clean` removes the uploaded payload after the compile
+          bashAlso(() => { files.delete(`${testDir}/payload.dat`); });
+          const svc = service();
+
+          const info = await svc.buildAndSign(VALID_UUID);
+
+          expect(info.exists).toBe(true);
+          expect(info).not.toHaveProperty('version');
+          const meta = JSON.parse(String(files.get(`${BUILDS_DIR}/${VALID_UUID}/build-meta.json`)));
+          expect(meta).not.toHaveProperty('version');
+          expect(warn).toHaveBeenCalledTimes(1);
+          const logged = warn.mock.calls[0].map(String).join(' ');
+          expect(logged).toContain(VALID_UUID);
+          expect(logged).toContain('payload.dat');
+        } finally {
+          warn.mockRestore();
+        }
+      });
+
+      it('.building is not reported as an artifact', async () => {
+        const svc = service();
+        // Only a marker: nothing is built.
+        put(marker, '{}');
+        expect(svc.getBuildInfo(VALID_UUID)).toEqual({ exists: false });
+        expect(svc.listBuiltUuids()).toEqual([]);
+        files.delete(marker);
+
+        await svc.buildAndSign(VALID_UUID);
+        const info = svc.getBuildInfo(VALID_UUID);
+        const listed = svc.listBuiltUuids();
+        put(marker, '{}');
+        expect(svc.getBuildInfo(VALID_UUID)).toEqual(info);
+        expect(svc.listBuiltUuids()).toEqual(listed);
+        expect(listed).toEqual([VALID_UUID]);
+      });
     });
 
     describe('deps_hash', () => {

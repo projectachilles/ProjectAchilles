@@ -14,6 +14,7 @@ import { buildSubprocessEnv } from './buildEnv.js';
 import { isUsableSourceRoot } from '../browser/repositoryRoot.js';
 import { hashFiles } from '../browser/versionIdentity.js';
 import { sanitizeGitError } from '../browser/gitSyncService.js';
+import { AppError } from '../../middleware/error.middleware.js';
 import type { BuildVersionStamp, TestVersionIdentity } from '../../types/testVersion.js';
 
 const execFileAsync = promisify(execFile);
@@ -155,6 +156,25 @@ function isSourceBuiltBinary(
 const UUID_REGEX = /^[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}$/i;
 
 const BUILD_TIMEOUT = 300_000; // 5 minutes
+const SIGN_TIMEOUT = 60_000;
+
+/**
+ * A build's marker file in BUILDS_DIR/<uuid>, so every process (each HTTP
+ * worker has its own BuildService and in-memory jobs) sees that the test is
+ * building. The build refreshes it before every step (one subprocess, at most
+ * BUILD_TIMEOUT or SIGN_TIMEOUT), so a marker older than both together was
+ * left by a process that died mid-build.
+ */
+const BUILD_MARKER = '.building';
+const BUILD_MARKER_STALE_MS = BUILD_TIMEOUT + SIGN_TIMEOUT;
+
+/** What a build reads before compiling, for its stamp. */
+interface VersionBefore {
+  identity: TestVersionIdentity;
+  modified: boolean;
+  /** Uploaded embed dependencies present before the build (presentUploadedDependencies). */
+  uploadedDeps: string[];
+}
 
 export class BuildService {
   private settingsService: TestsSettingsService;
@@ -206,6 +226,68 @@ export class BuildService {
 
   isBuilding(uuid: string): boolean {
     return this.jobs.isRunning(uuid);
+  }
+
+  /**
+   * Whether `uuid` is building in this process or in any other process that
+   * shares BUILDS_DIR (a fresh build marker). What guards writes into a test's
+   * folder and build directory; a job's status stays per process (getBuildJob).
+   */
+  isBuildingAnywhere(uuid: string): boolean {
+    return this.isBuilding(uuid) || this.buildMarkerIsFresh(this.buildMarkerPath(uuid));
+  }
+
+  private buildMarkerPath(uuid: string): string {
+    return path.join(this.safeBuildDir(uuid), BUILD_MARKER);
+  }
+
+  private buildMarkerIsFresh(marker: string): boolean {
+    try {
+      return Date.now() - fs.statSync(marker).mtimeMs < BUILD_MARKER_STALE_MS;
+    } catch {
+      return false; // no marker
+    }
+  }
+
+  private buildMarkerContent(): string {
+    return JSON.stringify({ pid: process.pid, startedAt: new Date().toISOString() });
+  }
+
+  /**
+   * Create the build marker atomically (`wx`), or refuse the build (409) while
+   * another process's marker is fresh. A stale one is replaced.
+   */
+  private acquireBuildMarker(uuid: string): string {
+    const marker = path.join(this.ensureBuildDir(uuid), BUILD_MARKER);
+    const create = (): boolean => {
+      try {
+        fs.writeFileSync(marker, this.buildMarkerContent(), { flag: 'wx', mode: 0o600 });
+        return true;
+      } catch (err) {
+        if ((err as NodeJS.ErrnoException).code === 'EEXIST') return false;
+        throw err;
+      }
+    };
+    if (create()) return marker;
+    if (this.buildMarkerIsFresh(marker)) {
+      throw new AppError('Build in progress for this test', 409);
+    }
+    console.warn('Build of %s replaces a stale build marker left by a process that stopped mid-build', uuid);
+    try { fs.unlinkSync(marker); } catch { /* already gone */ }
+    // Another process may have replaced it first: then that one builds.
+    if (!create()) throw new AppError('Build in progress for this test', 409);
+    return marker;
+  }
+
+  /** Keep the marker fresh before a build step; a failure here never fails the build. */
+  private refreshBuildMarker(marker: string): void {
+    try {
+      fs.writeFileSync(marker, this.buildMarkerContent(), { mode: 0o600 });
+    } catch { /* the next step refreshes it again */ }
+  }
+
+  private releaseBuildMarker(marker: string): void {
+    try { fs.unlinkSync(marker); } catch { /* already gone */ }
   }
 
   /**
@@ -617,11 +699,19 @@ const ARTIFACT_DIR = \`${artifactDir}\`
 
   /**
    * Hash of the embed dependencies that are on disk and not built from source
-   * (uploaded payloads: they are not in git, so they are not in the source
-   * identity). null when the test has none.
+   * (uploaded payloads, and anything else no source-built rule matches; the
+   * build stamps it after the build, see stampVersion). null when the test has
+   * none.
    */
   currentDepsHash(uuid: string): string | null {
     return this.embedDependenciesHash(uuid, false);
+  }
+
+  /** Names of the embed dependencies currentDepsHash covers that are on disk now. */
+  private presentUploadedDependencies(uuid: string): string[] {
+    return this.getEmbedDependencies(uuid)
+      .filter(d => d.exists && !d.sourceBuilt)
+      .map(d => d.filename);
   }
 
   /**
@@ -717,15 +807,25 @@ const ARTIFACT_DIR = \`${artifactDir}\`
       throw new Error('Test directory not found');
     }
 
+    // Before anything is read for the stamp or written to the test folder.
+    const marker = this.acquireBuildMarker(uuid);
+    try {
+      return await this.runBuild(uuid, testDir, marker);
+    } finally {
+      this.releaseBuildMarker(marker);
+    }
+  }
+
+  private async runBuild(uuid: string, testDir: string, marker: string): Promise<BuildInfo> {
     // Read the version identity BEFORE compiling: the build compiles the
     // working tree as it is now, and a sync could change it mid-build. A
     // failure here only costs the stamp, never the build.
-    let versionBefore: { identity: TestVersionIdentity; modified: boolean } | null = null;
+    let versionBefore: VersionBefore | null = null;
     if (this.versionSource) {
       try {
         const current = await this.versionSource.current(uuid);
         if (current) {
-          versionBefore = current;
+          versionBefore = { ...current, uploadedDeps: this.presentUploadedDependencies(uuid) };
         } else {
           console.warn('Build of %s will not record its version: no version available for this test', uuid);
         }
@@ -866,6 +966,7 @@ const ARTIFACT_DIR = \`${artifactDir}\`
         }
 
         try {
+          this.refreshBuildMarker(marker);
           await runBuildCommand('bash', buildArgs, {
             cwd: buildCwd,
             env,
@@ -957,6 +1058,7 @@ const ARTIFACT_DIR = \`${artifactDir}\`
         try {
           if (!hadGoMod) {
             // Auto-init a temporary module so "go build ." works in package mode
+            this.refreshBuildMarker(marker);
             await runBuildCommand('go', ['mod', 'init', 'testbuild'], {
               cwd: testDir,
               env,
@@ -964,12 +1066,15 @@ const ARTIFACT_DIR = \`${artifactDir}\`
             });
           }
 
+          this.refreshBuildMarker(marker);
           await runBuildCommand('go', ['mod', 'tidy'], { cwd: testDir, env, timeout: BUILD_TIMEOUT });
+          this.refreshBuildMarker(marker);
           await runBuildCommand('go', ['mod', 'download'], { cwd: testDir, env, timeout: BUILD_TIMEOUT });
 
           // Use package mode ("go build .") for proper GOOS/GOARCH constraint evaluation.
           // File-list mode ("go build a.go b.go") doesn't resolve cross-platform build tags
           // on transitive dependencies, causing failures for windows-only imports on Linux.
+          this.refreshBuildMarker(marker);
           await runBuildCommand('go', ['build', '-o', outputPath, '.'], {
             cwd: testDir,
             env,
@@ -1013,13 +1118,14 @@ const ARTIFACT_DIR = \`${artifactDir}\`
         const passFile = path.join(buildDir, '.tmp-pass');
         try {
           fs.writeFileSync(passFile, activeCert.password, { mode: 0o600 });
+          this.refreshBuildMarker(marker);
           await execFileAsync('osslsigncode', [
             'sign',
             '-pkcs12', activeCert.pfxPath,
             '-readpass', passFile,
             '-in', outputPath,
             '-out', signedPath,
-          ], { timeout: 60_000 });
+          ], { timeout: SIGN_TIMEOUT });
 
           fs.renameSync(signedPath, outputPath);
           signed = true;
@@ -1034,11 +1140,12 @@ const ARTIFACT_DIR = \`${artifactDir}\`
       }
     } else if (platform.os === 'darwin') {
       try {
+        this.refreshBuildMarker(marker);
         await execFileAsync('rcodesign', [
           'sign',
           '--code-signature-flags', 'adhoc',
           outputPath,
-        ], { timeout: 60_000 });
+        ], { timeout: SIGN_TIMEOUT });
         signed = true;
       } catch {
         // rcodesign not installed or signing failed — continue unsigned
@@ -1091,20 +1198,30 @@ const ARTIFACT_DIR = \`${artifactDir}\`
    *
    * deps_hash is taken here, not before the build, because a build_all.sh can
    * itself write an embedded file that is classed as uploaded (a gzipped
-   * helper no source-built rule matches). An uploaded dependency does not
-   * change during a build (uploads are refused while the test builds), so its
-   * hash is the same before and after; a file the script produced only
-   * changes when a build runs, and a build rewrites the stamp. So a difference
-   * between the stamped and the current hash means the file changed after
-   * the build.
+   * helper no source-built rule matches). Uploading or deleting a dependency
+   * is refused in every process while the build marker is fresh (see
+   * isBuildingAnywhere), so an uploaded dependency keeps its content through
+   * the build; a file the script produced only changes when a build runs, and
+   * a build rewrites the stamp. So a difference between the stamped and the
+   * current hash means the file changed after the build. A dependency that was
+   * there before the build and is gone now (a Sync's `git clean` removes
+   * untracked files) voids the stamp: the binary embeds a file the hash can no
+   * longer cover.
    */
   private stampVersion(
     uuid: string,
-    before: { identity: TestVersionIdentity; modified: boolean },
+    before: VersionBefore,
     buildDir: string,
     artifacts: NonNullable<BuildMetadata['binaries']>,
   ): BuildVersionStamp | null {
     try {
+      const present = new Set(this.getEmbedDependencies(uuid).filter(d => d.exists).map(d => d.filename));
+      const removed = before.uploadedDeps.filter(name => !present.has(name));
+      if (removed.length > 0) {
+        console.warn('Build of %s will not record its version: embedded files removed during the build: %s',
+          uuid, removed.join(', '));
+        return null;
+      }
       const binaries: Record<string, string> = {};
       for (const artifact of Object.values(artifacts)) {
         if (!artifact) continue;

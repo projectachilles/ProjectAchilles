@@ -186,9 +186,10 @@ export function createTestsRouter(options: {
   }
 
   // A build writes into the test's source dir and BUILDS_DIR/<uuid>; deleting
-  // or uploading into those while it runs would corrupt the result.
+  // or uploading into those while it runs would corrupt the result. Checked
+  // across processes (each HTTP worker has its own BuildService).
   function assertNotBuilding(uuid: string): void {
-    if (buildService.isBuilding(uuid)) {
+    if (buildService.isBuildingAnywhere(uuid)) {
       throw new AppError('Build in progress for this test', 409);
     }
   }
