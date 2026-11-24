@@ -283,8 +283,6 @@ export default function TestsPage() {
   const groups = useMemo(() => groupByCategory(filtered), [filtered]);
 
   const bannerVisible = versions != null && versionBannerVisible(versions.library);
-  // Check now sits in the banner when there is one, in the header otherwise.
-  const showCheckInHeader = versions != null && versions.library.gitEnabled && !bannerVisible;
 
   function openDrawer(drawerSet: TestMetadata[]) {
     setDrawerTests(drawerSet);
@@ -322,7 +320,7 @@ export default function TestsPage() {
             Sync failed
           </span>
         )}
-        {!bannerVisible && versionState.checkError && (
+        {versionState.checkError && (
           <span role="alert" className="text-sm text-danger">
             {versionState.checkError}
           </span>
@@ -339,22 +337,14 @@ export default function TestsPage() {
           syncing={syncing}
           canSync={canSync}
           onSync={() => void handleSync()}
-          onCheck={showCheckInHeader ? () => void versionState.checkNow() : undefined}
+          onCheck={versions?.library.gitEnabled ? () => void versionState.checkNow() : undefined}
           checking={versionState.checking}
           note={versions && !versions.library.gitEnabled ? 'Git sync is off: published versions are not checked' : undefined}
         />
       </PageHeader>
 
       {versions && bannerVisible && (
-        <VersionBanner
-          library={versions.library}
-          canSync={canSync}
-          syncing={syncing}
-          checking={versionState.checking}
-          actionError={versionState.checkError}
-          onSync={() => void handleSync()}
-          onCheck={() => void versionState.checkNow()}
-        />
+        <VersionBanner library={versions.library} />
       )}
 
       <div className="mb-4 flex flex-wrap items-center gap-2">

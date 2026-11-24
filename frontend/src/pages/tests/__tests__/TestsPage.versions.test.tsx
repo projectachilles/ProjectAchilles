@@ -145,11 +145,13 @@ describe('TestsPage version status', () => {
     expect(screen.queryByRole('status')).toBeNull();
   });
 
-  it('shows a failed update check as an alert in the banner', async () => {
+  it('shows a failed update check as an alert in the header, not the banner', async () => {
     state.data = response({ updatesAvailable: 1 });
     state.checkError = 'Could not check for updates: boom';
     await renderPage();
-    expect(screen.getByRole('alert').textContent).toBe('Could not check for updates: boom');
+    const alert = screen.getByRole('alert');
+    expect(alert.textContent).toBe('Could not check for updates: boom');
+    expect(within(screen.getByRole('status')).queryByRole('alert')).toBeNull();
     expect(screen.getByRole('button', { name: 'Check now' }).hasAttribute('disabled')).toBe(false);
   });
 
@@ -181,13 +183,52 @@ describe('TestsPage version status', () => {
     expect(screen.queryByRole('button', { name: 'Check now' })).toBeNull();
   });
 
-  it('banners newer published versions with Sync and Check now', async () => {
+  it('shows exactly one Sync button when the banner is visible', async () => {
+    state.data = response({ updatesAvailable: 3, newTests: 2 });
+    await renderPage();
+    expect(screen.getByRole('status')).toBeTruthy();
+    expect(screen.getAllByRole('button', { name: 'Sync' })).toHaveLength(1);
+  });
+
+  it('banners newer published versions, with Check now in the header', async () => {
     state.data = response({ updatesAvailable: 3 });
     await renderPage();
     expect(screen.getByText('3 tests have a newer published version')).toBeTruthy();
-    expect(screen.getAllByRole('button', { name: 'Sync' })).toHaveLength(2);
+    expect(screen.getAllByRole('button', { name: 'Check now' })).toHaveLength(1);
     fireEvent.click(screen.getByRole('button', { name: 'Check now' }));
     expect(state.checkNow).toHaveBeenCalledTimes(1);
+  });
+
+  it('puts Check now in the header, left of Sync, with or without the banner', async () => {
+    for (const library of [{ updatesAvailable: 1 }, {}]) {
+      state.data = response(library);
+      const { unmount } = render(
+        <MemoryRouter>
+          <TestsPage />
+        </MemoryRouter>,
+      );
+      await screen.findByRole('button', { name: 'test a' });
+      const check = screen.getAllByRole('button', { name: 'Check now' });
+      expect(check).toHaveLength(1);
+      const sync = screen.getByRole('button', { name: 'Sync' });
+      expect(check[0].parentElement).toBe(sync.parentElement);
+      expect(check[0].compareDocumentPosition(sync) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+      const banner = screen.queryByRole('status');
+      if (banner) expect(within(banner).queryByRole('button')).toBeNull();
+      unmount();
+    }
+  });
+
+  it('renders no buttons in the banner', async () => {
+    state.data = response({ updatesAvailable: 1, rebuildsNeeded: 1, newTests: 1, checkError: 'x' });
+    await renderPage();
+    expect(within(screen.getByRole('status')).queryAllByRole('button')).toHaveLength(0);
+  });
+
+  it('hides Check now when git sync is off', async () => {
+    state.data = response({ gitEnabled: false, checkEnabled: false, updatesAvailable: 1 });
+    await renderPage();
+    expect(screen.queryByRole('button', { name: 'Check now' })).toBeNull();
   });
 
   it('banners rebuilds and new tests', async () => {
