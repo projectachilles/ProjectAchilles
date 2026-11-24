@@ -750,6 +750,10 @@ func fetchTask(ctx context.Context, client *httpclient.Client) *executor.Task {
 	return &task
 }
 
+// cleanAfterRun is the after pass of the clean start. A variable so tests can
+// replace it and never reach a real folder.
+var cleanAfterRun = executor.CleanAfterRun
+
 // executeAndReport runs a task in a goroutine, reports the result, and clears the busy flag.
 // If result reporting fails completely, the result is enqueued locally for later delivery.
 func executeAndReport(
@@ -779,7 +783,7 @@ func executeAndReport(
 	// agent can't take another task meanwhile, and the pass is never inside the
 	// server's execution-timeout clock.
 	if task.Type == "execute_test" {
-		defer executor.CleanAfterRun(cfg, task.Payload.TestUUID)
+		defer cleanAfterRun(cfg, task.Payload.TestUUID)
 	}
 
 	// Track current task for heartbeat reporting.
