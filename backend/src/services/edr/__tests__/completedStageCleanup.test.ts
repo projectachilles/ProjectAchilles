@@ -21,7 +21,7 @@ import {
 
 const client = esClient as unknown as Client;
 const hitsOf = (...hits: unknown[]) => ({ hits: { hits } });
-const OK = { items: [{ update: { status: 200 } }] };
+const OK = { items: [{ update: { status: 200, result: 'updated' } }] };
 
 beforeEach(() => {
   mockSearch.mockReset();
@@ -48,7 +48,7 @@ describe('completedStageCleanup', () => {
 
   it('clears only the vendors whose flags the result has', async () => {
     mockSearch
-      .mockResolvedValueOnce(hitsOf({ _id: 'r1', _index: 'achilles-results-x', _source: { f0rtika: {
+      .mockResolvedValueOnce(hitsOf({ _id: 'r1', _index: 'achilles-results-x', _source: { event: { ERROR: 101 }, f0rtika: {
         defender_prevented: true, defender_prevention_action: 'process_killed',
         defender_detected: true, crowdstrike_detected: true,
       } } }))
@@ -71,7 +71,7 @@ describe('completedStageCleanup', () => {
 
   it('clears two vendors on one result', async () => {
     mockSearch
-      .mockResolvedValueOnce(hitsOf({ _id: 'r1', _index: 'i', _source: { f0rtika: {
+      .mockResolvedValueOnce(hitsOf({ _id: 'r1', _index: 'i', _source: { event: { ERROR: 101 }, f0rtika: {
         defender_stage_prevented: true, sophos_prevention_action: 'blocked',
       } } }))
       .mockResolvedValueOnce(hitsOf());
@@ -87,14 +87,17 @@ describe('completedStageCleanup', () => {
 
   it('reads flattened sources', async () => {
     mockSearch
-      .mockResolvedValueOnce(hitsOf({ _id: 'r1', _index: 'i', _source: { 'f0rtika.defender_stage_prevented': true } }))
+      .mockResolvedValueOnce(hitsOf({ _id: 'r1', _index: 'i', _source: { event: { ERROR: 101 }, 'f0rtika.defender_stage_prevented': true } }))
       .mockResolvedValueOnce(hitsOf());
     mockBulk.mockResolvedValue(OK);
 
     const res = await clearPreventionOnCompletedResults(client, 'i');
 
     expect(res.cleared).toBe(1);
-    expect(mockBulk.mock.calls[0][0].operations[1].doc.f0rtika.defender_stage_prevented).toBe(false);
+    expect(mockBulk.mock.calls[0][0].operations[1].doc).toEqual({
+      'f0rtika.defender_stage_prevented': false,
+      f0rtika: { defender_prevented: false, defender_prevention_action: null },
+    });
   });
 
   it('does nothing when no result matches', async () => {
@@ -105,7 +108,7 @@ describe('completedStageCleanup', () => {
   });
 
   it('stops when a batch clears nothing', async () => {
-    mockSearch.mockResolvedValue(hitsOf({ _id: 'r1', _index: 'i', _source: { f0rtika: { defender_prevented: true } } }));
+    mockSearch.mockResolvedValue(hitsOf({ _id: 'r1', _index: 'i', _source: { event: { ERROR: 101 }, f0rtika: { defender_prevented: true } } }));
     mockBulk.mockResolvedValue({ items: [{ update: { error: { reason: 'version conflict' } } }] });
 
     const res = await clearPreventionOnCompletedResults(client, 'i');
@@ -117,8 +120,36 @@ describe('completedStageCleanup', () => {
     expect(res.errors[0]).toBe('bulk[0]: version conflict');
   });
 
+  it('a noop update is not progress and does not loop', async () => {
+    mockSearch.mockResolvedValue(hitsOf({ _id: 'r1', _index: 'i', _source: { event: { ERROR: 101 }, f0rtika: { defender_prevented: true } } }));
+    mockBulk.mockResolvedValue({ items: [{ update: { status: 200, result: 'noop' } }] });
+    const res = await clearPreventionOnCompletedResults(client, 'i');
+    expect(mockSearch.mock.calls.length).toBeLessThanOrEqual(2);
+    expect(mockBulk).toHaveBeenCalledTimes(1);
+    expect(res.cleared).toBe(0);
+  });
+
+  it('never sends the same document twice in one run', async () => {
+    mockSearch.mockResolvedValue(hitsOf({ _id: 'r1', _index: 'i', _source: { event: { ERROR: 101 }, f0rtika: { defender_prevented: true } } }));
+    mockBulk.mockResolvedValue(OK);
+    const res = await clearPreventionOnCompletedResults(client, 'i');
+    expect(mockBulk).toHaveBeenCalledTimes(1);
+    expect(res.cleared).toBe(1);
+  });
+
+  it('skips a hit whose stored exit code is not 101', async () => {
+    mockSearch.mockResolvedValueOnce(hitsOf({ _id: 'r1', _index: 'i', _source: { event: { ERROR: 999 }, f0rtika: { defender_prevented: true } } }));
+    expect(await clearPreventionOnCompletedResults(client, 'i')).toEqual({ cleared: 0, errors: [] });
+    expect(mockBulk).not.toHaveBeenCalled();
+
+    mockSearch.mockResolvedValueOnce(hitsOf({ _id: 'r2', _index: 'i', _source: { event: { ERROR: '101' }, f0rtika: { defender_prevented: true } } }))
+      .mockResolvedValueOnce(hitsOf());
+    mockBulk.mockResolvedValue(OK);
+    expect((await clearPreventionOnCompletedResults(client, 'i')).cleared).toBe(1);
+  });
+
   it('reports a failed bulk call', async () => {
-    mockSearch.mockResolvedValue(hitsOf({ _id: 'r1', _index: 'i', _source: { f0rtika: { defender_prevented: true } } }));
+    mockSearch.mockResolvedValue(hitsOf({ _id: 'r1', _index: 'i', _source: { event: { ERROR: 101 }, f0rtika: { defender_prevented: true } } }));
     mockBulk.mockRejectedValue(new Error('down'));
     expect(await clearPreventionOnCompletedResults(client, 'i')).toEqual({ cleared: 0, errors: ['bulk: down'] });
   });

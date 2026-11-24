@@ -60,9 +60,11 @@ export async function clearPreventionOnCompletedResults(
   const maxDurationMs = options.maxDurationMs ?? DEFAULT_MAX_DURATION_MS;
   const deadline = Date.now() + maxDurationMs;
   const query = buildCompletedStageCleanupQuery(vendors);
-  const sourceFields = vendors.flatMap((v) => [
+  const sourceFields = ['event.ERROR', ...vendors.flatMap((v) => [
     `f0rtika.${v}_prevented`, `f0rtika.${v}_stage_prevented`, `f0rtika.${v}_prevention_action`,
-  ]);
+  ])];
+  // Documents already sent in this run: never send the same one twice.
+  const sent = new Set<string>();
   const result: CompletedStageCleanupResult = { cleared: 0, errors: [] };
 
   try {
@@ -84,30 +86,43 @@ export async function clearPreventionOnCompletedResults(
 
       const operations: unknown[] = [];
       for (const hit of hits) {
+        const key = `${hit._index}\u0000${hit._id}`;
+        if (sent.has(key)) continue;
         const source = hit._source ?? {};
+        // The search filter alone is not trusted: re-check the stored exit code.
+        if (Number(getSourceField(source, 'event.ERROR')) !== 101) continue;
+        const nested: Record<string, unknown> = {};
         const doc: Record<string, unknown> = {};
         for (const v of vendors) {
           if (!hasFlags(source, v)) continue;
-          doc[`${v}_prevented`] = false;
-          doc[`${v}_stage_prevented`] = false;
-          doc[`${v}_prevention_action`] = null;
+          const values: Array<[string, unknown]> = [
+            ['prevented', false], ['stage_prevented', false], ['prevention_action', null],
+          ];
+          for (const [kind, value] of values) {
+            // Write each field in the shape the hit stores it.
+            const dotKey = `f0rtika.${v}_${kind}`;
+            if (source[dotKey] !== undefined) doc[dotKey] = value;
+            else nested[`${v}_${kind}`] = value;
+          }
         }
-        if (Object.keys(doc).length === 0) continue;
+        if (Object.keys(doc).length === 0 && Object.keys(nested).length === 0) continue;
+        if (Object.keys(nested).length > 0) doc.f0rtika = nested;
+        sent.add(key);
         operations.push({ update: { _index: hit._index, _id: hit._id, retry_on_conflict: 3 } });
-        operations.push({ doc: { f0rtika: doc } });
+        operations.push({ doc });
       }
       if (operations.length === 0) break;
 
       let batchCleared = 0;
       try {
         const res = await client.bulk({ refresh: true, operations } as never);
-        const items = (res.items ?? []) as Array<Record<string, { error?: { reason?: string } | string }>>;
+        const items = (res.items ?? []) as Array<Record<string, { result?: string; error?: { reason?: string } | string }>>;
         items.forEach((item, i) => {
           const op = Object.values(item)[0];
           if (op?.error) {
             const reason = typeof op.error === 'string' ? op.error : (op.error.reason ?? 'unknown error');
             result.errors.push(`bulk[${i}]: ${reason}`);
-          } else {
+          } else if (op?.result === 'updated') {
             batchCleared++;
           }
         });
