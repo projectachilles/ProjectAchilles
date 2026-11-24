@@ -16,6 +16,7 @@ import {
   identityFromDisk,
   isBuildInput,
   sharedInputPrefixes,
+  TreeTooLargeError,
 } from './versionIdentity.js';
 import type { TestLocation } from './versionIdentity.js';
 
@@ -81,6 +82,9 @@ export function checkErrorCategory(message: string): string {
   }
   return 'The update check failed';
 }
+
+/** What a check stores when the published tree is over the size limits (TreeTooLargeError). */
+export const TREE_TOO_LARGE_ERROR = 'The test repository is too large to check for updates';
 
 function emptyState(): PublishedState {
   return {
@@ -414,7 +418,7 @@ export class TestVersionsService implements BuildVersionSource {
       } else {
         this.state = {
           ...latest,
-          error: checkErrorCategory(detail),
+          error: err instanceof TreeTooLargeError ? TREE_TOO_LARGE_ERROR : checkErrorCategory(detail),
           errorAt: new Date().toISOString(),
         };
       }

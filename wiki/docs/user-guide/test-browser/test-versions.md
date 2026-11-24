@@ -66,7 +66,9 @@ The backend checks the test repository:
 
 The check contacts only the configured test repository, the same way Sync does. It downloads what is published to compare it, and never changes the synced files: your library stays as it is until you click **Sync**.
 
-If a check fails, the line above the list says **Could not check for updates**. Hover it for the reason: **Could not reach the test repository**, **The test repository rejected the credentials** or **The update check failed**. Tests keep the result of the last check that worked, or read **Built, not checked** if none has. The same line, with the reason **The test library could not be read**, appears when the console can't read its own synced library.
+If a check fails, the line above the list says **Could not check for updates**. Hover it for the reason: **Could not reach the test repository**, **The test repository rejected the credentials**, **The test repository is too large to check for updates** or **The update check failed**. Tests keep the result of the last check that worked, or read **Built, not checked** if none has. The same line, with the reason **The test library could not be read**, appears when the console can't read its own synced library.
+
+**Too large** means the published repository is far beyond the size of a test library: its file listing is over 64 MB (about 500,000 files and folders), or it has so many test categories and files that comparing them would hold the server up. The console stops reading at that point instead of working through it, because the check runs in the same process that serves agents and the console. The library today is about 2,000 files, so a real library does not get near either limit; if yours does, check what the repository and branch configured for the test library contain.
 
 To turn off the timed check, set `TESTS_UPDATE_CHECK=off` in the backend's environment and restart the backend. **Check now** still works, and a Sync still records what it downloaded.
 

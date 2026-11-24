@@ -5,6 +5,7 @@ import * as path from 'path';
 import { simpleGit, CleanOptions } from 'simple-git';
 import type { SimpleGit } from 'simple-git';
 import { isUsableSourceRoot } from './repositoryRoot.js';
+import { TreeTooLargeError } from './versionIdentity.js';
 
 /**
  * Non-`git*` variables simple-git v4 also guards (mirrors `GitEnvKeys` in
@@ -42,11 +43,19 @@ export function gitChildEnv(source: NodeJS.ProcessEnv = process.env): Record<str
 
 const AUTH_ENV_KEYS = ['GIT_CONFIG_COUNT', 'GIT_CONFIG_KEY_0', 'GIT_CONFIG_VALUE_0'];
 
+/**
+ * Most that `git ls-tree` may print for listTree(). The library's listing is
+ * about 0.3 MB (2,000 entries); 64 MB is roughly 500,000 entries.
+ */
+export const MAX_TREE_LISTING_BYTES = 64 * 1024 * 1024;
+
 /** Every simple-git instance this service uses goes through here. */
 export function createGit(
   baseDir?: string,
   githubToken?: string,
   extraEnv: Record<string, string> = {},
+  /** Aborting it kills the running git command (simple-git's abort plugin). */
+  abort?: AbortSignal,
 ): SimpleGit {
   const env = gitChildEnv();
   const allowEnvironment = ['GIT_TERMINAL_PROMPT'];
@@ -58,7 +67,7 @@ export function createGit(
   }
 
   if (!githubToken) {
-    return simpleGit({ baseDir, allowEnvironment }).env(env);
+    return simpleGit({ baseDir, allowEnvironment, ...(abort ? { abort } : {}) }).env(env);
   }
 
   // Keep credentials out of command arguments, repository remotes, and
@@ -78,6 +87,7 @@ export function createGit(
     baseDir,
     allowEnvironment,
     unsafe: { allowUnsafeConfigEnvCount: true },
+    ...(abort ? { abort } : {}),
   }).env(env);
 }
 
@@ -423,10 +433,34 @@ export class GitSyncService {
    * Every blob and tree at `ref`, in one `git ls-tree -r -t`. Needs trees
    * only, so it works for paths outside the sparse checkout. Lazy fetching is
    * off so a missing object fails instead of downloading blobs.
+   *
+   * The listing is repository content, so its size is limited: past
+   * `maxBytes` git is stopped and TreeTooLargeError is thrown, before the
+   * whole output is held in memory and parsed.
    */
-  public async listTree(ref: string): Promise<GitTreeEntry[]> {
-    const git = createGit(this.config.localPath, undefined, { GIT_NO_LAZY_FETCH: '1' });
-    const output = await git.raw(['ls-tree', '-r', '-t', '-z', ref]);
+  public async listTree(ref: string, maxBytes: number = MAX_TREE_LISTING_BYTES): Promise<GitTreeEntry[]> {
+    const stop = new AbortController();
+    const git = createGit(this.config.localPath, undefined, { GIT_NO_LAZY_FETCH: '1' }, stop.signal);
+    let bytes = 0;
+    let tooLarge = false;
+    git.outputHandler((_command, stdout) => {
+      stdout.on('data', (chunk: Buffer | string) => {
+        bytes += chunk.length;
+        if (bytes > maxBytes && !tooLarge) {
+          tooLarge = true;
+          stop.abort();
+        }
+      });
+    });
+    let output: string;
+    try {
+      output = await git.raw(['ls-tree', '-r', '-t', '-z', ref]);
+    } catch (err) {
+      if (tooLarge) throw new TreeTooLargeError();
+      throw err;
+    }
+    // The last chunk can cross the limit as git exits: nothing was aborted.
+    if (tooLarge) throw new TreeTooLargeError();
     // -z keeps paths unquoted; tolerate newline-separated output as well.
     const lines = output.includes('\0') ? output.split('\0') : output.split('\n');
     const entries: GitTreeEntry[] = [];

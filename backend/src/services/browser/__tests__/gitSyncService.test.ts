@@ -28,6 +28,8 @@ const mockGitInstance = {
   revparse: vi.fn().mockResolvedValue('main'),
   raw: vi.fn().mockResolvedValue(''),
   env: vi.fn().mockReturnThis(),
+  // listTree attaches a byte counter to git's output (its limit is tested on a real repository).
+  outputHandler: vi.fn().mockReturnThis(),
 };
 
 vi.mock('simple-git', () => ({

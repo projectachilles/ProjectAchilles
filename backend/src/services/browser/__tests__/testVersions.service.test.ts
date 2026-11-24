@@ -9,7 +9,7 @@ import {
   getTestVersionsService,
 } from '../testVersions.service.js';
 import type { GitSyncService } from '../gitSyncService.js';
-import { FINGERPRINT_RULE_VERSION } from '../versionIdentity.js';
+import { FINGERPRINT_RULE_VERSION, TreeTooLargeError } from '../versionIdentity.js';
 import type { TreeEntry } from '../versionIdentity.js';
 
 const UUID_A = 'a1b2c3d4-e5f6-7890-abcd-ef1234567890';
@@ -130,6 +130,45 @@ describe('TestVersionsService', () => {
     expect(state.byTest.has(UUID_A)).toBe(true);
     expect(state.error).toBe('The update check failed');
     expect(state.errorAt).not.toBeNull();
+  });
+
+  describe('a published tree that is too large', () => {
+    const TOO_LARGE = 'The test repository is too large to check for updates';
+
+    it('records the reason when git prints more than the listing limit, and keeps the last good result', async () => {
+      const svc = makeService();
+      await svc.check();
+      fake.listTree.mockRejectedValue(new TreeTooLargeError());
+
+      const state = await svc.check();
+
+      expect(state.error).toBe(TOO_LARGE);
+      expect(state.errorAt).not.toBeNull();
+      expect(state.commit).toBe('beef01');
+      expect(state.byTest.has(UUID_A)).toBe(true);
+      // Shared with the other processes, so their timed checks wait too.
+      expect(makeService().published().error).toBe(TOO_LARGE);
+    });
+
+    it('records the reason when the tree would cost too much to read, without reading it through', async () => {
+      // Every test in a category of its own, next to thousands of shared
+      // files: each category costs one scan of all the files.
+      const hostile: TreeEntry[] = [];
+      for (let t = 0; t < 3000; t++) {
+        const id = `${t.toString(16).padStart(8, '0')}-0000-4000-8000-000000000000`;
+        const rel = `tests_source/cat-${t}/${id}`;
+        hostile.push({ type: 'tree', hash: `t${t}`, path: rel }, { type: 'blob', hash: `h${t}`, path: `${rel}/main.go` });
+      }
+      for (let f = 0; f < 3000; f++) hostile.push({ type: 'blob', hash: `l${f}`, path: `preludeorg-libraries/f${f}.go` });
+      fake.listTree.mockImplementation(async (ref: string) => (ref === 'HEAD' ? treeFor(UUID_A, 'h1') : hostile));
+
+      const started = Date.now();
+      const state = await makeService().check();
+
+      expect(Date.now() - started).toBeLessThan(4000);
+      expect(state.error).toBe(TOO_LARGE);
+      expect(state.byTest.size).toBe(0);
+    });
   });
 
   describe('check error text', () => {
