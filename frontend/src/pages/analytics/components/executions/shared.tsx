@@ -263,13 +263,7 @@ export function classifyExecution(exec: EnrichedTestExecution): ExecutionOutcome
   const detected = (k: EdrVendorKey) =>
     Boolean(exec[`${k}_stage_detected`] ?? exec[`${k}_detected`])
     || (!exec.is_bundle_control && Boolean(exec[`${k}_detected`]));
-  const ownAction = (k: EdrVendorKey) => {
-    const own = exec[`${k}_stage_prevented`];
-    if (own !== undefined && own !== null) return own === true;
-    return detected(k) && isConfirmedPrevention(exec[`${k}_prevention_action`]);
-  };
-  const isPrevented = EDR_VENDOR_KEYS.some((k) => Boolean(exec[`${k}_prevented`]) || ownAction(k));
-  if (isPrevented) return 'prevented';
+  // Exit 101 means the stage ran to completion: nothing stopped it, so it is never Prevented.
   if (EDR_VENDOR_KEYS.some(detected)) return 'detected';
   return 'unprotected';
 }

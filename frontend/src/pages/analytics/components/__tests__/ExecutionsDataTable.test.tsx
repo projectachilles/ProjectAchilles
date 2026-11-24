@@ -899,6 +899,7 @@ describe('ExecutionsDataTable — CrowdStrike prevention (vendor-confirmed)', ()
       crowdstrike_stage_detected: true,
       crowdstrike_prevented: true,
       crowdstrike_prevention_action: 'process_killed',
+      error_code: 999,
     });
     const plainStage = makeStage({});
 
@@ -948,7 +949,7 @@ describe('ExecutionsDataTable — CrowdStrike prevention (vendor-confirmed)', ()
 
   it('rolls the parent bundle badge up to Prevented when group.crowdstrikePrevented is set', () => {
     getAlertsForTestMock.mockResolvedValue({ alerts: [], matchedTechniques: [], total: 0 });
-    const stage = makeStage({ crowdstrike_detected: true, crowdstrike_prevented: true });
+    const stage = makeStage({ error_code: 999, crowdstrike_detected: true, crowdstrike_stage_detected: true, crowdstrike_prevented: true, crowdstrike_stage_prevented: true });
     renderTable(
       makeData([stage], { defenderDetected: false, crowdstrikeDetected: true, crowdstrikePrevented: true }),
     );
@@ -1023,6 +1024,7 @@ describe('ExecutionsDataTable — Defender prevention (vendor-confirmed)', () =>
       defender_stage_detected: true,
       defender_prevented: true,
       defender_prevention_action: 'process_killed',
+      error_code: 999,
     });
     const plainStage = makeStage({});
 
@@ -1041,7 +1043,9 @@ describe('ExecutionsDataTable — Defender prevention (vendor-confirmed)', () =>
   it('renders a single Prevented label when BOTH vendors confirmed prevention', async () => {
     getAlertsForTestMock.mockResolvedValue({ alerts: [], matchedTechniques: [], total: 0 });
     const stage = makeStage({
+      error_code: 999,
       defender_detected: true,
+      defender_stage_detected: true,
       defender_prevented: true,
       defender_prevention_action: 'blocked',
       crowdstrike_detected: true,

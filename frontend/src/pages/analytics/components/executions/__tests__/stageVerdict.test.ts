@@ -43,7 +43,7 @@ describe('stageVerdict', () => {
 
   it('prevented names the vendor and action', () => {
     const v = stageVerdict(
-      mk({ defender_stage_detected: true, defender_prevention_action: 'quarantined' }),
+      mk({ error_code: 999, defender_stage_detected: true, defender_prevention_action: 'quarantined' }),
       [],
     );
     expect(v).toEqual({
@@ -56,6 +56,7 @@ describe('stageVerdict', () => {
   it('both detected, only CrowdStrike acted: names only CrowdStrike', () => {
     const v = stageVerdict(
       mk({
+        error_code: 999,
         defender_stage_detected: true,
         crowdstrike_stage_detected: true,
         crowdstrike_prevention_action: 'process_killed',
@@ -69,6 +70,7 @@ describe('stageVerdict', () => {
   it('both detected, only Defender acted: names only Defender', () => {
     const v = stageVerdict(
       mk({
+        error_code: 999,
         defender_stage_detected: true,
         crowdstrike_stage_detected: true,
         defender_prevention_action: 'quarantined',
@@ -81,6 +83,7 @@ describe('stageVerdict', () => {
   it('both acted: CrowdStrike precedence', () => {
     const v = stageVerdict(
       mk({
+        error_code: 999,
         defender_stage_detected: true,
         defender_prevention_action: 'blocked',
         crowdstrike_stage_detected: true,
@@ -108,10 +111,15 @@ describe('stageVerdict', () => {
   });
 
   it('boolean-only prevention names the flagged vendor(s)', () => {
-    expect(stageVerdict(mk({ defender_prevented: true }), []).body).toBe('Defender reports it stopped it.');
+    expect(stageVerdict(mk({ error_code: 999, defender_stage_detected: true, defender_stage_prevented: true, defender_prevented: true }), []).body).toBe('Defender reports it stopped it.');
     expect(
-      stageVerdict(mk({ defender_prevented: true, crowdstrike_prevented: true }), []).body,
+      stageVerdict(mk({ error_code: 999, defender_stage_detected: true, defender_stage_prevented: true, defender_prevented: true, crowdstrike_stage_detected: true, crowdstrike_stage_prevented: true, crowdstrike_prevented: true }), []).body,
     ).toBe('Defender and CrowdStrike report it stopped it.');
+  });
+
+  it('exit 101 with a block action is detected, never prevented', () => {
+    const v = stageVerdict(mk({ defender_stage_detected: true, defender_stage_prevented: true, defender_prevention_action: 'process_killed' }), []);
+    expect(v.kind).toBe('detected');
   });
 
   it('detected', () => {
@@ -274,7 +282,7 @@ describe('stageVendors', () => {
 describe('stageVerdict with SentinelOne', () => {
   it('prevented names SentinelOne and its action', () => {
     expect(
-      stageVerdict(mk({ sentinelone_stage_detected: true, sentinelone_prevention_action: 'process_killed' }), []),
+      stageVerdict(mk({ error_code: 999, sentinelone_stage_detected: true, sentinelone_prevention_action: 'process_killed' }), []),
     ).toMatchObject({ kind: 'prevented', body: expect.stringMatching(/^SentinelOne reports it /) });
   });
   it('detected-only names SentinelOne', () => {
@@ -284,7 +292,7 @@ describe('stageVerdict with SentinelOne', () => {
     });
   });
   it('boolean-only prevention names SentinelOne', () => {
-    expect(stageVerdict(mk({ sentinelone_prevented: true }), []).body).toBe('SentinelOne reports it stopped it.');
+    expect(stageVerdict(mk({ error_code: 999, sentinelone_stage_detected: true, sentinelone_stage_prevented: true, sentinelone_prevented: true }), []).body).toBe('SentinelOne reports it stopped it.');
   });
 });
 
