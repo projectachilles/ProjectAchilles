@@ -50,9 +50,9 @@ While a build replaces a test's binary, the test reads **Unknown build**, also w
 
 ## Documentation changes
 
-A change to a test's Markdown or HTML documents, or to its KQL, YARA or NDJSON rule files, shows as **Update available: documentation changed**, so you know to sync. It never asks for a rebuild: after the Sync, the binary still matches the synced version.
+A change to a test's documents (Markdown, HTML) or to its detection and defence files shows as **Update available: documentation changed**, so you know to sync. The detection and defence files are the KQL, YARA, Elastic, Sigma and LimaCharlie D&R rules and the hardening scripts that come with each test. Such a change never asks for a rebuild: after the Sync, the binary still matches the synced version.
 
-Every other file in the test's folder counts as source, its Sigma and LimaCharlie rule files (YAML) and PowerShell scripts included. A change to one of them, to the shared libraries the test builds with, or to an embedded file asks for a rebuild.
+Every other file in the test's folder counts as source, other PowerShell and shell scripts included. A change to the test's source, to the shared libraries it builds with, or to an embedded file asks for a rebuild.
 
 ## How the console knows what is published
 
