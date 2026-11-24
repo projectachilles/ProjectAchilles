@@ -1,6 +1,12 @@
 package executor
 
-import "strings"
+import (
+	"log"
+	"path/filepath"
+	"sort"
+	"strings"
+	"time"
+)
 
 // Clean start. Test binaries drop files of their own into the artifact folder
 // (C:\F0, /tmp/F0): drivers, staged payloads, tools downloaded for a stage.
@@ -74,4 +80,87 @@ func keepInArtifactDir(name string, pass cleanPass, protectedTops []string) bool
 		}
 	}
 	return false
+}
+
+// cleanTargets are the folders a pass works on and the agent's own paths.
+type cleanTargets struct {
+	ArtifactDirs []string // C:\F0, /tmp/F0
+	DecoyDirs    []string // fortika-test
+	WorkDir      string
+	Protected    []string // absolute: executable, config, log, CA cert, work dir
+	Wide         bool     // false = executable or config path unknown: fail closed
+}
+
+// cleanReport is what one pass did.
+type cleanReport struct {
+	Removed    []string // top-level names removed from artifact folders
+	Decoys     int      // top-level entries removed from decoy folders
+	RunFolders int      // task-* / cmd-* folders removed
+	Failed     int
+	OutOfTime  bool
+}
+
+// protectedTops returns the top-level names of dir that hold a protected path
+// (sorted, without duplicates). selfIsWorkDir is true when dir itself is
+// protected, which happens when the agent runs from the artifact folder. Paths
+// are compared as given, without resolving links.
+func protectedTops(dir string, protected []string) (tops []string, selfIsWorkDir bool) {
+	seen := map[string]bool{}
+	for _, p := range protected {
+		if p == "" {
+			continue
+		}
+		rel, err := filepath.Rel(filepath.Clean(dir), filepath.Clean(p))
+		if err != nil || filepath.IsAbs(rel) || rel == ".." || strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
+			continue
+		}
+		if rel == "." {
+			selfIsWorkDir = true
+			continue
+		}
+		top := strings.Split(rel, string(filepath.Separator))[0]
+		if !seen[top] {
+			seen[top] = true
+			tops = append(tops, top)
+		}
+	}
+	sort.Strings(tops)
+	return tops, selfIsWorkDir
+}
+
+// cleanArtifactDir empties the top level of an artifact folder except what
+// keepInArtifactDir keeps. Without the agent's own paths (Wide false) it
+// removes only testUUID's binaries. Every delete goes through the trusted
+// root, which never follows a link. A failed delete is logged and counted; the
+// pass stops, setting rep.OutOfTime, once the deadline has passed.
+func cleanArtifactDir(dir string, pass cleanPass, t cleanTargets, testUUID string, deadline time.Time, rep *cleanReport) {
+	if !t.Wide {
+		rep.Removed = append(rep.Removed, removeTestBinaries(dir, testUUID)...)
+		return
+	}
+	root := openTrustedDir(dir)
+	if root == nil {
+		return
+	}
+	defer root.Close()
+	tops, selfIsWorkDir := protectedTops(dir, t.Protected)
+	if selfIsWorkDir {
+		tops = append(tops, "state.json", "queue")
+	}
+	for _, e := range readRoot(root) {
+		if time.Now().After(deadline) {
+			rep.OutOfTime = true
+			return
+		}
+		name := e.Name()
+		if keepInArtifactDir(name, pass, tops) {
+			continue
+		}
+		if err := root.RemoveAll(name); err != nil {
+			log.Printf("[cleanup] could not remove %s: %v", filepath.Join(dir, name), err)
+			rep.Failed++
+			continue
+		}
+		rep.Removed = append(rep.Removed, name)
+	}
 }
