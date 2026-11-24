@@ -40,7 +40,10 @@ export const BUILD_INPUT_EXCLUDED_EXT: readonly string[] = [
  * `.sh` and `.yml` files are real build inputs in other tests (embedded
  * scripts, build_all.sh, a test's own configuration). A test that embeds one
  * of these files is covered by the build's embedded-files hash instead
- * (getEmbedDependencies in buildService.ts).
+ * (getEmbedDependencies in buildService.ts), but only when the file is named
+ * literally as the first file on its `//go:embed` line: the parser reads only
+ * the first token, so one embedded through a glob (`//go:embed *.ps1`) or as a
+ * later token on the line is covered by nothing. A known gap.
  */
 export const BUILD_INPUT_EXCLUDED_NAME =
   /_(?:sigma_rules\.yml|dr_rules\.yaml|hardening(?:_[a-z0-9]+)?\.ps1|hardening_[a-z0-9]+\.sh)$/;
