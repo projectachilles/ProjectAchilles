@@ -39,6 +39,10 @@ vi.mock('../../services/tests/settings.js', () => ({
 }));
 
 // Mock BuildService
+class MockBuildError extends Error {}
+class MockBuildSupersededError extends MockBuildError {
+  constructor() { super('Build was superseded by another build of this test'); }
+}
 const mockUploadBinary = vi.fn();
 const mockListBuiltUuids = vi.fn();
 const mockStartBuild = vi.fn();
@@ -66,12 +70,13 @@ vi.mock('../../services/tests/buildService.js', () => ({
     uploadBinary = mockUploadBinary;
     listBuiltUuids = mockListBuiltUuids;
   },
-  BuildError: class BuildError extends Error {},
+  BuildError: MockBuildError,
+  BuildSupersededError: MockBuildSupersededError,
 }));
 
 const { createTestsRouter } = await import('../tests.routes.js');
 const { errorHandler, AppError } = await import('../../middleware/error.middleware.js');
-const { BuildError } = await import('../../services/tests/buildService.js');
+const { BuildError, BuildSupersededError } = await import('../../services/tests/buildService.js');
 
 function createApp() {
   const app = express();
@@ -322,6 +327,18 @@ describe('tests routes', () => {
 
         expect(res.status).toBe(422);
         expect(res.body.error).toBe('go build: undefined: foo');
+      });
+
+      it('returns 409 with the message when the build was superseded by another build of the test', async () => {
+        mockStartBuild.mockImplementation(() => ({
+          job: RUNNING,
+          promise: Promise.reject(new BuildSupersededError()),
+        }));
+
+        const res = await request(createApp()).post(`/api/tests/builds/${VALID_UUID}`);
+
+        expect(res.status).toBe(409);
+        expect(res.body).toEqual({ success: false, error: 'Build was superseded by another build of this test' });
       });
 
       it('returns 202 with the job immediately when async=true', async () => {

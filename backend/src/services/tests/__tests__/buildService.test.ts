@@ -135,7 +135,7 @@ vi.mock('child_process', async () => {
   };
 });
 
-const { BuildService, BuildError } = await import('../buildService.js');
+const { BuildService, BuildError, BuildSupersededError } = await import('../buildService.js');
 const { deriveStatus } = await import('../../browser/testVersionStatus.js');
 type TestsSettingsService = import('../settings.js').TestsSettingsService;
 
@@ -2520,7 +2520,7 @@ var data string
       interface MarkerHandle { path: string; token: string }
       interface MarkerInternals {
         acquireBuildMarker(uuid: string): MarkerHandle;
-        refreshBuildMarker(handle: MarkerHandle, uuid: string): void;
+        refreshBuildMarker(handle: MarkerHandle): void;
         releaseBuildMarker(handle: MarkerHandle, uuid: string): void;
       }
       const internals = (svc: InstanceType<typeof BuildService>) => svc as unknown as MarkerInternals;
@@ -2538,7 +2538,7 @@ var data string
         // A second acquire gets a different token (and is refused while the first holds it).
         expect(thrownBy(() => internals(service()).acquireBuildMarker(VALID_UUID)))
           .toMatchObject({ statusCode: 409, message: 'Build in progress for this test' });
-        internals(svc).refreshBuildMarker(handle, VALID_UUID);
+        internals(svc).refreshBuildMarker(handle);
         expect(markerJson().token).toBe(handle.token);
         internals(svc).releaseBuildMarker(handle, VALID_UUID);
         expect(files.has(marker)).toBe(false);
@@ -2562,7 +2562,7 @@ var data string
         }
       });
 
-      it('refresh does not touch a marker that holds another build\'s token', () => {
+      it('refresh does not touch a marker that holds another build\'s token: it stops the build instead', () => {
         const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
         try {
           const svc = service();
@@ -2570,13 +2570,17 @@ var data string
           put(marker, FOREIGN);
           const old = Date.now() - 100_000;
           mtimes.set(marker, old);
-          internals(svc).refreshBuildMarker(handle, VALID_UUID);
-          internals(svc).refreshBuildMarker(handle, VALID_UUID);
+          const err = thrownBy(() => internals(svc).refreshBuildMarker(handle));
+          expect(err).toBeInstanceOf(BuildSupersededError);
+          expect(err).toBeInstanceOf(BuildError);
+          expect(err).toMatchObject({ message: 'Build was superseded by another build of this test' });
           expect(String(files.get(marker))).toBe(FOREIGN);
           expect(mtimes.get(marker)).toBe(old);
           expect(mockUtimesSync).not.toHaveBeenCalled();
-          // Logged once, not per step.
-          expect(warn).toHaveBeenCalledTimes(1);
+          // The error is the report; release afterwards stays quiet and leaves the marker.
+          internals(svc).releaseBuildMarker(handle, VALID_UUID);
+          expect(String(files.get(marker))).toBe(FOREIGN);
+          expect(warn).not.toHaveBeenCalled();
         } finally {
           warn.mockRestore();
         }
@@ -2645,24 +2649,114 @@ var data string
         });
       });
 
-      it('a build whose marker another build replaced mid-build records no version, warns once and leaves the other marker', async () => {
-        const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
-        try {
+      describe('a build another build superseded stops (controller ruling)', () => {
+        const SUPERSEDED = 'Build was superseded by another build of this test';
+        const outputPath = `${BUILDS_DIR}/${VALID_UUID}/${VALID_UUID}.exe`;
+        const metaPath = `${BUILDS_DIR}/${VALID_UUID}/build-meta.json`;
+        let warn: ReturnType<typeof vi.spyOn>;
+        beforeEach(() => { warn = vi.spyOn(console, 'warn').mockImplementation(() => {}); });
+        afterEach(() => { warn.mockRestore(); });
+
+        it('replaced while build_all.sh runs: stops before copying its outputs, writes no build-meta.json, leaves the other marker', async () => {
           bashAlso(() => { put(marker, FOREIGN); });
           const svc = service();
 
-          const info = await svc.buildAndSign(VALID_UUID);
+          await expect(svc.buildAndSign(VALID_UUID)).rejects.toSatisfy(
+            (e: unknown) => e instanceof BuildSupersededError && (e as Error).message === SUPERSEDED);
 
-          expect(info.exists).toBe(true);
-          expect(info).not.toHaveProperty('version');
-          const meta = JSON.parse(String(files.get(`${BUILDS_DIR}/${VALID_UUID}/build-meta.json`)));
-          expect(meta).not.toHaveProperty('version');
+          expect(files.has(outputPath)).toBe(false);
+          expect(files.has(metaPath)).toBe(false);
           expect(String(files.get(marker))).toBe(FOREIGN);
+          // build_all.sh temp files are still cleaned up.
+          expect([...files.keys()].filter(f => /\.build-patched\.sh$|\.tmp-inner-pass$/.test(f))).toEqual([]);
+          expect(warn).not.toHaveBeenCalled();
+        });
+
+        it('replaced between two steps of a go build: the next step never runs, go.mod is restored, no build-meta.json', async () => {
+          files.delete(`${testDir}/build_all.sh`);
+          const originalGoMod = 'module example.test/original\n\ngo 1.22\n';
+          put(`${testDir}/go.mod`, originalGoMod);
+          const calls: string[] = [];
+          mockExecFileAsync.mockImplementation(async (cmd: string, args: string[]) => {
+            calls.push(`${cmd} ${args.join(' ')}`);
+            if (cmd === 'go' && args[0] === 'mod' && args[1] === 'tidy') {
+              put(`${testDir}/go.mod`, 'module example.test/original\n\ngo 1.22\n\nrequire example.test/dep v1.0.0\n');
+              put(`${testDir}/go.sum`, 'example.test/dep v1.0.0 h1:x=\n');
+              put(marker, FOREIGN);
+            }
+            return { stdout: '', stderr: '' };
+          });
+          const svc = service();
+
+          await expect(svc.buildAndSign(VALID_UUID)).rejects.toThrow(SUPERSEDED);
+
+          expect(calls).toEqual(['go mod tidy']);
+          expect(calls.some(c => c.startsWith('go mod download') || c.startsWith('go build'))).toBe(false);
+          expect(String(files.get(`${testDir}/go.mod`))).toBe(originalGoMod);
+          expect(files.has(`${testDir}/go.sum`)).toBe(false);
+          expect(files.has(metaPath)).toBe(false);
+          expect(files.has(outputPath)).toBe(false);
+          expect(String(files.get(marker))).toBe(FOREIGN);
+        });
+
+        it('replaced while signing: the signed file never replaces the artifact, no build-meta.json', async () => {
+          const svc = new BuildService(createMockSettingsService({
+            getActiveCertPfxPath: vi.fn().mockReturnValue({ pfxPath: '/certs/active.pfx', password: 'pw' }),
+          }), TESTS_SOURCE, { current: async () => ({ identity, modified: false }) });
+          const base = mockExecFileAsync.getMockImplementation()!;
+          mockExecFileAsync.mockImplementation(async (cmd: string, args: string[], opts?: unknown) => {
+            if (cmd === 'osslsigncode') {
+              put(`${outputPath}.signed`, 'signed by the superseded build');
+              put(marker, FOREIGN);
+              return { stdout: '', stderr: '' };
+            }
+            return base(cmd, args, opts);
+          });
+
+          await expect(svc.buildAndSign(VALID_UUID)).rejects.toThrow(SUPERSEDED);
+
+          // What it copied while it still held the marker stays (see the report).
+          expect(String(files.get(outputPath))).toBe('orchestrator');
+          expect(files.has(`${outputPath}.signed`)).toBe(false);
+          expect(files.has(`${BUILDS_DIR}/${VALID_UUID}/.tmp-pass`)).toBe(false);
+          expect(files.has(metaPath)).toBe(false);
+          expect(String(files.get(marker))).toBe(FOREIGN);
+        });
+
+        it('replaced during the stamp\'s identity read: the stamp\'s own check refuses it, and no build-meta.json is written', async () => {
+          let reads = 0;
+          const svc = new BuildService(createMockSettingsService(), TESTS_SOURCE, {
+            current: async () => {
+              if (++reads === 2) put(marker, FOREIGN);
+              return { identity, modified: false };
+            },
+          });
+
+          await expect(svc.buildAndSign(VALID_UUID)).rejects.toThrow(SUPERSEDED);
+
+          expect(reads).toBe(2);
+          expect(files.has(metaPath)).toBe(false);
+          expect(String(files.get(marker))).toBe(FOREIGN);
+          // The stamp's last-line check logged why it would not stamp.
           expect(warn).toHaveBeenCalledTimes(1);
           expect(warn.mock.calls[0].map(String).join(' ')).toContain(VALID_UUID);
-        } finally {
-          warn.mockRestore();
-        }
+        });
+
+        it('the async job of a superseded build ends failed with the message', async () => {
+          const error = vi.spyOn(console, 'error').mockImplementation(() => {});
+          try {
+            bashAlso(() => { put(marker, FOREIGN); });
+            const svc = service();
+
+            const { promise } = svc.startBuild(VALID_UUID);
+            await expect(promise).rejects.toThrow(SUPERSEDED);
+
+            expect(svc.getBuildJob(VALID_UUID)).toMatchObject({ status: 'failed', error: SUPERSEDED });
+            expect(error).toHaveBeenCalledWith('Build failed for %s: %s', VALID_UUID, SUPERSEDED);
+          } finally {
+            error.mockRestore();
+          }
+        });
       });
 
       it('a refreshed marker keeps a second instance\'s isBuildingAnywhere true past the stale bound', async () => {

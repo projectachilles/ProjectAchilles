@@ -33,6 +33,19 @@ export class BuildError extends Error {
   }
 }
 
+/**
+ * Thrown when a build finds that its marker no longer holds its token
+ * (another build of the test took it over, or it was removed): the build
+ * stops there, before its next step and before it writes into the build
+ * directory. The route answers 409.
+ */
+export class BuildSupersededError extends BuildError {
+  constructor() {
+    super('Build was superseded by another build of this test');
+    this.name = 'BuildSupersededError';
+  }
+}
+
 // Heavy build subprocesses (go build/mod, build_all.sh) are CPU-bound and, on a
 // small shared instance, can starve the Node event loop — slowing the Render
 // /api/health check until the platform recycles the instance mid-build. Run
@@ -167,7 +180,8 @@ const SIGN_TIMEOUT = 60_000;
  * both together was left by a process that died mid-build, or by a build
  * whose step overran its timeout (the timeout signals only the direct child,
  * so a step can outlive it): a stale marker is taken over, and the build that
- * owned it can then no longer refresh, remove or stamp (see BuildMarkerHandle).
+ * owned it stops at its next check (BuildSupersededError) without touching
+ * the new owner's marker (see BuildMarkerHandle).
  */
 const BUILD_MARKER = '.building';
 const BUILD_MARKER_STALE_MS = BUILD_TIMEOUT + SIGN_TIMEOUT;
@@ -184,7 +198,7 @@ const BUILD_IN_PROGRESS = 'Build in progress for this test';
  * The marker a build (or an upload or delete) holds. The file carries the
  * same random token; refresh, release and the version stamp act only while it
  * still does, so a build whose marker another build took over can't touch the
- * other build's marker.
+ * other build's marker; the build itself stops at its next refresh.
  */
 export interface BuildMarkerHandle {
   path: string;
@@ -424,12 +438,19 @@ export class BuildService {
   }
 
   /**
-   * Keep the marker fresh before a build step, only while it still holds this
-   * build's token (a taken-over marker belongs to another build). Touches the
-   * file, never rewrites it. A failure here never fails the build.
+   * Keep the marker fresh before a build step and before the build writes its
+   * outputs. When the marker no longer holds this build's token (another
+   * build took it over, or it was removed), the build stops here with
+   * BuildSupersededError: it never touches the other build's marker, and the
+   * error is its report (no separate warning). Touches the file, never
+   * rewrites it; a failed touch never fails the build.
    */
-  private refreshBuildMarker(handle: BuildMarkerHandle, uuid: string): void {
-    if (!this.ownsMarker(handle, uuid)) return;
+  private refreshBuildMarker(handle: BuildMarkerHandle): void {
+    if (this.markerState(handle) !== 'ours') {
+      // Release then leaves the marker alone without a warning of its own.
+      this.lostMarkers.add(handle);
+      throw new BuildSupersededError();
+    }
     try {
       const now = new Date();
       fs.utimesSync(handle.path, now, now);
@@ -1086,6 +1107,10 @@ const ARTIFACT_DIR = \`${artifactDir}\`
     }
 
     try {
+      // Before the first write into the test folder or the build directory
+      // (patched script, password file, LOG_DIR file): the version read
+      // above is not bounded by a step timeout.
+      this.refreshBuildMarker(marker);
       if (hasBuildScript) {
         // Determine if the test is in a categorized subdirectory (tests_source/<category>/<uuid>/).
         // Some build_all.sh scripts hardcode TEST_DIR="tests_source/<uuid>" (flat layout) and use
@@ -1158,7 +1183,7 @@ const ARTIFACT_DIR = \`${artifactDir}\`
         }
 
         try {
-          this.refreshBuildMarker(marker, uuid);
+          this.refreshBuildMarker(marker);
           await runBuildCommand('bash', buildArgs, {
             cwd: buildCwd,
             env,
@@ -1174,6 +1199,10 @@ const ARTIFACT_DIR = \`${artifactDir}\`
             fs.unlinkSync(innerPassFile);
           }
         }
+
+        // The script may have outlived its timeout: a build superseded while
+        // it ran must not copy its outputs over the other build's.
+        this.refreshBuildMarker(marker);
 
         // Locate output binary — check repo-root build dir (build_all.sh output location) too
         const candidates = [
@@ -1250,7 +1279,7 @@ const ARTIFACT_DIR = \`${artifactDir}\`
         try {
           if (!hadGoMod) {
             // Auto-init a temporary module so "go build ." works in package mode
-            this.refreshBuildMarker(marker, uuid);
+            this.refreshBuildMarker(marker);
             await runBuildCommand('go', ['mod', 'init', 'testbuild'], {
               cwd: testDir,
               env,
@@ -1258,15 +1287,15 @@ const ARTIFACT_DIR = \`${artifactDir}\`
             });
           }
 
-          this.refreshBuildMarker(marker, uuid);
+          this.refreshBuildMarker(marker);
           await runBuildCommand('go', ['mod', 'tidy'], { cwd: testDir, env, timeout: BUILD_TIMEOUT });
-          this.refreshBuildMarker(marker, uuid);
+          this.refreshBuildMarker(marker);
           await runBuildCommand('go', ['mod', 'download'], { cwd: testDir, env, timeout: BUILD_TIMEOUT });
 
           // Use package mode ("go build .") for proper GOOS/GOARCH constraint evaluation.
           // File-list mode ("go build a.go b.go") doesn't resolve cross-platform build tags
           // on transitive dependencies, causing failures for windows-only imports on Linux.
-          this.refreshBuildMarker(marker, uuid);
+          this.refreshBuildMarker(marker);
           await runBuildCommand('go', ['build', '-o', outputPath, '.'], {
             cwd: testDir,
             env,
@@ -1309,8 +1338,9 @@ const ARTIFACT_DIR = \`${artifactDir}\`
         // L1: Pass password via temp file to avoid /proc/PID/cmdline exposure
         const passFile = path.join(buildDir, '.tmp-pass');
         try {
+          // Before the password file: it is in the build directory too.
+          this.refreshBuildMarker(marker);
           fs.writeFileSync(passFile, activeCert.password, { mode: 0o600 });
-          this.refreshBuildMarker(marker, uuid);
           await execFileAsync('osslsigncode', [
             'sign',
             '-pkcs12', activeCert.pfxPath,
@@ -1319,20 +1349,24 @@ const ARTIFACT_DIR = \`${artifactDir}\`
             '-out', signedPath,
           ], { timeout: SIGN_TIMEOUT });
 
+          // Not over the artifact of a build that superseded this one.
+          this.refreshBuildMarker(marker);
           fs.renameSync(signedPath, outputPath);
           signed = true;
-        } catch {
+        } catch (err) {
           // Signing failed — continue with unsigned binary
           if (fs.existsSync(signedPath)) {
             fs.unlinkSync(signedPath);
           }
+          // Superseded is not a signing failure: the build stops.
+          if (err instanceof BuildSupersededError) throw err;
         } finally {
           if (fs.existsSync(passFile)) fs.unlinkSync(passFile);
         }
       }
     } else if (platform.os === 'darwin') {
       try {
-        this.refreshBuildMarker(marker, uuid);
+        this.refreshBuildMarker(marker);
         await execFileAsync('rcodesign', [
           'sign',
           '--code-signature-flags', 'adhoc',
@@ -1353,6 +1387,8 @@ const ARTIFACT_DIR = \`${artifactDir}\`
       ...extraBinaries,
       [platform.os]: { filename, fileSize: stats.size, signed },
     };
+    // Before the stamp hashes the outputs (go build and rcodesign wrote them in place).
+    this.refreshBuildMarker(marker);
     const version = versionBefore
       ? await this.stampVersion(uuid, versionBefore, buildDir, binaries, marker)
       : undefined;
@@ -1366,6 +1402,9 @@ const ARTIFACT_DIR = \`${artifactDir}\`
       source: 'built',
       ...(version ? { version } : {}),
     };
+    // Last check: a superseded build never writes build-meta.json (the
+    // stamp's own check above stays as the last line of defence).
+    this.refreshBuildMarker(marker);
     fs.writeFileSync(this.metaPath(uuid), JSON.stringify(meta, null, 2));
 
     return {
@@ -1394,6 +1433,8 @@ const ARTIFACT_DIR = \`${artifactDir}\`
    *  - an artifact or dependency can't be hashed;
    *  - the build no longer holds its marker (another build took it over), so
    *    it can't prove nothing else wrote to the test folder or the artifacts.
+   *    A last line of defence: the refresh right after the stamp stops such a
+   *    build before it writes build-meta.json.
    *
    * deps_hash is taken here, not before the build, because a build_all.sh can
    * itself write an embedded file that is classed as uploaded (a gzipped

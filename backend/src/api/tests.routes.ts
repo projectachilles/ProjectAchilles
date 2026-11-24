@@ -3,7 +3,7 @@ import multer from 'multer';
 import { requireClerkAuth, requirePermission } from '../middleware/clerk.middleware.js';
 import { asyncHandler, AppError } from '../middleware/error.middleware.js';
 import { TestsSettingsService } from '../services/tests/settings.js';
-import { BuildService, BuildError } from '../services/tests/buildService.js';
+import { BuildService, BuildError, BuildSupersededError } from '../services/tests/buildService.js';
 import { validate } from '../middleware/validation.js';
 import { PlatformSettingsSchema, GenerateCertificateSchema, UpdateCertLabelSchema } from '../schemas/tests.schemas.js';
 import type { PlatformSettings } from '../types/tests.js';
@@ -228,6 +228,10 @@ export function createTestsRouter(options: {
       const info = await promise;
       res.json({ success: true, data: info });
     } catch (err) {
+      // Another build of the test took over: a conflict, like a running build.
+      if (err instanceof BuildSupersededError) {
+        throw new AppError(err.message, 409);
+      }
       if (err instanceof BuildError) {
         throw new AppError(err.message, 422);
       }
