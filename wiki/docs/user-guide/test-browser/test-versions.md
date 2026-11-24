@@ -100,7 +100,7 @@ Results recorded before the upgrade, and results of tasks created before it (a R
 :::
 
 :::note[What current compares]
-A result is **current** when the source its binary was built from equals the source synced now: the test's own files and, for a test synced with git, the shared libraries it builds with. A result of a library test built from the commit that is synced now is always **current**. It does not look at files uploaded for the build (embedded dependencies), the signing certificate, or the target platform. A documentation change, as described under [Documentation changes](#documentation-changes), never makes a result **older**.
+A result is **current** when the source its binary was built from equals the source synced now: the test's own files and, for a test synced with git, the shared libraries it builds with. A result of a library test built from the commit that is synced now is **current**. It does not look at files uploaded for the build (embedded dependencies), the signing certificate, or the target platform. A documentation change, as described under [Documentation changes](#documentation-changes), never makes a result **older**.
 :::
 
 ## Without git, and custom tests
