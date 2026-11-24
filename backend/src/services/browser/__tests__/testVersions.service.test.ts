@@ -337,6 +337,40 @@ describe('TestVersionsService', () => {
     });
   });
 
+  it.each([true, false])('a folder test that cannot be read is left out, the others are returned (git %s)', async (git) => {
+    const UUID_BAD = 'e1b2c3d4-e5f6-7890-abcd-ef1234567890';
+    const badDir = path.join(tmp, 'custom', UUID_BAD);
+    fs.mkdirSync(badDir, { recursive: true });
+    fs.writeFileSync(path.join(badDir, 'main.go'), 'package main\n');
+    fs.chmodSync(path.join(badDir, 'main.go'), 0o000);
+    try {
+      const svc = new TestVersionsService({
+        gitSync: git ? (fake as unknown as GitSyncService) : undefined,
+        sourceSubdir: 'tests_source',
+        listTests: () => [
+          { uuid: UUID_A, dir: path.join(repo, 'tests_source', 'intel-driven', UUID_A), provenance: 'upstream' },
+          { uuid: UUID_BAD, dir: badDir, provenance: 'custom' },
+          { uuid: UUID_CUSTOM, dir: customDir, provenance: 'custom' },
+        ],
+        stateFile: path.join(tmp, 'state', 'published.json'),
+      });
+      const ids = await svc.synced();
+      expect(ids.has(UUID_BAD)).toBe(false);
+      expect(ids.has(UUID_CUSTOM)).toBe(true);
+      expect(ids.has(UUID_A)).toBe(true);
+      expect(warn).toHaveBeenCalledTimes(1);
+      expect(warn).toHaveBeenCalledWith('Could not read the version of test %s (%s)', UUID_BAD, 'Error');
+      // Read again (the failure is not cached): no second line for the same failure.
+      await svc.synced();
+      expect(warn).toHaveBeenCalledTimes(1);
+      // Readable again: it is back.
+      fs.chmodSync(path.join(badDir, 'main.go'), 0o644);
+      expect((await svc.synced()).has(UUID_BAD)).toBe(true);
+    } finally {
+      fs.chmodSync(path.join(badDir, 'main.go'), 0o644);
+    }
+  });
+
   it('a git test missing from the HEAD tree gets no identity and no stamp', async () => {
     fake.listTree.mockResolvedValue([]);
     const svc = makeService();

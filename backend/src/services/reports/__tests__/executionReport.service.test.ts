@@ -7,7 +7,11 @@ vi.mock('../../analytics/client.js', () => ({ createEsClient: vi.fn() }));
 
 import { createEsClient } from '../../analytics/client.js';
 import { STAGE_OUTCOMES } from '../stageOutcome.js';
-import { ExecutionReportService, ORG_NAME_MAX, VERSION_READ_BUDGET_MS, deploymentOrgName } from '../executionReport.service.js';
+import { ExecutionReportService, ORG_NAME_MAX, deploymentOrgName } from '../executionReport.service.js';
+import { VERSION_READ_BUDGET_MS, currentFingerprintMap } from '../../browser/currentFingerprints.js';
+import { setTestVersionsService } from '../../browser/testVersions.service.js';
+import type { TestVersionsService } from '../../browser/testVersions.service.js';
+import type { TestVersionIdentity } from '../../../types/testVersion.js';
 import { ConsoleIdentityService } from '../../consoleIdentity/consoleIdentity.service.js';
 import type { OutcomeCounts } from '../../../types/reports.js';
 import type { AnalyticsSettings } from '../../../types/analytics.js';
@@ -155,6 +159,7 @@ beforeEach(() => {
 });
 afterEach(() => {
   warn.mockRestore();
+  setTestVersionsService(undefined);
 });
 
 describe('ExecutionReportService.generate', () => {
@@ -618,7 +623,8 @@ describe('test version of each run', () => {
   });
 
   it('gives up on a lookup that outlives the time budget, and still builds the report', async () => {
-    const deps = makeDeps({ budgetMs: 40, getCurrentFingerprints: vi.fn(() => new Promise(() => {})) });
+    setTestVersionsService({ synced: () => new Promise(() => {}) } as unknown as TestVersionsService);
+    const deps = makeDeps({ budgetMs: 40, getCurrentFingerprints: currentFingerprintMap });
     deps.client.search.mockImplementation(stampedSearch(stamp()));
     const started = Date.now();
     const report = await new ExecutionReportService(settings, deps).generate(params(), NOW);
@@ -629,13 +635,33 @@ describe('test version of each run', () => {
     expect(report.meta.warnings.filter((w) => /version/i.test(w))).toEqual([]);
   });
 
+  it('passes the time left to its deadline as the read\'s limit', async () => {
+    const deps = makeDeps({ budgetMs: 3_000, getCurrentFingerprints: vi.fn(async () => new Map([[BUNDLE, 'fp-1']])) });
+    deps.client.search.mockImplementation(stampedSearch(stamp()));
+    await new ExecutionReportService(settings, deps).generate(params(), NOW);
+    const [limit] = deps.getCurrentFingerprints.mock.calls[0] as unknown as [number];
+    expect(limit).toBeGreaterThan(2_000);
+    expect(limit).toBeLessThanOrEqual(3_000);
+  });
+
+  // The bound lives in currentFingerprintMap(): these run the real one over a versions
+  // service whose synced() is the read under test.
   describe('its own time limit', () => {
     beforeEach(() => { vi.useFakeTimers(); });
     afterEach(() => { vi.useRealTimers(); });
 
+    /** A versions service whose synced() resolves `read`'s fingerprints as identities. */
+    function libraryReading(read: () => Promise<Map<string, string> | undefined>): void {
+      const synced = async () => new Map(
+        [...((await read()) ?? new Map<string, string>())].map(([uuid, fingerprint]) => [uuid, { fingerprint } as TestVersionIdentity]),
+      );
+      setTestVersionsService({ synced } as unknown as TestVersionsService);
+    }
+
     /** generate() under fake timers, with a report budget far above the read's own limit. */
     function start(read: () => Promise<Map<string, string> | undefined>, withStamp = true) {
-      const deps = makeDeps({ budgetMs: 60_000, getCurrentFingerprints: vi.fn(read) });
+      libraryReading(read);
+      const deps = makeDeps({ budgetMs: 60_000, getCurrentFingerprints: currentFingerprintMap });
       if (withStamp) deps.client.search.mockImplementation(stampedSearch(stamp()));
       let settled = false;
       const report = new ExecutionReportService(settings, deps).generate(params(), NOW).finally(() => { settled = true; });
@@ -671,7 +697,8 @@ describe('test version of each run', () => {
     });
 
     it('never waits past the report deadline', async () => {
-      const deps = makeDeps({ budgetMs: 1_000, getCurrentFingerprints: vi.fn(() => new Promise(() => {})) });
+      libraryReading(() => new Promise(() => {}));
+      const deps = makeDeps({ budgetMs: 1_000, getCurrentFingerprints: currentFingerprintMap });
       deps.client.search.mockImplementation(stampedSearch(stamp()));
       let settled = false;
       const report = new ExecutionReportService(settings, deps).generate(params(), NOW).finally(() => { settled = true; });

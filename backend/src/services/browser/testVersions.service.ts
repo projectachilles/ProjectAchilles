@@ -121,6 +121,8 @@ export class TestVersionsService implements BuildVersionSource {
   /** The last read of the git tests at HEAD failed (syncedError); its sanitized detail, logged once. */
   private syncedFailure: string | null = null;
   private diskCache: { at: number; ids: Map<string, TestVersionIdentity> } | null = null;
+  /** Folder tests whose identity could not be read (uuid -> error class), so each failure is logged once. */
+  private readonly diskFailures = new Map<string, string>();
   private readonly stateFile: string;
   private loadedMtimeMs = -1;
   private readonly startJitterMs: number;
@@ -240,7 +242,18 @@ export class TestVersionsService implements BuildVersionSource {
       }
       let id = this.diskCache.ids.get(t.uuid);
       if (!id) {
-        id = this.diskIdentity(t.uuid, t.dir, t.provenance);
+        try {
+          id = this.diskIdentity(t.uuid, t.dir, t.provenance);
+        } catch (err) {
+          // Left out (its results read "version unknown"); the other tests are still returned.
+          const reason = err instanceof Error ? err.name : 'error';
+          if (this.diskFailures.get(t.uuid) !== reason) {
+            console.warn('Could not read the version of test %s (%s)', t.uuid, reason);
+            this.diskFailures.set(t.uuid, reason);
+          }
+          continue;
+        }
+        this.diskFailures.delete(t.uuid);
         this.diskCache.ids.set(t.uuid, id);
       }
       identities.set(t.uuid, id);
@@ -250,7 +263,8 @@ export class TestVersionsService implements BuildVersionSource {
 
   /**
    * Version of every test as it is synced: git tests at HEAD (none when HEAD
-   * can't be read), the others from their folders.
+   * can't be read), the others from their folders (a folder that can't be
+   * read is left out, logged once).
    */
   async synced(): Promise<Map<string, TestVersionIdentity>> {
     return (await this.loadSynced()).identities;

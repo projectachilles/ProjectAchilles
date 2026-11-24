@@ -46,8 +46,6 @@ import type {
 
 export const REPORT_BUDGET_MS = 45_000;
 export const VENDOR_BUDGET_MS = 15_000;
-/** Longest wait for the synced library's fingerprints (the runs' version states); never past the report deadline. */
-export const VERSION_READ_BUDGET_MS = 5_000;
 /** Longest organization name the report prints, in characters; it shares the page header with the date range. */
 export const ORG_NAME_MAX = 56;
 
@@ -85,8 +83,8 @@ export interface ExecutionReportDeps {
   getRunStartTimes: (taskIds: string[]) => Promise<Map<string, string>>;
   getAcceptances: (testNames: string[], org?: string) => Promise<Record<string, RiskAcceptance[]>>;
   /** Current fingerprint of every synced test (uuid -> fingerprint), for the runs' version states;
-   *  undefined when the library can't be read. */
-  getCurrentFingerprints: () => Promise<Map<string, string> | undefined>;
+   *  undefined when the library can't be read within `limitMs` (currentFingerprintMap bounds it). */
+  getCurrentFingerprints: (limitMs?: number) => Promise<Map<string, string> | undefined>;
   budgetMs: number;
   vendorBudgetMs: number;
   /** Raw name of the organization this deployment serves: the console identity's full name
@@ -359,8 +357,12 @@ export class ExecutionReportService {
     const filterParams: FilterParams = { ...pickFilters(params), from: window.effectiveFrom, to: window.effectiveTo };
     const filters = this.deps.es.buildExtendedFilters(filterParams);
     const shardFailures: ShardFailures = { failed: 0, total: 0, indices: new Set(), reasons: new Set() };
-    // Read alongside the required queries. Not an enrichment: without it the runs only lose their version state.
-    const currentFingerprints = this.currentFingerprints(deadline);
+    // Read alongside the required queries, within the time left to the deadline (currentFingerprintMap
+    // also caps it at VERSION_READ_BUDGET_MS). Not an enrichment: without it the runs only lose their
+    // version state. The catch only guards an injected reader: currentFingerprintMap never rejects.
+    const currentFingerprints = Promise.resolve()
+      .then(() => this.deps.getCurrentFingerprints(Math.max(0, deadline - Date.now())))
+      .catch((): undefined => undefined);
 
     // ── Required phase ──
     let scopeRes: unknown;
@@ -549,21 +551,6 @@ export class ExecutionReportService {
     console.warn(`Execution report: ${detail}; docs in scope on the failed indices: ${inScope}`);
     warnings.push(PARTIAL_WARNING);
     return { failedShards: failures.failed, totalShards: failures.total };
-  }
-
-  /**
-   * The synced library's fingerprints, within VERSION_READ_BUDGET_MS and the report deadline. Never
-   * rejects: a failure or timeout is undefined, and the runs then carry no version state (never a
-   * guess). A read abandoned at the limit stays handled by the race, so its late rejection is swallowed.
-   */
-  private async currentFingerprints(deadline: number): Promise<Map<string, string> | undefined> {
-    try {
-      const limit = Math.min(deadline, Date.now() + VERSION_READ_BUDGET_MS);
-      return await withDeadline(Promise.resolve().then(() => this.deps.getCurrentFingerprints()), limit);
-    } catch (err) {
-      console.warn(`Execution report: current test versions unavailable (${err instanceof Error ? err.name : 'error'})`);
-      return undefined;
-    }
   }
 
   /** Catalog fields win over ES fields; the display name stays ES's (what the console shows). */

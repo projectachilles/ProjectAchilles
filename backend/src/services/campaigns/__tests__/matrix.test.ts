@@ -465,6 +465,22 @@ describe('campaign run matrix', () => {
       expect(unread[4].endsWith(',,not recorded')).toBe(true);
     });
 
+    it('reads the current versions in parallel with the Elasticsearch read, not before it', async () => {
+      let esCalled!: () => void;
+      const esStarted = new Promise<void>((resolve) => { esCalled = resolve; });
+      mockFetchEdrDocs.mockImplementation(async () => { esCalled(); return { status: 'not_configured', docs: new Map() }; });
+      // The read answers only once the Elasticsearch read has started (or fails after 500 ms).
+      mockCurrentFingerprintMap.mockImplementation(async () => {
+        await Promise.race([esStarted, new Promise((_, reject) => setTimeout(() => reject(new Error('ES read not started')), 500))]);
+        return new Map([['t1', 'fp-1']]);
+      });
+      insertRun('v8', 'c1', snap(['t1'], ['a1']));
+      insertTask({ runId: 'v8', agent: 'a1', test: 't1', status: 'completed', exit: 126, testVersion: stamp({ commit: COMMIT_A, fingerprint: 'fp-1' }) });
+      const m = await getRunMatrix('v8', ORG);
+      expect(m.cells.t1.a1.version).toEqual({ commit: COMMIT_A, fingerprint: 'fp-1', state: 'current' });
+      expect(mockCurrentFingerprintMap).toHaveBeenCalledTimes(1);
+    });
+
     it('the run-list paths never read the current versions', async () => {
       insertRun('v7', 'c1', snap(['t1'], ['a1']));
       insertTask({ runId: 'v7', agent: 'a1', test: 't1', status: 'completed', exit: 126, testVersion: stamp({ commit: COMMIT_A, fingerprint: 'fp-1' }) });

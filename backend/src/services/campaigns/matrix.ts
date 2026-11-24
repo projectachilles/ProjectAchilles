@@ -259,11 +259,16 @@ export function matrixEdrSources(svc: IntegrationsSettingsService = new Integrat
 }
 
 /**
- * `current`: the synced fingerprint of every test, for the cells' version
- * states. Only getRunMatrix reads it; the totals and list paths pass
- * undefined (they run once per listed run and never show a version).
+ * `readCurrent`: reads the synced fingerprint of every test, for the cells'
+ * version states. It starts together with the Elasticsearch read and is
+ * bounded (currentFingerprintMap never rejects). Only getRunMatrix passes it;
+ * the totals and list paths don't (they run once per listed run and never
+ * show a version).
  */
-async function build(row: CampaignRunRow, current: Map<string, string> | undefined): Promise<RunMatrix> {
+async function build(
+  row: CampaignRunRow,
+  readCurrent?: () => Promise<Map<string, string> | undefined>,
+): Promise<RunMatrix> {
   const snap = JSON.parse(row.snapshot) as RunSnapshot;
   const nowIso = new Date().toISOString();
   const byPair = latestTasksByPair(row.id);
@@ -271,7 +276,7 @@ async function build(row: CampaignRunRow, current: Map<string, string> | undefin
   const noticeIds = [...byPair.values()].map((t) => t.notice_id).filter((id): id is string => !!id);
   const scope: NoticeScope = { kind: 'org', orgId: row.org_id };
   const notices = getNoticeSummaries(noticeIds, scope);
-  const edr = await fetchEdrDocs([...byPair.values()].flatMap(docIdsFor));
+  const [edr, currentMap] = await Promise.all([fetchEdrDocs([...byPair.values()].flatMap(docIdsFor)), readCurrent?.()]);
 
   const cells: RunMatrix['cells'] = {};
   for (const t of snap.tests) {
@@ -283,7 +288,7 @@ async function build(row: CampaignRunRow, current: Map<string, string> | undefin
       cells[t.uuid][a.id] = reason !== undefined
         ? { state: 'na', exit_code: null, task_id: null, completed_at: null, reason, techniques: [], ...EMPTY }
         : task
-          ? { ...cellFor(task, notices, nowIso, edr), version: cellVersion(task.test_version, t.uuid, current) }
+          ? { ...cellFor(task, notices, nowIso, edr), version: cellVersion(task.test_version, t.uuid, currentMap) }
           : { state: 'not_run', exit_code: null, task_id: null, completed_at: null, reason: null, techniques: [], ...EMPTY };
     }
   }
@@ -309,11 +314,11 @@ async function build(row: CampaignRunRow, current: Map<string, string> | undefin
 
 export async function getRunMatrix(runId: string, callerOrg: string | undefined): Promise<RunMatrix> {
   const row = findRun(runId, callerOrg);
-  return build(row, await currentFingerprintMap());
+  return build(row, () => currentFingerprintMap());
 }
 
 export async function computeRunTotals(runId: string): Promise<RunMatrix['totals']> {
-  return (await build(findRun(runId, undefined), undefined)).totals;
+  return (await build(findRun(runId, undefined))).totals;
 }
 
 export interface Page<T> {
@@ -344,7 +349,7 @@ async function runListItem(r: CampaignRunRow, snap: RunSnapshot): Promise<RunLis
     started_by_name: await startedByName(r, snap),
     task_count: r.task_count,
     // Per-row totals are fine: the page is at most 100 rows.
-    percent_protected: (await build(r, undefined)).totals.percent_protected,
+    percent_protected: (await build(r)).totals.percent_protected,
   };
 }
 
