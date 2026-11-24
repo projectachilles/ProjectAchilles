@@ -43,9 +43,19 @@ export function gitChildEnv(source: NodeJS.ProcessEnv = process.env): Record<str
 const AUTH_ENV_KEYS = ['GIT_CONFIG_COUNT', 'GIT_CONFIG_KEY_0', 'GIT_CONFIG_VALUE_0'];
 
 /** Every simple-git instance this service uses goes through here. */
-export function createGit(baseDir?: string, githubToken?: string): SimpleGit {
+export function createGit(
+  baseDir?: string,
+  githubToken?: string,
+  extraEnv: Record<string, string> = {},
+): SimpleGit {
   const env = gitChildEnv();
   const allowEnvironment = ['GIT_TERMINAL_PROMPT'];
+
+  // Callers' own, fixed variables (e.g. GIT_NO_LAZY_FETCH). Never ambient ones.
+  for (const [key, value] of Object.entries(extraEnv)) {
+    env[key] = value;
+    allowEnvironment.push(key);
+  }
 
   if (!githubToken) {
     return simpleGit({ baseDir, allowEnvironment }).env(env);
@@ -75,7 +85,7 @@ export function createGit(baseDir?: string, githubToken?: string): SimpleGit {
  * Redact the configured credential in every representation this service sends
  * to Git, plus URL userinfo from clones created by older versions.
  */
-function sanitizeGitError(message: string, githubToken?: string): string {
+export function sanitizeGitError(message: string, githubToken?: string): string {
   const marker = '\u0000GIT_CREDENTIAL\u0000';
   let sanitized = message;
 
@@ -110,6 +120,13 @@ function sanitizeGitError(message: string, githubToken?: string): string {
   // or supplied directly in the configured repository URL.
   sanitized = sanitized.replace(/(https?:\/\/)[^\s/@]+@/gi, `$1${marker}@`);
   return sanitized.split(marker).join('[TOKEN]');
+}
+
+/** One line of `git ls-tree -r -t`: blobs and trees only (submodule commits are skipped). */
+export interface GitTreeEntry {
+  type: 'blob' | 'tree';
+  hash: string;
+  path: string;
 }
 
 export interface SyncStatus {
@@ -156,6 +173,11 @@ export class GitSyncService {
     return fs.existsSync(gitDir);
   }
 
+  /** The configured remote URL (may carry credentials: never send it to a client as is). */
+  public getRepoUrl(): string {
+    return this.config.repoUrl;
+  }
+
   /** The clone folder (operator-set; the folders inside it are repository content). */
   public getRepoPath(): string {
     return this.config.localPath;
@@ -194,6 +216,21 @@ export class GitSyncService {
       console.log('  Anonymous access failed, retrying with the configured token...');
       return run(this.config.githubToken);
     }
+  }
+
+  /**
+   * Point `origin` at the configured repository. Removes credentials
+   * persisted by older versions, and follows a changed TESTS_REPO_URL on an
+   * existing clone, so every fetch goes to the repository that is configured
+   * now. Runs before each fetch.
+   */
+  private async pointOriginAtConfiguredRepo(): Promise<void> {
+    await createGit(this.config.localPath).remote(['set-url', 'origin', this.config.repoUrl]);
+  }
+
+  /** The remote-tracking ref of the configured branch: what pull() resets to and fetchPublished() updates. */
+  public publishedRef(): string {
+    return `origin/${this.config.branch}`;
   }
 
   /**
@@ -259,16 +296,14 @@ export class GitSyncService {
       // Initialize git for the local repo
       const repoGit = createGit(this.config.localPath);
 
-      // Remove credentials persisted by older versions and keep the remote
-      // suitable for status output and future diagnostics.
-      await repoGit.remote(['set-url', 'origin', this.config.repoUrl]);
+      await this.pointOriginAtConfiguredRepo();
 
       // Fetch and reset to handle force pushes. The reset downloads the
       // changed files (partial clone), so it needs the same access as the fetch.
       await this.withTokenFallback(async (token) => {
         const remoteGit = createGit(this.config.localPath, token);
         await remoteGit.fetch(['--depth', '1']);
-        await remoteGit.reset(['--hard', `origin/${this.config.branch}`]);
+        await remoteGit.reset(['--hard', this.publishedRef()]);
       });
 
       // Clean untracked files
@@ -382,6 +417,64 @@ export class GitSyncService {
       this.syncStatus.status = 'error';
       this.syncStatus.error = 'Failed to read repository status';
     }
+  }
+
+  /**
+   * Every blob and tree at `ref`, in one `git ls-tree -r -t`. Needs trees
+   * only, so it works for paths outside the sparse checkout. Lazy fetching is
+   * off so a missing object fails instead of downloading blobs.
+   */
+  public async listTree(ref: string): Promise<GitTreeEntry[]> {
+    const git = createGit(this.config.localPath, undefined, { GIT_NO_LAZY_FETCH: '1' });
+    const output = await git.raw(['ls-tree', '-r', '-t', '-z', ref]);
+    // -z keeps paths unquoted; tolerate newline-separated output as well.
+    const lines = output.includes('\0') ? output.split('\0') : output.split('\n');
+    const entries: GitTreeEntry[] = [];
+    for (const line of lines) {
+      // <mode> SP <type> SP <hash> TAB <path>
+      const match = /^\d+ (blob|tree) ([0-9a-f]+)\t(.+)$/.exec(line);
+      if (match) {
+        entries.push({ type: match[1] as 'blob' | 'tree', hash: match[2], path: match[3] });
+      }
+    }
+    return entries;
+  }
+
+  /** Hash and committer date (ISO 8601) of the commit `ref` points at. */
+  public async commitInfo(ref: string): Promise<{ hash: string; date: string }> {
+    const git = createGit(this.config.localPath);
+    const output = await git.raw(['log', '-1', '--format=%H %cI', ref]);
+    const [hash, date] = output.trim().split(' ');
+    if (!hash || !date) {
+      throw new Error(`Could not read commit info for ${ref}`);
+    }
+    return { hash, date };
+  }
+
+  /** Tracked files under `paths` that differ from HEAD (staged or not). Untracked files are ignored. */
+  public async modifiedTrackedPaths(paths: string[]): Promise<string[]> {
+    if (paths.length === 0) return [];
+    const git = createGit(this.config.localPath);
+    const output = await git.raw(['status', '--porcelain', '--untracked-files=no', '--', ...paths]);
+    return output
+      .split('\n')
+      .filter(line => line.length > 3)
+      .map(line => line.slice(3).replace(/^.* -> /, '').replace(/^"(.*)"$/, '$1'));
+  }
+
+  /**
+   * Fetch the published branch and nothing else: no reset, no clean, so the
+   * working tree (and any custom tests in it) stays as it is. Returns the ref
+   * to read it from.
+   */
+  public async fetchPublished(): Promise<string> {
+    const branch = this.config.branch;
+    await this.pointOriginAtConfiguredRepo();
+    await this.withTokenFallback(async (token) => {
+      const git = createGit(this.config.localPath, token);
+      await git.fetch(['--depth', '1', 'origin', branch]);
+    });
+    return this.publishedRef();
   }
 
   /**

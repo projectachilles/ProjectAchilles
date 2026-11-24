@@ -30,6 +30,8 @@ export interface Capabilities {
   testRunRecency: boolean;
   /** About dialog (/api/about: running release, notes, official agent version; backend-only) */
   about: boolean;
+  /** Per-test version status (/api/browser/tests/versions; backend-only; backend-serverless has none) */
+  testVersions: boolean;
   platform: string;
   /** false until /api/capabilities has resolved (or failed); values are defaults before then */
   loaded?: boolean;
@@ -57,6 +59,7 @@ const DEFAULT_CAPABILITIES: Capabilities = {
   stageCoverage: false,
   testRunRecency: false,
   about: false,
+  testVersions: false,
   platform: 'docker',
 };
 

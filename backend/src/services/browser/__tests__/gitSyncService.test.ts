@@ -532,4 +532,91 @@ describe('GitSyncService', () => {
       expect(status.testCount).toBe(1);
     });
   });
+  // ── Version identity helpers ───────────────────────────────
+
+  describe('version identity helpers', () => {
+    it('fetchPublished never calls reset or clean', async () => {
+      const ref = await service.fetchPublished();
+
+      expect(ref).toBe('origin/main');
+      expect(mockGitInstance.fetch).toHaveBeenCalledWith(['--depth', '1', 'origin', 'main']);
+      expect(mockGitInstance.reset).not.toHaveBeenCalled();
+      expect(mockGitInstance.clean).not.toHaveBeenCalled();
+    });
+
+    it('fetchPublished points origin at the configured repository before fetching', async () => {
+      await service.fetchPublished();
+
+      expect(mockGitInstance.remote).toHaveBeenCalledWith(['set-url', 'origin', REPO_URL]);
+      expect(mockGitInstance.remote.mock.invocationCallOrder[0])
+        .toBeLessThan(mockGitInstance.fetch.mock.invocationCallOrder[0]);
+    });
+
+    it('fetchPublished with a token: set-url once, then the anonymous fetch and the token retry', async () => {
+      const withToken = createService('tok-placeholder');
+      mockGitInstance.fetch
+        .mockRejectedValueOnce(new Error('auth required'))
+        .mockResolvedValueOnce(undefined);
+
+      await withToken.fetchPublished();
+
+      expect(mockGitInstance.remote).toHaveBeenCalledTimes(1);
+      expect(mockGitInstance.fetch).toHaveBeenCalledTimes(2);
+      expect(mockGitInstance.remote.mock.invocationCallOrder[0])
+        .toBeLessThan(mockGitInstance.fetch.mock.invocationCallOrder[0]);
+    });
+
+    it('publishedRef names the remote-tracking ref that fetchPublished and pull update', async () => {
+      expect(service.publishedRef()).toBe('origin/main');
+      expect(await service.fetchPublished()).toBe(service.publishedRef());
+    });
+
+    it('listTree parses mode/type/hash/path lines including paths with spaces', async () => {
+      mockGitInstance.raw.mockResolvedValueOnce(
+        [
+          '040000 tree aaa111\ttests_source',
+          '100644 blob bbb222\ttests_source/my test/some file.go',
+          '160000 commit ccc333\tvendor/sub',
+        ].join('\n') + '\n',
+      );
+
+      const entries = await service.listTree('origin/main');
+
+      expect(mockGitInstance.raw).toHaveBeenCalledWith(['ls-tree', '-r', '-t', '-z', 'origin/main']);
+      expect(entries).toEqual([
+        { type: 'tree', hash: 'aaa111', path: 'tests_source' },
+        { type: 'blob', hash: 'bbb222', path: 'tests_source/my test/some file.go' },
+      ]);
+    });
+
+    it('listTree reads NUL-separated output', async () => {
+      mockGitInstance.raw.mockResolvedValueOnce('100644 blob bbb222\ta b/c d.go\0');
+
+      expect(await service.listTree('HEAD')).toEqual([
+        { type: 'blob', hash: 'bbb222', path: 'a b/c d.go' },
+      ]);
+    });
+
+    it('commitInfo returns hash and ISO committer date', async () => {
+      mockGitInstance.raw.mockResolvedValueOnce('abc123 2026-11-01T10:00:00+00:00\n');
+
+      expect(await service.commitInfo('origin/main')).toEqual({
+        hash: 'abc123',
+        date: '2026-11-01T10:00:00+00:00',
+      });
+    });
+
+    it('modifiedTrackedPaths ignores untracked files and returns changed paths', async () => {
+      mockGitInstance.raw.mockResolvedValueOnce(' M tests_source/x/main.go\nR  a -> tests_source/x/b.go\n');
+
+      expect(await service.modifiedTrackedPaths(['tests_source/x'])).toEqual([
+        'tests_source/x/main.go',
+        'tests_source/x/b.go',
+      ]);
+      expect(mockGitInstance.raw).toHaveBeenCalledWith([
+        'status', '--porcelain', '--untracked-files=no', '--', 'tests_source/x',
+      ]);
+      expect(await service.modifiedTrackedPaths([])).toEqual([]);
+    });
+  });
 });

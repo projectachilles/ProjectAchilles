@@ -1,5 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import type { TestMetadata } from '@/types/test';
+import type { TestVersionRow, TestVersionStatus } from '@/types/testVersion';
 import {
   DEFAULT_FILTERS,
   computeFacetCounts,
@@ -119,5 +120,28 @@ describe('groupByCategory', () => {
       ['cyber-hygiene', 1],
       ['other', 1],
     ]);
+  });
+});
+
+describe('filterTests by version status', () => {
+  const versionRows = (statuses: Record<string, TestVersionStatus>) =>
+    Object.fromEntries(
+      Object.entries(statuses).map(([uuid, status]) => [
+        uuid,
+        { status, custom: false, published: null, synced: null, built: null } as TestVersionRow,
+      ]),
+    );
+
+  it('keeps only the tests with the chosen status', () => {
+    const first = tests[0].uuid;
+    const second = tests[1].uuid;
+    const versions = versionRows({ [first]: 'rebuild_needed', [second]: 'up_to_date' });
+    const result = filterTests(tests, { ...DEFAULT_FILTERS, versionStatus: 'rebuild_needed' }, { ...ctx, versions });
+    expect(result.map((t) => t.uuid)).toEqual([first]);
+  });
+
+  it('ignores the filter when no versions are loaded', () => {
+    const result = filterTests(tests, { ...DEFAULT_FILTERS, versionStatus: 'rebuild_needed' }, ctx);
+    expect(result).toHaveLength(tests.length);
   });
 });

@@ -21,6 +21,10 @@ import analyticsRoutes from './api/analytics.routes.js';
 import { createTestsRouter } from './api/tests.routes.js';
 import { errorHandler, notFoundHandler } from './middleware/error.middleware.js';
 import { GitSyncService } from './services/browser/gitSyncService.js';
+import { TestIndexer } from './services/browser/testIndexer.js';
+import { TestVersionsService, setTestVersionsService, getTestVersionsService } from './services/browser/testVersions.service.js';
+import { BuildService } from './services/tests/buildService.js';
+import { TestsSettingsService } from './services/tests/settings.js';
 import { GitHubMetadataService } from './services/browser/githubMetadataService.js';
 import { localTestsSourceWarning } from './services/browser/testsSource.js';
 import { registerRepositoryRoot } from './services/browser/repositoryRoot.js';
@@ -333,6 +337,7 @@ async function startServer() {
       agentBuild: true,
       preExecutionNotices: true,
       campaigns: true,
+      testVersions: true,
       consoleIdentity: true,
       outcomeBreakdown: true,
       sentinelone: true,
@@ -347,12 +352,38 @@ async function startServer() {
     });
   });
 
+  // Per-test version tracking: one versions service, shared with the build
+  // service (which stamps each build with the version it was built from).
+  const versionIndexer = new TestIndexer(testSources);
+  const testVersions: TestVersionsService = new TestVersionsService({
+    gitSync: gitSyncService,
+    sourceSubdir: 'tests_source',
+    listTests: () => versionIndexer.listLocations(),
+    // A cluster worker spreads its first timed check over a minute.
+    startJitterMs: cluster.isWorker ? 60_000 : undefined,
+    // Every embed dependency is left out of a folder's content fingerprint:
+    // build-made ones are output, uploaded ones are tracked by the deps hash.
+    embedDependencyFiles: (uuid) => buildService.embedDependencyNames(uuid),
+  });
+  const buildService: BuildService = new BuildService(
+    new TestsSettingsService(),
+    testSources.map(s => s.path),
+    testVersions,
+  );
+  setTestVersionsService(testVersions);
+  // Every process that serves HTTP checks the published versions (a cluster
+  // worker has the git sync; the primary has none). The jitter and the shared
+  // state file keep the workers from all fetching at once.
+  testVersions.start();
+
   // Browser module - with Git sync integration
   const browserRouter = createBrowserRouter({
     testSources,
     testsSourcePath,         // git sync scope (upstream path only)
     gitSync: gitSyncService,
     githubMetadata,
+    testVersions,
+    buildService,
   });
   app.use('/api/browser', browserRouter);
 
@@ -363,6 +394,7 @@ async function startServer() {
   const testsRouter = createTestsRouter({
     testSourcePaths: testSources.map(s => s.path),
     testsSourcePath,
+    buildService,
   });
   app.use('/api/tests', testsRouter);
 
@@ -459,7 +491,7 @@ async function startServer() {
       startBackgroundJobs(httpServer);
     } else {
       // Worker: just handle graceful shutdown for HTTP
-      const shutdown = () => { httpServer.close(); };
+      const shutdown = () => { testVersions.stop(); httpServer.close(); };
       process.on('SIGTERM', shutdown);
       process.on('SIGINT', shutdown);
     }
@@ -665,6 +697,7 @@ function startBackgroundJobs(httpServer?: http.Server) {
 
   const shutdown = () => {
     clearInterval(schedulerInterval);
+    getTestVersionsService()?.stop();
     clearInterval(sentinelOneInterval);
     clearInterval(sophosInterval);
     clearInterval(autoRotationInterval);

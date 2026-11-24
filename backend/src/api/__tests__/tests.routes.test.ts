@@ -44,6 +44,8 @@ const mockListBuiltUuids = vi.fn();
 const mockStartBuild = vi.fn();
 const mockGetBuildJob = vi.fn().mockReturnValue(undefined);
 const mockIsBuilding = vi.fn().mockReturnValue(false);
+// What another worker's build marker says; isBuildingAnywhere = in-memory job OR marker.
+const mockMarkerSaysBuilding = vi.fn().mockReturnValue(false);
 const mockGetBuildInfo = vi.fn();
 const mockDeleteBuild = vi.fn();
 const mockSaveUploadedFile = vi.fn();
@@ -56,6 +58,7 @@ vi.mock('../../services/tests/buildService.js', () => ({
     startBuild = mockStartBuild;
     getBuildJob = mockGetBuildJob;
     isBuilding = mockIsBuilding;
+    isBuildingAnywhere = (uuid: string) => mockIsBuilding(uuid) || mockMarkerSaysBuilding(uuid);
     deleteBuild = mockDeleteBuild;
     getBinaryPath = vi.fn();
     getEmbedDependencies = vi.fn();
@@ -291,6 +294,7 @@ describe('tests routes', () => {
       mockStartBuild.mockReset();
       mockGetBuildJob.mockReset().mockReturnValue(undefined);
       mockIsBuilding.mockReset().mockReturnValue(false);
+      mockMarkerSaysBuilding.mockReset().mockReturnValue(false);
       mockGetBuildInfo.mockReset().mockReturnValue({ exists: false });
       mockDeleteBuild.mockReset();
       mockSaveUploadedFile.mockReset();
@@ -396,6 +400,42 @@ describe('tests routes', () => {
 
         expect(res.status).toBe(409);
         expect(mockUploadBinary).not.toHaveBeenCalled();
+      });
+
+      describe('when only another worker\'s build marker says a build is running', () => {
+        beforeEach(() => {
+          mockIsBuilding.mockReturnValue(false);
+          mockMarkerSaysBuilding.mockReturnValue(true);
+        });
+
+        it('DELETE returns 409 and keeps the build', async () => {
+          const res = await request(createApp()).delete(`/api/tests/builds/${VALID_UUID}`);
+
+          expect(res.status).toBe(409);
+          expect(res.body.error).toBe('Build in progress for this test');
+          expect(mockDeleteBuild).not.toHaveBeenCalled();
+        });
+
+        it('embed upload returns 409', async () => {
+          const res = await request(createApp())
+            .post(`/api/tests/builds/${VALID_UUID}/upload`)
+            .field('filename', 'payload.exe')
+            .attach('file', Buffer.from([0x4D, 0x5A]), 'payload.exe');
+
+          expect(res.status).toBe(409);
+          expect(res.body.error).toBe('Build in progress for this test');
+          expect(mockSaveUploadedFile).not.toHaveBeenCalled();
+        });
+
+        it('binary upload returns 409', async () => {
+          const res = await request(createApp())
+            .post(`/api/tests/builds/${VALID_UUID}/upload-binary`)
+            .attach('file', Buffer.from([0x4D, 0x5A, 0x00]), 'test.exe');
+
+          expect(res.status).toBe(409);
+          expect(res.body.error).toBe('Build in progress for this test');
+          expect(mockUploadBinary).not.toHaveBeenCalled();
+        });
       });
 
       it('DELETE works again once the build is done', async () => {

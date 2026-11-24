@@ -7,6 +7,19 @@ export interface BuildInfoState {
   setBuildInfo: (info: BuildInfo | null) => void;
   loading: boolean;
   download: () => Promise<void>;
+  /** Counts requests to start a build from outside the build panel (the Version card). */
+  buildRequest: number;
+  requestBuild: () => void;
+  /** What the build panel reports back, so other controls follow its guards. */
+  panel: BuildPanelState;
+  reportPanel: (state: BuildPanelState) => void;
+}
+
+export interface BuildPanelState {
+  /** A build is running or starting. */
+  building: boolean;
+  /** External embed dependencies are missing, so the panel refuses to build. */
+  missingDeps: boolean;
 }
 
 interface Loaded {
@@ -22,6 +35,12 @@ interface Loaded {
  */
 export function useBuildInfo(uuid: string | null): BuildInfoState {
   const [loaded, setLoaded] = useState<Loaded | null>(null);
+  const [buildRequest, setBuildRequest] = useState(0);
+  const requestBuild = useCallback(() => setBuildRequest((n) => n + 1), []);
+  const [panel, setPanel] = useState<BuildPanelState>({ building: false, missingDeps: false });
+  const reportPanel = useCallback((next: BuildPanelState) => {
+    setPanel((cur) => (cur.building === next.building && cur.missingDeps === next.missingDeps ? cur : next));
+  }, []);
 
   useEffect(() => {
     if (uuid === null) return;
@@ -52,5 +71,5 @@ export function useBuildInfo(uuid: string | null): BuildInfoState {
     }
   }, [uuid]);
 
-  return { buildInfo, setBuildInfo, loading, download };
+  return { buildInfo, setBuildInfo, loading, download, buildRequest, requestBuild, panel, reportPanel };
 }

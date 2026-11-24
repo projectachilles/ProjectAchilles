@@ -83,7 +83,13 @@ RELEASE_CHECK=off
 ```
 
 The dialog then reads *Update check is off*, shows no "available" notice and no
-dot, and the backend makes no request to GitHub.
+dot, and the backend no longer asks GitHub about releases.
+
+The backend also fetches the configured test repository (github.com for the
+default library) two minutes after start and every 6 hours, to see whether
+newer test versions are published. Set `TESTS_UPDATE_CHECK=off` as well to turn
+that off. If the check can't reach the repository, tests keep the last result
+it got, or show *Built, not checked* if no check has succeeded yet.
 
 A fork that publishes its own releases can point the check at its repository
 with `RELEASE_CHECK_REPO=owner/repo`.

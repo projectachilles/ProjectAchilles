@@ -1,4 +1,5 @@
 import { apiClient } from '@/hooks/useAuthenticatedApi';
+import type { TestVersionsResponse } from '@/types/testVersion';
 import type { TestMetadata, TestDetails, FileContent, TestFile, SyncStatus, BuildInfo } from '@/types/test';
 
 export interface SyncResult {
@@ -102,6 +103,18 @@ export const browserApi = {
   // Get UUIDs of tests that currently have a built or uploaded binary
   async getBuiltTestUuids(): Promise<string[]> {
     const response = await apiClient.get('/tests/builds');
+    return response.data.data;
+  },
+
+  // Published / synced / built version of every test
+  async getTestVersions(): Promise<TestVersionsResponse> {
+    const response = await apiClient.get('/browser/tests/versions');
+    return response.data.data;
+  },
+
+  // Re-check the published versions upstream (409 while a check is running)
+  async checkTestUpdates(): Promise<TestVersionsResponse> {
+    const response = await apiClient.post('/browser/tests/updates/check');
     return response.data.data;
   },
 

@@ -1,6 +1,9 @@
-import { describe, it, expect, beforeEach, vi } from 'vitest';
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { promisify } from 'util';
+import { createHash } from 'crypto';
 import type { BuildInfo } from '../../../types/tests.js';
+import type { TestVersionIdentity } from '../../../types/testVersion.js';
+import type { BuildVersionSource } from '../buildService.js';
 
 // ── Mock setup ──────────────────────────────────────────────────────
 
@@ -15,6 +18,12 @@ const mockUnlinkSync = vi.fn();
 const mockCopyFileSync = vi.fn();
 const mockRenameSync = vi.fn();
 const mockSymlinkSync = vi.fn();
+// hashFiles (deps hash) resolves and lstat()s each entry: follow existsSync.
+const mockRealpathSync = vi.fn((p: string) => p);
+const mockLstatSync = vi.fn((p: string) => {
+  if (!mockExistsSync(p)) throw Object.assign(new Error(`ENOENT: ${p}`), { code: 'ENOENT' });
+  return { isSymbolicLink: () => false, isFile: () => true, isDirectory: () => false };
+});
 
 vi.mock('fs', async () => {
   const actual = await vi.importActual<typeof import('fs')>('fs');
@@ -30,6 +39,8 @@ vi.mock('fs', async () => {
     copyFileSync: mockCopyFileSync,
     renameSync: mockRenameSync,
     symlinkSync: mockSymlinkSync,
+    realpathSync: mockRealpathSync,
+    lstatSync: mockLstatSync,
   };
   return { ...actual, ...overrides, default: { ...actual, ...overrides } };
 });
@@ -56,6 +67,7 @@ vi.mock('child_process', async () => {
 });
 
 const { BuildService, BuildError } = await import('../buildService.js');
+const { deriveStatus } = await import('../../browser/testVersionStatus.js');
 type TestsSettingsService = import('../settings.js').TestsSettingsService;
 
 // ── Helpers ──────────────────────────────────────────────────────────
@@ -1034,6 +1046,28 @@ var data string
 
   // ── Group 7: buildAndSign — build_all.sh Mode ─────────────
 
+  describe('resolveInside', () => {
+    type WithResolveInside = { resolveInside(root: string, ...parts: string[]): string | null };
+    const resolveInside = (root: string, ...parts: string[]) =>
+      (service as unknown as WithResolveInside).resolveInside(root, ...parts);
+
+    it('returns the resolved path for a child of the root', () => {
+      expect(resolveInside('/repo', 'build', VALID_UUID, `${VALID_UUID}.exe`))
+        .toBe(`/repo/build/${VALID_UUID}/${VALID_UUID}.exe`);
+      expect(resolveInside('/repo/./tests/..', 'a.exe')).toBe('/repo/a.exe');
+    });
+
+    it.each([
+      ['a parent segment', ['../x']],
+      ['a parent segment inside a part', ['build', '../../x']],
+      ['an absolute part', ['/etc/passwd']],
+      ['the root itself', []],
+      ['a part that resolves to the root', ['build', '..']],
+    ])('returns null for %s', (_label, parts) => {
+      expect(resolveInside('/repo', ...parts)).toBeNull();
+    });
+  });
+
   describe('buildAndSign — build_all.sh mode', () => {
     const testDir = `${TESTS_SOURCE}/cyber-hygiene/${VALID_UUID}`;
 
@@ -1198,6 +1232,47 @@ var data string
         `${testDir}/${VALID_UUID}.exe`,
         expect.stringContaining(VALID_UUID),
       );
+    });
+
+    it('falls back to the first file in a build/<uuid> folder when no candidate exists', async () => {
+      const repoBuildDir = `/build/${VALID_UUID}`;
+      const testBuildDir = `${testDir}/build/${VALID_UUID}`;
+
+      mockExistsSync.mockImplementation((p: string) =>
+        p === testDir || p === `${testDir}/build_all.sh` || p === repoBuildDir || p === testBuildDir);
+      mockStatSync.mockImplementation((p: string) => {
+        if (p === testDir) return { isDirectory: () => true };
+        return { size: 2048 };
+      });
+      mockReaddirSync.mockImplementation((p: string) => {
+        if (p === repoBuildDir) return []; // empty: try the next base
+        if (p === testBuildDir) return ['orchestrator.exe', 'second.exe'];
+        return [];
+      });
+      mockReadFileSync.mockReturnValue('SCRIPT_DIR="$(dirname "${BASH_SOURCE[0]}")"');
+
+      const info = await service.buildAndSign(VALID_UUID);
+
+      expect(info.exists).toBe(true);
+      expect(mockReaddirSync).toHaveBeenCalledWith(repoBuildDir);
+      expect(mockCopyFileSync).toHaveBeenCalledTimes(1);
+      expect(mockCopyFileSync).toHaveBeenCalledWith(
+        `${testBuildDir}/orchestrator.exe`,
+        `${BUILDS_DIR}/${VALID_UUID}/${VALID_UUID}.exe`,
+      );
+    });
+
+    it('still fails when neither a candidate nor a build/<uuid> file exists', async () => {
+      mockExistsSync.mockImplementation((p: string) => p === testDir || p === `${testDir}/build_all.sh`);
+      mockStatSync.mockImplementation((p: string) => {
+        if (p === testDir) return { isDirectory: () => true };
+        return { size: 2048 };
+      });
+      mockReaddirSync.mockReturnValue([]);
+      mockReadFileSync.mockReturnValue('SCRIPT_DIR="$(dirname "${BASH_SOURCE[0]}")"');
+
+      await expect(service.buildAndSign(VALID_UUID)).rejects.toThrow('build_all.sh completed but output binary not found');
+      expect(mockCopyFileSync).not.toHaveBeenCalled();
     });
 
     it('records a per-OS binaries map for a cross-platform build_all.sh build', async () => {
@@ -1748,6 +1823,868 @@ var data string
       // The second build ran only after the first released the slot.
       expect(spy).toHaveBeenCalledTimes(2);
       expect(spy).toHaveBeenCalledWith(otherUuid);
+    });
+  });
+  // ── Version stamp ─────────────────────────────────────────
+
+  describe('version stamp', () => {
+    const testDir = `${TESTS_SOURCE}/cyber-hygiene/${VALID_UUID}`;
+    const binaryPath = `${BUILDS_DIR}/${VALID_UUID}/${VALID_UUID}.exe`;
+    const binaryBytes = Buffer.from('built binary bytes');
+    const binarySha = createHash('sha256').update(binaryBytes).digest('hex');
+    const depBytes = Buffer.from('embedded dependency');
+    const identity: TestVersionIdentity = {
+      fingerprint: 'f'.repeat(64),
+      source_hash: 's'.repeat(64),
+      shared_hash: 'h'.repeat(64),
+      test_tree: 'tree123',
+      commit: 'abc1234',
+      commit_date: '2026-11-01T00:00:00Z',
+      provenance: 'upstream',
+    };
+
+    function stampedService(current: BuildVersionSource['current']) {
+      return new BuildService(
+        createMockSettingsService(), TESTS_SOURCE, { current },
+      );
+    }
+
+    function writtenMeta() {
+      const write = mockWriteFileSync.mock.calls.find(
+        (c) => typeof c[0] === 'string' && c[0].endsWith('build-meta.json'),
+      );
+      expect(write).toBeDefined();
+      return JSON.parse(write![1] as string);
+    }
+
+    beforeEach(() => {
+      mockExistsSync.mockImplementation((p: string) => p === testDir || p === `${testDir}/dep.dat`);
+      mockStatSync.mockImplementation((p: string) =>
+        p === testDir ? { isDirectory: () => true } : { size: 2048 });
+      mockReaddirSync.mockReturnValue(['main.go']);
+      mockReadFileSync.mockImplementation((p: string) => {
+        if (p === binaryPath) return binaryBytes;
+        if (p === `${testDir}/main.go`) return '//go:embed dep.dat\nvar dep []byte\n';
+        if (p === `${testDir}/dep.dat`) return depBytes;
+        throw new Error(`unexpected read ${p}`);
+      });
+    });
+
+    it('a successful build writes version with fingerprint, commit, modified:false, deps_hash and a sha256 for every file in binaries', async () => {
+      const svc = stampedService(async () => ({ identity, modified: false }));
+
+      const info = await svc.buildAndSign(VALID_UUID);
+
+      const meta = writtenMeta();
+      expect(meta.version).toEqual({
+        ...identity,
+        deps_hash: svc.currentDepsHash(VALID_UUID),
+        // dep.dat is uploaded, not built: no embedded file the build produces
+        outputs_hash: null,
+        modified: false,
+        binaries: { [`${VALID_UUID}.exe`]: binarySha },
+      });
+      expect(meta.version.deps_hash).toMatch(/^[0-9a-f]{64}$/);
+      expect(Object.keys(meta.version.binaries)).toEqual(
+        Object.values(meta.binaries as Record<string, { filename: string }>).map(b => b.filename),
+      );
+      // getBuildInfo hands the stamp back
+      mockExistsSync.mockImplementation((p: string) => p.endsWith('build-meta.json') || p === binaryPath);
+      mockReadFileSync.mockReturnValue(JSON.stringify(meta));
+      expect(svc.getBuildInfo(VALID_UUID).version).toEqual(meta.version);
+      expect(info.exists).toBe(true);
+    });
+
+    it('currentDepsHash is null without embed dependencies and changes with their content', () => {
+      mockReadFileSync.mockImplementation((p: string) =>
+        p === `${testDir}/main.go` ? 'package main' : Buffer.from('x'));
+      expect(createService().currentDepsHash(VALID_UUID)).toBeNull();
+
+      const first = (() => {
+        mockReadFileSync.mockImplementation((p: string) =>
+          p === `${testDir}/main.go` ? '//go:embed dep.dat\nvar d []byte' : depBytes);
+        return createService().currentDepsHash(VALID_UUID);
+      })();
+      mockReadFileSync.mockImplementation((p: string) =>
+        p === `${testDir}/main.go` ? '//go:embed dep.dat\nvar d []byte' : Buffer.from('other'));
+      expect(first).toMatch(/^[0-9a-f]{64}$/);
+      expect(createService().currentDepsHash(VALID_UUID)).not.toBe(first);
+    });
+
+    it('versionSource.current is called before the compile step', async () => {
+      const order: string[] = [];
+      mockExecFileAsync.mockImplementation(async (cmd: string, args: string[]) => {
+        order.push(`exec:${cmd} ${args[0]}`);
+        return { stdout: '', stderr: '' };
+      });
+      const svc = stampedService(async () => {
+        order.push('current');
+        return { identity, modified: false };
+      });
+
+      await svc.buildAndSign(VALID_UUID);
+
+      expect(order[0]).toBe('current');
+      expect(order.some(o => o.startsWith('exec:go build'))).toBe(true);
+    });
+
+    describe('identity read again after the build', () => {
+      function sequence(...reads: Array<() => Promise<{ identity: TestVersionIdentity; modified: boolean } | null>>) {
+        const current = vi.fn<BuildVersionSource['current']>();
+        for (const read of reads) current.mockImplementationOnce(read);
+        return current;
+      }
+      const same = async () => ({ identity, modified: false });
+
+      function expectNoStampWarning(warn: ReturnType<typeof vi.spyOn>, info: BuildInfo) {
+        expect(info.exists).toBe(true);
+        expect(info).not.toHaveProperty('version');
+        expect(writtenMeta()).not.toHaveProperty('version');
+        expect(warn).toHaveBeenCalledTimes(1);
+        const logged = warn.mock.calls[0].map(String).join(' ');
+        expect(logged).toContain(VALID_UUID);
+        expect(logged).toContain('source changed while it was being built');
+      }
+
+      it('a build during which the library commit changed gets no stamp and a warning', async () => {
+        const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+        const current = sequence(same, async () => ({ identity: { ...identity, commit: 'def5678' }, modified: false }));
+        try {
+          const info = await stampedService(current).buildAndSign(VALID_UUID);
+          expect(current).toHaveBeenCalledTimes(2);
+          expectNoStampWarning(warn, info);
+        } finally {
+          warn.mockRestore();
+        }
+      });
+
+      it('a build during which the test\'s fingerprint changed gets no stamp', async () => {
+        const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+        // A test without git: no commit, only the folder's fingerprint.
+        const noGit = { ...identity, commit: null, commit_date: null, test_tree: null, provenance: 'custom' as const };
+        const current = sequence(
+          async () => ({ identity: noGit, modified: false }),
+          async () => ({ identity: { ...noGit, fingerprint: 'e'.repeat(64), source_hash: 't'.repeat(64) }, modified: false }),
+        );
+        try {
+          expectNoStampWarning(warn, await stampedService(current).buildAndSign(VALID_UUID));
+        } finally {
+          warn.mockRestore();
+        }
+      });
+
+      it.each([
+        ['throws', async () => { throw new Error('git unavailable'); }],
+        ['returns null', async () => null],
+      ])('the second identity read failing voids the stamp (%s)', async (_label, second) => {
+        const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+        try {
+          expectNoStampWarning(warn, await stampedService(sequence(same, second)).buildAndSign(VALID_UUID));
+        } finally {
+          warn.mockRestore();
+        }
+      });
+
+      it('an unchanged identity still stamps, and versionSource.current is called twice, the first time before the compile', async () => {
+        const order: string[] = [];
+        mockExecFileAsync.mockImplementation(async (cmd: string, args: string[]) => {
+          order.push(`exec:${cmd} ${args[0]}`);
+          return { stdout: '', stderr: '' };
+        });
+        const current = vi.fn<BuildVersionSource['current']>(async () => {
+          order.push('current');
+          return { identity, modified: false };
+        });
+
+        const info = await stampedService(current).buildAndSign(VALID_UUID);
+
+        expect(current).toHaveBeenCalledTimes(2);
+        expect(order[0]).toBe('current');
+        expect(order[order.length - 1]).toBe('current');
+        expect(order.findIndex(o => o.startsWith('exec:go build'))).toBeGreaterThan(0);
+        expect(info.version).toMatchObject({ ...identity, modified: false });
+        expect(writtenMeta().version).toMatchObject({ fingerprint: identity.fingerprint, commit: identity.commit });
+      });
+    });
+
+    it('modified source gives version.modified === true', async () => {
+      const svc = stampedService(async () => ({ identity, modified: true }));
+      await svc.buildAndSign(VALID_UUID);
+      expect(writtenMeta().version.modified).toBe(true);
+    });
+
+    it.each([
+      ['throws', async () => { throw new Error('git unavailable'); }, 'git unavailable'],
+      ['returns null', async () => null, 'no version'],
+    ])('versionSource.current %s: the build still succeeds with no version, and says why', async (_label, current, why) => {
+      const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+      const svc = stampedService(current);
+
+      const info = await svc.buildAndSign(VALID_UUID);
+
+      expect(info.exists).toBe(true);
+      expect(writtenMeta()).not.toHaveProperty('version');
+      expect(warn).toHaveBeenCalledTimes(1);
+      const logged = warn.mock.calls[0].map(String).join(' ');
+      expect(logged).toContain(VALID_UUID);
+      expect(logged).toContain(why);
+      warn.mockRestore();
+    });
+
+    it('a git error from versionSource.current is logged without the credential', async () => {
+      const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+      const saved = process.env.GITHUB_TOKEN;
+      process.env.GITHUB_TOKEN = 'tok-placeholder-123';
+      try {
+        const svc = stampedService(async () => {
+          throw new Error('fatal: unable to access https://x-access-token:tok-placeholder-123@example.invalid/lib.git');
+        });
+        await svc.buildAndSign(VALID_UUID);
+        const logged = warn.mock.calls[0].map(String).join(' ');
+        expect(logged).toContain('unable to access');
+        expect(logged).not.toContain('tok-placeholder-123');
+      } finally {
+        if (saved === undefined) delete process.env.GITHUB_TOKEN;
+        else process.env.GITHUB_TOKEN = saved;
+        warn.mockRestore();
+      }
+    });
+
+    it('an artifact that cannot be hashed leaves no stamp, and says why', async () => {
+      const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+      mockReadFileSync.mockImplementation((p: string) => {
+        if (p === binaryPath) throw new Error('EACCES: permission denied');
+        if (p === `${testDir}/main.go`) return '//go:embed dep.dat\nvar dep []byte\n';
+        if (p === `${testDir}/dep.dat`) return depBytes;
+        throw new Error(`unexpected read ${p}`);
+      });
+      const svc = stampedService(async () => ({ identity, modified: false }));
+
+      const info = await svc.buildAndSign(VALID_UUID);
+
+      expect(info.exists).toBe(true);
+      expect(writtenMeta()).not.toHaveProperty('version');
+      expect(warn).toHaveBeenCalledTimes(1);
+      const logged = warn.mock.calls[0].map(String).join(' ');
+      expect(logged).toContain(VALID_UUID);
+      expect(logged).toContain('EACCES');
+      warn.mockRestore();
+    });
+
+    it('no versionSource passed: build works, no version', async () => {
+      const info = await createService().buildAndSign(VALID_UUID);
+
+      expect(info.exists).toBe(true);
+      expect(writtenMeta()).not.toHaveProperty('version');
+      expect(info).not.toHaveProperty('version');
+    });
+
+    it('uploadBinary writes no version, and removes one left by an earlier build', () => {
+      const svc = stampedService(async () => ({ identity, modified: false }));
+      const peBytes = Buffer.concat([Buffer.from([0x4D, 0x5A]), Buffer.alloc(10)]);
+
+      svc.uploadBinary(VALID_UUID, peBytes);
+
+      // The metadata is rewritten whole, so a stamp from an earlier build is gone
+      expect(writtenMeta()).not.toHaveProperty('version');
+      expect(writtenMeta().source).toBe('uploaded');
+    });
+  });
+
+  describe('version stamp — embedded files a build_all.sh produces (outputs hash)', () => {
+    const testDir = `${TESTS_SOURCE}/cyber-hygiene/${VALID_UUID}`;
+    const stageName = `${VALID_UUID}-T1.exe`;
+    const identity: TestVersionIdentity = {
+      fingerprint: 'f'.repeat(64),
+      source_hash: 's'.repeat(64),
+      shared_hash: 'h'.repeat(64),
+      test_tree: null,
+      commit: null,
+      commit_date: null,
+      provenance: 'custom',
+    };
+
+    // A small in-memory filesystem behind the fs mocks, so build_all.sh can
+    // "write" its outputs and the hashes read them back.
+    const files = new Map<string, Buffer>();
+    const dirs = new Set<string>();
+    // mtime per file (ms); a file without one was written "now".
+    const mtimes = new Map<string, number>();
+    let buildRuns = 0;
+    let removeStageAtEnd = false;
+
+    function addDir(p: string): void {
+      for (let d = p; d !== '/' && !dirs.has(d); d = d.slice(0, d.lastIndexOf('/')) || '/') dirs.add(d);
+      dirs.add('/');
+    }
+    function put(p: string, content: string | Buffer): void {
+      addDir(p.slice(0, p.lastIndexOf('/')) || '/');
+      files.set(p, Buffer.isBuffer(content) ? Buffer.from(content) : Buffer.from(content, 'utf8'));
+    }
+    function enoent(p: string): Error {
+      return Object.assign(new Error(`ENOENT: ${p}`), { code: 'ENOENT' });
+    }
+
+    function service() {
+      return new BuildService(createMockSettingsService(), TESTS_SOURCE, {
+        current: async () => ({ identity, modified: false }),
+      });
+    }
+    function writtenStamp() {
+      const write = [...mockWriteFileSync.mock.calls].reverse().find(
+        (c) => typeof c[0] === 'string' && c[0].endsWith('build-meta.json'),
+      );
+      expect(write).toBeDefined();
+      return JSON.parse(String(write![1])).version;
+    }
+
+    beforeEach(() => {
+      files.clear();
+      dirs.clear();
+      mtimes.clear();
+      buildRuns = 0;
+      removeStageAtEnd = false;
+      put(`${testDir}/main.go`, [
+        'package main',
+        '//go:embed generated',
+        'var certs embed.FS',
+        `//go:embed ${stageName}`,
+        'var stage []byte',
+        '//go:embed payload.dat',
+        'var payload []byte',
+        '',
+      ].join('\n'));
+      put(`${testDir}/stage-T1.go`, 'package main\n');
+      put(`${testDir}/build_all.sh`, [
+        'SCRIPT_DIR="$(dirname "${BASH_SOURCE[0]}")"',
+        'mkdir -p generated',
+        `go build -o ${stageName} stage-T1.go`,
+        '',
+      ].join('\n'));
+      // Written by the test author into the folder the script also creates.
+      put(`${testDir}/generated/authored.txt`, 'hand-written');
+      // Uploaded (not source-built): covered by deps_hash.
+      put(`${testDir}/payload.dat`, 'uploaded payload');
+
+      const exists = (p: string) => files.has(p) || dirs.has(p);
+      mockExistsSync.mockImplementation(exists);
+      mockStatSync.mockImplementation((p: string) => {
+        if (!exists(p)) throw enoent(p);
+        return {
+          isDirectory: () => dirs.has(p), isFile: () => files.has(p), size: files.get(p)?.length ?? 0,
+          mtimeMs: mtimes.get(p) ?? Date.now(),
+        };
+      });
+      mockLstatSync.mockImplementation(((p: string) => {
+        if (!exists(p)) throw enoent(p);
+        return { isSymbolicLink: () => false, isFile: () => files.has(p), isDirectory: () => dirs.has(p) };
+      }) as never);
+      mockReaddirSync.mockImplementation(((p: string) => {
+        if (!dirs.has(p)) throw enoent(p);
+        const names = new Set<string>();
+        for (const entry of [...files.keys(), ...dirs]) {
+          if (entry !== p && entry.startsWith(`${p}/`)) names.add(entry.slice(p.length + 1).split('/')[0]);
+        }
+        return [...names].sort();
+      }) as never);
+      mockReadFileSync.mockImplementation(((p: string, enc?: unknown) => {
+        const b = files.get(p);
+        if (!b) throw enoent(p);
+        return enc ? b.toString('utf8') : b;
+      }) as never);
+      mockWriteFileSync.mockImplementation(((p: string, data: string | Buffer, opts?: { flag?: string }) => {
+        if (opts?.flag === 'wx' && files.has(p)) {
+          throw Object.assign(new Error(`EEXIST: ${p}`), { code: 'EEXIST' });
+        }
+        mtimes.delete(p);
+        put(p, data);
+      }) as never);
+      mockCopyFileSync.mockImplementation(((from: string, to: string) => {
+        const b = files.get(from);
+        if (!b) throw enoent(from);
+        put(to, b);
+      }) as never);
+      mockMkdirSync.mockImplementation(((p: string) => addDir(p)) as never);
+      mockUnlinkSync.mockImplementation(((p: string) => {
+        if (!files.delete(p)) throw enoent(p);
+        mtimes.delete(p);
+      }) as never);
+      mockExecFileAsync.mockImplementation(async (cmd: string) => {
+        if (cmd === 'bash') {
+          buildRuns++;
+          // What the script makes: a generated file, the stage, the output.
+          put(`${testDir}/generated/cert.pem`, `generated by run ${buildRuns}`);
+          put(`${testDir}/${stageName}`, `stage binary ${buildRuns}`);
+          put(`${testDir}/build/${VALID_UUID}/${VALID_UUID}.exe`, 'orchestrator');
+          if (removeStageAtEnd) {
+            files.delete(`${testDir}/${stageName}`);
+            files.delete(`${testDir}/generated/cert.pem`);
+            files.delete(`${testDir}/generated/authored.txt`);
+            dirs.delete(`${testDir}/generated`);
+          }
+        }
+        return { stdout: '', stderr: '' };
+      });
+    });
+
+    afterEach(() => {
+      // Hand the later suites back the default fs mocks (plain no-ops, and
+      // lstat following existsSync).
+      for (const m of [mockWriteFileSync, mockCopyFileSync, mockMkdirSync, mockUnlinkSync]) {
+        m.mockImplementation(() => undefined);
+      }
+      mockLstatSync.mockImplementation((p: string) => {
+        if (!mockExistsSync(p)) throw Object.assign(new Error(`ENOENT: ${p}`), { code: 'ENOENT' });
+        return { isSymbolicLink: () => false, isFile: () => true, isDirectory: () => false };
+      });
+    });
+
+    it('classes the folder and the stage as source-built and the payload as uploaded', () => {
+      const deps = service().getEmbedDependencies(VALID_UUID);
+      expect(deps.map(d => [d.filename, d.sourceBuilt])).toEqual([
+        ['generated', true], [stageName, true], ['payload.dat', false],
+      ]);
+    });
+
+    it('stamps outputs_hash from the source-built embeds as they are after the build', async () => {
+      const svc = service();
+      const beforeBuild = svc.currentOutputsHash(VALID_UUID);
+
+      await svc.buildAndSign(VALID_UUID);
+
+      const stamp = writtenStamp();
+      expect(stamp.outputs_hash).toMatch(/^[0-9a-f]{64}$/);
+      // Taken after the build: it covers what the build wrote, not what was there before.
+      expect(stamp.outputs_hash).not.toBe(beforeBuild);
+      expect(svc.currentOutputsHash(VALID_UUID)).toBe(stamp.outputs_hash);
+      // The uploaded payload stays in deps_hash, not in the outputs hash.
+      expect(stamp.deps_hash).toBe(svc.currentDepsHash(VALID_UUID));
+      put(`${testDir}/payload.dat`, 'another payload');
+      expect(svc.currentOutputsHash(VALID_UUID)).toBe(stamp.outputs_hash);
+    });
+
+    it('currentOutputsHash changes when a file inside a source-built folder is edited', async () => {
+      const svc = service();
+      await svc.buildAndSign(VALID_UUID);
+      const stamped = writtenStamp().outputs_hash;
+
+      put(`${testDir}/generated/authored.txt`, 'hand-written, edited');
+
+      expect(svc.currentOutputsHash(VALID_UUID)).not.toBe(stamped);
+      expect(svc.currentDepsHash(VALID_UUID)).toBe(writtenStamp().deps_hash);
+    });
+
+    it('outputs_hash is null when the build leaves no source-built embed behind', async () => {
+      removeStageAtEnd = true;
+      const svc = service();
+      await svc.buildAndSign(VALID_UUID);
+      expect(writtenStamp().outputs_hash).toBeNull();
+      expect(svc.currentOutputsHash(VALID_UUID)).toBeNull();
+    });
+
+    describe('build marker (.building)', () => {
+      const marker = `${BUILDS_DIR}/${VALID_UUID}/.building`;
+      // BUILD_TIMEOUT (300 s) + the 60 s signing timeout in buildService.ts.
+      const STALE_AFTER_MS = 300_000 + 60_000;
+
+      function bashAlso(fn: () => void): void {
+        const base = mockExecFileAsync.getMockImplementation()!;
+        mockExecFileAsync.mockImplementation(async (cmd: string, args: string[], opts?: unknown) => {
+          const result = await base(cmd, args, opts);
+          if (cmd === 'bash') fn();
+          return result;
+        });
+      }
+
+      it('a build creates .building in the build directory and removes it on success, on a failed compile and on a thrown error', async () => {
+        const seen: boolean[] = [];
+        bashAlso(() => { seen.push(files.has(marker)); });
+        const svc = service();
+
+        // success
+        await svc.buildAndSign(VALID_UUID);
+        expect(seen).toEqual([true]);
+        expect(files.has(marker)).toBe(false);
+        const created = mockWriteFileSync.mock.calls.find(c => c[0] === marker);
+        expect(created?.[2]).toMatchObject({ flag: 'wx' });
+        expect(String(created?.[1])).toContain(String(process.pid));
+
+        // failed compile
+        mockExecFileAsync.mockImplementation(async (cmd: string) => {
+          if (cmd === 'bash') {
+            seen.push(files.has(marker));
+            throw Object.assign(new Error('exit 1'), { stderr: 'compile failed' });
+          }
+          return { stdout: '', stderr: '' };
+        });
+        await expect(svc.buildAndSign(VALID_UUID)).rejects.toThrow(/compile failed/);
+        expect(seen).toEqual([true, true]);
+        expect(files.has(marker)).toBe(false);
+
+        // a thrown error after the script ran (no output binary)
+        mockExecFileAsync.mockImplementation(async (cmd: string) => {
+          if (cmd === 'bash') seen.push(files.has(marker));
+          return { stdout: '', stderr: '' };
+        });
+        files.delete(`${testDir}/build/${VALID_UUID}/${VALID_UUID}.exe`);
+        await expect(svc.buildAndSign(VALID_UUID)).rejects.toThrow('output binary not found');
+        expect(seen).toEqual([true, true, true]);
+        expect(files.has(marker)).toBe(false);
+      });
+
+      it('a second BuildService instance (simulating another worker, same BUILDS_DIR) reports isBuildingAnywhere true while the first is building, and false after', async () => {
+        const worker = service();
+        const other = service();
+        const during: Array<[boolean, boolean]> = [];
+        bashAlso(() => { during.push([other.isBuilding(VALID_UUID), other.isBuildingAnywhere(VALID_UUID)]); });
+
+        expect(other.isBuildingAnywhere(VALID_UUID)).toBe(false);
+        await worker.buildAndSign(VALID_UUID);
+
+        // The other worker has no in-memory job, only the marker tells it.
+        expect(during).toEqual([[false, true]]);
+        expect(other.isBuildingAnywhere(VALID_UUID)).toBe(false);
+      });
+
+      it('a build is refused with the already-building error while a fresh marker from another process exists; a stale marker is replaced and the build runs', async () => {
+        const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+        try {
+          put(marker, '{"pid":1,"startedAt":"2026-11-23T00:00:00.000Z"}');
+          mtimes.set(marker, Date.now() - 1_000);
+          const svc = service();
+          expect(svc.isBuildingAnywhere(VALID_UUID)).toBe(true);
+
+          const refused = svc.buildAndSign(VALID_UUID);
+          await expect(refused).rejects.toMatchObject({ statusCode: 409, message: 'Build in progress for this test' });
+          expect(mockExecFileAsync.mock.calls.some(c => c[0] === 'bash')).toBe(false);
+          // The other process's marker is left alone.
+          expect(files.has(marker)).toBe(true);
+
+          mtimes.set(marker, Date.now() - STALE_AFTER_MS - 1_000);
+          expect(svc.isBuildingAnywhere(VALID_UUID)).toBe(false);
+
+          const info = await svc.buildAndSign(VALID_UUID);
+          expect(info.exists).toBe(true);
+          expect(mockExecFileAsync.mock.calls.some(c => c[0] === 'bash')).toBe(true);
+          expect(files.has(marker)).toBe(false);
+          expect(warn).toHaveBeenCalledTimes(1);
+          expect(warn.mock.calls[0].map(String).join(' ')).toContain(VALID_UUID);
+        } finally {
+          warn.mockRestore();
+        }
+      });
+
+      it('a dependency present before the build and missing at stamp time yields no stamp and a warning naming it', async () => {
+        const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+        try {
+          // e.g. a Sync's `git clean` removes the uploaded payload after the compile
+          bashAlso(() => { files.delete(`${testDir}/payload.dat`); });
+          const svc = service();
+
+          const info = await svc.buildAndSign(VALID_UUID);
+
+          expect(info.exists).toBe(true);
+          expect(info).not.toHaveProperty('version');
+          const meta = JSON.parse(String(files.get(`${BUILDS_DIR}/${VALID_UUID}/build-meta.json`)));
+          expect(meta).not.toHaveProperty('version');
+          expect(warn).toHaveBeenCalledTimes(1);
+          const logged = warn.mock.calls[0].map(String).join(' ');
+          expect(logged).toContain(VALID_UUID);
+          expect(logged).toContain('payload.dat');
+        } finally {
+          warn.mockRestore();
+        }
+      });
+
+      it('.building is not reported as an artifact', async () => {
+        const svc = service();
+        // Only a marker: nothing is built.
+        put(marker, '{}');
+        expect(svc.getBuildInfo(VALID_UUID)).toEqual({ exists: false });
+        expect(svc.listBuiltUuids()).toEqual([]);
+        files.delete(marker);
+
+        await svc.buildAndSign(VALID_UUID);
+        const info = svc.getBuildInfo(VALID_UUID);
+        const listed = svc.listBuiltUuids();
+        put(marker, '{}');
+        expect(svc.getBuildInfo(VALID_UUID)).toEqual(info);
+        expect(svc.listBuiltUuids()).toEqual(listed);
+        expect(listed).toEqual([VALID_UUID]);
+      });
+    });
+
+    describe('deps_hash', () => {
+      // A compressed helper the script compiles, signs and gzips into the test
+      // folder. No source-built rule matches the `.exe.gz` name, so it is
+      // classed as external (uploaded) and covered by deps_hash.
+      const helper = 'helper.exe.gz';
+
+      function embedHelper(): void {
+        put(`${testDir}/main.go`, `${files.get(`${testDir}/main.go`)!.toString('utf8')}//go:embed ${helper}\nvar helper []byte\n`);
+        put(`${testDir}/build_all.sh`, `${files.get(`${testDir}/build_all.sh`)!.toString('utf8')}${[
+          'go build -o helper.exe ./helper',
+          'gzip -9 -k helper.exe',
+          `mv helper.exe.gz "$SCRIPT_DIR/${helper}"`,
+          '',
+        ].join('\n')}`);
+      }
+
+      /** The script also writes the helper, with different bytes on every run (signature time, gzip header). */
+      function scriptWritesHelper(): void {
+        const base = mockExecFileAsync.getMockImplementation()!;
+        mockExecFileAsync.mockImplementation(async (cmd: string, args: string[], opts?: unknown) => {
+          const result = await base(cmd, args, opts);
+          if (cmd === 'bash') put(`${testDir}/${helper}`, Buffer.from([0x1f, 0x8b, 0x08, 0x00, buildRuns, 0x42]));
+          return result;
+        });
+      }
+
+      it('classes the script-produced helper as external', () => {
+        embedHelper();
+        const dep = service().getEmbedDependencies(VALID_UUID).find(d => d.filename === helper);
+        expect(dep).toMatchObject({ sourceBuilt: false });
+      });
+
+      it('a build whose script produces an external-classed embed stamps deps_hash from the file as it is after the build', async () => {
+        embedHelper();
+        scriptWritesHelper();
+        const svc = service();
+        const beforeBuild = svc.currentDepsHash(VALID_UUID);
+        expect(files.has(`${testDir}/${helper}`)).toBe(false);
+
+        await svc.buildAndSign(VALID_UUID);
+
+        const stamp = writtenStamp();
+        expect(stamp.deps_hash).toMatch(/^[0-9a-f]{64}$/);
+        expect(stamp.deps_hash).not.toBe(beforeBuild);
+        expect(stamp.deps_hash).toBe(svc.currentDepsHash(VALID_UUID));
+      });
+
+      it('a build whose script rewrites an external-classed embed that existed before stamps deps_hash from the rewritten file', async () => {
+        embedHelper();
+        scriptWritesHelper();
+        put(`${testDir}/${helper}`, Buffer.from([0x1f, 0x8b, 0x08, 0x00, 0xff, 0x00]));
+        const svc = service();
+        const beforeBuild = svc.currentDepsHash(VALID_UUID);
+
+        await svc.buildAndSign(VALID_UUID);
+
+        const stamp = writtenStamp();
+        expect(stamp.deps_hash).not.toBe(beforeBuild);
+        expect(stamp.deps_hash).toBe(svc.currentDepsHash(VALID_UUID));
+      });
+
+      it('an uploaded dependency the build does not touch has the same deps_hash as before the build', async () => {
+        const svc = service();
+        const beforeBuild = svc.currentDepsHash(VALID_UUID);
+        expect(beforeBuild).toMatch(/^[0-9a-f]{64}$/);
+
+        await svc.buildAndSign(VALID_UUID);
+
+        expect(writtenStamp().deps_hash).toBe(beforeBuild);
+      });
+
+      it('editing the dependency after the build changes currentDepsHash', async () => {
+        embedHelper();
+        scriptWritesHelper();
+        const svc = service();
+        await svc.buildAndSign(VALID_UUID);
+        const stamp = writtenStamp();
+        const statusInput = (currentDepsHash: string | null) => ({
+          build: { exists: true, source: 'built' as const, version: stamp },
+          synced: identity,
+          published: undefined,
+          publishedKnown: false,
+          hasGit: false,
+          currentDepsHash,
+          currentOutputsHash: svc.currentOutputsHash(VALID_UUID),
+        });
+        expect(deriveStatus(statusInput(svc.currentDepsHash(VALID_UUID)))).toEqual({ status: 'up_to_date' });
+
+        // Someone replaces the helper after the build: the binary no longer embeds what is on disk.
+        put(`${testDir}/${helper}`, Buffer.from([0x1f, 0x8b, 0x08, 0x00, 0x99, 0x99]));
+
+        expect(svc.currentDepsHash(VALID_UUID)).not.toBe(stamp.deps_hash);
+        expect(deriveStatus(statusInput(svc.currentDepsHash(VALID_UUID))))
+          .toEqual({ status: 'rebuild_needed', reason: 'dependency_changed' });
+      });
+    });
+  });
+  // ── go.mod restore ────────────────────────────────────────
+
+  describe('buildAndSign — pre-existing go.mod', () => {
+    const testDir = `${TESTS_SOURCE}/cyber-hygiene/${VALID_UUID}`;
+    const goMod = `${testDir}/go.mod`;
+    const goSum = `${testDir}/go.sum`;
+    const originalMod = Buffer.from('module original\n');
+    const originalSum = Buffer.from('original sum\n');
+    let files: Map<string, Buffer>;
+
+    beforeEach(() => {
+      files = new Map([[goMod, originalMod]]);
+      mockExistsSync.mockImplementation((p: string) => p === testDir || files.has(p));
+      mockStatSync.mockImplementation((p: string) =>
+        p === testDir ? { isDirectory: () => true } : { size: 2048 });
+      mockReaddirSync.mockReturnValue(['main.go']);
+      mockReadFileSync.mockImplementation((p: string) => {
+        if (p.endsWith('.go')) return 'package main';
+        const f = files.get(p);
+        if (!f) throw new Error(`unexpected read ${p}`);
+        return f;
+      });
+      mockWriteFileSync.mockImplementation((p: string, data: Buffer | string) => {
+        files.set(p, Buffer.from(data));
+      });
+      mockUnlinkSync.mockImplementation((p: string) => { files.delete(p); });
+      // tidy rewrites go.mod and creates/rewrites go.sum
+      mockExecFileAsync.mockImplementation(async (_c: string, args: string[]) => {
+        if (args.includes('tidy')) {
+          files.set(goMod, Buffer.from('module tidied\n'));
+          files.set(goSum, Buffer.from('tidy sum\n'));
+        }
+        return { stdout: '', stderr: '' };
+      });
+    });
+
+    afterEach(() => {
+      mockWriteFileSync.mockReset();
+      mockUnlinkSync.mockReset();
+    });
+
+    it('a build of a test with its own go.mod restores go.mod to its original content afterwards', async () => {
+      const seenByCompile: string[] = [];
+      mockExecFileAsync.mockImplementation(async (_c: string, args: string[]) => {
+        if (args.includes('tidy')) files.set(goMod, Buffer.from('module tidied\n'));
+        if (args[0] === 'build') seenByCompile.push(files.get(goMod)!.toString());
+        return { stdout: '', stderr: '' };
+      });
+
+      await service.buildAndSign(VALID_UUID);
+
+      expect(seenByCompile).toEqual(['module tidied\n']); // compile used the tidied file
+      expect(files.get(goMod)).toEqual(originalMod);
+    });
+
+    it('a go.sum created by the build is removed when none existed, and restored when one did', async () => {
+      await service.buildAndSign(VALID_UUID);
+      expect(files.has(goSum)).toBe(false);
+
+      files.set(goMod, originalMod);
+      files.set(goSum, originalSum);
+      await service.buildAndSign(VALID_UUID);
+      expect(files.get(goSum)).toEqual(originalSum);
+      expect(files.get(goMod)).toEqual(originalMod);
+    });
+
+    it('the restore also happens when the compile fails', async () => {
+      mockExecFileAsync.mockImplementation(async (_c: string, args: string[]) => {
+        if (args.includes('tidy')) {
+          files.set(goMod, Buffer.from('module tidied\n'));
+          files.set(goSum, Buffer.from('tidy sum\n'));
+        }
+        if (args[0] === 'build') throw new Error('compile failed');
+        return { stdout: '', stderr: '' };
+      });
+
+      await expect(service.buildAndSign(VALID_UUID)).rejects.toThrow();
+
+      expect(files.get(goMod)).toEqual(originalMod);
+      expect(files.has(goSum)).toBe(false);
+    });
+
+    it('a restore failure is logged and does not fail the build', async () => {
+      const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+      mockWriteFileSync.mockImplementation((p: string, data: Buffer | string) => {
+        if (p === goMod) throw new Error('disk full');
+        files.set(p, Buffer.from(data));
+      });
+
+      const info = await service.buildAndSign(VALID_UUID);
+
+      expect(info.exists).toBe(true);
+      expect(warn).toHaveBeenCalled();
+      warn.mockRestore();
+    });
+
+    describe('with a build_all.sh that runs go mod tidy', () => {
+      const script = `${testDir}/build_all.sh`;
+      const output = `/build/${VALID_UUID}/${VALID_UUID}.exe`;
+
+      beforeEach(() => {
+        files.set(script, Buffer.from('SCRIPT_DIR="$(dirname "${BASH_SOURCE[0]}")"\ngo mod tidy\n'));
+        files.set(output, Buffer.from('MZ built'));
+        mockExecFileAsync.mockImplementation(async (cmd: string) => {
+          if (cmd === 'bash') {
+            files.set(goMod, Buffer.from('module tidied\n'));
+            files.set(goSum, Buffer.from('tidy sum\n'));
+          }
+          return { stdout: '', stderr: '' };
+        });
+      });
+
+      it('restores go.mod to its original content and removes a go.sum the script created', async () => {
+        await service.buildAndSign(VALID_UUID);
+
+        expect(mockExecFileAsync.mock.calls.some(c => c[0] === 'bash')).toBe(true);
+        expect(files.get(goMod)).toEqual(originalMod);
+        expect(files.has(goSum)).toBe(false);
+      });
+
+      it('restores a go.sum that existed before the build', async () => {
+        files.set(goSum, originalSum);
+
+        await service.buildAndSign(VALID_UUID);
+
+        expect(files.get(goSum)).toEqual(originalSum);
+        expect(files.get(goMod)).toEqual(originalMod);
+      });
+
+      it('restores them when the script fails', async () => {
+        mockExecFileAsync.mockImplementation(async (cmd: string) => {
+          if (cmd === 'bash') {
+            files.set(goMod, Buffer.from('module tidied\n'));
+            files.set(goSum, Buffer.from('tidy sum\n'));
+            throw Object.assign(new Error('exit 1'), { stderr: 'build failed' });
+          }
+          return { stdout: '', stderr: '' };
+        });
+
+        await expect(service.buildAndSign(VALID_UUID)).rejects.toThrow();
+
+        expect(files.get(goMod)).toEqual(originalMod);
+        expect(files.has(goSum)).toBe(false);
+      });
+
+      it('a restore failure is logged and does not fail the build', async () => {
+        const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+        mockWriteFileSync.mockImplementation((p: string, data: Buffer | string) => {
+          if (p === goMod) throw new Error('disk full');
+          files.set(p, Buffer.from(data));
+        });
+
+        const info = await service.buildAndSign(VALID_UUID);
+
+        expect(info.exists).toBe(true);
+        expect(warn).toHaveBeenCalled();
+        warn.mockRestore();
+      });
+
+      it('a script failure is reported, not masked by a restore failure', async () => {
+        const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+        mockWriteFileSync.mockImplementation((p: string, data: Buffer | string) => {
+          if (p === goMod) throw new Error('disk full');
+          files.set(p, Buffer.from(data));
+        });
+        mockExecFileAsync.mockImplementation(async (cmd: string) => {
+          if (cmd === 'bash') throw Object.assign(new Error('exit 1'), { stderr: 'script broke' });
+          return { stdout: '', stderr: '' };
+        });
+
+        await expect(service.buildAndSign(VALID_UUID)).rejects.toThrow(/script broke/);
+        expect(warn).toHaveBeenCalled();
+        warn.mockRestore();
+      });
     });
   });
 });

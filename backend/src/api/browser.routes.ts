@@ -6,9 +6,16 @@ import { fileURLToPath } from 'url';
 import { requireClerkAuth, requirePermission } from '../middleware/clerk.middleware.js';
 import { asyncHandler, AppError } from '../middleware/error.middleware.js';
 import { TestIndexer } from '../services/browser/testIndexer.js';
+import { CheckBusyError, getTestVersionsService } from '../services/browser/testVersions.service.js';
+import type { TestVersionsService } from '../services/browser/testVersions.service.js';
+import { deriveStatus } from '../services/browser/testVersionStatus.js';
+import type { BuildService } from '../services/tests/buildService.js';
+import type {
+  TestVersionIdentity, TestVersionRow, TestVersionsResponse, VersionRef,
+} from '../types/testVersion.js';
 import { FileService } from '../services/browser/fileService.js';
-import { GitSyncService, SyncStatus } from '../services/browser/gitSyncService.js';
-import { GitHubMetadataService } from '../services/browser/githubMetadataService.js';
+import { GitSyncService, SyncStatus, sanitizeGitError } from '../services/browser/gitSyncService.js';
+import { GitHubMetadataService, parseGitHubRepo } from '../services/browser/githubMetadataService.js';
 import { initCatalog } from '../services/agent/test-catalog.service.js';
 import { extractOverview } from '../services/browser/overviewExtractor.js';
 import type { TestSource, TestOverview } from '../types/test.js';
@@ -32,6 +39,8 @@ export function createBrowserRouter(options: {
   testsSourcePath: string;     // scopes git sync operations (upstream path only)
   gitSync?: GitSyncService;
   githubMetadata?: GitHubMetadataService;
+  testVersions?: TestVersionsService;
+  buildService?: BuildService;
 }): Router {
   const router = Router();
 
@@ -39,6 +48,9 @@ export function createBrowserRouter(options: {
   // Capped; cleared on sync/refresh so edited files are re-read.
   const OVERVIEW_MEMO_MAX = 200;
   const overviewMemo = new Map<string, TestOverview>();
+
+  // The versions service of this router (tests pass one), else the process-wide one.
+  const versionsService = (): TestVersionsService | undefined => options.testVersions ?? getTestVersionsService();
 
   // Protect all browser routes with Clerk authentication + library read permission
   router.use(requireClerkAuth());
@@ -93,6 +105,16 @@ export function createBrowserRouter(options: {
       const tests = testIndexer?.refresh() || [];
       overviewMemo.clear();
 
+      // The pull just fetched the published branch: record it as the
+      // published version before answering, so the page never compares the
+      // new synced commit with an older published one.
+      try {
+        await versionsService()?.recordPublishedFromLocal();
+      } catch (err) {
+        console.warn('Could not record the published test versions after the sync: %s',
+          sanitizeGitError(err instanceof Error ? err.message : String(err), process.env.GITHUB_TOKEN));
+      }
+
       // Reload agent test catalog so new tests are available for enrichment
       initCatalog(options.testSources);
 
@@ -138,6 +160,144 @@ export function createBrowserRouter(options: {
       success: true,
       syncStatus: status,
     });
+  }));
+
+  // ============ TEST VERSION ENDPOINTS ============
+  // Registered before /tests/:uuid, which would otherwise take these paths.
+
+  const versionRef = (id: TestVersionIdentity | undefined): VersionRef | null =>
+    id ? { commit: id.commit, commitDate: id.commit_date, fingerprint: id.fingerprint } : null;
+
+  /** https://github.com/<owner>/<repo> for a github.com remote; never carries credentials. */
+  const repoWebUrl = (): string | null => {
+    const remote = options.gitSync?.getRepoUrl();
+    if (!remote || !/^(?:https?:\/\/[^/@]*@?|ssh:\/\/git@|git@)github\.com[/:]/i.test(remote)) return null;
+    const parsed = parseGitHubRepo(remote);
+    return parsed ? `https://github.com/${parsed.owner}/${parsed.repo}` : null;
+  };
+
+  async function buildVersionsResponse(
+    versions: TestVersionsService,
+    builds: BuildService,
+  ): Promise<TestVersionsResponse> {
+    const published = versions.published();
+    let synced = new Map<string, TestVersionIdentity>();
+    let syncError: string | null = null;
+    try {
+      synced = await versions.synced();
+    } catch (err) {
+      // A git problem must not turn into a 500: answer with what can be built.
+      // The detail (paths, repository URL) goes to the log, not to readers.
+      console.warn('Could not read the synced test versions: %s',
+        sanitizeGitError(err instanceof Error ? err.message : String(err), process.env.GITHUB_TOKEN));
+      syncError = 'The test library could not be read';
+    }
+    const commit = await versions.syncedCommit().catch(() => null);
+    const publishedKnown = published.checkedAt !== null;
+
+    const rows: Record<string, TestVersionRow> = {};
+    let updatesAvailable = 0;
+    let rebuildsNeeded = 0;
+    for (const t of testIndexer?.getAllTests() ?? []) {
+      const sync = synced.get(t.uuid);
+      const custom = (t.source ?? sync?.provenance) === 'custom';
+      let row: TestVersionRow;
+      try {
+        const hasGit = versions.gitEnabled && !custom && !!sync && sync.commit !== null;
+        const pub = hasGit && publishedKnown ? (published.byTest.get(t.uuid) ?? sync) : undefined;
+        const info = builds.getBuildInfo(t.uuid);
+        const derived = deriveStatus({
+          build: { exists: info.exists, source: info.source, version: info.version },
+          synced: sync,
+          published: hasGit && publishedKnown ? published.byTest.get(t.uuid) : undefined,
+          publishedKnown,
+          hasGit,
+          currentDepsHash: info.exists ? builds.currentDepsHash(t.uuid) : null,
+          // Embeds that build_all.sh makes are left out of a folder test's
+          // fingerprint, so a file the author put in such a folder is only
+          // seen here. Sound because those outputs only change when a build
+          // runs, and a build rewrites the stamp. Not for git tests: their
+          // authored content is already in the tree fingerprint, and Sync's
+          // `git clean` can remove untracked build outputs, which would show a
+          // false "Rebuild needed" after every Sync.
+          currentOutputsHash: info.exists && !hasGit ? builds.currentOutputsHash(t.uuid) : undefined,
+        });
+        const stamp = info.version && !info.version.modified ? info.version : undefined;
+        row = {
+          status: derived.status,
+          ...(derived.reason ? { reason: derived.reason } : {}),
+          ...(derived.updateNote ? { updateNote: true } : {}),
+          custom,
+          published: versionRef(pub),
+          synced: versionRef(sync),
+          built: info.exists && info.builtAt
+            ? {
+                commit: stamp?.commit ?? null,
+                commitDate: stamp?.commit_date ?? null,
+                fingerprint: stamp?.fingerprint ?? null,
+                builtAt: info.builtAt,
+                signed: info.signed === true,
+              }
+            : null,
+        };
+      } catch (err) {
+        // One test that can't be read must not take down every other row.
+        console.warn('Could not compute the version of test %s: %s', t.uuid, err instanceof Error ? err.message : String(err));
+        row = { status: 'unknown_build', custom, published: null, synced: null, built: null };
+      }
+      rows[t.uuid] = row;
+      if (row.status === 'update_available' || (row.status === 'not_built' && row.updateNote)) updatesAvailable++;
+      if (row.status === 'rebuild_needed') rebuildsNeeded++;
+    }
+
+    return {
+      library: {
+        gitEnabled: versions.gitEnabled,
+        checkEnabled: versions.gitEnabled && process.env.TESTS_UPDATE_CHECK !== 'off',
+        repoWebUrl: repoWebUrl(),
+        syncedCommit: commit?.hash ?? null,
+        syncedCommitDate: commit?.date ?? null,
+        publishedCommit: published.commit,
+        publishedCommitDate: published.commitDate,
+        checkedAt: published.checkedAt,
+        checkError: published.error ?? syncError,
+        updatesAvailable,
+        rebuildsNeeded,
+        newTests: published.newTests,
+      },
+      tests: rows,
+    };
+  }
+
+  const versionServices = (): { versions: TestVersionsService; builds: BuildService } => {
+    if (!options.testVersions || !options.buildService) {
+      throw new AppError('Test versions are not available', 503);
+    }
+    return { versions: options.testVersions, builds: options.buildService };
+  };
+
+  /**
+   * GET /api/browser/tests/versions
+   * Published / synced / built version of every test. Never runs a remote check.
+   */
+  router.get('/tests/versions', asyncHandler(async (_req: Request, res: Response) => {
+    const { versions, builds } = versionServices();
+    res.json({ success: true, data: await buildVersionsResponse(versions, builds) });
+  }));
+
+  /**
+   * POST /api/browser/tests/updates/check
+   * Check the published versions now; same payload as the read route.
+   */
+  router.post('/tests/updates/check', requirePermission('tests:sync:execute'), asyncHandler(async (_req: Request, res: Response) => {
+    const { versions, builds } = versionServices();
+    try {
+      await versions.check();
+    } catch (err) {
+      if (err instanceof CheckBusyError) throw new AppError(err.message, 409);
+      throw err;
+    }
+    res.json({ success: true, data: await buildVersionsResponse(versions, builds) });
   }));
 
   // ============ TEST ENDPOINTS ============
@@ -485,6 +645,7 @@ export function createBrowserRouter(options: {
     console.log('Refreshing test index...');
     const tests = testIndexer.refresh();
     overviewMemo.clear();
+    versionsService()?.afterSync();
 
     res.json({
       success: true,

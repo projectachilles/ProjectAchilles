@@ -1,5 +1,7 @@
 import { Heart, Play } from 'lucide-react';
 import type { TestMetadata } from '@/types/test';
+import type { TestVersionRow } from '@/types/testVersion';
+import { VersionStatusChip } from '@/components/browser/VersionStatusChip';
 import { Checkbox } from '@/components/ui/checkbox';
 import { targetLabel } from '@/utils/platformLabels';
 import { cn } from '@/lib/utils';
@@ -35,6 +37,8 @@ interface TestListRowProps {
   selectMode: boolean;
   selected: boolean;
   onToggleSelect: () => void;
+  /** Version row; the chip shows under the name when set. */
+  version?: TestVersionRow;
 }
 
 function actorLine(test: TestMetadata): string {
@@ -73,6 +77,7 @@ export function TestListRow({
   selectMode,
   selected,
   onToggleSelect,
+  version,
 }: TestListRowProps) {
   const primary = selectMode ? onToggleSelect : onOpen;
   const stageCount = test.stageCount ?? test.stages.length;
@@ -115,6 +120,7 @@ export function TestListRow({
             {test.name}
           </button>
           <span className="truncate text-xs text-muted">{actorLine(test)}</span>
+          {version && <VersionStatusChip row={version} />}
         </div>
       </div>
 

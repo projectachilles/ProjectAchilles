@@ -119,6 +119,10 @@ describe('BuildSection with shared build state', () => {
       setBuildInfo,
       loading: false,
       download: vi.fn(),
+      buildRequest: 0,
+      requestBuild: vi.fn(),
+      panel: { building: false, missingDeps: false },
+      reportPanel: vi.fn(),
     };
     testsApiMock.deleteBuild.mockResolvedValue(undefined);
     render(<BuildSection uuid={UUID_A} build={build} />);
@@ -129,5 +133,68 @@ describe('BuildSection with shared build state', () => {
     const del = screen.getAllByRole('button').find((b) => /delete|remove|trash/i.test(b.getAttribute('title') ?? b.textContent ?? '') ) ?? screen.getAllByRole('button').at(-1)!;
     fireEvent.click(del);
     await waitFor(() => expect(setBuildInfo).toHaveBeenCalledWith({ exists: false }));
+  });
+});
+
+describe('BuildSection build requests', () => {
+  const state = (buildRequest: number, loadedInfo: BuildInfo = { exists: false }) => ({
+    buildInfo: loadedInfo,
+    setBuildInfo: vi.fn(),
+    loading: false,
+    download: vi.fn(),
+    buildRequest,
+    requestBuild: vi.fn(),
+    panel: { building: false, missingDeps: false },
+    reportPanel: vi.fn(),
+  });
+
+  it('starts a build when the shared state asks for one, not on mount', async () => {
+    testsApiMock.buildTest.mockImplementation(() => new Promise<BuildInfo>(() => {}));
+    const { rerender } = render(<BuildSection uuid={UUID_A} build={state(0)} />);
+    await screen.findByRole('button', { name: /Build/ });
+    expect(testsApiMock.buildTest).not.toHaveBeenCalled();
+
+    rerender(<BuildSection uuid={UUID_A} build={state(1)} />);
+    await waitFor(() => expect(testsApiMock.buildTest).toHaveBeenCalledTimes(1));
+    expect(testsApiMock.buildTest).toHaveBeenCalledWith(UUID_A, { signal: expect.any(AbortSignal) });
+  });
+
+  it('does not start a build when remounted with a non-zero counter', async () => {
+    render(<BuildSection uuid={UUID_A} build={state(3)} />);
+    await screen.findByRole('button', { name: /Build/ });
+    expect(testsApiMock.buildTest).not.toHaveBeenCalled();
+  });
+
+  it('a build request while a build is running sends no second POST', async () => {
+    testsApiMock.buildTest.mockImplementation(() => new Promise<BuildInfo>(() => {}));
+    const { rerender } = render(<BuildSection uuid={UUID_A} build={state(0)} />);
+    await screen.findByRole('button', { name: /Build/ });
+    rerender(<BuildSection uuid={UUID_A} build={state(1)} />);
+    expect(await screen.findByText('Building...')).toBeInTheDocument();
+
+    rerender(<BuildSection uuid={UUID_A} build={state(2)} />);
+    await new Promise((r) => setTimeout(r, 20));
+    expect(testsApiMock.buildTest).toHaveBeenCalledTimes(1);
+  });
+
+  it('a build request while dependencies are missing sends no POST', async () => {
+    testsApiMock.getEmbedDependencies.mockResolvedValue([
+      { filename: 'tool.exe', sourceFile: 'tool.exe', exists: false, sourceBuilt: false },
+    ]);
+    const { rerender } = render(<BuildSection uuid={UUID_A} build={state(0)} />);
+    await waitFor(() => expect(screen.getByRole('button', { name: 'Build & Sign' })).toBeDisabled());
+
+    rerender(<BuildSection uuid={UUID_A} build={state(1)} />);
+    await new Promise((r) => setTimeout(r, 20));
+    expect(testsApiMock.buildTest).not.toHaveBeenCalled();
+  });
+
+  it('reports building and missing dependencies back to the shared state', async () => {
+    testsApiMock.getEmbedDependencies.mockResolvedValue([
+      { filename: 'tool.exe', sourceFile: 'tool.exe', exists: false, sourceBuilt: false },
+    ]);
+    const build = state(0);
+    render(<BuildSection uuid={UUID_A} build={build} />);
+    await waitFor(() => expect(build.reportPanel).toHaveBeenCalledWith({ building: false, missingDeps: true }));
   });
 });

@@ -10,12 +10,17 @@ import type { PlatformSettings } from '../types/tests.js';
 
 const UUID_REGEX = /^[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}$/i;
 
-export function createTestsRouter(options: { testSourcePaths: string[]; testsSourcePath: string }): Router {
+export function createTestsRouter(options: {
+  testSourcePaths: string[];
+  testsSourcePath: string;
+  /** Use this instance instead of constructing one (so other services share its version source). */
+  buildService?: BuildService;
+}): Router {
   const router = Router();
   router.use(requireClerkAuth());
 
   const testsSettings = new TestsSettingsService();
-  const buildService = new BuildService(testsSettings, options.testSourcePaths);
+  const buildService = options.buildService ?? new BuildService(testsSettings, options.testSourcePaths);
   const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 50 * 1024 * 1024 } });
   const certUpload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 10 * 1024 * 1024 } });
   const CERT_ID_REGEX = /^cert-\d+$/;
@@ -181,9 +186,10 @@ export function createTestsRouter(options: { testSourcePaths: string[]; testsSou
   }
 
   // A build writes into the test's source dir and BUILDS_DIR/<uuid>; deleting
-  // or uploading into those while it runs would corrupt the result.
+  // or uploading into those while it runs would corrupt the result. Checked
+  // across processes (each HTTP worker has its own BuildService).
   function assertNotBuilding(uuid: string): void {
-    if (buildService.isBuilding(uuid)) {
+    if (buildService.isBuildingAnywhere(uuid)) {
       throw new AppError('Build in progress for this test', 409);
     }
   }
