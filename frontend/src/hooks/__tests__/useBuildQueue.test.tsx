@@ -3,6 +3,13 @@ import { renderHook, act, waitFor } from '@testing-library/react';
 import type { ReactNode } from 'react';
 import type { BuildInfo } from '@/types/test';
 import type { BuildQueueDeps } from '@/lib/buildQueue';
+
+// The signed-in user, changeable per test (replaces the fixed user of the global Clerk mock).
+const auth = vi.hoisted(() => ({ isLoaded: true, userId: 'user-1' as string | null }));
+vi.mock('@clerk/clerk-react', () => ({
+  useAuth: () => ({ isLoaded: auth.isLoaded, isSignedIn: auth.userId != null, userId: auth.userId }),
+}));
+
 import { BuildQueueProvider, useBuildQueue } from '../useBuildQueue';
 
 const built = { exists: true, source: 'built' } as BuildInfo;
@@ -33,7 +40,11 @@ function gated() {
   return { buildTest, gates };
 }
 
-afterEach(() => vi.restoreAllMocks());
+afterEach(() => {
+  vi.restoreAllMocks();
+  auth.isLoaded = true;
+  auth.userId = 'user-1';
+});
 
 describe('useBuildQueue', () => {
   it('runs idle -> running -> done, tracking current and results', async () => {
@@ -195,5 +206,78 @@ describe('useBuildQueue', () => {
   it('throws outside the provider', () => {
     vi.spyOn(console, 'error').mockImplementation(() => {});
     expect(() => renderHook(() => useBuildQueue())).toThrow(/BuildQueueProvider/);
+  });
+
+  describe('when the session ends', () => {
+    it('signing out ends the run in progress and clears it: the build is aborted and nothing else starts', async () => {
+      const { buildTest, gates } = gated();
+      const { result, rerender } = setup(buildTest);
+      act(() => {
+        result.current.start([A, B]);
+      });
+      await waitFor(() => expect(buildTest).toHaveBeenCalledTimes(1));
+      const signal = buildTest.mock.calls[0][1].signal!;
+
+      auth.userId = null;
+      rerender();
+      expect(result.current.state).toEqual({ status: 'idle', total: 0, current: null, results: [], end: null });
+      expect(signal.aborted).toBe(true);
+      gates[0]();
+      await new Promise((r) => setTimeout(r, 20));
+      expect(buildTest).toHaveBeenCalledTimes(1);
+      expect(result.current.state.status).toBe('idle');
+    });
+
+    it('another user signing in clears the results of a finished run', async () => {
+      const { buildTest, gates } = gated();
+      const { result, rerender } = setup(buildTest);
+      act(() => {
+        result.current.start([A]);
+      });
+      await waitFor(() => expect(gates).toHaveLength(1));
+      act(() => gates[0]());
+      await waitFor(() => expect(result.current.state.status).toBe('done'));
+      expect(result.current.state.results).toHaveLength(1);
+
+      auth.userId = 'user-2';
+      rerender();
+      expect(result.current.state).toEqual({ status: 'idle', total: 0, current: null, results: [], end: null });
+    });
+
+    it('a new run can start after the session changed', async () => {
+      const { buildTest, gates } = gated();
+      const { result, rerender } = setup(buildTest);
+      act(() => {
+        result.current.start([A]);
+      });
+      await waitFor(() => expect(gates).toHaveLength(1));
+      auth.userId = 'user-2';
+      rerender();
+      let ok = false;
+      act(() => {
+        ok = result.current.start([B]);
+      });
+      expect(ok).toBe(true);
+      await waitFor(() => expect(gates).toHaveLength(2));
+      expect(buildTest.mock.calls[1][0]).toBe('b');
+      act(() => gates[1]());
+      await waitFor(() => expect(result.current.state.status).toBe('done'));
+      expect(result.current.state.results.map((r) => r.uuid)).toEqual(['b']);
+    });
+
+    it('keeps the run while the same user stays signed in, and while Clerk is still loading', async () => {
+      const { buildTest } = gated();
+      const { result, rerender } = setup(buildTest);
+      act(() => {
+        result.current.start([A]);
+      });
+      await waitFor(() => expect(buildTest).toHaveBeenCalledTimes(1));
+      rerender();
+      auth.isLoaded = false;
+      auth.userId = null;
+      rerender();
+      expect(result.current.state.status).toBe('running');
+      expect(buildTest.mock.calls[0][1].signal!.aborted).toBe(false);
+    });
   });
 });

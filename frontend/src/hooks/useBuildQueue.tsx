@@ -1,5 +1,6 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from 'react';
 import type { ReactNode } from 'react';
+import { useAuth } from '@clerk/clerk-react';
 import { testsApi } from '@/services/api/tests';
 import {
   runBuildQueue,
@@ -53,6 +54,25 @@ export function BuildQueueProvider({ children, deps = defaultDeps }: { children:
     };
   }, []);
 
+  // A run belongs to the session that started it. When the signed-in user
+  // changes or signs out, end the run (aborting the build in flight) and drop
+  // its results, so the next user of this tab neither inherits nor sees them.
+  const { isLoaded, userId } = useAuth();
+  const sessionUserRef = useRef<string | null | undefined>(undefined);
+  useEffect(() => {
+    if (!isLoaded) return;
+    const user = userId ?? null;
+    const previous = sessionUserRef.current;
+    sessionUserRef.current = user;
+    if (previous === undefined || previous === user) return;
+    stopRef.current = true;
+    const controller = controllerRef.current;
+    controllerRef.current = null;
+    controller?.abort();
+    stateRef.current = IDLE;
+    setState(IDLE);
+  }, [isLoaded, userId]);
+
   const active = state.status === 'running' || state.status === 'stopping';
   useEffect(() => {
     if (!active) return;
@@ -74,14 +94,16 @@ export function BuildQueueProvider({ children, deps = defaultDeps }: { children:
     stateRef.current = next;
     setState(next);
 
+    // False once this run is no longer the provider's: unmounted, or ended by a session change.
+    const owns = () => mountedRef.current && controllerRef.current === controller;
     void runBuildQueue(items, depsRef.current, {
       signal: controller.signal,
       shouldStop: () => stopRef.current,
       onStart: (item) => {
-        if (mountedRef.current) setState((s) => ({ ...s, current: item }));
+        if (owns()) setState((s) => ({ ...s, current: item }));
       },
       onResult: (result) => {
-        if (mountedRef.current) setState((s) => ({ ...s, results: [...s.results, result] }));
+        if (owns()) setState((s) => ({ ...s, results: [...s.results, result] }));
       },
     })
       .then((run) => {
