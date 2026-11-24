@@ -39,6 +39,7 @@ import { attachGuidance, markAcceptedRisks, rankFindings } from './reportFinding
 import { emptyCounts } from './stageOutcome.js';
 import type { AnalyticsSettings, DefenseScoreResponse, ExtendedAnalyticsQueryParams } from '../../types/analytics.js';
 import type { TestMetadata } from '../../types/test.js';
+import type { CurrentTestVersion } from '../../types/testVersion.js';
 import type {
   AcceptedRiskRow, ExecutionReport, ReportAlert, ReportDefenseScore, ReportEnrichment, ReportMeta, ReportRun, ReportRunStage,
   ReportTest, ReportTimelineLane,
@@ -84,7 +85,7 @@ export interface ExecutionReportDeps {
   getAcceptances: (testNames: string[], org?: string) => Promise<Record<string, RiskAcceptance[]>>;
   /** Current fingerprint of every synced test (uuid -> fingerprint), for the runs' version states;
    *  undefined when the library can't be read within `limitMs` (currentFingerprintMap bounds it). */
-  getCurrentFingerprints: (limitMs?: number) => Promise<Map<string, string> | undefined>;
+  getCurrentFingerprints: (limitMs?: number) => Promise<Map<string, CurrentTestVersion> | undefined>;
   budgetMs: number;
   vendorBudgetMs: number;
   /** Raw name of the organization this deployment serves: the console identity's full name

@@ -303,30 +303,39 @@ describe('parseRuns test version', () => {
   }] } } });
 
   it('takes a standalone run\'s version from its document', () => {
-    const [run] = parseRuns(standaloneRes(stamp()), new Map([['u1', 'fp-1']]));
+    const [run] = parseRuns(standaloneRes(stamp()), new Map([['u1', { fingerprint: 'fp-1', commit: null }]]));
     expect(run.version).toEqual({ commit: COMMIT, state: 'current' });
   });
 
   it('takes a bundle run\'s version from the first stage document that carries one', () => {
-    const [run] = parseRuns(bundleRes(stage('T1'), stage('T2', stamp({ fingerprint: 'fp-old' })), stage('T3', stamp({ commit: 'def5678' }))), new Map([[BUNDLE, 'fp-1']]));
+    const [run] = parseRuns(bundleRes(stage('T1'), stage('T2', stamp({ fingerprint: 'fp-old' })), stage('T3', stamp({ commit: 'def5678' }))), new Map([[BUNDLE, { fingerprint: 'fp-1', commit: null }]]));
     expect(run.version).toEqual({ commit: COMMIT, state: 'older' });
   });
 
+  it('is current at the commit synced now even when the fingerprint differs, older at another commit', () => {
+    // The fingerprint rule changed since the run: same commit, same files.
+    const now = (commit: string | null) => new Map([['u1', { fingerprint: 'fp-new-rule', commit }]]);
+    expect(parseRuns(standaloneRes(stamp()), now(COMMIT))[0].version).toEqual({ commit: COMMIT, state: 'current' });
+    expect(parseRuns(standaloneRes(stamp()), now('def5678' + '0'.repeat(33)))[0].version).toEqual({ commit: COMMIT, state: 'older' });
+    expect(parseRuns(standaloneRes(stamp()), now(null))[0].version).toEqual({ commit: COMMIT, state: 'older' });
+    expect(parseRuns(standaloneRes(stamp({ fingerprint: undefined })), now(COMMIT))[0].version).toEqual({ commit: COMMIT, state: 'unknown' });
+  });
+
   it('is not recorded when no member carries a version', () => {
-    expect(parseRuns(bundleRes(stage('T1'), stage('T2')), new Map([[BUNDLE, 'fp-1']]))[0].version)
+    expect(parseRuns(bundleRes(stage('T1'), stage('T2')), new Map([[BUNDLE, { fingerprint: 'fp-1', commit: null }]]))[0].version)
       .toEqual({ commit: null, state: 'not_recorded' });
     expect(parseRuns(standaloneRes(), new Map())[0].version).toEqual({ commit: null, state: 'not_recorded' });
   });
 
   it('is unknown when the version has no fingerprint or the test is not in the library', () => {
-    expect(parseRuns(standaloneRes(stamp({ fingerprint: undefined })), new Map([['u1', 'fp-1']]))[0].version)
+    expect(parseRuns(standaloneRes(stamp({ fingerprint: undefined })), new Map([['u1', { fingerprint: 'fp-1', commit: null }]]))[0].version)
       .toEqual({ commit: COMMIT, state: 'unknown' });
-    expect(parseRuns(standaloneRes(stamp()), new Map([['other', 'fp-1']]))[0].version)
+    expect(parseRuns(standaloneRes(stamp()), new Map([['other', { fingerprint: 'fp-1', commit: null }]]))[0].version)
       .toEqual({ commit: COMMIT, state: 'unknown' });
   });
 
   it('has no commit for a recorded build without one (a custom test or an uploaded binary)', () => {
-    const [run] = parseRuns(standaloneRes(stamp({ commit: undefined, build_source: 'uploaded', fingerprint: undefined })), new Map([['u1', 'fp-1']]));
+    const [run] = parseRuns(standaloneRes(stamp({ commit: undefined, build_source: 'uploaded', fingerprint: undefined })), new Map([['u1', { fingerprint: 'fp-1', commit: null }]]));
     expect(run.version).toEqual({ commit: null, state: 'unknown' });
   });
 

@@ -26,7 +26,7 @@ vi.mock('../../integrations/settings.js', () => ({
   },
 }));
 const { mockCurrentFingerprintMap } = vi.hoisted(() => ({
-  mockCurrentFingerprintMap: vi.fn(async (): Promise<Map<string, string> | undefined> => undefined),
+  mockCurrentFingerprintMap: vi.fn(async (): Promise<Map<string, { fingerprint: string; commit: string | null }> | undefined> => undefined),
 }));
 vi.mock('../../browser/currentFingerprints.js', () => ({ currentFingerprintMap: mockCurrentFingerprintMap }));
 vi.mock('../../notices/userLabel.js', () => ({
@@ -383,7 +383,7 @@ describe('campaign run matrix', () => {
 
     it("comes from the task payload, with Elasticsearch unavailable", async () => {
       mockFetchEdrDocs.mockImplementation(async () => ({ status: 'unavailable', docs: new Map() }));
-      mockCurrentFingerprintMap.mockImplementation(async () => new Map([['t1', 'fp-1']]));
+      mockCurrentFingerprintMap.mockImplementation(async () => new Map([['t1', { fingerprint: 'fp-1', commit: null }]]));
       insertRun('v1', 'c1', snap(['t1'], ['a1']));
       insertTask({ runId: 'v1', agent: 'a1', test: 't1', status: 'completed', exit: 101, testVersion: stamp({ commit: COMMIT_A, fingerprint: 'fp-1' }) });
       const m = await getRunMatrix('v1', ORG);
@@ -392,7 +392,7 @@ describe('campaign run matrix', () => {
     });
 
     it('no stamp, or a malformed one, is not recorded', async () => {
-      mockCurrentFingerprintMap.mockImplementation(async () => new Map([['t1', 'fp-1'], ['t2', 'fp-2']]));
+      mockCurrentFingerprintMap.mockImplementation(async () => new Map([['t1', { fingerprint: 'fp-1', commit: null }], ['t2', { fingerprint: 'fp-2', commit: null }]]));
       insertRun('v2', 'c1', snap(['t1', 't2'], ['a1']));
       insertTask({ runId: 'v2', agent: 'a1', test: 't1', status: 'completed', exit: 101 });
       insertTask({ runId: 'v2', agent: 'a1', test: 't2', status: 'completed', exit: 101, testVersion: stamp({ built_at: 'yesterday', commit: COMMIT_A, fingerprint: 'fp-2' }) });
@@ -401,8 +401,29 @@ describe('campaign run matrix', () => {
       expect(m.cells.t2.a1.version).toEqual({ commit: null, fingerprint: null, state: 'not_recorded' });
     });
 
-    it('current only on an exact fingerprint match; older, or unknown when it cannot be compared', async () => {
-      mockCurrentFingerprintMap.mockImplementation(async () => new Map([['t1', 'fp-1'], ['t2', 'fp-2'], ['t3', 'fp-3']]));
+    it('current at the commit synced now, whatever the fingerprint; older at another commit', async () => {
+      // t1's result was fingerprinted under an earlier rule: same commit, same files.
+      mockCurrentFingerprintMap.mockImplementation(async () => new Map([
+        ['t1', { fingerprint: 'fp-new-rule', commit: COMMIT_A }],
+        ['t2', { fingerprint: 'fp-2', commit: COMMIT_A }],
+        ['t3', { fingerprint: 'fp-3', commit: COMMIT_A }],
+      ]));
+      insertRun('v9', 'c1', snap(['t1', 't2', 't3', 't4'], ['a1']));
+      insertTask({ runId: 'v9', agent: 'a1', test: 't1', status: 'completed', exit: 126, testVersion: stamp({ commit: COMMIT_A, fingerprint: 'fp-old-rule' }) });
+      insertTask({ runId: 'v9', agent: 'a1', test: 't2', status: 'completed', exit: 126, testVersion: stamp({ commit: COMMIT_B, fingerprint: 'fp-old' }) });
+      // The commit alone, without a fingerprint, proves nothing: the stamp was not trusted.
+      insertTask({ runId: 'v9', agent: 'a1', test: 't3', status: 'completed', exit: 126, testVersion: stamp({ commit: COMMIT_A }) });
+      // t4 is not in the library now.
+      insertTask({ runId: 'v9', agent: 'a1', test: 't4', status: 'completed', exit: 126, testVersion: stamp({ commit: COMMIT_A, fingerprint: 'fp-x' }) });
+      const m = await getRunMatrix('v9', ORG);
+      expect(m.cells.t1.a1.version).toEqual({ commit: COMMIT_A, fingerprint: 'fp-old-rule', state: 'current' });
+      expect(m.cells.t2.a1.version).toEqual({ commit: COMMIT_B, fingerprint: 'fp-old', state: 'older' });
+      expect(m.cells.t3.a1.version).toEqual({ commit: COMMIT_A, fingerprint: null, state: 'unknown' });
+      expect(m.cells.t4.a1.version).toEqual({ commit: COMMIT_A, fingerprint: 'fp-x', state: 'unknown' });
+    });
+
+    it('without a current commit, current only on an exact fingerprint match; older, or unknown when it cannot be compared', async () => {
+      mockCurrentFingerprintMap.mockImplementation(async () => new Map([['t1', { fingerprint: 'fp-1', commit: null }], ['t2', { fingerprint: 'fp-2', commit: null }], ['t3', { fingerprint: 'fp-3', commit: null }]]));
       insertRun('v3', 'c1', snap(['t1', 't2', 't3', 't4'], ['a1']));
       insertTask({ runId: 'v3', agent: 'a1', test: 't1', status: 'completed', exit: 126, testVersion: stamp({ commit: COMMIT_A, fingerprint: 'fp-1' }) });
       insertTask({ runId: 'v3', agent: 'a1', test: 't2', status: 'completed', exit: 126, testVersion: stamp({ commit: COMMIT_B, fingerprint: 'fp-old' }) });
@@ -429,7 +450,7 @@ describe('campaign run matrix', () => {
     });
 
     it('a cell with no task has no version', async () => {
-      mockCurrentFingerprintMap.mockImplementation(async () => new Map([['t1', 'fp-1']]));
+      mockCurrentFingerprintMap.mockImplementation(async () => new Map([['t1', { fingerprint: 'fp-1', commit: null }]]));
       insertRun('v5', 'c1', snap(['t1', 't2'], ['a1'], [{ test_uuid: 't1', agent_id: 'a1', reason: 'not built' }]));
       const m = await getRunMatrix('v5', ORG);
       expect(m.cells.t1.a1.state).toBe('na');
@@ -439,7 +460,7 @@ describe('campaign run matrix', () => {
     });
 
     it('CSV: version and version_state columns appended, the first eleven unchanged', async () => {
-      mockCurrentFingerprintMap.mockImplementation(async () => new Map([['t1', 'fp-1'], ['t2', 'fp-2'], ['t3', 'fp-3']]));
+      mockCurrentFingerprintMap.mockImplementation(async () => new Map([['t1', { fingerprint: 'fp-1', commit: null }], ['t2', { fingerprint: 'fp-2', commit: null }], ['t3', { fingerprint: 'fp-3', commit: null }]]));
       insertRun('v6', 'c1', snap(['t1', 't2', 't3', 't4', 't5', 't6'], ['a1'], [{ test_uuid: 't6', agent_id: 'a1', reason: 'not built' }]));
       insertTask({ runId: 'v6', agent: 'a1', test: 't1', status: 'completed', exit: 126, testVersion: stamp({ commit: COMMIT_A, fingerprint: 'fp-1' }) });
       insertTask({ runId: 'v6', agent: 'a1', test: 't2', status: 'completed', exit: 101, testVersion: stamp({ commit: COMMIT_B, fingerprint: 'fp-old' }) });
@@ -472,7 +493,7 @@ describe('campaign run matrix', () => {
       // The read answers only once the Elasticsearch read has started (or fails after 500 ms).
       mockCurrentFingerprintMap.mockImplementation(async () => {
         await Promise.race([esStarted, new Promise((_, reject) => setTimeout(() => reject(new Error('ES read not started')), 500))]);
-        return new Map([['t1', 'fp-1']]);
+        return new Map([['t1', { fingerprint: 'fp-1', commit: null }]]);
       });
       insertRun('v8', 'c1', snap(['t1'], ['a1']));
       insertTask({ runId: 'v8', agent: 'a1', test: 't1', status: 'completed', exit: 126, testVersion: stamp({ commit: COMMIT_A, fingerprint: 'fp-1' }) });

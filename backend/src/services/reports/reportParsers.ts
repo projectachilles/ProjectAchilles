@@ -8,6 +8,7 @@ import type { EdrVendorKey } from '../outcomes/vendors.js';
 import { techniqueInfo } from '../../data/attackTechniques.js';
 import { tacticName, tacticRank } from '../../data/attackTactics.js';
 import { documentVersion } from '../analytics/testVersionState.js';
+import type { CurrentTestVersion } from '../../types/testVersion.js';
 import type {
   OutcomeCounts, ReportActor, ReportHost, ReportRun, ReportRunStage, ReportRunVersion, ReportStage,
   ReportTechnique, ReportTest, ReportTimelineBucket,
@@ -215,7 +216,7 @@ export function taskIdFromDocId(docId: string, testKey: string): string | null {
  * lack it), with its state when `current` (test uuid -> fingerprint of the synced library) is known.
  * No member records one: not recorded, which needs no comparison.
  */
-function runVersion(hits: Agg[], current: Map<string, string> | undefined): ReportRunVersion {
+function runVersion(hits: Agg[], current: Map<string, CurrentTestVersion> | undefined): ReportRunVersion {
   for (const h of hits) {
     const { test_version, version_state } = documentVersion(h._source ?? {}, current);
     if (test_version) return { commit: test_version.commit ?? null, ...(version_state && { state: version_state }) };
@@ -224,7 +225,7 @@ function runVersion(hits: Agg[], current: Map<string, string> | undefined): Repo
 }
 
 /** `current`: the synced library's fingerprint per test; undefined when it could not be read (no state then). */
-export function parseRuns(response: Agg, current?: Map<string, string>): ReportRun[] {
+export function parseRuns(response: Agg, current?: Map<string, CurrentTestVersion>): ReportRun[] {
   return buckets(response?.aggregations?.runs).map((b) => {
     const key = String(b.key);
     const [kind, testKey = '', hostname = '', epoch = ''] = key.split('::');

@@ -1,6 +1,6 @@
 // Analytics module types
 import type { EdrGroupRollup, EdrResultFlags } from '../services/outcomes/vendors.js';
-import type { ResultVersionState } from './testVersion.js';
+import type { CurrentTestVersion, ResultVersionState } from './testVersion.js';
 
 // Elasticsearch settings stored in config file
 export interface AnalyticsSettings {
@@ -273,7 +273,7 @@ export interface PaginatedExecutionsParams extends ExtendedAnalyticsQueryParams,
   /** Filter by how the stored test version relates to the library's current one. */
   versionState?: ResultVersionState;
   /** Current fingerprint of each test (uuid -> fingerprint), built by the route; labels rows and backs `versionState`. */
-  currentFingerprints?: Map<string, string>;
+  currentFingerprints?: Map<string, CurrentTestVersion>;
 }
 
 // Grouped execution result (one per collapsed display row)

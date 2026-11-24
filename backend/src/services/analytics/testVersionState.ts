@@ -1,11 +1,11 @@
 // How the test version stored on a result document relates to the library's
 // current version. One rule, written twice: documentVersion() labels a row,
 // versionStateClauses() filters in Elasticsearch. The route supplies the
-// current fingerprint of every test it can read (uuid -> fingerprint); this
-// module does not import the browser service.
+// current version of every test it can read (uuid -> fingerprint and library
+// commit); this module does not import the browser service.
 import type { estypes } from '@elastic/elasticsearch';
 import type { EnrichedTestExecution } from '../../types/analytics.js';
-import type { ResultVersionState } from '../../types/testVersion.js';
+import type { CurrentTestVersion, ResultVersionState } from '../../types/testVersion.js';
 import { resultStateForTest } from '../browser/testVersionStatus.js';
 
 export const RESULT_VERSION_STATES: readonly ResultVersionState[] = ['current', 'older', 'unknown', 'not_recorded'];
@@ -51,7 +51,7 @@ export interface DocumentVersion {
  * The version recorded on a document and, when `current` is given, its state.
  * built_at is the presence marker: it is written whenever the object exists.
  */
-export function documentVersion(source: Source, current: Map<string, string> | undefined): DocumentVersion {
+export function documentVersion(source: Source, current: Map<string, CurrentTestVersion> | undefined): DocumentVersion {
   const builtAt = str(field(source, 'f0rtika.test_version.built_at'));
   const rawSource = str(field(source, 'f0rtika.test_version.build_source'));
   const buildSource: 'built' | 'uploaded' | undefined = rawSource === 'built' || rawSource === 'uploaded' ? rawSource : undefined;
@@ -70,31 +70,50 @@ export function documentVersion(source: Source, current: Map<string, string> | u
   return test_version ? { test_version, version_state } : { version_state };
 }
 
-/** Filter clauses (filter context) selecting documents in one state; the same rule as documentVersion(). */
+/**
+ * Filter clauses (filter context) selecting documents in one state; the same
+ * rule as documentVersion(). A document is current when it has the test's
+ * current fingerprint, or a fingerprint (of any rule) and the commit the test
+ * is synced at: one clause per commit, limited to the tests synced at it.
+ */
 export function versionStateClauses(
   state: ResultVersionState,
-  current: Map<string, string> | undefined,
+  current: Map<string, CurrentTestVersion> | undefined,
 ): estypes.QueryDslQueryContainer[] {
   const FP = 'f0rtika.test_version.fingerprint';
+  const COMMIT = 'f0rtika.test_version.commit';
   const BUILT = 'f0rtika.test_version.built_at';
-  const fingerprints = [...new Set(current?.values() ?? [])];
+  const fingerprints = [...new Set([...(current?.values() ?? [])].map((v) => v.fingerprint))];
   const uuids = [...(current?.keys() ?? [])];
   const noMatch: estypes.QueryDslQueryContainer = { bool: { must_not: [{ match_all: {} }] } };
   const fpIn: estypes.QueryDslQueryContainer = { terms: { [FP]: fingerprints } };
-  const testIn: estypes.QueryDslQueryContainer = {
+  const testsIn = (ids: string[]): estypes.QueryDslQueryContainer => ({
     bool: {
-      should: [{ terms: { 'f0rtika.bundle_id': uuids } }, { terms: { 'f0rtika.test_uuid': uuids } }],
+      should: [{ terms: { 'f0rtika.bundle_id': ids } }, { terms: { 'f0rtika.test_uuid': ids } }],
       minimum_should_match: 1,
     },
-  };
+  });
+  const testIn = testsIn(uuids);
+  const byCommit = new Map<string, string[]>();
+  for (const [uuid, v] of current ?? []) {
+    if (!v.commit) continue;
+    const at = byCommit.get(v.commit);
+    if (at) at.push(uuid);
+    else byCommit.set(v.commit, [uuid]);
+  }
+  const sameCommit: estypes.QueryDslQueryContainer[] = [...byCommit].map(([commit, ids]) => ({
+    bool: { filter: [{ exists: { field: FP } }, { term: { [COMMIT]: commit } }, testsIn(ids)] },
+  }));
+  const isCurrent: estypes.QueryDslQueryContainer =
+    sameCommit.length === 0 ? fpIn : { bool: { should: [fpIn, ...sameCommit], minimum_should_match: 1 } };
   switch (state) {
     case 'not_recorded':
       return [{ bool: { must_not: [{ exists: { field: BUILT } }] } }];
     case 'current':
-      return fingerprints.length === 0 ? [noMatch] : [fpIn];
+      return fingerprints.length === 0 ? [noMatch] : [isCurrent];
     case 'older':
       if (uuids.length === 0) return [noMatch];
-      return [{ exists: { field: FP } }, { bool: { must_not: [fpIn] } }, testIn];
+      return [{ exists: { field: FP } }, { bool: { must_not: [isCurrent] } }, testIn];
     case 'unknown':
       return [
         { exists: { field: BUILT } },

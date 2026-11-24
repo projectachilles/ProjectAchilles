@@ -1,4 +1,5 @@
 import { describe, it, expect } from 'vitest';
+import type { CurrentTestVersion } from '../../../types/testVersion.js';
 import {
   documentTestUuid,
   documentVersion,
@@ -9,14 +10,26 @@ import {
 const UUID_A = 'a1b2c3d4-e5f6-4890-abcd-ef1234567890';
 const UUID_B = 'b1b2c3d4-e5f6-4890-abcd-ef1234567890';
 const UUID_GONE = 'c1b2c3d4-e5f6-4890-abcd-ef1234567890';
+const UUID_CUSTOM = 'd1b2c3d4-e5f6-4890-abcd-ef1234567890';
+const UUID_PINNED = 'e1b2c3d4-e5f6-4890-abcd-ef1234567890';
 const FP_A = 'fp-a-current';
 const FP_B = 'fp-b-current';
-const CURRENT = new Map([[UUID_A, FP_A], [UUID_B, FP_B]]);
+const HEAD = 'head111';
+const OTHER = 'other222';
+// A and B are at the library commit; a custom test has no commit. PINNED stands
+// for "a test whose current commit is not the one the others are at": the rule
+// is per test, so its commit must never make another test's result current.
+const CURRENT = new Map<string, CurrentTestVersion>([
+  [UUID_A, { fingerprint: FP_A, commit: HEAD }],
+  [UUID_B, { fingerprint: FP_B, commit: HEAD }],
+  [UUID_CUSTOM, { fingerprint: 'fp-custom-current', commit: null }],
+  [UUID_PINNED, { fingerprint: 'fp-pinned-current', commit: OTHER }],
+]);
 
-const tv = (fingerprint?: string) => ({
+const tv = (fingerprint?: string, commit: string | null = 'abc123') => ({
   'f0rtika.test_version.built_at': '2026-11-01T00:00:00Z',
   'f0rtika.test_version.build_source': 'built',
-  'f0rtika.test_version.commit': 'abc123',
+  ...(commit ? { 'f0rtika.test_version.commit': commit } : {}),
   ...(fingerprint ? { 'f0rtika.test_version.fingerprint': fingerprint } : {}),
 });
 
@@ -54,6 +67,48 @@ const FIXTURES: Array<{ name: string; doc: Doc; state: (typeof RESULT_VERSION_ST
     doc: { 'f0rtika.test_uuid': UUID_A, 'f0rtika.bundle_id': UUID_A, 'f0rtika.edr_terminated': true, ...tv(FP_A) },
     state: 'current',
   },
+  // The same commit as the one synced now is the same source, whatever the
+  // fingerprint says (it was computed under an earlier rule).
+  {
+    name: 'standalone, old-rule fingerprint at the synced commit',
+    doc: { 'f0rtika.test_uuid': UUID_A, ...tv('fp-a-old-rule', HEAD) },
+    state: 'current',
+  },
+  {
+    name: 'bundle control, old-rule fingerprint at the synced commit',
+    doc: { 'f0rtika.test_uuid': `${UUID_B}::CH-IEP-003`, 'f0rtika.bundle_id': UUID_B, ...tv('fp-b-old-rule', HEAD) },
+    state: 'current',
+  },
+  {
+    name: 'the synced commit but no fingerprint (stamp not trusted)',
+    doc: { 'f0rtika.test_uuid': UUID_A, ...tv(undefined, HEAD) },
+    state: 'unknown',
+  },
+  {
+    name: 'the synced commit, test not in the library',
+    doc: { 'f0rtika.test_uuid': UUID_GONE, ...tv('fp-x', HEAD) },
+    state: 'unknown',
+  },
+  {
+    name: "another test's current commit does not count",
+    doc: { 'f0rtika.test_uuid': UUID_A, ...tv('fp-a-old', OTHER) },
+    state: 'older',
+  },
+  {
+    name: 'a test at its own commit, old-rule fingerprint',
+    doc: { 'f0rtika.test_uuid': UUID_PINNED, ...tv('fp-pinned-old-rule', OTHER) },
+    state: 'current',
+  },
+  {
+    name: 'custom test (no commit), other fingerprint',
+    doc: { 'f0rtika.test_uuid': UUID_CUSTOM, ...tv('fp-custom-old', null) },
+    state: 'older',
+  },
+  {
+    name: 'custom test, a result that carries the library commit',
+    doc: { 'f0rtika.test_uuid': UUID_CUSTOM, ...tv('fp-custom-old', HEAD) },
+    state: 'older',
+  },
 ];
 
 // ---- a small evaluator for the clauses we generate (filter context) ----
@@ -63,6 +118,10 @@ function has(doc: Doc, field: string): boolean {
 function matches(q: any, doc: Doc): boolean {
   if (q.match_all) return true;
   if (q.exists) return has(doc, q.exists.field);
+  if (q.term) {
+    const [[field, value]] = Object.entries(q.term) as Array<[string, unknown]>;
+    return has(doc, field) && doc[field] === value;
+  }
   if (q.terms) {
     const [[field, values]] = Object.entries(q.terms) as Array<[string, unknown[]]>;
     return has(doc, field) && values.includes(doc[field]);
@@ -93,7 +152,7 @@ describe('result version state: row label and filter use one rule', () => {
   });
 
   it('agrees on an empty map: every recorded version is unknown', () => {
-    const empty = new Map<string, string>();
+    const empty = new Map<string, CurrentTestVersion>();
     for (const { doc } of FIXTURES) {
       const state = documentVersion(doc, empty).version_state;
       expect(state).toBe(doc['f0rtika.test_version.built_at'] ? 'unknown' : 'not_recorded');
@@ -138,7 +197,9 @@ describe('result version state: row label and filter use one rule', () => {
 describe('versionStateClauses (exact JSON)', () => {
   const FP = 'f0rtika.test_version.fingerprint';
   const BUILT = 'f0rtika.test_version.built_at';
-  const small = new Map([[UUID_A, 'fp1']]);
+  const COMMIT = 'f0rtika.test_version.commit';
+  const small = new Map<string, CurrentTestVersion>([[UUID_A, { fingerprint: 'fp1', commit: 'c1' }]]);
+  const noGit = new Map<string, CurrentTestVersion>([[UUID_A, { fingerprint: 'fp1', commit: null }]]);
   const fpIn = { terms: { [FP]: ['fp1'] } };
   const testIn = {
     bool: {
@@ -150,11 +211,47 @@ describe('versionStateClauses (exact JSON)', () => {
   it('not_recorded', () => {
     expect(versionStateClauses('not_recorded', small)).toEqual([{ bool: { must_not: [{ exists: { field: BUILT } }] } }]);
   });
+  // Current = the current fingerprint, or a fingerprint of any rule at the commit the test is synced at.
+  const isCurrent = {
+    bool: {
+      should: [fpIn, { bool: { filter: [{ exists: { field: FP } }, { term: { [COMMIT]: 'c1' } }, testIn] } }],
+      minimum_should_match: 1,
+    },
+  };
   it('current', () => {
-    expect(versionStateClauses('current', small)).toEqual([fpIn]);
+    expect(versionStateClauses('current', small)).toEqual([isCurrent]);
   });
   it('older', () => {
-    expect(versionStateClauses('older', small)).toEqual([{ exists: { field: FP } }, { bool: { must_not: [fpIn] } }, testIn]);
+    expect(versionStateClauses('older', small)).toEqual([{ exists: { field: FP } }, { bool: { must_not: [isCurrent] } }, testIn]);
+  });
+  it('without a commit (no git, custom tests) only the fingerprint decides', () => {
+    expect(versionStateClauses('current', noGit)).toEqual([fpIn]);
+    expect(versionStateClauses('older', noGit)).toEqual([{ exists: { field: FP } }, { bool: { must_not: [fpIn] } }, testIn]);
+  });
+  it('one clause per commit, each limited to the tests synced at it', () => {
+    const two = new Map<string, CurrentTestVersion>([
+      [UUID_A, { fingerprint: 'fp1', commit: 'c1' }],
+      [UUID_B, { fingerprint: 'fp2', commit: 'c1' }],
+      [UUID_GONE, { fingerprint: 'fp3', commit: 'c2' }],
+    ]);
+    const tests = (uuids: string[]) => ({
+      bool: {
+        should: [{ terms: { 'f0rtika.bundle_id': uuids } }, { terms: { 'f0rtika.test_uuid': uuids } }],
+        minimum_should_match: 1,
+      },
+    });
+    expect(versionStateClauses('current', two)).toEqual([
+      {
+        bool: {
+          should: [
+            { terms: { [FP]: ['fp1', 'fp2', 'fp3'] } },
+            { bool: { filter: [{ exists: { field: FP } }, { term: { [COMMIT]: 'c1' } }, tests([UUID_A, UUID_B])] } },
+            { bool: { filter: [{ exists: { field: FP } }, { term: { [COMMIT]: 'c2' } }, tests([UUID_GONE])] } },
+          ],
+          minimum_should_match: 1,
+        },
+      },
+    ]);
   });
   it('unknown', () => {
     expect(versionStateClauses('unknown', small)).toEqual([
@@ -172,7 +269,7 @@ describe('versionStateClauses (exact JSON)', () => {
   });
   it('current and older match nothing on an empty or missing map', () => {
     const nothing = [{ bool: { must_not: [{ match_all: {} }] } }];
-    for (const m of [new Map<string, string>(), undefined]) {
+    for (const m of [new Map<string, CurrentTestVersion>(), undefined]) {
       expect(versionStateClauses('current', m)).toEqual(nothing);
       expect(versionStateClauses('older', m)).toEqual(nothing);
     }

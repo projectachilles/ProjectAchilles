@@ -1383,7 +1383,7 @@ describe('elasticsearch.ts', () => {
   // ── Extended filter building (via getPaginatedExecutions) ──
   describe('test version on executions', () => {
     const UUID = 'a1b2c3d4-e5f6-4890-abcd-ef1234567890';
-    const current = new Map([[UUID, 'fp-now']]);
+    const current = new Map([[UUID, { fingerprint: 'fp-now', commit: null }]]);
     const versioned = (fp: string | undefined, extra: Record<string, unknown> = {}) => makeHitSource({
       'f0rtika.test_uuid': UUID,
       'f0rtika.test_version.built_at': '2026-11-01T00:00:00Z',

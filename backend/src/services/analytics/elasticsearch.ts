@@ -80,7 +80,7 @@ import { createAchillesIndex } from '../shared/esIndexCreate.js';
 // Canonical error code map lives in outcomes/exitCodes.ts; re-exported for existing importers.
 import { ERROR_CODE_MAP, resolveErrorName } from '../outcomes/exitCodes.js';
 import { splitFilterList } from './filterList.js';
-import type { ResultVersionState } from '../../types/testVersion.js';
+import type { CurrentTestVersion, ResultVersionState } from '../../types/testVersion.js';
 import { documentVersion, versionStateClauses } from './testVersionState.js';
 export { ERROR_CODE_MAP, resolveErrorName };
 
@@ -2175,7 +2175,7 @@ export class ElasticsearchService {
 
   // Get recent test executions
   async getRecentExecutions(
-    params: AnalyticsQueryParams & { currentFingerprints?: Map<string, string> },
+    params: AnalyticsQueryParams & { currentFingerprints?: Map<string, CurrentTestVersion> },
   ): Promise<TestExecution[]> {
     const filters: any[] = [
       this.buildTestDataFilter(),
@@ -2804,7 +2804,7 @@ export class ElasticsearchService {
   buildExtendedFilters(params: Partial<ExtendedAnalyticsQueryParams> & {
     verdict?: ExecutionVerdict;
     versionState?: ResultVersionState;
-    currentFingerprints?: Map<string, string>;
+    currentFingerprints?: Map<string, CurrentTestVersion>;
   }): any[] {
     const filters: any[] = [
       this.buildTestDataFilter(),
@@ -3024,7 +3024,7 @@ export class ElasticsearchService {
   }
 
   // Map a single ES hit (from search or inner_hits) to EnrichedTestExecution
-  private mapHitToExecution(hit: any, currentFingerprints?: Map<string, string>): EnrichedTestExecution {
+  private mapHitToExecution(hit: any, currentFingerprints?: Map<string, CurrentTestVersion>): EnrichedTestExecution {
     const source = hit._source;
     const orgUuid = getField(source, 'routing.oid') || '';
 

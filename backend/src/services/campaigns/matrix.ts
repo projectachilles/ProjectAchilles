@@ -16,7 +16,7 @@ import { configuredVendorKeys } from '../edr/vendor-settings.js';
 import { validTestVersion } from '../agent/testVersionPayload.js';
 import { resultStateForTest } from '../browser/testVersionStatus.js';
 import { currentFingerprintMap } from '../browser/currentFingerprints.js';
-import type { ResultVersionState } from '../../types/testVersion.js';
+import type { CurrentTestVersion, ResultVersionState } from '../../types/testVersion.js';
 
 /** The test version a cell's task ran (payload.test_version), and how it relates to the synced library now. */
 export interface CellVersion {
@@ -179,7 +179,7 @@ function parseJson(raw: unknown): unknown {
  * synced fingerprint of every readable test; undefined leaves recorded
  * versions without a state rather than guessing one.
  */
-function cellVersion(raw: string | null, testUuid: string, current: Map<string, string> | undefined): CellVersion {
+function cellVersion(raw: string | null, testUuid: string, current: Map<string, CurrentTestVersion> | undefined): CellVersion {
   const v = validTestVersion(parseJson(raw));
   const out: CellVersion = { commit: v?.commit ?? null, fingerprint: v?.fingerprint ?? null };
   if (!v) return { ...out, state: 'not_recorded' };
@@ -267,7 +267,7 @@ export function matrixEdrSources(svc: IntegrationsSettingsService = new Integrat
  */
 async function build(
   row: CampaignRunRow,
-  readCurrent?: () => Promise<Map<string, string> | undefined>,
+  readCurrent?: () => Promise<Map<string, CurrentTestVersion> | undefined>,
 ): Promise<RunMatrix> {
   const snap = JSON.parse(row.snapshot) as RunSnapshot;
   const nowIso = new Date().toISOString();
