@@ -74,6 +74,15 @@ describe('ingestEdrTerminatedResult', () => {
     expect(Object.keys(d.f0rtika).filter((k) => /_(detected|stage_detected|prevented)$/.test(k))).toEqual([]);
   });
 
+  it('carries the test version, and none when the task has none', async () => {
+    const tv = { built_at: '2026-11-20T08:30:00.000Z', build_source: 'built', commit: 'abc1234', fingerprint: 'fp1' };
+    const base = makeTask();
+    await ingestEdrTerminatedResult({ ...base, payload: { ...base.payload, test_version: tv } } as Task, 'LT4862', t, null);
+    expect(mockEsIndex.mock.calls[0][0].document.f0rtika.test_version).toEqual(tv);
+    await ingestEdrTerminatedResult(makeTask(), 'LT4862', t, null);
+    expect('test_version' in mockEsIndex.mock.calls[1][0].document.f0rtika).toBe(false);
+  });
+
   it('sets bundle_id and bundle_name for a multi-stage test', async () => {
     await ingestEdrTerminatedResult(makeTask(), 'LT4862', t, { bundleName: 'LockBit Chain' });
     const d = mockEsIndex.mock.calls[0][0].document;
@@ -100,6 +109,28 @@ describe('ingestEdrTerminatedResult', () => {
       } } },
     });
     expect(mockPutMapping.mock.invocationCallOrder[0]).toBeLessThan(mockEsIndex.mock.invocationCallOrder[0]);
+  });
+
+  it('after a failed putMapping, stays quiet for 10 minutes, then tries again', async () => {
+    vi.useFakeTimers();
+    const T0 = new Date('2026-11-23T10:00:00Z');
+    vi.setSystemTime(T0);
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    try {
+      mockPutMapping.mockRejectedValue(Object.assign(new Error('forbidden'), { statusCode: 403 }));
+      await ingestEdrTerminatedResult(makeTask(), 'LT4862', t, null);
+      vi.setSystemTime(new Date(T0.getTime() + 5 * 60 * 1000));
+      await ingestEdrTerminatedResult(makeTask(), 'LT4862', t, null);
+      expect(mockPutMapping).toHaveBeenCalledTimes(1);
+      expect(mockEsIndex).toHaveBeenCalledTimes(2);
+      expect(warn).toHaveBeenCalledTimes(1);
+      vi.setSystemTime(new Date(T0.getTime() + 10 * 60 * 1000 + 1));
+      await ingestEdrTerminatedResult(makeTask(), 'LT4862', t, null);
+      expect(mockPutMapping).toHaveBeenCalledTimes(2);
+    } finally {
+      warn.mockRestore();
+      vi.useRealTimers();
+    }
   });
 
   it('still writes the doc when putMapping fails', async () => {

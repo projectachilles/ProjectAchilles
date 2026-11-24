@@ -8,6 +8,7 @@ import { pillClass } from '@/components/shared/ui/pillStyles';
 import { Button } from '@/components/ui/button';
 import SettingsModal from './components/SettingsModal';
 import FilterBar from './components/FilterBar';
+import { VERSION_FILTER_OPTIONS } from './components/executions/versionLabels';
 import DateRangePicker from './components/DateRangePicker';
 import HeroMetricsCard from './components/HeroMetricsCard';
 import TrendChart from './components/TrendChart';
@@ -56,6 +57,7 @@ import type {
   ErrorTypeBreakdown,
   OutcomeBreakdown,
   ExecutionVerdict,
+  ResultVersionState,
   TestCoverageItem,
   TechniqueDistributionItem,
   HostTestMatrixCell,
@@ -189,13 +191,35 @@ export default function AnalyticsDashboardPage() {
   // Same filters as the tab, serialized the same way, so the report is
   // bookmarkable and regenerates the same scope.
   const reportHref = useMemo(() => {
-    const qs = new URLSearchParams(serializeToUrlParams(filterState.filters)).toString();
+    const qs = new URLSearchParams(serializeToUrlParams({ ...filterState.filters, versionState: null })).toString();
     return `/analytics/report${qs ? `?${qs}` : ''}`;
   }, [filterState.filters]);
 
   // Watch for settings changes (e.g., index pattern change)
   const { settingsVersion } = useAnalyticsAuth();
   const capabilities = useCapabilities();
+  // Sent to the Executions endpoints only; never without the capability, even from a stale URL
+  const versionStateParam = useMemo(
+    () => (capabilities.testVersions && filterState.filters.versionState
+      ? { versionState: filterState.filters.versionState }
+      : {}),
+    [capabilities.testVersions, filterState.filters.versionState],
+  );
+  // The Version filter only applies on the Executions tab with the capability. Anywhere else a
+  // versionState left in the URL is ignored: it is not counted, shown or sent.
+  const versionFilterApplies = capabilities.testVersions && activeTab === 'executions';
+  const activeFilterCount =
+    filterState.activeFilterCount - (filterState.filters.versionState && !versionFilterApplies ? 1 : 0);
+  // A version filter change and the page reset are one state update (one batched render, one fetch).
+  const { setVersionState } = filterState;
+  const handleVersionStateChange = useCallback((versionState: ResultVersionState | null) => {
+    setExecutionsPage(1);
+    setVersionState(versionState);
+  }, [setVersionState]);
+  // Newest executions request wins; a slower, older one must not touch the list.
+  const executionsRequestRef = useRef(0);
+  const versionFilterLabel =
+    VERSION_FILTER_OPTIONS.find((o) => o.value === filterState.filters.versionState)?.label ?? '';
 
   // Load active risk count on mount for tab badge
   useEffect(() => {
@@ -248,6 +272,8 @@ export default function AnalyticsDashboardPage() {
   // Page state set by the Outcome breakdown card; not a filter, not in the URL
   const [executionsVerdict, setExecutionsVerdict] = useState<ExecutionVerdict | null>(null);
   const [executionsPageSize, setExecutionsPageSize] = useState(25);
+  // Why the list could not load under a version filter (shown instead of an unexplained empty list)
+  const [executionsError, setExecutionsError] = useState<string | null>(null);
   const [executionsSortField, setExecutionsSortField] = useState<string>('routing.event_time');
   const [executionsSortOrder, setExecutionsSortOrder] = useState<'asc' | 'desc'>('desc');
 
@@ -338,7 +364,7 @@ export default function AnalyticsDashboardPage() {
   // The hostname filter only narrows the fleet; any other filter means a hollow tile is
   // "no result matching the filters", not "never tested".
   const breadthFiltered =
-    filterState.activeFilterCount - (filterState.filters.hostnames.length > 0 ? 1 : 0) > 0;
+    activeFilterCount - (filterState.filters.hostnames.length > 0 ? 1 : 0) > 0;
 
   // Load dashboard data when filters, settings or scoring mode change. The
   // vendor summaries load in their own effects (below), so a vendor's
@@ -377,7 +403,7 @@ export default function AnalyticsDashboardPage() {
     if (activeTab === 'executions') {
       loadExecutionsData();
     }
-  }, [filterState.filters, activeTab, executionsPage, executionsPageSize, executionsSortField, executionsSortOrder, executionsVerdict, settingsVersion]);
+  }, [filterState.filters, activeTab, executionsPage, executionsPageSize, executionsSortField, executionsSortOrder, executionsVerdict, versionStateParam, settingsVersion]);
 
   // Load filter dropdown options
   async function loadFilterOptions() {
@@ -613,8 +639,12 @@ export default function AnalyticsDashboardPage() {
 
   // Load executions data
   const loadExecutionsData = useCallback(async () => {
+    const requestId = ++executionsRequestRef.current;
+    const isLatest = () => requestId === executionsRequestRef.current;
     setLoadingExecutions(true);
     const params = filterState.getApiParams();
+    const versionParam = versionStateParam;
+    setExecutionsError(null);
 
     try {
       const data = await analyticsApi.getGroupedPaginatedExecutions({
@@ -624,14 +654,20 @@ export default function AnalyticsDashboardPage() {
         sortField: executionsSortField,
         sortOrder: executionsSortOrder,
         ...(executionsVerdict ? { verdict: executionsVerdict } : {}),
+        ...versionParam,
       });
-      setExecutionsData(data);
+      if (isLatest()) setExecutionsData(data);
     } catch (error) {
       console.error('Failed to load executions:', error);
+      // A failed version filter must say why the list is empty, never fall back to an unfiltered one.
+      if (isLatest() && versionParam.versionState) {
+        setExecutionsData(null);
+        setExecutionsError((error as { message?: string })?.message || 'Could not load executions');
+      }
     } finally {
-      setLoadingExecutions(false);
+      if (isLatest()) setLoadingExecutions(false);
     }
-  }, [filterState, executionsPage, executionsPageSize, executionsSortField, executionsSortOrder, executionsVerdict]);
+  }, [filterState, executionsPage, executionsPageSize, executionsSortField, executionsSortOrder, executionsVerdict, versionStateParam]);
 
   // Keep ref in sync with latest loadExecutionsData
   loadExecutionsDataRef.current = loadExecutionsData;
@@ -649,13 +685,14 @@ export default function AnalyticsDashboardPage() {
         sortField: executionsSortField,
         sortOrder: executionsSortOrder,
         ...(executionsVerdict ? { verdict: executionsVerdict } : {}),
+        ...versionStateParam,
       });
       for (const group of res.groups) executions.push(...group.members);
       if (!res.pagination.hasNext || executions.length >= EXPORT_MAX_DOCS) {
         return { executions: executions.slice(0, EXPORT_MAX_DOCS), total: res.pagination.totalDocuments };
       }
     }
-  }, [filterState, executionsSortField, executionsSortOrder, executionsVerdict]);
+  }, [filterState, executionsSortField, executionsSortOrder, executionsVerdict, versionStateParam]);
 
   // Archive handlers
   const handleArchive = useCallback(async (groupKeys: string[]) => {
@@ -882,15 +919,15 @@ export default function AnalyticsDashboardPage() {
           description="Detection depth across outcomes, techniques, and attack chains"
         >
           <Button
-            variant={filterState.isExpanded || filterState.activeFilterCount > 0 ? 'secondary' : 'outline'}
+            variant={filterState.isExpanded || activeFilterCount > 0 ? 'secondary' : 'outline'}
             size="sm"
             onClick={filterState.toggleExpanded}
           >
             <Filter />
             Filters
-            {filterState.activeFilterCount > 0 && (
+            {activeFilterCount > 0 && (
               <span className="rounded border border-accent/30 bg-accent-dim px-1.5 font-mono text-[10px] text-accent">
-                {filterState.activeFilterCount}
+                {activeFilterCount}
               </span>
             )}
             {filterState.isExpanded ? <ChevronUp className="!size-3" /> : <ChevronDown className="!size-3" />}
@@ -935,7 +972,7 @@ export default function AnalyticsDashboardPage() {
         {/* Shared Filters (visible on both tabs) */}
         {filterState.isExpanded && (
           <FilterBar
-            filterState={filterState}
+            filterState={{ ...filterState, activeFilterCount, hasActiveFilters: activeFilterCount > 0, setVersionState: handleVersionStateChange }}
             availableHostnames={availableHostnames}
             availableTests={availableTests}
             availableTechniques={availableTechniques}
@@ -946,6 +983,7 @@ export default function AnalyticsDashboardPage() {
             availableErrorCodes={availableErrorCodes}
             availableBundleNames={availableBundleNames}
             loading={loadingFilters}
+            showVersionFilter={versionFilterApplies}
           />
         )}
 
@@ -1153,6 +1191,24 @@ export default function AnalyticsDashboardPage() {
                   Outcome: {VERDICT_LABELS[executionsVerdict]}
                   <span aria-hidden="true">✕</span>
                 </button>
+              </div>
+            )}
+            {versionFilterApplies && filterState.filters.versionState && (
+              <div>
+                <button
+                  type="button"
+                  onClick={() => handleVersionStateChange(null)}
+                  className="inline-flex items-center gap-1.5 rounded-md border border-accent/25 bg-accent-dim px-3 py-1 text-xs font-medium text-accent hover:bg-overlay"
+                  aria-label={`Remove version filter: ${versionFilterLabel}`}
+                >
+                  Version: {versionFilterLabel}
+                  <span aria-hidden="true">✕</span>
+                </button>
+              </div>
+            )}
+            {executionsError && (
+              <div role="alert" className="rounded-md border border-warning/40 bg-warning-dim px-3 py-2 text-xs text-warning">
+                {executionsError}
               </div>
             )}
             <ExecutionsDataTable

@@ -17,7 +17,10 @@ export interface TestVersionIdentity {
 }
 
 export interface BuildVersionStamp extends TestVersionIdentity {
-  /** Uploaded embed dependencies (not source-built) at the start of the build; null when none */
+  /**
+   * Uploaded embed dependencies (not source-built), hashed when the stamp is
+   * written, after the build; null when none.
+   */
   deps_hash: string | null;
   /**
    * Source-built embed dependencies (files and folders) as the build left

@@ -150,7 +150,30 @@ Flat list of recent test executions, enriched with catalog metadata. Returns at 
 |-------|------|-------------|
 | `limit` | number | Max rows returned (default 50). |
 
-**Response:** array of `EnrichedTestExecution` (8 fields per row: `test_uuid`, `test_name`, `hostname`, `is_protected`, `org`, `timestamp`, `error_code`, `error_name`).
+**Response:** array of `EnrichedTestExecution`. Every row has `test_uuid`, `test_name`, `hostname`, `is_protected`, `org`, `timestamp`, `error_code` and `error_name`, plus `test_version` and `version_state` when they apply (see [Test version on result rows](#test-version-on-result-rows)).
+
+#### Test version on result rows
+
+Rows of `GET /api/analytics/executions` and `/executions/paginated` say which version of the test produced the result. The version is copied from the server's build record into the task when the task is created, and from the task into every result document of that run; nothing an endpoint reports can set it. Not available on `backend-serverless` (`testVersions: false` in `/api/capabilities`).
+
+`test_version` (object) is present only when the result recorded a version:
+
+| Field | Present | Description |
+|-------|---------|-------------|
+| `built_at` | always | When the binary was built (or uploaded), ISO 8601 in UTC (`2026-11-23T10:00:00.000Z`). |
+| `build_source` | optional | `built` (Build & Sign) or `uploaded` (an uploaded binary). |
+| `fingerprint` | optional | Fingerprint of what went into the binary. Only when the binary sent had the SHA-256 recorded for that build, from unmodified source; absent for an uploaded binary, a build with no recorded version, a build from locally changed source and a task created while a rebuild was replacing the binary. |
+| `commit` | optional | Library commit the binary was built from. Same condition as `fingerprint`, and absent for a custom test (no git commit). |
+| `commit_date` | optional | Commit date of that source, ISO 8601 in UTC: a commit made at `14:03:11-04:00` reads `18:03:11.000Z`. Same condition as `commit`. |
+
+`version_state` compares the result with the test as it is synced now, so a Sync can change it. It is left out when the backend could not read the current test versions (the rows are returned without it):
+
+| Value | Meaning |
+|-------|---------|
+| `current` | The result's `fingerprint` equals the synced test's: built from the source you have now. |
+| `older` | The result has a `fingerprint` and the synced test's differs: the source changed since that binary was built. |
+| `unknown` | A version was recorded but can't be compared: it has no `fingerprint`, or the test is no longer in the library. |
+| `not_recorded` | The result has no `test_version`: recorded before versions were stored, or from a task created before that (a Retry of an older task included). |
 
 ### Paginated Executions
 
@@ -170,6 +193,7 @@ Filtered, grouped, paginated execution results. Accepts every shared filter plus
 | `sortOrder` | string | `asc` or `desc`. |
 | `grouped` | boolean | If true, groups results by bundle/standalone identity. |
 | `verdict` | string | `protected`, `prevented`, `detected` or `silent`: keeps only rows with that outcome, for attack tests only (cyber-hygiene bundles are excluded, matching the Outcome breakdown card; any other value is a 400 `Invalid verdict`). Read only by this endpoint. It is what the Outcome breakdown card's legend rows open on the Executions tab. |
+| `versionState` | string | `current`, `older`, `unknown` or `not_recorded`: keeps only rows in that [version state](#test-version-on-result-rows), by the same rule as `version_state`. Any other value is a 400 `Invalid versionState`; a 503 `Test versions are not available` when the backend can't read the current test versions, and a 400 `Too many tests to filter by version` when the library has more than 10,000 tests. Read only by this endpoint. Not available on `backend-serverless`. |
 
 **Response shape** depends on the `grouped` parameter:
 

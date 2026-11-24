@@ -64,6 +64,7 @@ const mockStageCoverage = vi.fn();
 const mockOutcomeBreakdown = vi.fn();
 const mockTestResults = vi.fn();
 const mockGetPaginatedExecutions = vi.fn();
+const mockGetRecentExecutions = vi.fn();
 const mockGetGroupedPaginatedExecutions = vi.fn();
 const mockHostTestMatrix = vi.fn();
 vi.mock('../../services/analytics/elasticsearch.js', () => ({
@@ -94,9 +95,15 @@ vi.mock('../../services/analytics/elasticsearch.js', () => ({
     getOutcomeBreakdown = mockOutcomeBreakdown;
     getTestResults = mockTestResults;
     getPaginatedExecutions = mockGetPaginatedExecutions;
+    getRecentExecutions = mockGetRecentExecutions;
     getGroupedPaginatedExecutions = mockGetGroupedPaginatedExecutions;
     getHostTestMatrix = mockHostTestMatrix;
   },
+}));
+
+const mockGetTestVersionsService = vi.fn();
+vi.mock('../../services/browser/testVersions.service.js', () => ({
+  getTestVersionsService: mockGetTestVersionsService,
 }));
 
 const mockTestFleet = vi.fn();
@@ -622,6 +629,102 @@ describe('analytics routes', () => {
     it('leaves verdict undefined when absent', async () => {
       await request(createApp()).get('/api/analytics/executions/paginated');
       expect(mockGetPaginatedExecutions.mock.calls[0][0].verdict).toBeUndefined();
+    });
+  });
+
+  describe('executions versionState filter', () => {
+    const identity = (fingerprint: string) => ({ fingerprint });
+    const useVersions = (entries: Array<[string, string]>) => {
+      mockGetTestVersionsService.mockReturnValue({
+        synced: vi.fn().mockResolvedValue(new Map(entries.map(([u, f]) => [u, identity(f)]))),
+      });
+    };
+
+    beforeEach(() => {
+      mockGetSettings.mockReturnValue({ configured: true, connectionType: 'direct', node: 'http://localhost:9200' });
+      mockGetPaginatedExecutions.mockResolvedValue({ data: [] });
+      mockGetGroupedPaginatedExecutions.mockResolvedValue({ groups: [] });
+      mockGetTestVersionsService.mockReset();
+    });
+
+    it('rejects an unknown versionState with 400', async () => {
+      useVersions([['t1', 'f1']]);
+      const res = await request(createApp()).get('/api/analytics/executions/paginated?versionState=bogus');
+      expect(res.status).toBe(400);
+      expect(res.body).toEqual({ success: false, error: 'Invalid versionState' });
+      expect(mockGetPaginatedExecutions).not.toHaveBeenCalled();
+    });
+
+    it('passes the state and the uuid -> fingerprint map (flat and grouped)', async () => {
+      useVersions([['t1', 'f1'], ['t2', 'f2']]);
+      const flat = await request(createApp()).get('/api/analytics/executions/paginated?versionState=older');
+      expect(flat.status).toBe(200);
+      const arg = mockGetPaginatedExecutions.mock.calls[0][0];
+      expect(arg.versionState).toBe('older');
+      expect(arg.currentFingerprints).toEqual(new Map([['t1', 'f1'], ['t2', 'f2']]));
+      const grouped = await request(createApp()).get('/api/analytics/executions/paginated?versionState=current&grouped=true');
+      expect(grouped.status).toBe(200);
+      expect(mockGetGroupedPaginatedExecutions.mock.calls[0][0].versionState).toBe('current');
+    });
+
+    it('passes the map without the param, so rows carry version_state', async () => {
+      useVersions([['t1', 'f1']]);
+      await request(createApp()).get('/api/analytics/executions/paginated');
+      const arg = mockGetPaginatedExecutions.mock.calls[0][0];
+      expect(arg.versionState).toBeUndefined();
+      expect(arg.currentFingerprints).toEqual(new Map([['t1', 'f1']]));
+    });
+
+    it('answers 503 for a versionState request when there is no versions service', async () => {
+      mockGetTestVersionsService.mockReturnValue(undefined);
+      const res = await request(createApp()).get('/api/analytics/executions/paginated?versionState=current');
+      expect(res.status).toBe(503);
+      expect(res.body).toEqual({ success: false, error: 'Test versions are not available' });
+      expect(mockGetPaginatedExecutions).not.toHaveBeenCalled();
+    });
+
+    it('without the param and without a service the list works and has no map', async () => {
+      mockGetTestVersionsService.mockReturnValue(undefined);
+      const res = await request(createApp()).get('/api/analytics/executions/paginated');
+      expect(res.status).toBe(200);
+      expect(mockGetPaginatedExecutions.mock.calls[0][0].currentFingerprints).toBeUndefined();
+    });
+
+    it('synced() rejecting: 503 with the param, a plain list without it', async () => {
+      const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+      mockGetTestVersionsService.mockReturnValue({ synced: vi.fn().mockRejectedValue(new Error('git failed')) });
+      const withParam = await request(createApp()).get('/api/analytics/executions/paginated?versionState=older');
+      expect(withParam.status).toBe(503);
+      expect(withParam.body.error).toBe('Test versions are not available');
+      const without = await request(createApp()).get('/api/analytics/executions/paginated');
+      expect(without.status).toBe(200);
+      expect(mockGetPaginatedExecutions.mock.calls[0][0].currentFingerprints).toBeUndefined();
+      expect(warn).toHaveBeenCalledTimes(2);
+      expect(warn.mock.calls.flat().join(' ')).not.toContain('git failed');
+      warn.mockRestore();
+    });
+
+    it('GET /executions passes the map so recent rows carry version_state', async () => {
+      useVersions([['t1', 'f1']]);
+      mockGetRecentExecutions.mockResolvedValue([]);
+      const res = await request(createApp()).get('/api/analytics/executions');
+      expect(res.status).toBe(200);
+      expect(mockGetRecentExecutions.mock.calls[0][0].currentFingerprints).toEqual(new Map([['t1', 'f1']]));
+    });
+
+    it('refuses to build a clause for more than 10,000 tests', async () => {
+      useVersions(Array.from({ length: 10_001 }, (_, i): [string, string] => [`t${i}`, `f${i}`]));
+      const res = await request(createApp()).get('/api/analytics/executions/paginated?versionState=older');
+      expect(res.status).toBe(400);
+      expect(res.body).toEqual({ success: false, error: 'Too many tests to filter by version' });
+      const ok = await request(createApp()).get('/api/analytics/executions/paginated');
+      expect(ok.status).toBe(200);
+    });
+
+    it('accepts exactly 10,000 tests', async () => {
+      useVersions(Array.from({ length: 10_000 }, (_, i): [string, string] => [`t${i}`, `f${i}`]));
+      const res = await request(createApp()).get('/api/analytics/executions/paginated?versionState=current');
+      expect(res.status).toBe(200);
     });
   });
 

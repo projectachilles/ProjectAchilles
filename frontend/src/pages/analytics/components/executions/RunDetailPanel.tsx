@@ -36,6 +36,7 @@ import {
   stageAlertState,
   type RunDetailPanelProps,
 } from './detailParts';
+import { ResultVersion } from './ResultVersion';
 import { StageList } from './StageList';
 import { MultiTestAlertsNote } from './MultiTestAlertsNote';
 import { ENDPOINT_VENDOR_IDS, VENDORS } from '../integrations/vendorConfig';
@@ -278,6 +279,8 @@ export function RunDetailPanel(props: RunDetailPanelProps) {
   }
 
   const headerExec = row.type === 'standalone' ? row.execution : undefined;
+  // One block per run: a bundle's comes from its representative, never from each stage.
+  const versionExec = row.type === 'bundle' ? (row.versionExec ?? row.controls[0]) : row.execution;
   const name = row.type === 'bundle' ? row.bundle_name : row.execution.test_name;
   const category = row.type === 'bundle' ? row.category : row.execution.category;
   const techniques =
@@ -387,6 +390,7 @@ export function RunDetailPanel(props: RunDetailPanelProps) {
             </MetaCell>
           )}
         </div>
+        {props.showVersions && versionExec && <ResultVersion exec={versionExec} detail />}
       </div>
 
       {/* Body */}

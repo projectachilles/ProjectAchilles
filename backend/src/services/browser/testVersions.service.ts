@@ -51,6 +51,13 @@ export class CheckBusyError extends Error {
 const UUID_PATTERN = /^[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}$/i;
 const FIRST_CHECK_MS = 2 * 60_000;
 const DISK_CACHE_MS = 30_000;
+/**
+ * How long a read of the library HEAD commit is reused by synced() (a listing
+ * reads it on every request). current(), the source of a build's version
+ * stamp, is excluded: it always reads HEAD live, because a sync landing during
+ * a build must change the identity and void the stamp.
+ */
+const HEAD_CACHE_MS = 5000;
 const MIN_TIMED_GAP_MS = 10 * 60_000;
 const CHECK_INTERVAL_MS = 6 * 60 * 60_000;
 
@@ -99,7 +106,10 @@ export class TestVersionsService implements BuildVersionSource {
   private readonly listTests: TestVersionsOptions['listTests'];
   private readonly embedDependencyFiles: (uuid: string) => string[];
 
+  private headCache: { at: number; commit: { hash: string; date: string } } | null = null;
   private gitCache: { commit: { hash: string; date: string }; ids: Map<string, TestVersionIdentity> } | null = null;
+  /** The last read of the git tests at HEAD failed (syncedError); its sanitized detail, logged once. */
+  private syncedFailure: string | null = null;
   private diskCache: { at: number; ids: Map<string, TestVersionIdentity> } | null = null;
   private readonly stateFile: string;
   private loadedMtimeMs = -1;
@@ -149,6 +159,7 @@ export class TestVersionsService implements BuildVersionSource {
    */
   private async gitIdentities(
     tests: ReturnType<TestVersionsOptions['listTests']>,
+    fresh = false,
   ): Promise<{ ids: Map<string, TestVersionIdentity>; commit: { hash: string; date: string } | null; error?: unknown }> {
     const none = { ids: new Map<string, TestVersionIdentity>(), commit: null };
     if (!this.gitSync) return none;
@@ -157,16 +168,49 @@ export class TestVersionsService implements BuildVersionSource {
       const relPath = this.gitRelPath(t);
       if (relPath) gitTests.push({ uuid: t.uuid, relPath });
     }
-    if (gitTests.length === 0) return none;
+    if (gitTests.length === 0) {
+      this.syncedFailure = null;
+      return none;
+    }
     try {
-      const commit = await this.gitSync.commitInfo('HEAD');
-      if (this.gitCache && this.gitCache.commit.hash === commit.hash) return this.gitCache;
-      const entries = await this.gitSync.listTree('HEAD');
-      this.gitCache = { commit, ids: identitiesFromTree(entries, gitTests, commit) };
+      const commit = await this.headCommit(this.gitSync, fresh);
+      if (!(this.gitCache && this.gitCache.commit.hash === commit.hash)) {
+        const entries = await this.gitSync.listTree('HEAD');
+        this.gitCache = { commit, ids: identitiesFromTree(entries, gitTests, commit) };
+      }
+      this.syncedFailure = null;
       return this.gitCache;
     } catch (error) {
+      const detail = sanitizeGitError(error instanceof Error ? error.message : String(error), process.env.GITHUB_TOKEN);
+      // Every request reads this: log a failure once, not on every request.
+      if (detail !== this.syncedFailure) {
+        console.warn('Could not read the synced test library at HEAD: %s', detail);
+      }
+      this.syncedFailure = detail;
       return { ...none, error };
     }
+  }
+
+  /**
+   * HEAD's commit, reused for HEAD_CACHE_MS; a failed read is never cached.
+   * `fresh` reads live and never uses the cache, but refreshes it.
+   */
+  private async headCommit(git: GitSyncService, fresh: boolean): Promise<{ hash: string; date: string }> {
+    const now = Date.now();
+    if (!fresh && this.headCache && now - this.headCache.at < HEAD_CACHE_MS) return this.headCache.commit;
+    const commit = await git.commitInfo('HEAD');
+    this.headCache = { at: now, commit };
+    return commit;
+  }
+
+  /**
+   * Why the last read of the synced library failed, for the page:
+   * 'The test library could not be read' while git can't read the HEAD tree
+   * or commit of the git tests (they then have no identity and show "Unknown
+   * build"); null once a read succeeds, and always without git.
+   */
+  syncedError(): string | null {
+    return this.syncedFailure === null ? null : 'The test library could not be read';
   }
 
   private async loadSynced(): Promise<SyncedSnapshot> {
@@ -266,7 +310,7 @@ export class TestVersionsService implements BuildVersionSource {
       // From the folder: the identity already is the current state.
       return { identity: this.diskIdentity(uuid, test.dir, test.provenance), modified: false };
     }
-    const { ids, error } = await this.gitIdentities(tests);
+    const { ids, error } = await this.gitIdentities(tests, true);
     if (error !== undefined) throw error;
     const identity = ids.get(uuid);
     if (!identity) return null;
@@ -363,6 +407,7 @@ export class TestVersionsService implements BuildVersionSource {
   }
 
   private dropSyncedCaches(): void {
+    this.headCache = null;
     this.gitCache = null;
     this.diskCache = null;
   }

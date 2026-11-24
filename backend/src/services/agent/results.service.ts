@@ -3,6 +3,7 @@
 
 import type { Client } from '@elastic/elasticsearch';
 import type { Task, TaskResult } from '../../types/agent.js';
+import type { TaskTestVersion } from '../../types/testVersion.js';
 import type { AnalyticsSettings } from '../../types/analytics.js';
 import { ERROR_CODE_MAP } from '../analytics/elasticsearch.js';
 import { SettingsService } from '../analytics/settings.js';
@@ -79,7 +80,11 @@ function sanitizeExitCode(exitCode: number): { code: number; raw?: string } {
 // Lazy-initialised ES client and per-index ensure cache
 let esClient: Client | null = null;
 const ensuredIndices = new Set<string>();
-const edrMappedIndices = new Set<string>();
+/** index|fields keys whose mapping update succeeded (kept for the process life). */
+const mappedFieldSets = new Set<string>();
+/** index|fields key -> time (ms) of the last failed mapping update. */
+const failedMappingAttempts = new Map<string, number>();
+const MAPPING_RETRY_MS = 10 * 60 * 1000;
 
 /** Initialise (or re-use) the ES client from the current analytics settings. */
 async function getClient(): Promise<{ client: Client }> {
@@ -142,6 +147,66 @@ async function prepareWrite(task: Task, timestamp: string | undefined): Promise<
   return { client, index };
 }
 
+const VERSION_TEXT_MAX = 128;
+// The ISO 8601 date-time shapes the server writes: toISOString()
+// (`2026-11-23T10:00:00.000Z`) and git's %cI (`2026-11-23T10:00:00-04:00`).
+// Elasticsearch's strict_date_optional_time rejects much of what Date.parse
+// takes (`2026-11-23 10:00:00`, `Nov 23 2026`, 30 February, hour 24), and a
+// rejected date field loses the whole result document.
+const ISO_DATE_TIME = /^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2}):(\d{2})(?:\.\d{1,9})?(?:Z|[+-]\d{2}:\d{2})$/;
+
+/**
+ * The date as the document stores it: the same instant as toISOString()
+ * writes it (UTC, milliseconds, `Z`), or undefined when it is not a valid
+ * ISO 8601 date-time. Normalising, rather than bounding the offset, means
+ * Elasticsearch only ever sees one form: a commit date with an offset Java
+ * can't hold (beyond ±18:00, e.g. a mistyped GIT_COMMITTER_DATE) is stored
+ * as its UTC instant instead of failing the whole document. A date whose UTC
+ * year falls outside 0001-9999 is refused.
+ */
+function canonicalDate(v: unknown): string | undefined {
+  if (typeof v !== 'string') return undefined;
+  const m = ISO_DATE_TIME.exec(v);
+  if (!m) return undefined;
+  const [year, month, day, hour] = [m[1], m[2], m[3], m[4]].map(Number);
+  // Date.parse rolls 30 February over to March and takes 24:00; ES does not.
+  const daysInMonth = new Date(Date.UTC(year, month, 0)).getUTCDate();
+  if (month < 1 || month > 12 || day < 1 || day > daysInMonth || hour > 23) return undefined;
+  const ms = Date.parse(v);
+  if (Number.isNaN(ms)) return undefined;
+  const utc = new Date(ms);
+  const utcYear = utc.getUTCFullYear();
+  if (utcYear < 1 || utcYear > 9999) return undefined;
+  return utc.toISOString();
+}
+const isShortString = (v: unknown): v is string =>
+  typeof v === 'string' && v !== '' && v.length <= VERSION_TEXT_MAX;
+
+/**
+ * `f0rtika.test_version` for a task's documents: the one place the three
+ * ingestion paths (standard, EDR-terminated, bundle fan-out) get it from.
+ * The task payload is validated first, because Elasticsearch rejects a whole
+ * document whose date field does not parse, and that would lose the result;
+ * the dates are written in UTC (canonicalDate). The task keeps its own strings.
+ * A task without a usable stamp (created before versions, or malformed)
+ * yields no key at all, never null or an empty object.
+ */
+export function testVersionField(
+  task: Task,
+): { test_version: Partial<TaskTestVersion> } | Record<string, never> {
+  const v = task.payload.test_version as Partial<Record<keyof TaskTestVersion, unknown>> | null | undefined;
+  if (!v || typeof v !== 'object') return {};
+  const builtAt = canonicalDate(v.built_at);
+  if (!builtAt) return {};
+  const out: Partial<TaskTestVersion> = { built_at: builtAt };
+  if (v.build_source === 'built' || v.build_source === 'uploaded') out.build_source = v.build_source;
+  if (isShortString(v.commit)) out.commit = v.commit;
+  const commitDate = canonicalDate(v.commit_date);
+  if (commitDate) out.commit_date = commitDate;
+  if (isShortString(v.fingerprint)) out.fingerprint = v.fingerprint;
+  return { test_version: out };
+}
+
 /** Standard whole-test document; shared by `ingestResult` and `ingestEdrTerminatedResult`. */
 function buildStandardDoc(task: Task, eventTime: string | undefined, hostname: string | undefined, rawExitCode: number) {
   const exitCode = sanitizeExitCode(rawExitCode);
@@ -170,6 +235,7 @@ function buildStandardDoc(task: Task, eventTime: string | undefined, hostname: s
       complexity: task.payload.metadata?.complexity,
       tags: task.payload.metadata?.tags,
       score: task.payload.metadata?.score,
+      ...testVersionField(task),
     },
   };
 }
@@ -202,6 +268,7 @@ export async function ingestResult(task: Task, result: TaskResult): Promise<void
   // Standard single-document path (unchanged)
   const doc = buildStandardDoc(task, result.completed_at, result.hostname, result.exit_code);
 
+  await ensureTestVersionMapping(client, index, 'test_version' in doc.f0rtika);
   await client.index({ index, id: task.id, document: doc });
 }
 
@@ -211,22 +278,47 @@ const EDR_TERMINATED_FIELDS = [
   'edr_terminated_alert_ids',
   'stages_unknown',
 ] as const;
+const TEST_VERSION_FIELDS = ['test_version'] as const;
 
 /**
- * Indices created before these fields existed would dynamically map the
- * vendor/alert-id arrays as text. Add the canonical definitions once per
- * process per index; additive and idempotent, so failure is non-fatal.
+ * Indices created before these fields existed would map them dynamically
+ * (arrays as text, `commit` as text + .keyword). Add the canonical definitions
+ * of just these fields once per process per index; additive and idempotent,
+ * so failure is non-fatal. A success is remembered for the process life. A
+ * failure (a 403 key, a conflicting index, Elasticsearch briefly down) is
+ * remembered too, and retried no sooner than MAPPING_RETRY_MS later, so a bad
+ * index costs one round-trip and one warning per 10 minutes, not one per
+ * write. Same for every caller (EDR-terminated fields and test_version).
  */
-async function ensureEdrTerminatedMapping(client: Client, index: string): Promise<void> {
-  if (edrMappedIndices.has(index)) return;
-  const all = RESULTS_INDEX_MAPPING.mappings.properties.f0rtika.properties;
-  const properties = Object.fromEntries(EDR_TERMINATED_FIELDS.map((k) => [k, all[k]]));
+async function ensureResultsFieldMappings(
+  client: Client,
+  index: string,
+  fields: readonly (keyof typeof RESULTS_INDEX_MAPPING.mappings.properties.f0rtika.properties)[],
+): Promise<void> {
+  const key = `${index}|${fields.join(',')}`;
+  if (mappedFieldSets.has(key)) return;
+  const failedAt = failedMappingAttempts.get(key);
+  if (failedAt !== undefined && Date.now() - failedAt < MAPPING_RETRY_MS) return;
   try {
+    const all = RESULTS_INDEX_MAPPING.mappings.properties.f0rtika.properties;
+    const properties = Object.fromEntries(fields.map((k) => [k, all[k]]));
     await client.indices.putMapping({ index, properties: { f0rtika: { properties } } });
-    edrMappedIndices.add(index);
+    mappedFieldSets.add(key);
+    failedMappingAttempts.delete(key);
   } catch (err) {
+    failedMappingAttempts.set(key, Date.now());
     console.warn(`[Results] putMapping failed for ${index}: ${err instanceof Error ? err.message : String(err)}`);
   }
+}
+
+/**
+ * Make sure the version fields have their canonical mapping before a document
+ * carrying them is written. `createResultsIndex` does it for generated
+ * `achilles-results-*` indices, but not for an explicit target_index, a custom
+ * prefix, or a key that may not create indices (403 tolerated).
+ */
+async function ensureTestVersionMapping(client: Client, index: string, hasVersion: boolean): Promise<void> {
+  if (hasVersion) await ensureResultsFieldMappings(client, index, TEST_VERSION_FIELDS);
 }
 
 /**
@@ -253,7 +345,8 @@ export async function ingestEdrTerminatedResult(
     edr_terminated_alert_ids: t.alert_ids,
     stages_unknown: true,
   };
-  await ensureEdrTerminatedMapping(client, index);
+  await ensureResultsFieldMappings(client, index, EDR_TERMINATED_FIELDS);
+  await ensureTestVersionMapping(client, index, 'test_version' in f0rtika);
   await client.index({ index, id: task.id, document: { ...doc, f0rtika } });
 }
 
@@ -296,6 +389,7 @@ async function ingestBundleControls(
     tenantLabel = azureSettings?.label || 'Azure Tenant';
   }
 
+  const versionField = testVersionField(task);
   const operations = bundle.controls.flatMap((control) => {
     const controlExitCode = sanitizeExitCode(control.exit_code);
     return [
@@ -349,12 +443,14 @@ async function ingestBundleControls(
           endpoint_context: bundle.endpoint_context,
           ...(control.description ? { control_description: control.description } : {}),
           is_bundle_control: true,
+          ...versionField,
           ...(tenantLabel ? { tenant_label: tenantLabel } : {}),
         },
       },
     ];
   });
 
+  await ensureTestVersionMapping(client, index, 'test_version' in versionField);
   const response = await client.bulk({ operations });
   if (response?.errors) {
     const failures: string[] = [];
@@ -377,5 +473,6 @@ async function ingestBundleControls(
 export function resetClient(): void {
   esClient = null;
   ensuredIndices.clear();
-  edrMappedIndices.clear();
+  mappedFieldSets.clear();
+  failedMappingAttempts.clear();
 }

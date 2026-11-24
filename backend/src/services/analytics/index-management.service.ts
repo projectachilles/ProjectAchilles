@@ -92,6 +92,16 @@ export const RESULTS_INDEX_MAPPING = {
           edr_terminated_vendors: { type: 'keyword' as const },
           edr_terminated_alert_ids: { type: 'keyword' as const },
           stages_unknown: { type: 'boolean' as const },
+          // Which version of the test's source the binary was built from.
+          test_version: {
+            properties: {
+              commit: { type: 'keyword' as const },
+              commit_date: { type: 'date' as const },
+              fingerprint: { type: 'keyword' as const },
+              built_at: { type: 'date' as const },
+              build_source: { type: 'keyword' as const },
+            },
+          },
           // A 260 (blocked before execution) result an EDR's own prevention
           // alert proved was the EDR blocking the test at launch: rewritten in
           // place to 126 by edr/launch-block-reconcile.service.ts, with the

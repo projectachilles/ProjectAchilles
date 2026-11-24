@@ -3,6 +3,7 @@ import type { AnalyticsSettings, AnalyticsQueryParams, ExtendedAnalyticsQueryPar
 import { attackSimulationExclusions } from '../attack-simulation-filter.js';
 import { edrDetectedTerms, edrOwnDetectedClause } from '../../outcomes/vendors.js';
 import { EDR_PREVENTED_ERROR_STAGE } from '../../reports/stageOutcome.js';
+import { versionStateClauses } from '../testVersionState.js';
 
 /** The scored-results gate: a conclusive code, or an error stage the EDR's own alert says it stopped. */
 const SCORED = { bool: { should: [{ terms: { 'event.ERROR': [101, 105, 126, 127] } }, EDR_PREVENTED_ERROR_STAGE], minimum_should_match: 1 } };
@@ -1380,6 +1381,114 @@ describe('elasticsearch.ts', () => {
   });
 
   // ── Extended filter building (via getPaginatedExecutions) ──
+  describe('test version on executions', () => {
+    const UUID = 'a1b2c3d4-e5f6-4890-abcd-ef1234567890';
+    const current = new Map([[UUID, 'fp-now']]);
+    const versioned = (fp: string | undefined, extra: Record<string, unknown> = {}) => makeHitSource({
+      'f0rtika.test_uuid': UUID,
+      'f0rtika.test_version.built_at': '2026-11-01T00:00:00Z',
+      'f0rtika.test_version.build_source': 'built',
+      'f0rtika.test_version.commit': 'abc123',
+      ...(fp ? { 'f0rtika.test_version.fingerprint': fp } : {}),
+      ...extra,
+    });
+    const hits = (...sources: Array<Record<string, unknown>>) =>
+      esSearchResponse({ hits: sources.map(_source => ({ _source })) });
+
+    beforeEach(() => {
+      mockCount.mockResolvedValue(esCountResponse(0));
+    });
+
+    it('flat rows carry test_version and the state', async () => {
+      mockSearch.mockResolvedValue(hits(
+        versioned('fp-now'), versioned('fp-old'), versioned(undefined), makeHitSource(),
+      ));
+      const rows = (await createService().getPaginatedExecutions({ page: 1, pageSize: 25, currentFingerprints: current })).data;
+      expect(rows.map(r => r.version_state)).toEqual(['current', 'older', 'unknown', 'not_recorded']);
+      expect(rows[0].test_version).toEqual({
+        built_at: '2026-11-01T00:00:00Z', build_source: 'built', commit: 'abc123', commit_date: undefined, fingerprint: 'fp-now',
+      });
+      expect(rows[3].test_version).toBeUndefined();
+    });
+
+    it('a bundle control a::CH-1 uses uuid a', async () => {
+      mockSearch.mockResolvedValue(hits(versioned('fp-now', {
+        'f0rtika.test_uuid': `${UUID}::CH-1`, 'f0rtika.bundle_id': UUID, 'f0rtika.control_id': 'CH-1',
+      })));
+      const rows = (await createService().getPaginatedExecutions({ page: 1, pageSize: 25, currentFingerprints: current })).data;
+      expect(rows[0].version_state).toBe('current');
+    });
+
+    it('a test not in the map is unknown', async () => {
+      mockSearch.mockResolvedValue(hits(versioned('fp-now', { 'f0rtika.test_uuid': 'other-test' })));
+      const rows = (await createService().getPaginatedExecutions({ page: 1, pageSize: 25, currentFingerprints: current })).data;
+      expect(rows[0].version_state).toBe('unknown');
+    });
+
+    it('without a map rows carry test_version but no version_state', async () => {
+      mockSearch.mockResolvedValue(hits(versioned('fp-now')));
+      const rows = (await createService().getPaginatedExecutions({ page: 1, pageSize: 25 })).data;
+      expect(rows[0].version_state).toBeUndefined();
+      expect(rows[0].test_version?.fingerprint).toBe('fp-now');
+    });
+
+    it('grouped representative and members carry them', async () => {
+      mockSearch.mockResolvedValue({
+        hits: { hits: [], total: { value: 1 } },
+        aggregations: {
+          total_groups: { value: 1 },
+          display_groups: { buckets: [{
+            key: `bundle::${UUID}`,
+            members: { hits: { hits: [
+              { _source: versioned('fp-old', { 'f0rtika.test_uuid': `${UUID}::CH-1`, 'f0rtika.bundle_id': UUID, 'f0rtika.control_id': 'CH-1' }) },
+              { _source: versioned('fp-now', { 'f0rtika.test_uuid': `${UUID}::CH-2`, 'f0rtika.bundle_id': UUID, 'f0rtika.control_id': 'CH-2' }) },
+            ] } },
+          }] },
+        },
+      });
+      const res = await createService().getGroupedPaginatedExecutions({ page: 1, pageSize: 25, currentFingerprints: current });
+      const g = res.groups[0];
+      const byControl = Object.fromEntries(g.members.map(m => [m.control_id, m.version_state]));
+      expect(byControl).toEqual({ 'CH-1': 'older', 'CH-2': 'current' });
+      expect(g.representative.control_id).toBe('CH-1');
+      expect(g.representative.version_state).toBe('older');
+      expect(g.representative.test_version?.built_at).toBe('2026-11-01T00:00:00Z');
+    });
+
+    it('grouped count and search both carry the versionState clauses', async () => {
+      mockSearch.mockResolvedValue({ hits: { hits: [], total: { value: 0 } }, aggregations: { total_groups: { value: 0 }, display_groups: { buckets: [] } } });
+      const svc = createService();
+      await svc.getGroupedPaginatedExecutions({ page: 1, pageSize: 25, versionState: 'older', currentFingerprints: current });
+      const clauses = versionStateClauses('older', current);
+      expect(mockCount.mock.calls[0][0].query.bool.filter).toEqual(expect.arrayContaining(clauses));
+      expect(mockSearch.mock.calls[0][0].query.bool.filter).toEqual(expect.arrayContaining(clauses));
+    });
+
+    it('recent executions carry them too', async () => {
+      mockSearch.mockResolvedValue(hits(versioned('fp-old')));
+      const rows = await createService().getRecentExecutions({ currentFingerprints: current });
+      expect(rows[0].version_state).toBe('older');
+    });
+
+    it.each(['older', 'current', 'unknown', 'not_recorded'] as const)('versionState=%s adds its clauses as filter context', async (state) => {
+      mockSearch.mockResolvedValue(hits());
+      const svc = createService();
+      await svc.getPaginatedExecutions({ page: 1, pageSize: 25, versionState: state, currentFingerprints: current });
+      const base = svc.buildExtendedFilters({}).length;
+      const filters = mockCount.mock.calls[0][0].query.bool.filter;
+      expect(filters.slice(base)).toEqual(versionStateClauses(state, current));
+      expect(mockSearch.mock.calls[0][0].query.bool.filter).toEqual(filters);
+    });
+
+    it('adds nothing without versionState, and leaves the verdict clauses as they were', async () => {
+      mockSearch.mockResolvedValue(hits());
+      const svc = createService();
+      await svc.getPaginatedExecutions({ page: 1, pageSize: 25, verdict: 'silent', currentFingerprints: current });
+      const withoutMap = svc.buildExtendedFilters({ verdict: 'silent' });
+      expect(mockCount.mock.calls[0][0].query.bool.filter).toEqual(withoutMap);
+    });
+  });
+
   describe('buildExtendedFilters (via getPaginatedExecutions)', () => {
     beforeEach(() => {
       mockCount.mockResolvedValue(esCountResponse(0));

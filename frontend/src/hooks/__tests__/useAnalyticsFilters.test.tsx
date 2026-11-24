@@ -387,3 +387,30 @@ describe('report helpers', () => {
     expect(parseUrlParams(new URLSearchParams('result=maybe')).result).toBeUndefined();
   });
 });
+
+describe('versionState filter', () => {
+  it('defaults to none and reads a valid value from the URL', () => {
+    expect(filtersFromSearchParams(new URLSearchParams('')).versionState).toBeNull();
+    expect(parseUrlParams(new URLSearchParams('versionState=older')).versionState).toBe('older');
+    expect(parseUrlParams(new URLSearchParams('versionState=bogus')).versionState).toBeUndefined();
+  });
+
+  it('serializes to the URL but stays out of the shared API params', () => {
+    const f = { ...filtersFromSearchParams(new URLSearchParams('')), versionState: 'not_recorded' as const };
+    expect(serializeToUrlParams(f)).toMatchObject({ versionState: 'not_recorded' });
+    expect(toApiParams(f)).not.toHaveProperty('versionState');
+  });
+
+  it('is set, counted, written to the URL and cleared with the other filters', () => {
+    const { result } = renderHook(() => useAnalyticsFilters(), { wrapper: wrapperWithParams('versionState=current') });
+    expect(result.current.filters.versionState).toBe('current');
+    expect(result.current.activeFilterCount).toBe(1);
+    act(() => result.current.setVersionState('older'));
+    expect(result.current.filters.versionState).toBe('older');
+    act(() => result.current.clearAdvancedFilters());
+    expect(result.current.filters.versionState).toBeNull();
+    act(() => result.current.setVersionState('unknown'));
+    act(() => result.current.clearAllFilters());
+    expect(result.current.filters.versionState).toBeNull();
+  });
+});

@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach, vi } from 'vitest';
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import type { Task, TaskResult, BundleResults } from '../../../types/agent.js';
 
 // ── Mock setup ──────────────────────────────────────────────────────
@@ -15,17 +15,20 @@ vi.mock('../../analytics/settings.js', () => ({
 
 const mockEsIndex = vi.fn();
 const mockEsBulk = vi.fn();
+const mockPutMapping = vi.fn();
 
 vi.mock('../../analytics/client.js', () => ({
   createEsClient: vi.fn(() => ({
     index: mockEsIndex,
     bulk: mockEsBulk,
+    indices: { putMapping: mockPutMapping },
   })),
 }));
 
 const mockCreateResultsIndex = vi.fn();
 
-vi.mock('../../analytics/index-management.service.js', () => ({
+vi.mock('../../analytics/index-management.service.js', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('../../analytics/index-management.service.js')>()),
   createResultsIndex: (...args: unknown[]) => mockCreateResultsIndex(...args),
 }));
 
@@ -146,6 +149,25 @@ function configuredSettings() {
 
 // ── Tests ────────────────────────────────────────────────────────────
 
+const TEST_VERSION = {
+  commit: 'a'.repeat(40),
+  commit_date: '2026-11-01T10:00:00Z',
+  fingerprint: 'f'.repeat(64),
+  built_at: '2026-11-20T08:30:00.000Z',
+  build_source: 'built' as const,
+};
+
+/**
+ * TEST_VERSION as the document stores it: every date in UTC as toISOString()
+ * writes it (built_at already is; git's commit date gains milliseconds).
+ */
+const STORED_TEST_VERSION = { ...TEST_VERSION, commit_date: '2026-11-01T10:00:00.000Z' };
+
+function versionedTask(tv: unknown = TEST_VERSION, overrides: Partial<Task> = {}): Task {
+  const base = makeTask(overrides);
+  return { ...base, payload: { ...base.payload, test_version: tv } } as Task;
+}
+
 describe('results.service', () => {
   beforeEach(() => {
     vi.clearAllMocks();
@@ -155,6 +177,7 @@ describe('results.service', () => {
     mockEsIndex.mockResolvedValue({});
     mockEsBulk.mockResolvedValue({});
     mockCreateResultsIndex.mockResolvedValue({ created: true, message: 'ok' });
+    mockPutMapping.mockResolvedValue({});
   });
 
   // ── Group 1: Client Initialization ─────────────────────────
@@ -564,6 +587,240 @@ describe('results.service', () => {
 });
 
 // ── No-rollover ingestion (the default) ──────────────────────────────────────
+
+describe('test version on result documents', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    resetClient();
+    mockIsConfigured.mockReturnValue(true);
+    mockGetSettings.mockReturnValue(configuredSettings());
+    mockEsIndex.mockResolvedValue({});
+    mockEsBulk.mockResolvedValue({ errors: false, items: [] });
+    mockCreateResultsIndex.mockResolvedValue({ created: true, message: 'ok' });
+    mockPutMapping.mockResolvedValue({});
+  });
+
+  it('writes test_version on a standalone document', async () => {
+    await ingestResult(versionedTask(), makeResult());
+    expect(mockEsIndex.mock.calls[0][0].document.f0rtika.test_version).toEqual(STORED_TEST_VERSION);
+  });
+
+  it('maps test_version before the bulk write of a bundle', async () => {
+    await ingestResult(versionedTask(), makeResult({ bundle_results: makeBundle() }));
+    expect(mockPutMapping).toHaveBeenCalledTimes(1);
+    expect(Object.keys(mockPutMapping.mock.calls[0][0].properties.f0rtika.properties)).toEqual(['test_version']);
+    expect(mockPutMapping.mock.invocationCallOrder[0]).toBeLessThan(mockEsBulk.mock.invocationCallOrder[0]);
+  });
+
+  it('writes the same test_version on every bundle control document', async () => {
+    await ingestResult(versionedTask(), makeResult({ bundle_results: makeBundle() }));
+    const docs = mockEsBulk.mock.calls[0][0].operations.filter((_: unknown, i: number) => i % 2 === 1);
+    expect(docs).toHaveLength(2);
+    for (const d of docs) expect(d.f0rtika.test_version).toEqual(STORED_TEST_VERSION);
+  });
+
+  it('leaves test_version out entirely when the task has none', async () => {
+    await ingestResult(makeTask(), makeResult());
+    expect('test_version' in mockEsIndex.mock.calls[0][0].document.f0rtika).toBe(false);
+    await ingestResult(makeTask(), makeResult({ bundle_results: makeBundle() }));
+    const docs = mockEsBulk.mock.calls[0][0].operations.filter((_: unknown, i: number) => i % 2 === 1);
+    for (const d of docs) expect('test_version' in d.f0rtika).toBe(false);
+    expect(mockPutMapping).not.toHaveBeenCalled();
+  });
+
+  it('writes built_at and build_source only for a stamp without a fingerprint', async () => {
+    await ingestResult(
+      versionedTask({ built_at: TEST_VERSION.built_at, build_source: 'uploaded' }),
+      makeResult(),
+    );
+    expect(mockEsIndex.mock.calls[0][0].document.f0rtika.test_version).toEqual({
+      built_at: TEST_VERSION.built_at,
+      build_source: 'uploaded',
+    });
+  });
+
+  it('drops malformed parts so Elasticsearch cannot reject the whole document', async () => {
+    await ingestResult(
+      versionedTask({
+        built_at: TEST_VERSION.built_at, build_source: 'weird', commit: 'x'.repeat(129),
+        commit_date: 'not-a-date', fingerprint: '', extra: 'nope',
+      }),
+      makeResult(),
+    );
+    expect(mockEsIndex.mock.calls[0][0].document.f0rtika.test_version).toEqual({ built_at: TEST_VERSION.built_at });
+  });
+
+  it('omits the whole test_version when built_at is not a date', async () => {
+    await ingestResult(versionedTask({ ...TEST_VERSION, built_at: 'yesterday' }), makeResult());
+    expect('test_version' in mockEsIndex.mock.calls[0][0].document.f0rtika).toBe(false);
+  });
+
+  // Elasticsearch maps these fields as `date` (strict_date_optional_time) and
+  // rejects the WHOLE document on a value it cannot parse, so only the ISO
+  // 8601 shapes the server writes (toISOString(), git's %cI) pass. A date
+  // without a time is refused too: the server never writes one.
+  describe('only ISO 8601 date-times pass (final review C2)', () => {
+    it.each([
+      ['a space instead of T', '2026-11-23 10:00:00'],
+      ['a textual date', 'Nov 23 2026'],
+      ['a date without a time', '2026-11-23'],
+      ['no seconds', '2026-11-23T10:00Z'],
+      ['no zone', '2026-11-23T10:00:00'],
+      ['a day the month does not have', '2026-02-30T10:00:00Z'],
+      ['hour 24', '2026-11-23T24:00:00Z'],
+      ['a minute out of range', '2026-11-23T10:60:00Z'],
+    ])('rejects %s as built_at: the document is indexed with no test_version key', async (_label, value) => {
+      await ingestResult(versionedTask({ ...TEST_VERSION, built_at: value }), makeResult());
+      expect(mockEsIndex).toHaveBeenCalledTimes(1);
+      expect('test_version' in mockEsIndex.mock.calls[0][0].document.f0rtika).toBe(false);
+    });
+
+    // Accepted dates are written as one canonical form, toISOString() (UTC,
+    // milliseconds, Z): an offset outside Java's ZoneOffset range (±18:00),
+    // which a commit date can carry, never reaches Elasticsearch.
+    it.each([
+      ['a toISOString() value (unchanged byte for byte)', '2026-11-23T10:00:00.000Z', '2026-11-23T10:00:00.000Z'],
+      ['an offset (git %cI)', '2026-11-23T10:00:00-04:00', '2026-11-23T14:00:00.000Z'],
+      ['a positive offset', '2026-11-23T10:00:00+05:30', '2026-11-23T04:30:00.000Z'],
+      ['+19:00 (beyond ±18:00)', '2026-11-21T14:03:11+19:00', '2026-11-20T19:03:11.000Z'],
+      ['+23:59', '2026-11-21T14:03:11+23:59', '2026-11-20T14:04:11.000Z'],
+      ['-22:00', '2026-11-21T14:03:11-22:00', '2026-11-22T12:03:11.000Z'],
+      ['Z without a fraction', '2026-11-23T10:00:00Z', '2026-11-23T10:00:00.000Z'],
+      ['a nanosecond fraction', '2026-11-23T10:00:00.123456789Z', '2026-11-23T10:00:00.123Z'],
+      ['29 February of a leap year', '2028-02-29T10:00:00Z', '2028-02-29T10:00:00.000Z'],
+    ])('accepts %s and stores the UTC instant, as built_at and as commit_date', async (_label, value, stored) => {
+      await ingestResult(versionedTask({ ...TEST_VERSION, built_at: value, commit_date: value }), makeResult());
+      expect(mockEsIndex.mock.calls[0][0].document.f0rtika.test_version).toEqual({
+        ...TEST_VERSION, built_at: stored, commit_date: stored,
+      });
+    });
+
+    it('stores a commit date with a +19:00 offset in UTC on every bundle control', async () => {
+      await ingestResult(
+        versionedTask({ ...TEST_VERSION, commit_date: '2026-11-21T14:03:11+19:00' }),
+        makeResult({ bundle_results: makeBundle() }),
+      );
+      const docs = mockEsBulk.mock.calls[0][0].operations.filter((_: unknown, i: number) => i % 2 === 1);
+      expect(docs).toHaveLength(2);
+      for (const d of docs) expect(d.f0rtika.test_version.commit_date).toBe('2026-11-20T19:03:11.000Z');
+    });
+
+    it.each([
+      ['year 0', '0000-01-01T00:00:00Z'],
+      ['year 0 once in UTC', '0001-01-01T00:00:00+01:00'],
+      ['year 10000 once in UTC', '9999-12-31T23:00:00-04:00'],
+      ['a five-digit year', '10000-01-01T00:00:00Z'],
+      ['an offset hour of 24', '2026-11-21T14:03:11+24:00'],
+    ])('rejects %s: no test_version as built_at, no commit_date as commit_date', async (_label, value) => {
+      await ingestResult(versionedTask({ ...TEST_VERSION, built_at: value }), makeResult());
+      expect('test_version' in mockEsIndex.mock.calls[0][0].document.f0rtika).toBe(false);
+      await ingestResult(versionedTask({ ...TEST_VERSION, commit_date: value }), makeResult());
+      const tv = mockEsIndex.mock.calls[1][0].document.f0rtika.test_version;
+      expect('commit_date' in tv).toBe(false);
+      expect(tv.built_at).toBe(TEST_VERSION.built_at);
+    });
+
+    it('drops a non-ISO commit_date and keeps the rest', async () => {
+      await ingestResult(versionedTask({ ...TEST_VERSION, commit_date: '2026-11-23 10:00:00' }), makeResult());
+      const tv = mockEsIndex.mock.calls[0][0].document.f0rtika.test_version;
+      expect('commit_date' in tv).toBe(false);
+      expect(tv).toMatchObject({ built_at: TEST_VERSION.built_at, commit: TEST_VERSION.commit });
+    });
+
+    it('a bundle with a bad built_at is still indexed, with no test_version on any control', async () => {
+      await ingestResult(versionedTask({ ...TEST_VERSION, built_at: 'Nov 23 2026' }), makeResult({ bundle_results: makeBundle() }));
+      const docs = mockEsBulk.mock.calls[0][0].operations.filter((_: unknown, i: number) => i % 2 === 1);
+      expect(docs).toHaveLength(2);
+      for (const d of docs) expect('test_version' in d.f0rtika).toBe(false);
+    });
+  });
+
+  it('adds the version mapping to an explicit target index before writing, once', async () => {
+    const t = versionedTask(TEST_VERSION, { target_index: 'custom-results' });
+    await ingestResult(t, makeResult());
+    await ingestResult(t, makeResult());
+    expect(mockPutMapping).toHaveBeenCalledTimes(1);
+    const arg = mockPutMapping.mock.calls[0][0];
+    expect(arg.index).toBe('custom-results');
+    expect(Object.keys(arg.properties.f0rtika.properties)).toEqual(['test_version']);
+    expect(arg.properties.f0rtika.properties.test_version.properties.commit).toEqual({ type: 'keyword' });
+    expect(mockPutMapping.mock.invocationCallOrder[0]).toBeLessThan(mockEsIndex.mock.invocationCallOrder[0]);
+  });
+
+  it('still writes the document when putMapping rejects', async () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    mockPutMapping.mockRejectedValue(new Error('boom'));
+    await ingestResult(versionedTask(), makeResult());
+    expect(mockEsIndex).toHaveBeenCalledTimes(1);
+    expect(warn).toHaveBeenCalled();
+    warn.mockRestore();
+  });
+});
+
+describe('failed mapping updates are retried only after 10 minutes', () => {
+  const T0 = new Date('2026-11-23T10:00:00Z');
+  let warn: ReturnType<typeof vi.spyOn>;
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    vi.useFakeTimers();
+    vi.setSystemTime(T0);
+    resetClient();
+    mockIsConfigured.mockReturnValue(true);
+    mockGetSettings.mockReturnValue(configuredSettings());
+    mockEsIndex.mockResolvedValue({});
+    mockCreateResultsIndex.mockResolvedValue({ created: true, message: 'ok' });
+    mockPutMapping.mockResolvedValue({});
+    warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+  });
+  afterEach(() => {
+    warn.mockRestore();
+    vi.useRealTimers();
+  });
+
+  it.each([
+    ['403', Object.assign(new Error('security_exception'), { statusCode: 403 })],
+    ['400', Object.assign(new Error('illegal_argument_exception'), { statusCode: 400 })],
+  ])('after a %s, tries once, writes every document, warns once, retries after 10 minutes', async (_n, err) => {
+    mockPutMapping.mockRejectedValue(err);
+    await ingestResult(versionedTask(), makeResult());
+    vi.setSystemTime(new Date(T0.getTime() + 9 * 60 * 1000));
+    await ingestResult(versionedTask(), makeResult());
+    expect(mockPutMapping).toHaveBeenCalledTimes(1);
+    expect(mockEsIndex).toHaveBeenCalledTimes(2);
+    expect(warn).toHaveBeenCalledTimes(1);
+
+    vi.setSystemTime(new Date(T0.getTime() + 10 * 60 * 1000 + 1));
+    await ingestResult(versionedTask(), makeResult());
+    expect(mockPutMapping).toHaveBeenCalledTimes(2);
+    expect(mockEsIndex).toHaveBeenCalledTimes(3);
+    expect(warn).toHaveBeenCalledTimes(2);
+  });
+
+  it('never retries a success', async () => {
+    await ingestResult(versionedTask(), makeResult());
+    vi.setSystemTime(new Date(T0.getTime() + 60 * 60 * 1000));
+    await ingestResult(versionedTask(), makeResult());
+    expect(mockPutMapping).toHaveBeenCalledTimes(1);
+  });
+
+  it('a later success after a failure is remembered', async () => {
+    mockPutMapping.mockRejectedValueOnce(new Error('down'));
+    await ingestResult(versionedTask(), makeResult());
+    vi.setSystemTime(new Date(T0.getTime() + 11 * 60 * 1000));
+    await ingestResult(versionedTask(), makeResult());
+    await ingestResult(versionedTask(), makeResult());
+    expect(mockPutMapping).toHaveBeenCalledTimes(2);
+  });
+
+  it('resetClient clears the failure record', async () => {
+    mockPutMapping.mockRejectedValue(new Error('down'));
+    await ingestResult(versionedTask(), makeResult());
+    resetClient();
+    await ingestResult(versionedTask(), makeResult());
+    expect(mockPutMapping).toHaveBeenCalledTimes(2);
+  });
+});
 
 describe('ingestResult without rollover', () => {
   function noneSettings() {

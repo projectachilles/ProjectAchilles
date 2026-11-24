@@ -321,6 +321,37 @@ describe('EdrLaunchBlockReconciler.runPass', () => {
     expect(resultUpdates()[0].doc.f0rtika).toMatchObject({ bundle_id: TEST_UUID, bundle_name: 'Example Orchestrated Test' });
   });
 
+  describe('the partial update never touches test_version (final review C6)', () => {
+    const TEST_VERSION = {
+      built_at: '2026-10-26T08:00:00.000Z', build_source: 'built',
+      commit: 'c'.repeat(40), commit_date: '2026-10-25T18:00:00Z', fingerprint: 'f'.repeat(64),
+    };
+    /** Every key at any depth of a value. */
+    function keysDeep(v: unknown, out: string[] = []): string[] {
+      if (v && typeof v === 'object' && !Array.isArray(v)) {
+        for (const [k, child] of Object.entries(v)) { out.push(k); keysDeep(child, out); }
+      }
+      return out;
+    }
+
+    it.each([
+      ['a single-binary test', false],
+      ['a multi-stage test (bundle identity added)', true],
+    ])('%s: no test_version key anywhere in the doc, and the stored version survives the merge', async (_label, multiStage) => {
+      if (multiStage) mockCatalog.set(TEST_UUID, { name: 'Example Orchestrated Test', isMultiStage: true });
+      resultStore = [resultDoc(TASK_ID, { f0rtika: { test_version: TEST_VERSION } })];
+      alertStore[CS] = [falconAlert('cs-alert-1')];
+
+      expect((await reconciler().runPass({ now: NOW })).resolved).toBe(1);
+
+      const updates = resultUpdates();
+      expect(updates).toHaveLength(1);
+      expect(keysDeep(updates[0].doc)).not.toContain('test_version');
+      expect(resultStore[0]._source.f0rtika.test_version).toEqual(TEST_VERSION);
+      expect(resultStore[0]._source.event.ERROR).toBe(126);
+    });
+  });
+
   it('a single-binary test gets no bundle identity', async () => {
     mockCatalog.set(TEST_UUID, { name: 'Example', isMultiStage: false });
     resultStore = [resultDoc(TASK_ID)];

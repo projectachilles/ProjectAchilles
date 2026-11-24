@@ -18,6 +18,7 @@ const mockUnlinkSync = vi.fn();
 const mockCopyFileSync = vi.fn();
 const mockRenameSync = vi.fn();
 const mockSymlinkSync = vi.fn();
+const mockUtimesSync = vi.fn();
 // hashFiles (deps hash) resolves and lstat()s each entry: follow existsSync.
 const mockRealpathSync = vi.fn((p: string) => p);
 const mockLstatSync = vi.fn((p: string) => {
@@ -25,22 +26,90 @@ const mockLstatSync = vi.fn((p: string) => {
   return { isSymbolicLink: () => false, isFile: () => true, isDirectory: () => false };
 });
 
+// Build marker files (BUILDS_DIR/<uuid>/.building and the takeover's temp and
+// claim files next to it) live in this store, outside the per-test fs mocks:
+// a build reads its marker back to check it still owns it, and the per-test
+// readFileSync mocks know nothing about it. The in-memory-fs suite below
+// models markers in its own files and turns the store off.
+const markerStore = {
+  enabled: true,
+  files: new Map<string, { data: string; mtimeMs: number }>(),
+};
+function isMarkerPath(p: unknown): p is string {
+  return markerStore.enabled && typeof p === 'string' && /\/\.building(?:$|\.)/.test(p);
+}
+function markerEnoent(p: string): Error {
+  return Object.assign(new Error(`ENOENT: ${p}`), { code: 'ENOENT' });
+}
+const markerAware = {
+  writeFileSync: (...args: unknown[]) => {
+    const [p, data, opts] = args;
+    if (!isMarkerPath(p)) return mockWriteFileSync(...args);
+    if ((opts as { flag?: string } | undefined)?.flag === 'wx' && markerStore.files.has(p)) {
+      throw Object.assign(new Error(`EEXIST: ${p}`), { code: 'EEXIST' });
+    }
+    markerStore.files.set(p, { data: String(data), mtimeMs: Date.now() });
+  },
+  readFileSync: (...args: unknown[]) => {
+    const [p, opts] = args;
+    if (!isMarkerPath(p)) return mockReadFileSync(...args);
+    const f = markerStore.files.get(p);
+    if (!f) throw markerEnoent(p);
+    return opts ? f.data : Buffer.from(f.data);
+  },
+  statSync: (...args: unknown[]) => {
+    const [p] = args;
+    if (!isMarkerPath(p)) return mockStatSync(...args);
+    const f = markerStore.files.get(p);
+    if (!f) throw markerEnoent(p);
+    return { mtimeMs: f.mtimeMs, size: f.data.length, isFile: () => true, isDirectory: () => false };
+  },
+  unlinkSync: (...args: unknown[]) => {
+    const [p] = args;
+    if (!isMarkerPath(p)) return mockUnlinkSync(...args);
+    if (!markerStore.files.delete(p)) throw markerEnoent(p);
+  },
+  renameSync: (...args: unknown[]) => {
+    const [from, to] = args;
+    if (!isMarkerPath(from)) return mockRenameSync(...args);
+    const f = markerStore.files.get(from);
+    if (!f) throw markerEnoent(from);
+    markerStore.files.delete(from);
+    markerStore.files.set(String(to), f);
+  },
+  utimesSync: (...args: unknown[]) => {
+    const [p, , mtime] = args;
+    if (!isMarkerPath(p)) return mockUtimesSync(...args);
+    const f = markerStore.files.get(p);
+    if (!f) throw markerEnoent(p);
+    f.mtimeMs = mtime instanceof Date ? mtime.getTime() : Number(mtime) * 1000;
+  },
+  rmSync: (...args: unknown[]) => {
+    const [p] = args;
+    if (markerStore.enabled && typeof p === 'string') {
+      for (const k of [...markerStore.files.keys()]) if (k.startsWith(`${p}/`)) markerStore.files.delete(k);
+    }
+    return mockRmSync(...args);
+  },
+};
+
 vi.mock('fs', async () => {
   const actual = await vi.importActual<typeof import('fs')>('fs');
   const overrides = {
     existsSync: mockExistsSync,
-    readFileSync: mockReadFileSync,
-    writeFileSync: mockWriteFileSync,
+    readFileSync: markerAware.readFileSync,
+    writeFileSync: markerAware.writeFileSync,
     mkdirSync: mockMkdirSync,
     readdirSync: mockReaddirSync,
-    rmSync: mockRmSync,
-    statSync: mockStatSync,
-    unlinkSync: mockUnlinkSync,
+    rmSync: markerAware.rmSync,
+    statSync: markerAware.statSync,
+    unlinkSync: markerAware.unlinkSync,
     copyFileSync: mockCopyFileSync,
-    renameSync: mockRenameSync,
+    renameSync: markerAware.renameSync,
     symlinkSync: mockSymlinkSync,
     realpathSync: mockRealpathSync,
     lstatSync: mockLstatSync,
+    utimesSync: markerAware.utimesSync,
   };
   return { ...actual, ...overrides, default: { ...actual, ...overrides } };
 });
@@ -66,7 +135,7 @@ vi.mock('child_process', async () => {
   };
 });
 
-const { BuildService, BuildError } = await import('../buildService.js');
+const { BuildService, BuildError, BuildSupersededError } = await import('../buildService.js');
 const { deriveStatus } = await import('../../browser/testVersionStatus.js');
 type TestsSettingsService = import('../settings.js').TestsSettingsService;
 
@@ -84,6 +153,24 @@ function createMockSettingsService(overrides: Record<string, unknown> = {}) {
   } as unknown as TestsSettingsService;
 }
 
+/**
+ * A write of build-meta.json: the service writes it through a temp file next
+ * to it (`build-meta.json.<hex>.tmp`) and a rename, so the write lands there.
+ */
+function isMetaWrite(p: unknown): boolean {
+  return typeof p === 'string' && /\/build-meta\.json(?:\.[0-9a-f]{16}\.tmp)?$/.test(p);
+}
+
+/** The error `fn` throws (fails the test when it returns). */
+function thrownBy(fn: () => unknown): unknown {
+  try {
+    fn();
+  } catch (err) {
+    return err;
+  }
+  throw new Error('expected a throw');
+}
+
 function createService(settingsOverrides: Record<string, unknown> = {}) {
   return new BuildService(createMockSettingsService(settingsOverrides), TESTS_SOURCE);
 }
@@ -95,6 +182,8 @@ describe('BuildService', () => {
 
   beforeEach(() => {
     vi.clearAllMocks();
+    markerStore.enabled = true;
+    markerStore.files.clear();
     service = createService();
     mockExistsSync.mockReturnValue(false);
     mockExecFileAsync.mockResolvedValue({ stdout: '', stderr: '' });
@@ -206,7 +295,7 @@ describe('BuildService', () => {
   // ── Group 3: deleteBuild ──────────────────────────────────
 
   describe('deleteBuild', () => {
-    it('removes build directory with rmSync', () => {
+    it('renames the build directory away, then removes the renamed one with rmSync', () => {
       mockExistsSync.mockImplementation((p: string) => {
         if (p === `${BUILDS_DIR}/${VALID_UUID}`) return true;
         return false;
@@ -214,10 +303,11 @@ describe('BuildService', () => {
 
       service.deleteBuild(VALID_UUID);
 
-      expect(mockRmSync).toHaveBeenCalledWith(
-        `${BUILDS_DIR}/${VALID_UUID}`,
-        { recursive: true, force: true },
-      );
+      expect(mockRenameSync).toHaveBeenCalledTimes(1);
+      const [from, to] = mockRenameSync.mock.calls[0] as [string, string];
+      expect(from).toBe(`${BUILDS_DIR}/${VALID_UUID}`);
+      expect(to).toMatch(new RegExp(`^${BUILDS_DIR}/${VALID_UUID}\\.deleting-[0-9a-f]{16}$`));
+      expect(mockRmSync).toHaveBeenCalledWith(to, { recursive: true, force: true });
     });
 
     it('no-op when build directory does not exist', () => {
@@ -804,7 +894,7 @@ var data string
       await service.buildAndSign(VALID_UUID);
 
       const metaWrite = mockWriteFileSync.mock.calls.find(
-        (call) => typeof call[0] === 'string' && call[0].endsWith('build-meta.json'),
+        (call) => isMetaWrite(call[0]),
       );
       expect(metaWrite).toBeDefined();
 
@@ -1302,7 +1392,7 @@ var data string
       await service.buildAndSign(VALID_UUID);
 
       const metaWrite = mockWriteFileSync.mock.calls.find(
-        (c) => typeof c[0] === 'string' && c[0].endsWith('build-meta.json'),
+        (c) => isMetaWrite(c[0]),
       );
       expect(metaWrite).toBeDefined();
       const meta = JSON.parse(metaWrite![1] as string);
@@ -1455,7 +1545,7 @@ var data string
 
       // Verify metadata was written
       const metaWrite = mockWriteFileSync.mock.calls.find(
-        (call) => typeof call[0] === 'string' && call[0].endsWith('build-meta.json'),
+        (call) => isMetaWrite(call[0]),
       );
       expect(metaWrite).toBeDefined();
       const meta = JSON.parse(metaWrite![1] as string);
@@ -1851,7 +1941,7 @@ var data string
 
     function writtenMeta() {
       const write = mockWriteFileSync.mock.calls.find(
-        (c) => typeof c[0] === 'string' && c[0].endsWith('build-meta.json'),
+        (c) => isMetaWrite(c[0]),
       );
       expect(write).toBeDefined();
       return JSON.parse(write![1] as string);
@@ -2132,13 +2222,15 @@ var data string
     }
     function writtenStamp() {
       const write = [...mockWriteFileSync.mock.calls].reverse().find(
-        (c) => typeof c[0] === 'string' && c[0].endsWith('build-meta.json'),
+        (c) => isMetaWrite(c[0]),
       );
       expect(write).toBeDefined();
       return JSON.parse(String(write![1])).version;
     }
 
     beforeEach(() => {
+      // This suite's files model the markers too.
+      markerStore.enabled = false;
       files.clear();
       dirs.clear();
       mtimes.clear();
@@ -2196,8 +2288,45 @@ var data string
         if (opts?.flag === 'wx' && files.has(p)) {
           throw Object.assign(new Error(`EEXIST: ${p}`), { code: 'EEXIST' });
         }
-        mtimes.delete(p);
+        mtimes.set(p, Date.now());
         put(p, data);
+      }) as never);
+      mockRenameSync.mockImplementation(((from: string, to: string) => {
+        if (dirs.has(from)) {
+          // A directory: move everything under it.
+          for (const f of [...files.keys()]) {
+            if (!f.startsWith(`${from}/`)) continue;
+            const moved = `${to}${f.slice(from.length)}`;
+            const mtime = mtimes.get(f);
+            put(moved, files.get(f)!);
+            if (mtime !== undefined) mtimes.set(moved, mtime);
+            files.delete(f);
+            mtimes.delete(f);
+          }
+          for (const d of [...dirs]) {
+            if (d === from || d.startsWith(`${from}/`)) {
+              dirs.delete(d);
+              addDir(`${to}${d.slice(from.length)}`);
+            }
+          }
+          return;
+        }
+        const b = files.get(from);
+        if (!b) throw enoent(from);
+        const mtime = mtimes.get(from);
+        files.delete(from);
+        mtimes.delete(from);
+        put(to, b);
+        if (mtime !== undefined) mtimes.set(to, mtime);
+        else mtimes.delete(to);
+      }) as never);
+      mockUtimesSync.mockImplementation(((p: string, _atime: Date, mtime: Date) => {
+        if (!files.has(p)) throw enoent(p);
+        mtimes.set(p, mtime.getTime());
+      }) as never);
+      mockRmSync.mockImplementation(((p: string) => {
+        for (const f of [...files.keys()]) if (f === p || f.startsWith(`${p}/`)) { files.delete(f); mtimes.delete(f); }
+        for (const d of [...dirs]) if (d === p || d.startsWith(`${p}/`)) dirs.delete(d);
       }) as never);
       mockCopyFileSync.mockImplementation(((from: string, to: string) => {
         const b = files.get(from);
@@ -2230,9 +2359,10 @@ var data string
     afterEach(() => {
       // Hand the later suites back the default fs mocks (plain no-ops, and
       // lstat following existsSync).
-      for (const m of [mockWriteFileSync, mockCopyFileSync, mockMkdirSync, mockUnlinkSync]) {
+      for (const m of [mockWriteFileSync, mockCopyFileSync, mockMkdirSync, mockUnlinkSync, mockRenameSync, mockUtimesSync, mockRmSync]) {
         m.mockImplementation(() => undefined);
       }
+      markerStore.enabled = true;
       mockLstatSync.mockImplementation((p: string) => {
         if (!mockExistsSync(p)) throw Object.assign(new Error(`ENOENT: ${p}`), { code: 'ENOENT' });
         return { isSymbolicLink: () => false, isFile: () => true, isDirectory: () => false };
@@ -2411,6 +2541,880 @@ var data string
         expect(svc.getBuildInfo(VALID_UUID)).toEqual(info);
         expect(svc.listBuiltUuids()).toEqual(listed);
         expect(listed).toEqual([VALID_UUID]);
+      });
+
+      // ── Owned markers (H1.1) ──────────────────────────────
+
+      interface MarkerHandle { path: string; token: string }
+      interface MarkerInternals {
+        acquireBuildMarker(uuid: string): MarkerHandle;
+        refreshBuildMarker(handle: MarkerHandle): void;
+        releaseBuildMarker(handle: MarkerHandle, uuid: string): void;
+      }
+      const internals = (svc: InstanceType<typeof BuildService>) => svc as unknown as MarkerInternals;
+      const FOREIGN = JSON.stringify({ pid: 4242, startedAt: '2026-11-23T00:00:00.000Z', token: 'f'.repeat(32) });
+      const markerJson = () => JSON.parse(String(files.get(marker))) as { pid: number; startedAt: string; token: string };
+      /** Files next to the marker a takeover may leave behind (temp file, claim). */
+      const markerLeftovers = () => [...files.keys()].filter(f => f.startsWith(`${marker}.`));
+
+      it('acquire returns the marker path and a random token that is in the file; release removes it', () => {
+        const svc = service();
+        const handle = internals(svc).acquireBuildMarker(VALID_UUID);
+        expect(handle.path).toBe(marker);
+        expect(handle.token).toMatch(/^[0-9a-f]{32}$/);
+        expect(markerJson()).toEqual({ pid: process.pid, startedAt: expect.any(String), token: handle.token });
+        // A second acquire gets a different token (and is refused while the first holds it).
+        expect(thrownBy(() => internals(service()).acquireBuildMarker(VALID_UUID)))
+          .toMatchObject({ statusCode: 409, message: 'Build in progress for this test' });
+        internals(svc).refreshBuildMarker(handle);
+        expect(markerJson().token).toBe(handle.token);
+        internals(svc).releaseBuildMarker(handle, VALID_UUID);
+        expect(files.has(marker)).toBe(false);
+        const again = internals(svc).acquireBuildMarker(VALID_UUID);
+        expect(again.token).not.toBe(handle.token);
+        internals(svc).releaseBuildMarker(again, VALID_UUID);
+      });
+
+      it('release leaves a marker that holds another build\'s token in place, with one warning', () => {
+        const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+        try {
+          const svc = service();
+          const handle = internals(svc).acquireBuildMarker(VALID_UUID);
+          put(marker, FOREIGN);
+          internals(svc).releaseBuildMarker(handle, VALID_UUID);
+          expect(String(files.get(marker))).toBe(FOREIGN);
+          expect(warn).toHaveBeenCalledTimes(1);
+          expect(warn.mock.calls[0].map(String).join(' ')).toContain(VALID_UUID);
+        } finally {
+          warn.mockRestore();
+        }
+      });
+
+      it('refresh does not touch a marker that holds another build\'s token: it stops the build instead', () => {
+        const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+        try {
+          const svc = service();
+          const handle = internals(svc).acquireBuildMarker(VALID_UUID);
+          put(marker, FOREIGN);
+          const old = Date.now() - 100_000;
+          mtimes.set(marker, old);
+          const err = thrownBy(() => internals(svc).refreshBuildMarker(handle));
+          expect(err).toBeInstanceOf(BuildSupersededError);
+          expect(err).toBeInstanceOf(BuildError);
+          expect(err).toMatchObject({ message: 'Build was superseded by another build of this test' });
+          expect(String(files.get(marker))).toBe(FOREIGN);
+          expect(mtimes.get(marker)).toBe(old);
+          expect(mockUtimesSync).not.toHaveBeenCalled();
+          // The error is the report; release afterwards stays quiet and leaves the marker.
+          internals(svc).releaseBuildMarker(handle, VALID_UUID);
+          expect(String(files.get(marker))).toBe(FOREIGN);
+          expect(warn).not.toHaveBeenCalled();
+        } finally {
+          warn.mockRestore();
+        }
+      });
+
+      describe('two instances racing for the same stale marker', () => {
+        const stale = JSON.stringify({ pid: 1, startedAt: '2026-11-23T00:00:00.000Z', token: '0'.repeat(32) });
+        let warn: ReturnType<typeof vi.spyOn>;
+        beforeEach(() => {
+          warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+          put(marker, stale);
+          mtimes.set(marker, Date.now() - STALE_AFTER_MS - 1_000);
+        });
+        afterEach(() => { warn.mockRestore(); });
+
+        async function expectOneRan(first: Promise<BuildInfo>, second: Promise<BuildInfo>): Promise<void> {
+          const [a, b] = await Promise.allSettled([first, second]);
+          const ran = [a, b].filter(r => r.status === 'fulfilled');
+          const refused = [a, b].filter((r): r is PromiseRejectedResult => r.status === 'rejected');
+          expect(ran).toHaveLength(1);
+          expect(refused).toHaveLength(1);
+          expect(refused[0].reason).toMatchObject({ statusCode: 409, message: 'Build in progress for this test' });
+          expect(buildRuns).toBe(1);
+          expect(files.has(marker)).toBe(false);
+          expect(markerLeftovers()).toEqual([]);
+        }
+
+        it('B judged the marker stale, then A took it over before B acted: B is refused', async () => {
+          const a = service();
+          const b = service();
+          // B reads the stale marker; A's whole takeover runs right after that read.
+          let aBuild: Promise<BuildInfo> | null = null;
+          let started = false;
+          const base = mockReadFileSync.getMockImplementation()!;
+          mockReadFileSync.mockImplementation(((p: string, enc?: unknown) => {
+            const result = base(p, enc);
+            if (p === marker && !started) {
+              started = true;
+              aBuild = a.buildAndSign(VALID_UUID);
+            }
+            return result;
+          }) as never);
+
+          const bBuild = b.buildAndSign(VALID_UUID);
+          expect(aBuild).not.toBeNull();
+          await expectOneRan(aBuild!, bBuild);
+        });
+
+        it('B looks at the marker while A is replacing it: B is refused', async () => {
+          const a = service();
+          const b = service();
+          let bBuild: Promise<BuildInfo> | null = null;
+          let started = false;
+          const base = mockRenameSync.getMockImplementation()!;
+          mockRenameSync.mockImplementation(((from: string, to: string) => {
+            if (to === marker && !started) {
+              started = true;
+              bBuild = b.buildAndSign(VALID_UUID);
+            }
+            return base(from, to);
+          }) as never);
+
+          const aBuild = a.buildAndSign(VALID_UUID);
+          expect(bBuild).not.toBeNull();
+          await expectOneRan(aBuild, bBuild!);
+        });
+      });
+
+      describe('a build another build superseded stops (controller ruling)', () => {
+        const SUPERSEDED = 'Build was superseded by another build of this test';
+        const outputPath = `${BUILDS_DIR}/${VALID_UUID}/${VALID_UUID}.exe`;
+        const metaPath = `${BUILDS_DIR}/${VALID_UUID}/build-meta.json`;
+        let warn: ReturnType<typeof vi.spyOn>;
+        beforeEach(() => { warn = vi.spyOn(console, 'warn').mockImplementation(() => {}); });
+        afterEach(() => { warn.mockRestore(); });
+
+        it('replaced while build_all.sh runs: stops before copying its outputs, writes no build-meta.json, leaves the other marker', async () => {
+          bashAlso(() => { put(marker, FOREIGN); });
+          const svc = service();
+
+          await expect(svc.buildAndSign(VALID_UUID)).rejects.toSatisfy(
+            (e: unknown) => e instanceof BuildSupersededError && (e as Error).message === SUPERSEDED);
+
+          expect(files.has(outputPath)).toBe(false);
+          expect(files.has(metaPath)).toBe(false);
+          expect(String(files.get(marker))).toBe(FOREIGN);
+          // build_all.sh temp files are still cleaned up.
+          expect([...files.keys()].filter(f => /\.build-patched\.sh$|\.tmp-inner-pass$/.test(f))).toEqual([]);
+          expect(warn).not.toHaveBeenCalled();
+        });
+
+        it('replaced between two steps of a go build: the next step never runs, go.mod is restored, no build-meta.json', async () => {
+          files.delete(`${testDir}/build_all.sh`);
+          const originalGoMod = 'module example.test/original\n\ngo 1.22\n';
+          put(`${testDir}/go.mod`, originalGoMod);
+          const calls: string[] = [];
+          mockExecFileAsync.mockImplementation(async (cmd: string, args: string[]) => {
+            calls.push(`${cmd} ${args.join(' ')}`);
+            if (cmd === 'go' && args[0] === 'mod' && args[1] === 'tidy') {
+              put(`${testDir}/go.mod`, 'module example.test/original\n\ngo 1.22\n\nrequire example.test/dep v1.0.0\n');
+              put(`${testDir}/go.sum`, 'example.test/dep v1.0.0 h1:x=\n');
+              put(marker, FOREIGN);
+            }
+            return { stdout: '', stderr: '' };
+          });
+          const svc = service();
+
+          await expect(svc.buildAndSign(VALID_UUID)).rejects.toThrow(SUPERSEDED);
+
+          expect(calls).toEqual(['go mod tidy']);
+          expect(calls.some(c => c.startsWith('go mod download') || c.startsWith('go build'))).toBe(false);
+          expect(String(files.get(`${testDir}/go.mod`))).toBe(originalGoMod);
+          expect(files.has(`${testDir}/go.sum`)).toBe(false);
+          expect(files.has(metaPath)).toBe(false);
+          expect(files.has(outputPath)).toBe(false);
+          expect(String(files.get(marker))).toBe(FOREIGN);
+        });
+
+        it('replaced while signing: the signed file never replaces the artifact, no build-meta.json', async () => {
+          const svc = new BuildService(createMockSettingsService({
+            getActiveCertPfxPath: vi.fn().mockReturnValue({ pfxPath: '/certs/active.pfx', password: 'pw' }),
+          }), TESTS_SOURCE, { current: async () => ({ identity, modified: false }) });
+          const base = mockExecFileAsync.getMockImplementation()!;
+          mockExecFileAsync.mockImplementation(async (cmd: string, args: string[], opts?: unknown) => {
+            if (cmd === 'osslsigncode') {
+              put(`${outputPath}.signed`, 'signed by the superseded build');
+              put(marker, FOREIGN);
+              return { stdout: '', stderr: '' };
+            }
+            return base(cmd, args, opts);
+          });
+
+          await expect(svc.buildAndSign(VALID_UUID)).rejects.toThrow(SUPERSEDED);
+
+          // What it copied while it still held the marker stays (see the report).
+          expect(String(files.get(outputPath))).toBe('orchestrator');
+          expect(files.has(`${outputPath}.signed`)).toBe(false);
+          expect(files.has(`${BUILDS_DIR}/${VALID_UUID}/.tmp-pass`)).toBe(false);
+          expect(files.has(metaPath)).toBe(false);
+          expect(String(files.get(marker))).toBe(FOREIGN);
+        });
+
+        it('replaced during the stamp\'s identity read: the stamp\'s own check refuses it, and no build-meta.json is written', async () => {
+          let reads = 0;
+          const svc = new BuildService(createMockSettingsService(), TESTS_SOURCE, {
+            current: async () => {
+              if (++reads === 2) put(marker, FOREIGN);
+              return { identity, modified: false };
+            },
+          });
+
+          await expect(svc.buildAndSign(VALID_UUID)).rejects.toThrow(SUPERSEDED);
+
+          expect(reads).toBe(2);
+          expect(files.has(metaPath)).toBe(false);
+          expect(String(files.get(marker))).toBe(FOREIGN);
+          // The stamp's last-line check logged why it would not stamp.
+          expect(warn).toHaveBeenCalledTimes(1);
+          expect(warn.mock.calls[0].map(String).join(' ')).toContain(VALID_UUID);
+        });
+
+        it('a takeover that lands between the check and the touch stops the build at that refresh', async () => {
+          // Touches: 1 before the first temp file, 2 right before bash.
+          let touches = 0;
+          mockUtimesSync.mockImplementation(((p: string, _atime: Date, mtime: Date) => {
+            if (!files.has(p)) throw enoent(p);
+            if (p === marker && ++touches === 2) put(marker, FOREIGN); // the other build renames its marker in
+            mtimes.set(p, mtime.getTime());
+          }) as never);
+
+          await expect(service().buildAndSign(VALID_UUID)).rejects.toThrow(SUPERSEDED);
+
+          expect(touches).toBe(2);
+          // Stopped at the refresh before bash: the step never ran.
+          expect(buildRuns).toBe(0);
+          expect(String(files.get(marker))).toBe(FOREIGN);
+        });
+
+        it('darwin: superseded before rcodesign stops the build there, as on Windows (rcodesign never runs)', async () => {
+          const svc = new BuildService(createMockSettingsService({
+            getPlatformSettings: vi.fn().mockReturnValue({ os: 'darwin', arch: 'arm64' }),
+          }), TESTS_SOURCE, { current: async () => ({ identity, modified: false }) });
+          const darwinOutput = `${BUILDS_DIR}/${VALID_UUID}/${VALID_UUID}`;
+          // Superseded right after the copy, i.e. at the refresh before
+          // rcodesign. The marker then reads as ours again (at the stat that
+          // follows the signing block), so only a build that stopped AT the
+          // darwin refresh rejects.
+          let ours: Buffer | undefined;
+          const baseCopy = mockCopyFileSync.getMockImplementation()!;
+          mockCopyFileSync.mockImplementation(((from: string, to: string) => {
+            baseCopy(from, to);
+            if (to === darwinOutput) {
+              ours = files.get(marker);
+              put(marker, FOREIGN);
+            }
+          }) as never);
+          const baseStat = mockStatSync.getMockImplementation()!;
+          mockStatSync.mockImplementation(((p: string) => {
+            if (p === darwinOutput && ours && String(files.get(marker)) === FOREIGN) put(marker, ours);
+            return baseStat(p);
+          }) as never);
+          const signers: string[] = [];
+          const base = mockExecFileAsync.getMockImplementation()!;
+          mockExecFileAsync.mockImplementation(async (cmd: string, args: string[], opts?: unknown) => {
+            if (cmd === 'rcodesign') signers.push(cmd);
+            return base(cmd, args, opts);
+          });
+
+          await expect(svc.buildAndSign(VALID_UUID)).rejects.toThrow(SUPERSEDED);
+
+          expect(files.has(darwinOutput)).toBe(true);
+          expect(signers).toEqual([]);
+          expect(files.has(metaPath)).toBe(false);
+        });
+
+        it('a transient error reading the marker (EMFILE) is not "superseded": one warning, the build goes on and stamps', async () => {
+          let failures = 1;
+          const base = mockReadFileSync.getMockImplementation()!;
+          mockReadFileSync.mockImplementation(((p: string, enc?: unknown) => {
+            if (p === marker && failures > 0) {
+              failures--;
+              throw Object.assign(new Error('EMFILE: too many open files'), { code: 'EMFILE' });
+            }
+            return base(p, enc);
+          }) as never);
+
+          const info = await service().buildAndSign(VALID_UUID);
+
+          expect(failures).toBe(0);
+          expect(info.version).toBeDefined();
+          expect(warn).toHaveBeenCalledTimes(1);
+          expect(warn.mock.calls[0].map(String).join(' ')).toContain(VALID_UUID);
+          expect(files.has(marker)).toBe(false);
+        });
+
+        it('a marker that is gone mid-build counts as superseded', async () => {
+          bashAlso(() => { files.delete(marker); });
+
+          await expect(service().buildAndSign(VALID_UUID)).rejects.toThrow(SUPERSEDED);
+
+          expect(files.has(metaPath)).toBe(false);
+          expect(files.has(outputPath)).toBe(false);
+        });
+
+        it('the async job of a superseded build ends failed with the message', async () => {
+          const error = vi.spyOn(console, 'error').mockImplementation(() => {});
+          try {
+            bashAlso(() => { put(marker, FOREIGN); });
+            const svc = service();
+
+            const { promise } = svc.startBuild(VALID_UUID);
+            await expect(promise).rejects.toThrow(SUPERSEDED);
+
+            expect(svc.getBuildJob(VALID_UUID)).toMatchObject({ status: 'failed', error: SUPERSEDED });
+            expect(error).toHaveBeenCalledWith('Build failed for %s: %s', VALID_UUID, SUPERSEDED);
+          } finally {
+            error.mockRestore();
+          }
+        });
+      });
+
+      describe('the previous stamp is voided before a build replaces the artifact (controller ruling)', () => {
+        const metaPath = `${BUILDS_DIR}/${VALID_UUID}/build-meta.json`;
+        const outputPath = `${BUILDS_DIR}/${VALID_UUID}/${VALID_UUID}.exe`;
+        const readMeta = () => JSON.parse(String(files.get(metaPath))) as Record<string, unknown>;
+        // A voided meta keeps every field but `version` and `builtAt` (which
+        // the void re-dates to the build's own time: see the builtAt tests).
+        const withoutVersion = (m: Record<string, unknown>) => {
+          const copy = { ...m };
+          delete copy.version;
+          delete copy.builtAt;
+          return copy;
+        };
+        const voidedFields = () => withoutVersion(readMeta());
+        const metaTemps = () => [...files.keys()].filter(f => f.startsWith(`${metaPath}.`));
+        let warn: ReturnType<typeof vi.spyOn>;
+        beforeEach(() => { warn = vi.spyOn(console, 'warn').mockImplementation(() => {}); });
+        afterEach(() => { warn.mockRestore(); });
+
+        /** A successful build first, so there is a stamped build-meta.json to protect. */
+        async function stampedBuild(svc = service()): Promise<{ raw: string; meta: Record<string, unknown> }> {
+          await svc.buildAndSign(VALID_UUID);
+          const raw = String(files.get(metaPath));
+          const meta = JSON.parse(raw) as Record<string, unknown>;
+          expect(meta.version).toBeDefined();
+          return { raw, meta };
+        }
+
+        /** The plain path: no build_all.sh, go build writes `bytes` to its -o path (or fails). */
+        function plainPath(goBuild: (out: string) => void): void {
+          files.delete(`${testDir}/build_all.sh`);
+          mockExecFileAsync.mockImplementation(async (cmd: string, args: string[]) => {
+            if (cmd === 'go' && args[0] === 'build') goBuild(args[2]);
+            return { stdout: '', stderr: '' };
+          });
+        }
+
+        it('a build that fails after its artifact was copied leaves build-meta.json without version, every other field intact', async () => {
+          const prior = await stampedBuild();
+          const base = mockStatSync.getMockImplementation()!;
+          mockStatSync.mockImplementation(((p: string) => {
+            if (p === outputPath) throw Object.assign(new Error('EIO: i/o error'), { code: 'EIO' });
+            return base(p);
+          }) as never);
+
+          await expect(service().buildAndSign(VALID_UUID)).rejects.toThrow('EIO');
+
+          mockStatSync.mockImplementation(base);
+          expect(readMeta()).not.toHaveProperty('version');
+          expect(voidedFields()).toEqual(withoutVersion(prior.meta));
+          expect(service().getBuildInfo(VALID_UUID)).toMatchObject({ exists: true, source: 'built' });
+          expect(service().getBuildInfo(VALID_UUID)).not.toHaveProperty('version');
+          expect(metaTemps()).toEqual([]);
+          expect(warn).not.toHaveBeenCalled();
+        });
+
+        it('a superseded build that had reached the copy leaves build-meta.json without version', async () => {
+          const prior = await stampedBuild();
+          const svc = new BuildService(createMockSettingsService({
+            getActiveCertPfxPath: vi.fn().mockReturnValue({ pfxPath: '/certs/active.pfx', password: 'pw' }),
+          }), TESTS_SOURCE, { current: async () => ({ identity, modified: false }) });
+          const base = mockExecFileAsync.getMockImplementation()!;
+          mockExecFileAsync.mockImplementation(async (cmd: string, args: string[], opts?: unknown) => {
+            if (cmd === 'osslsigncode') {
+              put(marker, FOREIGN);
+              return { stdout: '', stderr: '' };
+            }
+            return base(cmd, args, opts);
+          });
+
+          await expect(svc.buildAndSign(VALID_UUID)).rejects.toThrow('Build was superseded by another build of this test');
+
+          expect(voidedFields()).toEqual(withoutVersion(prior.meta));
+        });
+
+        it('build_all.sh exiting non-zero before any copy leaves the previous stamp untouched', async () => {
+          const prior = await stampedBuild();
+          mockExecFileAsync.mockImplementation(async (cmd: string) => {
+            if (cmd === 'bash') throw Object.assign(new Error('exit 1'), { stderr: 'script failed' });
+            return { stdout: '', stderr: '' };
+          });
+
+          await expect(service().buildAndSign(VALID_UUID)).rejects.toThrow(/script failed/);
+
+          expect(String(files.get(metaPath))).toBe(prior.raw);
+        });
+
+        it('a go build compile error leaves the previous stamp untouched (the artifact is provably the stamped one)', async () => {
+          plainPath(out => put(out, 'plain binary v1'));
+          const prior = await stampedBuild();
+          plainPath(() => { throw Object.assign(new Error('exit 1'), { stderr: './main.go:3: undefined: foo' }); });
+
+          await expect(service().buildAndSign(VALID_UUID)).rejects.toThrow(/undefined: foo/);
+
+          expect(String(files.get(metaPath))).toBe(prior.raw);
+          expect(metaTemps()).toEqual([]);
+        });
+
+        it('a go build that wrote the artifact and then failed leaves the stamp voided', async () => {
+          plainPath(out => put(out, 'plain binary v1'));
+          const prior = await stampedBuild();
+          plainPath(out => {
+            put(out, 'half-written');
+            throw Object.assign(new Error('exit 1'), { stderr: 'write failed' });
+          });
+
+          await expect(service().buildAndSign(VALID_UUID)).rejects.toThrow(/write failed/);
+
+          expect(voidedFields()).toEqual(withoutVersion(prior.meta));
+        });
+
+        describe('a voided stamp is dated by the build that voided it (final review C1)', () => {
+          const OLD_BUILT_AT = '2020-01-01T00:00:00.000Z';
+          /** The stamped meta, re-dated to an old build time so a change is visible. */
+          function backdate(meta: Record<string, unknown>): string {
+            const raw = JSON.stringify({ ...meta, builtAt: OLD_BUILT_AT }, null, 2);
+            put(metaPath, raw);
+            return raw;
+          }
+
+          it('a build that fails after its copy leaves a builtAt no older than its own start', async () => {
+            backdate((await stampedBuild()).meta);
+            const base = mockStatSync.getMockImplementation()!;
+            mockStatSync.mockImplementation(((p: string) => {
+              if (p === outputPath) throw Object.assign(new Error('EIO: i/o error'), { code: 'EIO' });
+              return base(p);
+            }) as never);
+            const start = Date.now();
+
+            await expect(service().buildAndSign(VALID_UUID)).rejects.toThrow('EIO');
+
+            mockStatSync.mockImplementation(base);
+            const builtAt = readMeta().builtAt as string;
+            expect(builtAt).not.toBe(OLD_BUILT_AT);
+            expect(new Date(builtAt).toISOString()).toBe(builtAt);
+            expect(Date.parse(builtAt)).toBeGreaterThanOrEqual(start);
+          });
+
+          it('a go build that wrote the artifact and failed leaves a builtAt no older than its own start', async () => {
+            plainPath(out => put(out, 'plain binary v1'));
+            backdate((await stampedBuild()).meta);
+            plainPath(out => {
+              put(out, 'half-written');
+              throw Object.assign(new Error('exit 1'), { stderr: 'write failed' });
+            });
+            const start = Date.now();
+
+            await expect(service().buildAndSign(VALID_UUID)).rejects.toThrow(/write failed/);
+
+            expect(readMeta()).not.toHaveProperty('version');
+            expect(Date.parse(readMeta().builtAt as string)).toBeGreaterThanOrEqual(start);
+          });
+
+          it('while the build runs the meta has no version and the new builtAt; the put-back restores the original byte for byte', async () => {
+            plainPath(out => put(out, 'plain binary v1'));
+            const raw = backdate((await stampedBuild()).meta);
+            let during: Record<string, unknown> | undefined;
+            plainPath(() => {
+              during = JSON.parse(String(files.get(metaPath))) as Record<string, unknown>;
+              throw Object.assign(new Error('exit 1'), { stderr: './main.go:3: undefined: foo' });
+            });
+            const start = Date.now();
+
+            await expect(service().buildAndSign(VALID_UUID)).rejects.toThrow(/undefined: foo/);
+
+            expect(during).toBeDefined();
+            expect(during).not.toHaveProperty('version');
+            expect(Date.parse(during!.builtAt as string)).toBeGreaterThanOrEqual(start);
+            expect(String(files.get(metaPath))).toBe(raw);
+            expect(readMeta().builtAt).toBe(OLD_BUILT_AT);
+            expect(metaTemps()).toEqual([]);
+          });
+        });
+
+        it('a superseded build whose go build fails never puts the old stamp back (review: Important)', async () => {
+          plainPath(out => put(out, 'plain binary v1'));
+          const prior = await stampedBuild();
+          // The artifact is untouched (the hash would match), but another
+          // build took the marker over while go build ran.
+          plainPath(() => {
+            put(marker, FOREIGN);
+            throw Object.assign(new Error('exit 1'), { stderr: './main.go:3: undefined: foo' });
+          });
+
+          // The build's own error, not a superseded one.
+          await expect(service().buildAndSign(VALID_UUID)).rejects.toThrow(/undefined: foo/);
+
+          expect(voidedFields()).toEqual(withoutVersion(prior.meta));
+          expect(String(files.get(marker))).toBe(FOREIGN);
+        });
+
+        it('a successful rebuild ends with the new stamp', async () => {
+          await stampedBuild();
+          const newer = { ...identity, fingerprint: 'e'.repeat(64) };
+          const svc = new BuildService(createMockSettingsService(), TESTS_SOURCE, {
+            current: async () => ({ identity: newer, modified: false }),
+          });
+
+          await svc.buildAndSign(VALID_UUID);
+
+          expect((readMeta().version as { fingerprint: string }).fingerprint).toBe(newer.fingerprint);
+          expect(metaTemps()).toEqual([]);
+          expect(warn).not.toHaveBeenCalled();
+        });
+
+        it('a failing rewrite only warns, once, with the uuid; the build still succeeds and stamps', async () => {
+          await stampedBuild();
+          const base = mockRenameSync.getMockImplementation()!;
+          // Only the void's rename fails (the first onto build-meta.json): the
+          // final meta goes through the same atomic writer and must land.
+          let metaRenames = 0;
+          mockRenameSync.mockImplementation(((from: string, to: string) => {
+            if (to === metaPath && ++metaRenames === 1) throw Object.assign(new Error('EACCES: permission denied'), { code: 'EACCES' });
+            return base(from, to);
+          }) as never);
+
+          const info = await service().buildAndSign(VALID_UUID);
+
+          expect(metaRenames).toBe(2);
+
+          expect(info.version).toBeDefined();
+          expect(readMeta().version).toBeDefined();
+          expect(metaTemps()).toEqual([]);
+          expect(warn).toHaveBeenCalledTimes(1);
+          expect(warn.mock.calls[0].map(String).join(' ')).toContain(VALID_UUID);
+        });
+
+        it('an unparseable build-meta.json is left alone with one warning, and the build still succeeds', async () => {
+          put(metaPath, 'not json{');
+
+          const info = await service().buildAndSign(VALID_UUID);
+
+          expect(info.version).toBeDefined();
+          expect(warn).toHaveBeenCalledTimes(1);
+          expect(warn.mock.calls[0].map(String).join(' ')).toContain(VALID_UUID);
+        });
+
+        it('uploadBinary writes its meta (no version) before the binary: a failed binary write never leaves the old stamp', async () => {
+          await stampedBuild();
+          const order: string[] = [];
+          const base = mockWriteFileSync.getMockImplementation()!;
+          mockWriteFileSync.mockImplementation(((p: string, ...rest: unknown[]) => {
+            if (p === outputPath) order.push('binary');
+            if (p === outputPath) throw Object.assign(new Error('ENOSPC: no space left on device'), { code: 'ENOSPC' });
+            return (base as (...a: unknown[]) => unknown)(p, ...rest);
+          }) as never);
+          // The meta lands by its rename (atomic writer).
+          const rename = mockRenameSync.getMockImplementation()!;
+          mockRenameSync.mockImplementation(((from: string, to: string) => {
+            if (to === metaPath) order.push('meta');
+            return (rename as (...a: unknown[]) => unknown)(from, to);
+          }) as never);
+
+          expect(() => service().uploadBinary(VALID_UUID, Buffer.from([0x4D, 0x5A, 1, 2]))).toThrow('ENOSPC');
+
+          expect(order).toEqual(['meta', 'binary']);
+          expect(readMeta()).not.toHaveProperty('version');
+          expect(readMeta()).toMatchObject({ source: 'uploaded' });
+        });
+
+        describe('build-meta.json is only ever replaced whole (final review C3)', () => {
+          const TEMP = new RegExp(`^${metaPath.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\.[0-9a-f]{16}\\.tmp$`);
+
+          /** Every write straight to build-meta.json, and every rename onto it. */
+          function trackMetaWrites(): { direct: string[]; renamedFrom: string[] } {
+            const seen = { direct: [] as string[], renamedFrom: [] as string[] };
+            const write = mockWriteFileSync.getMockImplementation()!;
+            mockWriteFileSync.mockImplementation(((p: string, ...rest: unknown[]) => {
+              if (p === metaPath) seen.direct.push(p);
+              return (write as (...a: unknown[]) => unknown)(p, ...rest);
+            }) as never);
+            const rename = mockRenameSync.getMockImplementation()!;
+            mockRenameSync.mockImplementation(((from: string, to: string) => {
+              if (to === metaPath) seen.renamedFrom.push(from);
+              return (rename as (...a: unknown[]) => unknown)(from, to);
+            }) as never);
+            return seen;
+          }
+
+          /**
+           * A reader on another worker, run at every write and rename: it must
+           * find build-meta.json absent or whole. A plain writeFileSync to the
+           * file is modelled as what it is on disk (truncate, then write), so a
+           * direct write is caught here too.
+           */
+          function watchReaders(): string[] {
+            const torn: string[] = [];
+            const read = (when: string): void => {
+              const b = files.get(metaPath);
+              if (b === undefined) return;
+              try { JSON.parse(b.toString('utf8')); } catch { torn.push(`${when}: ${JSON.stringify(b.toString('utf8'))}`); }
+            };
+            const write = mockWriteFileSync.getMockImplementation()!;
+            mockWriteFileSync.mockImplementation(((p: string, ...rest: unknown[]) => {
+              if (p === metaPath) { put(p, ''); read(`write ${p}`); }
+              const r = (write as (...a: unknown[]) => unknown)(p, ...rest);
+              read(`after write ${p}`);
+              return r;
+            }) as never);
+            const rename = mockRenameSync.getMockImplementation()!;
+            mockRenameSync.mockImplementation(((from: string, to: string) => {
+              const r = (rename as (...a: unknown[]) => unknown)(from, to);
+              read(`after rename ${from} -> ${to}`);
+              return r;
+            }) as never);
+            return torn;
+          }
+
+          it('the final write of a build goes through a temp file in the same directory and a rename', async () => {
+            const seen = trackMetaWrites();
+
+            await service().buildAndSign(VALID_UUID);
+
+            expect(seen.direct).toEqual([]);
+            // No prior meta, so nothing was voided: the one rename is the final write.
+            expect(seen.renamedFrom).toHaveLength(1);
+            expect(seen.renamedFrom[0]).toMatch(TEMP);
+            expect(readMeta().version).toBeDefined();
+            expect(metaTemps()).toEqual([]);
+          });
+
+          it('uploadBinary writes its meta through a temp file and a rename', async () => {
+            await stampedBuild();
+            const seen = trackMetaWrites();
+
+            service().uploadBinary(VALID_UUID, Buffer.from([0x4D, 0x5A, 1, 2]));
+
+            expect(seen.direct).toEqual([]);
+            expect(seen.renamedFrom).toHaveLength(1);
+            expect(seen.renamedFrom[0]).toMatch(TEMP);
+            expect(readMeta()).toMatchObject({ source: 'uploaded', fileSize: 4 });
+            expect(readMeta()).not.toHaveProperty('version');
+            expect(metaTemps()).toEqual([]);
+          });
+
+          it('a reader never sees an empty or partial build-meta.json during a rebuild or an upload', async () => {
+            const torn = watchReaders();
+
+            await stampedBuild();
+            await service().buildAndSign(VALID_UUID);
+            service().uploadBinary(VALID_UUID, Buffer.from([0x4D, 0x5A, 1, 2]));
+
+            expect(torn).toEqual([]);
+            expect(readMeta()).toMatchObject({ source: 'uploaded' });
+          });
+        });
+      });
+
+      it('a refreshed marker keeps a second instance\'s isBuildingAnywhere true past the stale bound', async () => {
+        vi.useFakeTimers({ toFake: ['Date'] });
+        try {
+          vi.setSystemTime(new Date('2026-11-23T10:00:00Z'));
+          const svc = new BuildService(createMockSettingsService({
+            getActiveCertPfxPath: vi.fn().mockReturnValue({ pfxPath: '/certs/active.pfx', password: 'pw' }),
+          }), TESTS_SOURCE, { current: async () => ({ identity, modified: false }) });
+          const other = service();
+          const seen: Array<[string, boolean]> = [];
+          const base = mockExecFileAsync.getMockImplementation()!;
+          // Each step takes 250 s: two steps outlast the 360 s bound from the start.
+          mockExecFileAsync.mockImplementation(async (cmd: string, args: string[], opts?: unknown) => {
+            seen.push([cmd, other.isBuildingAnywhere(VALID_UUID)]);
+            vi.setSystemTime(Date.now() + 250_000);
+            return base(cmd, args, opts);
+          });
+
+          await svc.buildAndSign(VALID_UUID);
+
+          expect(seen.map(s => s[0])).toEqual(['bash', 'osslsigncode']);
+          expect(seen.every(s => s[1])).toBe(true);
+          expect(other.isBuildingAnywhere(VALID_UUID)).toBe(false);
+        } finally {
+          vi.useRealTimers();
+        }
+      });
+    });
+
+    // ── Writes into a test folder hold the marker (H1.2) ─────
+
+    describe('test folder lock (uploads and deletes)', () => {
+      const marker = `${BUILDS_DIR}/${VALID_UUID}/.building`;
+      const buildDir = `${BUILDS_DIR}/${VALID_UUID}`;
+      const FOREIGN = JSON.stringify({ pid: 4242, startedAt: '2026-11-23T00:00:00.000Z', token: 'f'.repeat(32) });
+      const pe = Buffer.concat([Buffer.from([0x4D, 0x5A]), Buffer.alloc(16, 0)]);
+
+      interface Operation {
+        name: string;
+        /** The write the operation makes under the lock. */
+        isWrite: (p: string) => boolean;
+        run: (svc: InstanceType<typeof BuildService>) => unknown;
+        mock: typeof mockWriteFileSync;
+      }
+      const operations: Operation[] = [
+        {
+          name: 'saveUploadedFile',
+          isWrite: p => p === `${testDir}/payload.dat`,
+          run: svc => svc.saveUploadedFile(VALID_UUID, 'payload.dat', Buffer.from('new payload')),
+          mock: mockWriteFileSync,
+        },
+        {
+          name: 'uploadBinary',
+          isWrite: p => p === `${buildDir}/${VALID_UUID}.exe` || p === `${buildDir}/build-meta.json`,
+          run: svc => svc.uploadBinary(VALID_UUID, pe),
+          mock: mockWriteFileSync,
+        },
+        {
+          name: 'deleteBuild',
+          // The rename away is its first write; the removal follows.
+          isWrite: p => p === buildDir,
+          run: svc => svc.deleteBuild(VALID_UUID),
+          mock: mockRenameSync,
+        },
+      ];
+
+      beforeEach(() => {
+        // An earlier build's output, so deleteBuild has something to remove.
+        put(`${buildDir}/${VALID_UUID}.exe`, 'old binary');
+      });
+
+      /** Run `hook` inside the operation's own write, before it happens. */
+      function duringWrite(op: Operation, hook: (p: string) => void): void {
+        const base = op.mock.getMockImplementation()!;
+        op.mock.mockImplementation(((...args: unknown[]) => {
+          const p = String(args[0]);
+          if (op.isWrite(p)) hook(p);
+          return (base as (...a: unknown[]) => unknown)(...args);
+        }) as never);
+      }
+
+      for (const op of operations) {
+        describe(op.name, () => {
+          it('holds the marker while it writes and releases it after', () => {
+            const svc = service();
+            const other = service();
+            const during: Array<[boolean, boolean]> = [];
+            duringWrite(op, () => { during.push([files.has(marker), other.isBuildingAnywhere(VALID_UUID)]); });
+
+            op.run(svc);
+
+            expect(during.length).toBeGreaterThan(0);
+            expect(during.every(([held, seen]) => held && seen)).toBe(true);
+            expect(files.has(marker)).toBe(false);
+            expect(other.isBuildingAnywhere(VALID_UUID)).toBe(false);
+            expect([...files.keys()].filter(f => f.startsWith(`${marker}.`))).toEqual([]);
+          });
+
+          it('releases the marker when the write throws', () => {
+            const svc = service();
+            duringWrite(op, () => { throw Object.assign(new Error('ENOSPC: no space left on device'), { code: 'ENOSPC' }); });
+
+            expect(() => op.run(svc)).toThrow('ENOSPC');
+            expect(files.has(marker)).toBe(false);
+            expect(service().isBuildingAnywhere(VALID_UUID)).toBe(false);
+          });
+
+          it('is refused with the running-build 409 while another process\'s fresh marker exists, and writes nothing', () => {
+            put(marker, FOREIGN);
+            const svc = service();
+            const writes: string[] = [];
+            duringWrite(op, p => { writes.push(p); });
+
+            expect(thrownBy(() => op.run(svc)))
+              .toMatchObject({ statusCode: 409, message: 'Build in progress for this test' });
+            expect(writes).toEqual([]);
+            expect(String(files.get(marker))).toBe(FOREIGN);
+          });
+
+          it('a build another instance starts while it holds the marker is refused with 409', async () => {
+            const svc = service();
+            const other = service();
+            let build: Promise<BuildInfo> | null = null;
+            let started = false;
+            duringWrite(op, () => {
+              if (started) return;
+              started = true;
+              build = other.buildAndSign(VALID_UUID);
+            });
+
+            op.run(svc);
+
+            expect(build).not.toBeNull();
+            await expect(build).rejects.toMatchObject({ statusCode: 409, message: 'Build in progress for this test' });
+            expect(buildRuns).toBe(0);
+          });
+        });
+      }
+
+      describe('deleteBuild renames the directory away before removing it (review)', () => {
+        const underUuid = () => [...files.keys(), ...dirs].filter(f => f.startsWith(`${BUILDS_DIR}/${VALID_UUID}`));
+
+        it('after a delete nothing named after the uuid remains in BUILDS_DIR', () => {
+          put(`${buildDir}/build-meta.json`, '{}');
+          service().deleteBuild(VALID_UUID);
+          expect(underUuid()).toEqual([]);
+        });
+
+        it('listBuiltUuids never returns a .deleting- directory; the next delete of the test removes a leftover one', () => {
+          const leftover = `${BUILDS_DIR}/${VALID_UUID}.deleting-0123456789abcdef`;
+          put(`${leftover}/build-meta.json`, JSON.stringify({ filename: `${VALID_UUID}.exe`, platform: { os: 'windows', arch: 'amd64' } }));
+          put(`${leftover}/${VALID_UUID}.exe`, 'old binary');
+          files.delete(`${buildDir}/${VALID_UUID}.exe`);
+          dirs.delete(buildDir);
+          const svc = service();
+
+          expect(svc.listBuiltUuids()).toEqual([]);
+
+          svc.deleteBuild(VALID_UUID); // no build directory: only the leftover goes
+          expect(underUuid()).toEqual([]);
+        });
+
+        it('a build started right after the rename is not affected by the removal', async () => {
+          const svc = service();
+          const other = service();
+          let build: Promise<BuildInfo> | null = null;
+          const base = mockRmSync.getMockImplementation()!;
+          mockRmSync.mockImplementation(((p: string, opts?: unknown) => {
+            if (p.includes('.deleting-') && !build) build = other.buildAndSign(VALID_UUID);
+            return (base as (...a: unknown[]) => unknown)(p, opts);
+          }) as never);
+
+          svc.deleteBuild(VALID_UUID);
+
+          expect(build).not.toBeNull();
+          const info = await build!;
+          expect(info.exists).toBe(true);
+          expect(files.has(`${buildDir}/build-meta.json`)).toBe(true);
+          expect(other.getBuildInfo(VALID_UUID)).toMatchObject({ exists: true, source: 'built' });
+          expect(files.has(marker)).toBe(false);
+          expect(underUuid().filter(f => f.includes('.deleting-'))).toEqual([]);
+        });
+      });
+
+      it('with no contention the three operations behave as before', () => {
+        const svc = service();
+        svc.saveUploadedFile(VALID_UUID, 'payload.dat', Buffer.from('new payload'));
+        expect(String(files.get(`${testDir}/payload.dat`))).toBe('new payload');
+        const info = svc.uploadBinary(VALID_UUID, pe);
+        expect(info).toMatchObject({ exists: true, source: 'uploaded', fileSize: pe.length });
+        expect(svc.getBuildInfo(VALID_UUID)).toMatchObject({ exists: true, source: 'uploaded' });
+        svc.deleteBuild(VALID_UUID);
+        expect(dirs.has(buildDir)).toBe(false);
+        expect(svc.getBuildInfo(VALID_UUID)).toEqual({ exists: false });
+        // Deleting a build that is not there stays a no-op.
+        mockRmSync.mockClear();
+        svc.deleteBuild(VALID_UUID);
+        expect(mockRmSync).not.toHaveBeenCalled();
+        expect(files.has(marker)).toBe(false);
       });
     });
 

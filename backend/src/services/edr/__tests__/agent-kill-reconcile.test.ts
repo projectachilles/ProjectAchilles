@@ -61,6 +61,7 @@ vi.mock('../../integrations/settings.js', () => ({
 
 const { EdrAgentKillReconciler, runAgentKillReconciliation, resetAgentKillLookback } = await import('../agent-kill-reconcile.service.js');
 const { resetClient } = await import('../../agent/results.service.js');
+const { deleteTask } = await import('../../agent/tasks.service.js');
 
 // ── Fixtures (a customer fleet, Oct 26 2026: LockBit 3.0 batch a75d8c3e) ──
 const OFFLINE = 'Agent went offline during execution';
@@ -191,6 +192,35 @@ describe('EdrAgentKillReconciler.runPass', () => {
     expect(row.result.edr_terminated).toMatchObject({
       vendors: ['sentinelone'], alert_ids: ['s1-threat-4862'], killed_at: '2026-10-26T16:06:32.719Z',
     });
+  });
+
+  it('an archived (deleted) task: the EDR-terminated document carries the version from the archived payload (final review C6)', async () => {
+    const testVersion = {
+      built_at: '2026-10-25T08:00:00.000Z', build_source: 'built',
+      commit: 'c'.repeat(40), commit_date: '2026-10-24T18:00:00-04:00', fingerprint: 'f'.repeat(64),
+    };
+    insertTestAgent(testDb, { id: 'agent-ws', hostname: 'WS-0042', os: 'windows' });
+    insertTestTask(testDb, {
+      id: 'archived-kill', agent_id: 'agent-ws', status: 'failed', assigned_at: '2026-10-26 16:06:05',
+      payload: JSON.stringify({ ...JSON.parse(lockbitPayload()), test_version: testVersion }),
+    });
+    testDb.prepare('UPDATE tasks SET result = ?, completed_at = ? WHERE id = ?').run(
+      JSON.stringify({ error: OFFLINE, exit_code: -1, stdout: '', stderr: OFFLINE, execution_duration_ms: 0 }),
+      '2026-10-26 16:12:59', 'archived-kill',
+    );
+    deleteTask('archived-kill', 'user_abc');
+    expect(testDb.prepare('SELECT COUNT(*) AS n FROM tasks WHERE id = ?').get('archived-kill')).toEqual({ n: 0 });
+    alertStore[S1] = [s1Threat('s1-threat-archived', 'WS-0042', '2026-10-26T16:06:32.719Z')];
+
+    const result = await reconciler().runPass({ now: NOW });
+
+    expect(result).toMatchObject({ candidates: 1, reconciled: 1, errors: [] });
+    expect(mockIndex).toHaveBeenCalledTimes(1);
+    const { id, document } = mockIndex.mock.calls[0][0];
+    expect(id).toBe('archived-kill');
+    expect(document.f0rtika).toMatchObject({ edr_terminated: true, test_uuid: LOCKBIT_UUID });
+    // The archived payload's version, its offset commit date stored in UTC.
+    expect(document.f0rtika.test_version).toEqual({ ...testVersion, commit_date: '2026-10-24T22:00:00.000Z' });
   });
 
   it('reconciles the LT3938 rphcp.exe kill', async () => {

@@ -1,6 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
+import { MemoryRouter } from 'react-router-dom';
 import type { GroupedPaginatedResponse, EnrichedTestExecution } from '@/services/api/analytics';
 import type { DefenderAlertItem, RelatedAlertsResponse } from '@/services/api/defender';
 import type { CrowdStrikeAlertItem, RelatedCrowdStrikeAlertsResponse } from '@/services/api/crowdstrike';
@@ -8,6 +9,7 @@ import type { CrowdStrikeAlertItem, RelatedCrowdStrikeAlertsResponse } from '@/s
 // Hoisted spy so the vi.mock factory (which is itself hoisted above all
 // top-level declarations) can reference it without hitting a TDZ.
 const {
+  caps,
   getAlertsForTestMock, csGetAlertsForTestMock, csConfigured,
   s1GetAlertsForTestMock, s1Configured, sophosGetAlertsForTestMock, sophosConfigured,
   defenderBatch, csBatch, s1Batch, sophosBatch,
@@ -22,11 +24,13 @@ const {
         Promise.resolve()
           .then(() => single(i.techniques, i.timestamp, i.windowMinutes, i.hostname, i.binaryName, i.bundleName))
           .catch(() => null))));
+  const caps = { testVersions: false };
   const getAlertsForTestMock = vi.fn();
   const csGetAlertsForTestMock = vi.fn();
   const s1GetAlertsForTestMock = vi.fn();
   const sophosGetAlertsForTestMock = vi.fn();
   return {
+    caps,
     getAlertsForTestMock,
     csGetAlertsForTestMock,
     csConfigured: { value: false },
@@ -42,6 +46,7 @@ const {
   };
 });
 
+vi.mock('@/hooks/useCapabilities', () => ({ useCapabilities: () => ({ testVersions: caps.testVersions, loaded: true }) }));
 vi.mock('@/hooks/useSentinelOneConfig', () => ({
   useSentinelOneConfig: () => ({ configured: s1Configured.value, loading: false }),
 }));
@@ -1459,5 +1464,66 @@ describe('ExecutionsDataTable — a failed related-alerts lookup is retried', ()
     await waitFor(() => expect(csBatch).toHaveBeenCalledTimes(2));
     await waitFor(() => expect(screen.getAllByText('GenericSignedProxyExecution').length).toBeGreaterThan(0));
     csConfigured.value = false;
+  });
+});
+
+describe('ExecutionsDataTable — test versions', () => {
+  const versioned = (over: Partial<EnrichedTestExecution> = {}) =>
+    makeStage({
+      version_state: 'older',
+      test_version: { built_at: '2026-10-10T08:00:00Z', commit: '7be01d3aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa' },
+      ...over,
+    });
+
+  function renderTable(rows: EnrichedTestExecution[], onFetchAll?: () => Promise<{ executions: EnrichedTestExecution[]; total: number }>) {
+    getAlertsForTestMock.mockResolvedValue({ alerts: [], matchedTechniques: [], total: 0 });
+    return render(
+      <MemoryRouter>
+      <ExecutionsDataTable
+        data={makeData(rows, { defenderDetected: false })}
+        loading={false}
+        onPageChange={vi.fn()}
+        onPageSizeChange={vi.fn()}
+        onSort={vi.fn()}
+        sortField="routing.event_time"
+        sortOrder="desc"
+        onFetchAllExecutions={onFetchAll}
+      />
+      </MemoryRouter>,
+    );
+  }
+
+  async function csvOf(rows: EnrichedTestExecution[]) {
+    let blob: Blob | undefined;
+    Object.assign(URL, { createObjectURL: vi.fn((b: Blob) => { blob = b; return 'blob:csv'; }), revokeObjectURL: vi.fn() });
+    vi.spyOn(HTMLAnchorElement.prototype, 'click').mockImplementation(() => {});
+    renderTable(rows);
+    await userEvent.click(screen.getByRole('button', { name: 'Export CSV' }));
+    await waitFor(() => expect(URL.createObjectURL).toHaveBeenCalled());
+    return (await blob!.text()).split('\n').map((line) => line.split(','));
+  }
+
+  beforeEach(() => { caps.testVersions = true; });
+
+  it('shows the bundle version once on the run row', () => {
+    const { container } = renderTable([versioned(), versioned({ test_uuid: `${BUNDLE_UUID}::T1059` })]);
+    const rows = container.querySelectorAll('[role="option"] [data-result-version]');
+    expect(rows).toHaveLength(1);
+    expect(rows[0].textContent).toBe('7be01d3 older');
+  });
+
+  it('adds the two version columns at the end of the CSV', async () => {
+    const [header, row] = await csvOf([versioned()]);
+    expect(header.slice(-3)).toEqual(['Time', 'version', 'version_state']);
+    expect(row.slice(-2)).toEqual(['7be01d3', 'older']);
+  });
+
+  it('shows nothing and exports no new columns without the capability', async () => {
+    caps.testVersions = false;
+    const [header] = await csvOf([versioned()]);
+    expect(header).not.toContain('version');
+    expect(header).not.toContain('version_state');
+    expect(header[header.length - 1]).toBe('Time');
+    expect(screen.queryByText('7be01d3')).toBeNull();
   });
 });

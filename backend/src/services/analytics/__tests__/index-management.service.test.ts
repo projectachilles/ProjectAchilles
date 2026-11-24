@@ -112,6 +112,38 @@ describe('index-management.service', () => {
       expect(conflicts).toEqual(['n: integer (wanted long)', 'leaf: text (wanted object)']);
     });
 
+    it('maps test_version as keyword and date fields', () => {
+      const tv = RESULTS_INDEX_MAPPING.mappings.properties.f0rtika.properties.test_version.properties;
+      expect(tv).toEqual({
+        commit: { type: 'keyword' },
+        commit_date: { type: 'date' },
+        fingerprint: { type: 'keyword' },
+        built_at: { type: 'date' },
+        build_source: { type: 'keyword' },
+      });
+    });
+
+    it('reports only the test_version sub-tree as missing on an older live mapping', () => {
+      const canonical = RESULTS_INDEX_MAPPING.mappings.properties;
+      const { test_version: _tv, ...f0rtikaWithout } = canonical.f0rtika.properties;
+      void _tv;
+      const live = { ...canonical, f0rtika: { properties: f0rtikaWithout } };
+      const { missing, conflicts } = missingMappingProperties(live, canonical);
+      expect(missing).toEqual({ f0rtika: { properties: { test_version: canonical.f0rtika.properties.test_version } } });
+      expect(conflicts).toEqual([]);
+    });
+
+    it('reports a conflict and adds nothing when test_version was mapped dynamically as text', () => {
+      const canonical = RESULTS_INDEX_MAPPING.mappings.properties;
+      const live = {
+        ...canonical,
+        f0rtika: { properties: { ...canonical.f0rtika.properties, test_version: { type: 'text' } } },
+      };
+      const { missing, conflicts } = missingMappingProperties(live, canonical);
+      expect(missing).toEqual({});
+      expect(conflicts).toEqual(['f0rtika.test_version: text (wanted object)']);
+    });
+
     it('returns nothing when the live mapping matches', () => {
       const props = RESULTS_INDEX_MAPPING.mappings.properties;
       expect(missingMappingProperties(props, props)).toEqual({ missing: {}, conflicts: [] });

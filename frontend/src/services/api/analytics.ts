@@ -88,6 +88,18 @@ export interface Execution {
   organization?: string;
 }
 
+/** Where a result's test version stands against the synced library (absent: the backend could not evaluate it). */
+export type ResultVersionState = 'current' | 'older' | 'unknown' | 'not_recorded';
+
+/** The version of the test that produced a result; absent on results recorded before versions were tracked. */
+export interface ResultTestVersion {
+  built_at: string;
+  build_source?: 'built' | 'uploaded';
+  commit?: string;
+  commit_date?: string;
+  fingerprint?: string;
+}
+
 export interface TestExecution {
   test_uuid: string;
   test_name: string;
@@ -97,6 +109,8 @@ export interface TestExecution {
   timestamp: string;
   error_code?: number;
   error_name?: string;
+  test_version?: ResultTestVersion;
+  version_state?: ResultVersionState;
 }
 
 export interface ErrorTypeBreakdown {
@@ -392,6 +406,8 @@ export interface OutcomeBreakdown {
 
 export interface PaginatedExecutionsParams extends ExtendedFilterParams {
   verdict?: ExecutionVerdict;
+  /** Only results whose test version is in this state (400/503 from the backend when it cannot evaluate versions). */
+  versionState?: ResultVersionState;
   page?: number;
   pageSize?: number;
   sortField?: string;

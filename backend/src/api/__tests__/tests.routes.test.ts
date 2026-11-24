@@ -39,6 +39,10 @@ vi.mock('../../services/tests/settings.js', () => ({
 }));
 
 // Mock BuildService
+class MockBuildError extends Error {}
+class MockBuildSupersededError extends MockBuildError {
+  constructor() { super('Build was superseded by another build of this test'); }
+}
 const mockUploadBinary = vi.fn();
 const mockListBuiltUuids = vi.fn();
 const mockStartBuild = vi.fn();
@@ -66,12 +70,13 @@ vi.mock('../../services/tests/buildService.js', () => ({
     uploadBinary = mockUploadBinary;
     listBuiltUuids = mockListBuiltUuids;
   },
-  BuildError: class BuildError extends Error {},
+  BuildError: MockBuildError,
+  BuildSupersededError: MockBuildSupersededError,
 }));
 
 const { createTestsRouter } = await import('../tests.routes.js');
-const { errorHandler } = await import('../../middleware/error.middleware.js');
-const { BuildError } = await import('../../services/tests/buildService.js');
+const { errorHandler, AppError } = await import('../../middleware/error.middleware.js');
+const { BuildError, BuildSupersededError } = await import('../../services/tests/buildService.js');
 
 function createApp() {
   const app = express();
@@ -324,6 +329,18 @@ describe('tests routes', () => {
         expect(res.body.error).toBe('go build: undefined: foo');
       });
 
+      it('returns 409 with the message when the build was superseded by another build of the test', async () => {
+        mockStartBuild.mockImplementation(() => ({
+          job: RUNNING,
+          promise: Promise.reject(new BuildSupersededError()),
+        }));
+
+        const res = await request(createApp()).post(`/api/tests/builds/${VALID_UUID}`);
+
+        expect(res.status).toBe(409);
+        expect(res.body).toEqual({ success: false, error: 'Build was superseded by another build of this test' });
+      });
+
       it('returns 202 with the job immediately when async=true', async () => {
         // A promise that never settles proves the route does not wait for it.
         mockStartBuild.mockImplementation(() => ({ job: RUNNING, promise: new Promise(() => {}) }));
@@ -435,6 +452,55 @@ describe('tests routes', () => {
           expect(res.status).toBe(409);
           expect(res.body.error).toBe('Build in progress for this test');
           expect(mockUploadBinary).not.toHaveBeenCalled();
+        });
+      });
+
+      // The pre-check passed, then a build took the marker before the write
+      // (the service's test folder lock refuses with the same 409).
+      describe('when the service refuses under the test folder lock', () => {
+        const conflict = () => { throw new AppError('Build in progress for this test', 409); };
+        beforeEach(() => {
+          mockIsBuilding.mockReturnValue(false);
+        });
+
+        it('DELETE returns 409 with the running-build message', async () => {
+          mockDeleteBuild.mockImplementationOnce(conflict);
+          const res = await request(createApp()).delete(`/api/tests/builds/${VALID_UUID}`);
+
+          expect(res.status).toBe(409);
+          expect(res.body).toEqual({ success: false, error: 'Build in progress for this test' });
+        });
+
+        it('embed upload returns 409 with the running-build message', async () => {
+          mockSaveUploadedFile.mockImplementationOnce(conflict);
+          const res = await request(createApp())
+            .post(`/api/tests/builds/${VALID_UUID}/upload`)
+            .field('filename', 'payload.exe')
+            .attach('file', Buffer.from([0x4D, 0x5A]), 'payload.exe');
+
+          expect(res.status).toBe(409);
+          expect(res.body).toEqual({ success: false, error: 'Build in progress for this test' });
+        });
+
+        it('binary upload returns 409 with the running-build message', async () => {
+          mockUploadBinary.mockImplementationOnce(conflict);
+          const res = await request(createApp())
+            .post(`/api/tests/builds/${VALID_UUID}/upload-binary`)
+            .attach('file', Buffer.from([0x4D, 0x5A, 0x00]), 'test.exe');
+
+          expect(res.status).toBe(409);
+          expect(res.body).toEqual({ success: false, error: 'Build in progress for this test' });
+        });
+
+        it('other upload errors stay 400', async () => {
+          mockSaveUploadedFile.mockImplementationOnce(() => { throw new Error('Invalid filename'); });
+          const res = await request(createApp())
+            .post(`/api/tests/builds/${VALID_UUID}/upload`)
+            .field('filename', 'payload.exe')
+            .attach('file', Buffer.from([0x4D, 0x5A]), 'payload.exe');
+
+          expect(res.status).toBe(400);
+          expect(res.body.error).toBe('Invalid filename');
         });
       });
 

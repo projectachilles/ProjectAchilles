@@ -1,5 +1,6 @@
 // Analytics module types
 import type { EdrGroupRollup, EdrResultFlags } from '../services/outcomes/vendors.js';
+import type { ResultVersionState } from './testVersion.js';
 
 // Elasticsearch settings stored in config file
 export interface AnalyticsSettings {
@@ -78,6 +79,19 @@ export interface TestExecution {
   timestamp: string;
   error_code?: number;
   error_name?: string;
+  /** Version of the test the result came from; absent on results from before version tracking. */
+  test_version?: ResultTestVersion;
+  /** Set only when the route could read the library's current versions. */
+  version_state?: ResultVersionState;
+}
+
+export interface ResultTestVersion {
+  commit?: string;
+  commit_date?: string;
+  fingerprint?: string;
+  built_at: string;
+  /** Absent when the stored document does not say. */
+  build_source?: 'built' | 'uploaded';
 }
 
 // Organization info
@@ -256,6 +270,10 @@ export const EXECUTION_VERDICTS: readonly ExecutionVerdict[] = ['protected', 'pr
 export interface PaginatedExecutionsParams extends ExtendedAnalyticsQueryParams, PaginationParams {
   grouped?: boolean;
   verdict?: ExecutionVerdict;
+  /** Filter by how the stored test version relates to the library's current one. */
+  versionState?: ResultVersionState;
+  /** Current fingerprint of each test (uuid -> fingerprint), built by the route; labels rows and backs `versionState`. */
+  currentFingerprints?: Map<string, string>;
 }
 
 // Grouped execution result (one per collapsed display row)

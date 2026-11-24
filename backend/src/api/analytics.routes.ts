@@ -14,6 +14,9 @@ import { validate } from '../middleware/validation.js';
 import { AnalyticsSettingsSchema, AnalyticsTestSchema, CreateIndexSchema, ArchiveByGroupKeysSchema, ArchiveByDateSchema } from '../schemas/analytics.schemas.js';
 import type { AnalyticsQueryParams, ExtendedAnalyticsQueryParams, PaginatedExecutionsParams, ExecutionVerdict } from '../types/analytics.js';
 import { EXECUTION_VERDICTS } from '../types/analytics.js';
+import type { ResultVersionState } from '../types/testVersion.js';
+import { RESULT_VERSION_STATES, MAX_VERSION_FILTER_TESTS } from '../services/analytics/testVersionState.js';
+import { getTestVersionsService } from '../services/browser/testVersions.service.js';
 
 const router = Router();
 
@@ -319,16 +322,43 @@ router.get('/defense-score/by-technique', asyncHandler(async (req, res) => {
   res.json(result);
 }));
 
+/**
+ * Current fingerprint of every test the library can read (uuid -> fingerprint),
+ * for the result version labels and the versionState filter. undefined when
+ * the versions service is missing or the read fails: rows then carry no
+ * version_state, and a versionState request is refused (503) when `required`.
+ */
+async function currentFingerprints(required: boolean): Promise<Map<string, string> | undefined> {
+  const unavailable = () => new AppError('Test versions are not available', 503);
+  const service = getTestVersionsService();
+  if (!service) {
+    if (required) throw unavailable();
+    return undefined;
+  }
+  try {
+    const map = new Map<string, string>();
+    for (const [uuid, identity] of await service.synced()) map.set(uuid, identity.fingerprint);
+    return map;
+  } catch (err) {
+    // Fixed text and the error class only: git messages can carry a remote URL.
+    console.warn('Could not read the current test versions (%s)', err instanceof Error ? err.name : 'error');
+    if (required) throw unavailable();
+    return undefined;
+  }
+}
+
 // GET /api/analytics/executions - Recent executions
 router.get('/executions', asyncHandler(async (req, res) => {
   const es = await getEsService();
   const { org, from, to, limit } = req.query;
+  const fingerprints = await currentFingerprints(false);
 
   const result = await es.getRecentExecutions({
     org: org as string,
     from: from as string,
     to: to as string,
     limit: limit ? parseInt(limit as string) : 50,
+    currentFingerprints: fingerprints,
   });
 
   res.json(result);
@@ -440,11 +470,18 @@ router.get('/executions/paginated', asyncHandler(async (req, res) => {
     org, from, to, tests, techniques,
     hostnames, categories, severities, threatActors, tags,
     errorNames, errorCodes, bundleNames, result,
-    page, pageSize, sortField, sortOrder, grouped, verdict
+    page, pageSize, sortField, sortOrder, grouped, verdict, versionState
   } = req.query;
 
   if (verdict !== undefined && !EXECUTION_VERDICTS.includes(verdict as ExecutionVerdict)) {
     throw new AppError('Invalid verdict', 400);
+  }
+  if (versionState !== undefined && !RESULT_VERSION_STATES.includes(versionState as ResultVersionState)) {
+    throw new AppError('Invalid versionState', 400);
+  }
+  const fingerprints = await currentFingerprints(versionState !== undefined);
+  if (versionState !== undefined && (fingerprints?.size ?? 0) > MAX_VERSION_FILTER_TESTS) {
+    throw new AppError('Too many tests to filter by version', 400);
   }
 
   const params: PaginatedExecutionsParams = {
@@ -468,6 +505,8 @@ router.get('/executions/paginated', asyncHandler(async (req, res) => {
     sortOrder: sortOrder as 'asc' | 'desc',
     grouped: grouped === 'true',
     verdict: verdict as ExecutionVerdict | undefined,
+    versionState: versionState as ResultVersionState | undefined,
+    currentFingerprints: fingerprints,
   };
 
   if (params.grouped) {

@@ -1,3 +1,4 @@
+import type { TaskTestVersion } from './testVersion.js';
 import type { NoticeSummary } from '../services/notices/types.js';
 import type { TaskOutcomeKind } from '../services/outcomes/taskOutcome.js';
 import type { EdrTermination } from '../services/edr/agent-kill-evidence.js';
@@ -185,6 +186,8 @@ export interface TaskPayload {
   metadata: TaskTestMetadata;
   command?: string;
   env_vars?: Record<string, string>;
+  /** Version of the build this task runs (execute_test only). */
+  test_version?: TaskTestVersion;
 }
 
 export interface TaskTestMetadata {

@@ -4,6 +4,7 @@ import { Badge } from '@/components/ui/badge';
 import { Checkbox } from '@/components/ui/checkbox';
 import { cn } from '@/lib/utils';
 import { agentKill, agentKillSubLabel, launchBlock, launchBlockSubLabel } from './stageVerdict';
+import { ResultVersion } from './ResultVersion';
 import { BundleResultLabel, ExecResultLabel, formatTimestamp, type DisplayRow } from './shared';
 
 interface RunListProps {
@@ -13,9 +14,11 @@ interface RunListProps {
   /** Bulk-selection state; pass null to hide checkboxes. */
   checkedKeys: Set<string> | null;
   onToggleChecked: (key: string) => void;
+  /** Show each run's test version (capability `testVersions`). */
+  showVersions?: boolean;
 }
 
-export function RunList({ rows, selectedKey, onSelect, checkedKeys, onToggleChecked }: RunListProps) {
+export function RunList({ rows, selectedKey, onSelect, checkedKeys, onToggleChecked, showVersions = false }: RunListProps) {
   const listRef = useRef<HTMLDivElement>(null);
 
   // Keep the selected row visible when selection moves via keyboard
@@ -51,6 +54,8 @@ export function RunList({ rows, selectedKey, onSelect, checkedKeys, onToggleChec
         const timestamp = row.type === 'bundle' ? row.timestamp : row.execution.timestamp;
         const kill = row.type === 'standalone' ? agentKill(row.execution) : null;
         const blocked = row.type === 'standalone' ? launchBlock(row.execution) : null;
+        // A bundle shows its version once, from the group's representative; its stages do not repeat it.
+        const versionExec = row.type === 'bundle' ? (row.versionExec ?? row.controls[0]) : row.execution;
 
         return (
           <div
@@ -101,6 +106,7 @@ export function RunList({ rows, selectedKey, onSelect, checkedKeys, onToggleChec
                 ) : (
                   <ExecResultLabel exec={row.execution} compact />
                 )}
+                {showVersions && versionExec && <ResultVersion exec={versionExec} />}
                 {kill && (
                   <span className="truncate text-[11px] text-muted">{agentKillSubLabel(kill)}</span>
                 )}

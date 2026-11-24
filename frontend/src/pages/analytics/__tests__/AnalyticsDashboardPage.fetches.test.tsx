@@ -39,7 +39,7 @@ const mocks = vi.hoisted(() => {
     crowdstrike: apiProxy(),
     agent: apiProxy(),
     defenderFlipsTo: true,
-    caps: { outcomeBreakdown: false, loaded: true } as { outcomeBreakdown: boolean; loaded: boolean; stageCoverage?: boolean },
+    caps: { outcomeBreakdown: false, loaded: true } as { outcomeBreakdown: boolean; loaded: boolean; stageCoverage?: boolean; testVersions?: boolean },
   };
 });
 
@@ -494,5 +494,244 @@ describe('Test Breadth by Host wiring', () => {
     mocks.agent.reset({ listAgents: { agents: [agent('LAP-B')], total: 1 } });
     renderAt('/analytics?tests=T1');
     expect(await screen.findByText('No matching result (1)')).toBeTruthy();
+  });
+});
+
+describe('Test version filter wiring', () => {
+  const emptyPage = { groups: [], pagination: { page: 1, pageSize: 25, totalGroups: 0, totalDocuments: 0, totalPages: 0, hasNext: false, hasPrevious: false } };
+
+  beforeEach(() => {
+    mocks.defenderFlipsTo = false;
+    mocks.caps = { outcomeBreakdown: false, loaded: true, testVersions: true };
+    mocks.analytics.reset({
+      getDefenseScore: { score: 50, totalExecutions: 0, protectedCount: 0 },
+      getUniqueHostnames: 0,
+      getUniqueTests: 0,
+      getChainDepth: null,
+      getPaginatedExecutions: { data: [], pagination: { totalItems: 0 } },
+      getCanonicalTestCount: { count: 0 },
+      listAcceptances: { total: 0 },
+      getGroupedPaginatedExecutions: emptyPage,
+      getFilterOptions: {
+        tests: [], techniques: [], hostnames: [], categories: [],
+        threatActors: [], tags: [], errorNames: [], errorCodes: [], bundleNames: [],
+      },
+    });
+    mocks.defender.reset({});
+    mocks.crowdstrike.reset({});
+  });
+
+  function renderExecutions(search: string) {
+    return render(
+      <MemoryRouter initialEntries={[`/analytics?tab=executions${search}`]}>
+        <AnalyticsDashboardPage />
+        <LocationProbe />
+      </MemoryRouter>,
+    );
+  }
+  const lastParams = () => mocks.analytics.api.getGroupedPaginatedExecutions.mock.calls.at(-1)![0];
+
+  it('sends versionState from the URL, shows a chip, and the chip clears it', async () => {
+    renderExecutions('&versionState=older');
+    await waitFor(() => expect(lastParams()).toMatchObject({ versionState: 'older' }));
+    // visible with the filter bar collapsed, and counted on the Filters button
+    const chip = await screen.findByRole('button', { name: 'Remove version filter: Older version' });
+    expect(chip).toHaveTextContent('Version: Older version');
+    expect(screen.getByRole('button', { name: /Filters/ })).toHaveTextContent('1');
+    mocks.analytics.api.getGroupedPaginatedExecutions.mockClear();
+    fireEvent.click(chip);
+    await waitFor(() => expect(mocks.analytics.api.getGroupedPaginatedExecutions).toHaveBeenCalled());
+    expect(lastParams()).not.toHaveProperty('versionState');
+    expect(screen.getByTestId('loc').textContent).not.toContain('versionState');
+  });
+
+  it('the Version control sets the filter and the URL', async () => {
+    renderExecutions('');
+    await waitFor(() => expect(mocks.analytics.api.getGroupedPaginatedExecutions).toHaveBeenCalled());
+    fireEvent.click(screen.getByRole('button', { name: /Filters/ }));
+    fireEvent.change(await screen.findByLabelText('Version'), { target: { value: 'not_recorded' } });
+    await waitFor(() => expect(lastParams()).toMatchObject({ versionState: 'not_recorded' }));
+    expect(screen.getByTestId('loc').textContent).toContain('versionState=not_recorded');
+  });
+
+  it('never sends versionState, and hides the control, without the capability', async () => {
+    mocks.caps = { outcomeBreakdown: false, loaded: true, testVersions: false };
+    renderExecutions('&versionState=older');
+    await waitFor(() => expect(mocks.analytics.api.getGroupedPaginatedExecutions).toHaveBeenCalled());
+    fireEvent.click(screen.getByRole('button', { name: /Filters/ }));
+    await screen.findByText('All Results');
+    expect(screen.queryByLabelText('Version')).toBeNull();
+    expect(screen.queryByRole('button', { name: /Remove version filter/ })).toBeNull();
+    // the URL param is ignored: no phantom count, nothing sent
+    expect(screen.getByRole('button', { name: /Filters/ })).not.toHaveTextContent('1');
+    for (const [args] of mocks.analytics.api.getGroupedPaginatedExecutions.mock.calls) {
+      expect(args).not.toHaveProperty('versionState');
+    }
+  });
+
+  it('another tab does not count a versionState left in the URL', async () => {
+    render(
+      <MemoryRouter initialEntries={['/analytics?versionState=older']}>
+        <AnalyticsDashboardPage />
+      </MemoryRouter>,
+    );
+    await waitFor(() => expect(mocks.analytics.api.getDefenseScore).toHaveBeenCalled());
+    expect(screen.getByRole('button', { name: /Filters/ })).not.toHaveTextContent('1');
+  });
+
+  it('drops an invalid versionState: not sent, no count, no crash', async () => {
+    renderExecutions('&versionState=bogus');
+    await waitFor(() => expect(mocks.analytics.api.getGroupedPaginatedExecutions).toHaveBeenCalled());
+    expect(lastParams()).not.toHaveProperty('versionState');
+    expect(screen.getByRole('button', { name: /Filters/ })).not.toHaveTextContent('1');
+    expect(screen.queryByRole('button', { name: /Remove version filter/ })).toBeNull();
+  });
+
+  it('says why the list is empty when versions are not available (503)', async () => {
+    mocks.analytics.api.getGroupedPaginatedExecutions.mockRejectedValue(new Error('Test versions are not available'));
+    renderExecutions('&versionState=current');
+    expect(await screen.findByRole('alert')).toHaveTextContent('Test versions are not available');
+    // nothing was reset behind the user's back
+    expect(screen.getByTestId('loc').textContent).toContain('versionState=current');
+  });
+});
+
+describe('Executions requests: only the latest applies', () => {
+  const pagination = (page = 1, totalPages = 1) => ({
+    page, pageSize: 25, totalGroups: 1, totalDocuments: 1, totalPages, hasNext: page < totalPages, hasPrevious: page > 1,
+  });
+  const listOf = (name: string, page = 1, totalPages = 1) => ({
+    groups: [{
+      groupKey: name, type: 'standalone',
+      representative: { test_uuid: `u-${name}`, test_name: name, hostname: 'h1', is_protected: false, org: 'o', timestamp: '2026-10-12T12:47:49Z', error_code: 101 },
+      members: [], protectedCount: 0, unprotectedCount: 1, totalCount: 1,
+    }],
+    pagination: pagination(page, totalPages),
+  });
+  function deferred<T>() {
+    let resolve!: (v: T) => void;
+    let reject!: (e: Error) => void;
+    const promise = new Promise<T>((res, rej) => { resolve = res; reject = rej; });
+    return { promise, resolve, reject };
+  }
+  const api = () => mocks.analytics.api.getGroupedPaginatedExecutions;
+
+  beforeEach(() => {
+    mocks.defenderFlipsTo = false;
+    mocks.caps = { outcomeBreakdown: false, loaded: true, testVersions: true };
+    mocks.analytics.reset({
+      getDefenseScore: { score: 50, totalExecutions: 0, protectedCount: 0 },
+      getUniqueHostnames: 0,
+      getUniqueTests: 0,
+      getChainDepth: null,
+      getPaginatedExecutions: { data: [], pagination: { totalItems: 0 } },
+      getCanonicalTestCount: { count: 0 },
+      listAcceptances: { total: 0 },
+      getGroupedPaginatedExecutions: listOf('Initial'),
+      getFilterOptions: {
+        tests: [], techniques: [], hostnames: [], categories: [],
+        threatActors: [], tags: [], errorNames: [], errorCodes: [], bundleNames: [],
+      },
+    });
+    mocks.defender.reset({});
+    mocks.crowdstrike.reset({});
+  });
+
+  function renderExecutions(search = '') {
+    return render(
+      <MemoryRouter initialEntries={[`/analytics?tab=executions${search}`]}>
+        <AnalyticsDashboardPage />
+        <LocationProbe />
+      </MemoryRouter>,
+    );
+  }
+  const pickVersion = async (value: string) => {
+    if (!screen.queryByLabelText('Version')) fireEvent.click(screen.getByRole('button', { name: /Filters/ }));
+    fireEvent.change(await screen.findByLabelText('Version'), { target: { value } });
+  };
+
+  it('a slow older request that fails after a newer one succeeded does not blank the list', async () => {
+    const slow = deferred<unknown>();
+    api().mockImplementationOnce(() => slow.promise);
+    renderExecutions('&versionState=older');
+    await waitFor(() => expect(api()).toHaveBeenCalledTimes(1));
+    api().mockResolvedValue(listOf('Newer list'));
+    await pickVersion('current');
+    expect((await screen.findAllByText('Newer list')).length).toBeGreaterThan(0);
+    await act(async () => { slow.reject(new Error('Test versions are not available')); await slow.promise.catch(() => {}); });
+    expect(screen.getAllByText('Newer list').length).toBeGreaterThan(0);
+    expect(screen.queryByRole('alert')).toBeNull();
+  });
+
+  it('a slow older request that succeeds after a newer one does not overwrite it', async () => {
+    const slow = deferred<unknown>();
+    api().mockImplementationOnce(() => slow.promise);
+    renderExecutions('&versionState=older');
+    await waitFor(() => expect(api()).toHaveBeenCalledTimes(1));
+    api().mockResolvedValue(listOf('Newer list'));
+    await pickVersion('current');
+    expect((await screen.findAllByText('Newer list')).length).toBeGreaterThan(0);
+    await act(async () => { slow.resolve(listOf('Stale list')); await slow.promise; });
+    expect(screen.queryByText('Stale list')).toBeNull();
+    expect(screen.getAllByText('Newer list').length).toBeGreaterThan(0);
+  });
+
+  it('changing the version filter from page 3 issues one request, for page 1', async () => {
+    api().mockImplementation(async (p: { page?: number }) => listOf('Row', p.page ?? 1, 5));
+    renderExecutions();
+    const next = async (n: number) => {
+      const label = await screen.findByText(`Page ${n} of 5`);
+      fireEvent.click(label.nextElementSibling as HTMLElement);
+    };
+    await next(1);
+    await next(2);
+    await screen.findByText('Page 3 of 5');
+    await waitFor(() => expect(api().mock.calls.at(-1)![0]).toMatchObject({ page: 3 }));
+    api().mockClear();
+    await pickVersion('older');
+    await screen.findByText('Page 1 of 5');
+    await new Promise((r) => setTimeout(r, 50));
+    expect(api()).toHaveBeenCalledTimes(1);
+    expect(api().mock.calls[0][0]).toMatchObject({ page: 1, versionState: 'older' });
+  });
+
+  it('an unfiltered request failure shows no alert and keeps the list', async () => {
+    api().mockResolvedValueOnce(listOf('Kept list'));
+    renderExecutions();
+    expect((await screen.findAllByText('Kept list')).length).toBeGreaterThan(0);
+    api().mockRejectedValue(new Error('boom'));
+    fireEvent.click(screen.getByRole('button', { name: /Filters/ }));
+    // any refetch: change sort through the toolbar is brittle, so change page size via the filter bar result select
+    fireEvent.change(await screen.findByDisplayValue('All Results'), { target: { value: 'protected' } });
+    await waitFor(() => expect(api()).toHaveBeenCalledTimes(2));
+    await new Promise((r) => setTimeout(r, 30));
+    expect(screen.queryByRole('alert')).toBeNull();
+    expect(screen.getAllByText('Kept list').length).toBeGreaterThan(0);
+  });
+
+  it('the export fetch carries versionState only when the filter is active', async () => {
+    URL.createObjectURL = vi.fn(() => 'blob:x');
+    URL.revokeObjectURL = vi.fn();
+    vi.spyOn(HTMLAnchorElement.prototype, 'click').mockImplementation(() => {});
+    api().mockResolvedValue(listOf('Exportable'));
+    renderExecutions('&versionState=older');
+    await screen.findAllByText('Exportable');
+    api().mockClear();
+    fireEvent.click(screen.getByRole('button', { name: 'Export CSV' }));
+    await waitFor(() => expect(api()).toHaveBeenCalled());
+    expect(api().mock.calls[0][0]).toMatchObject({ versionState: 'older', pageSize: expect.any(Number) });
+  });
+
+  it('the export fetch has no versionState without the filter', async () => {
+    URL.createObjectURL = vi.fn(() => 'blob:x');
+    URL.revokeObjectURL = vi.fn();
+    vi.spyOn(HTMLAnchorElement.prototype, 'click').mockImplementation(() => {});
+    api().mockResolvedValue(listOf('Exportable'));
+    renderExecutions();
+    await screen.findAllByText('Exportable');
+    api().mockClear();
+    fireEvent.click(screen.getByRole('button', { name: 'Export CSV' }));
+    await waitFor(() => expect(api()).toHaveBeenCalled());
+    expect(api().mock.calls[0][0]).not.toHaveProperty('versionState');
   });
 });

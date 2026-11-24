@@ -3,6 +3,7 @@ import fs from 'fs';
 import os from 'os';
 import path from 'path';
 import type { AgentOS } from '../../types/agent.js';
+import type { TaskTestVersion } from '../../types/testVersion.js';
 
 export type ArtifactFailure = {
       ok: false;
@@ -100,4 +101,40 @@ export function resolveTestArtifact(
     sha256: crypto.createHash('sha256').update(buffer).digest('hex'),
     size: fs.statSync(resolvedPath).size,
   };
+}
+
+const isRecord = (v: unknown): v is Record<string, unknown> =>
+  typeof v === 'object' && v !== null && !Array.isArray(v);
+
+/**
+ * The version a task carries, from the build-meta createTasks already read.
+ * `built_at` and `build_source` always (no `builtAt` in the meta: undefined).
+ * `fingerprint`, `commit` and `commit_date` only when the stamp vouches for
+ * this very artifact: not `modified`, and its hash for the filename equals the
+ * sha256 of the binary that is being shipped. Never writes null keys. The meta
+ * is JSON from disk, so a malformed stamp counts as absent.
+ */
+export function taskTestVersion(
+  meta: unknown,
+  artifact: { name: string; sha256: string },
+): TaskTestVersion | undefined {
+  if (!isRecord(meta) || typeof meta.builtAt !== 'string' || meta.builtAt === '') return undefined;
+  const result: TaskTestVersion = {
+    built_at: meta.builtAt,
+    build_source: meta.source === 'uploaded' ? 'uploaded' : 'built',
+  };
+  const v = meta.version;
+  if (
+    !isRecord(v)
+    || typeof v.fingerprint !== 'string'
+    || v.modified !== false
+    || !isRecord(v.binaries)
+    || v.binaries[artifact.name] !== artifact.sha256
+  ) {
+    return result;
+  }
+  result.fingerprint = v.fingerprint;
+  if (typeof v.commit === 'string') result.commit = v.commit;
+  if (typeof v.commit_date === 'string') result.commit_date = v.commit_date;
+  return result;
 }

@@ -59,6 +59,8 @@ export function emptyEndpointAlerts(): EndpointAlertState {
 
 export interface RunDetailPanelProps {
   row: DisplayRow | null;
+  /** Show the "Test version" block (capability `testVersions`). */
+  showVersions?: boolean;
   defenderConfigured: boolean;
   /** Related alerts per endpoint-EDR vendor (CrowdStrike, SentinelOne, Sophos). */
   endpointAlerts: EndpointAlertState;
