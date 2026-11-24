@@ -39,7 +39,7 @@ const mocks = vi.hoisted(() => {
     crowdstrike: apiProxy(),
     agent: apiProxy(),
     defenderFlipsTo: true,
-    caps: { outcomeBreakdown: false, loaded: true } as { outcomeBreakdown: boolean; loaded: boolean; stageCoverage?: boolean },
+    caps: { outcomeBreakdown: false, loaded: true } as { outcomeBreakdown: boolean; loaded: boolean; stageCoverage?: boolean; testVersions?: boolean },
   };
 });
 
@@ -494,5 +494,81 @@ describe('Test Breadth by Host wiring', () => {
     mocks.agent.reset({ listAgents: { agents: [agent('LAP-B')], total: 1 } });
     renderAt('/analytics?tests=T1');
     expect(await screen.findByText('No matching result (1)')).toBeTruthy();
+  });
+});
+
+describe('Test version filter wiring', () => {
+  const emptyPage = { groups: [], pagination: { page: 1, pageSize: 25, totalGroups: 0, totalDocuments: 0, totalPages: 0, hasNext: false, hasPrevious: false } };
+
+  beforeEach(() => {
+    mocks.defenderFlipsTo = false;
+    mocks.caps = { outcomeBreakdown: false, loaded: true, testVersions: true };
+    mocks.analytics.reset({
+      getDefenseScore: { score: 50, totalExecutions: 0, protectedCount: 0 },
+      getUniqueHostnames: 0,
+      getUniqueTests: 0,
+      getChainDepth: null,
+      getPaginatedExecutions: { data: [], pagination: { totalItems: 0 } },
+      getCanonicalTestCount: { count: 0 },
+      listAcceptances: { total: 0 },
+      getGroupedPaginatedExecutions: emptyPage,
+      getFilterOptions: {
+        tests: [], techniques: [], hostnames: [], categories: [],
+        threatActors: [], tags: [], errorNames: [], errorCodes: [], bundleNames: [],
+      },
+    });
+    mocks.defender.reset({});
+    mocks.crowdstrike.reset({});
+  });
+
+  function renderExecutions(search: string) {
+    return render(
+      <MemoryRouter initialEntries={[`/analytics?tab=executions${search}`]}>
+        <AnalyticsDashboardPage />
+        <LocationProbe />
+      </MemoryRouter>,
+    );
+  }
+  const lastParams = () => mocks.analytics.api.getGroupedPaginatedExecutions.mock.calls.at(-1)![0];
+
+  it('sends versionState from the URL, shows a chip, and the chip clears it', async () => {
+    renderExecutions('&versionState=older');
+    await waitFor(() => expect(lastParams()).toMatchObject({ versionState: 'older' }));
+    fireEvent.click(screen.getByRole('button', { name: /Filters/ }));
+    const chip = await screen.findByText('Version: Older version');
+    mocks.analytics.api.getGroupedPaginatedExecutions.mockClear();
+    fireEvent.click(chip.closest('span')!.querySelector('button')!);
+    await waitFor(() => expect(mocks.analytics.api.getGroupedPaginatedExecutions).toHaveBeenCalled());
+    expect(lastParams()).not.toHaveProperty('versionState');
+    expect(screen.getByTestId('loc').textContent).not.toContain('versionState');
+  });
+
+  it('the Version control sets the filter and the URL', async () => {
+    renderExecutions('');
+    await waitFor(() => expect(mocks.analytics.api.getGroupedPaginatedExecutions).toHaveBeenCalled());
+    fireEvent.click(screen.getByRole('button', { name: /Filters/ }));
+    fireEvent.change(await screen.findByLabelText('Version'), { target: { value: 'not_recorded' } });
+    await waitFor(() => expect(lastParams()).toMatchObject({ versionState: 'not_recorded' }));
+    expect(screen.getByTestId('loc').textContent).toContain('versionState=not_recorded');
+  });
+
+  it('never sends versionState, and hides the control, without the capability', async () => {
+    mocks.caps = { outcomeBreakdown: false, loaded: true, testVersions: false };
+    renderExecutions('&versionState=older');
+    await waitFor(() => expect(mocks.analytics.api.getGroupedPaginatedExecutions).toHaveBeenCalled());
+    fireEvent.click(screen.getByRole('button', { name: /Filters/ }));
+    await screen.findByText('All Results');
+    expect(screen.queryByLabelText('Version')).toBeNull();
+    for (const [args] of mocks.analytics.api.getGroupedPaginatedExecutions.mock.calls) {
+      expect(args).not.toHaveProperty('versionState');
+    }
+  });
+
+  it('says why the list is empty when versions are not available (503)', async () => {
+    mocks.analytics.api.getGroupedPaginatedExecutions.mockRejectedValue(new Error('Test versions are not available'));
+    renderExecutions('&versionState=current');
+    expect(await screen.findByRole('alert')).toHaveTextContent('Test versions are not available');
+    // nothing was reset behind the user's back
+    expect(screen.getByTestId('loc').textContent).toContain('versionState=current');
   });
 });

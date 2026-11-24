@@ -10,6 +10,7 @@ import {
   formatPreventionAction,
   isConfirmedPrevention,
 } from '../../utils/prevention';
+import { VERSION_STATE_LABEL, shortCommit } from './versionLabels';
 
 // ── Timestamps ─────────────────────────────────────────────────────
 
@@ -156,6 +157,8 @@ export interface BundleGroup extends EdrGroupRollup {
   unprotectedCount: number;
   totalCount: number;
   category?: CategoryType;
+  /** The group's representative result, which carries the run's test version. */
+  versionExec?: EnrichedTestExecution;
 }
 
 export interface StandaloneRow {
@@ -183,6 +186,7 @@ export function mapGroupsToDisplayRows(groups: ExecutionGroup[]): DisplayRow[] {
         unprotectedCount: group.unprotectedCount,
         totalCount: group.totalCount,
         category: rep.category,
+        versionExec: rep,
         ...groupRollup(group),
       };
     }
@@ -447,7 +451,15 @@ export const EXPORT_COLUMNS: Array<{ key: string; label: string }> = [
   { key: 'error', label: 'Result Code' },
   { key: 'org', label: 'Organization' },
   { key: 'timestamp', label: 'Time' },
+  // Appended last so existing column positions never move; dropped when versions are off.
+  { key: 'version', label: 'version' },
+  { key: 'version_state', label: 'version_state' },
 ];
+
+/** Export columns for the table: the two version columns only when versions are tracked. */
+export function exportColumns(showVersions: boolean) {
+  return showVersions ? EXPORT_COLUMNS : EXPORT_COLUMNS.filter((c) => c.key !== 'version' && c.key !== 'version_state');
+}
 
 export function getCellValue(exec: EnrichedTestExecution, key: string): string | number | undefined {
   switch (key) {
@@ -474,6 +486,8 @@ export function getCellValue(exec: EnrichedTestExecution, key: string): string |
     }
     case 'org': return exec.org;
     case 'timestamp': return formatTimestamp(exec.timestamp);
+    case 'version': return shortCommit(exec);
+    case 'version_state': return exec.version_state ? VERSION_STATE_LABEL[exec.version_state] : '';
     default: return '';
   }
 }

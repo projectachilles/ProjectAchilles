@@ -189,13 +189,20 @@ export default function AnalyticsDashboardPage() {
   // Same filters as the tab, serialized the same way, so the report is
   // bookmarkable and regenerates the same scope.
   const reportHref = useMemo(() => {
-    const qs = new URLSearchParams(serializeToUrlParams(filterState.filters)).toString();
+    const qs = new URLSearchParams(serializeToUrlParams({ ...filterState.filters, versionState: null })).toString();
     return `/analytics/report${qs ? `?${qs}` : ''}`;
   }, [filterState.filters]);
 
   // Watch for settings changes (e.g., index pattern change)
   const { settingsVersion } = useAnalyticsAuth();
   const capabilities = useCapabilities();
+  // Sent to the Executions endpoints only; never without the capability, even from a stale URL
+  const versionStateParam = useMemo(
+    () => (capabilities.testVersions && filterState.filters.versionState
+      ? { versionState: filterState.filters.versionState }
+      : {}),
+    [capabilities.testVersions, filterState.filters.versionState],
+  );
 
   // Load active risk count on mount for tab badge
   useEffect(() => {
@@ -248,6 +255,8 @@ export default function AnalyticsDashboardPage() {
   // Page state set by the Outcome breakdown card; not a filter, not in the URL
   const [executionsVerdict, setExecutionsVerdict] = useState<ExecutionVerdict | null>(null);
   const [executionsPageSize, setExecutionsPageSize] = useState(25);
+  // Why the list could not load under a version filter (shown instead of an unexplained empty list)
+  const [executionsError, setExecutionsError] = useState<string | null>(null);
   const [executionsSortField, setExecutionsSortField] = useState<string>('routing.event_time');
   const [executionsSortOrder, setExecutionsSortOrder] = useState<'asc' | 'desc'>('desc');
 
@@ -371,6 +380,11 @@ export default function AnalyticsDashboardPage() {
   useEffect(() => {
     if (activeTab !== 'executions') setExecutionsVerdict(null);
   }, [activeTab]);
+
+  // A new version filter starts from the first page
+  useEffect(() => {
+    setExecutionsPage(1);
+  }, [filterState.filters.versionState]);
 
   // Load executions data when tab/filters/pagination/settings change
   useEffect(() => {
@@ -615,6 +629,8 @@ export default function AnalyticsDashboardPage() {
   const loadExecutionsData = useCallback(async () => {
     setLoadingExecutions(true);
     const params = filterState.getApiParams();
+    const versionParam = versionStateParam;
+    setExecutionsError(null);
 
     try {
       const data = await analyticsApi.getGroupedPaginatedExecutions({
@@ -624,14 +640,20 @@ export default function AnalyticsDashboardPage() {
         sortField: executionsSortField,
         sortOrder: executionsSortOrder,
         ...(executionsVerdict ? { verdict: executionsVerdict } : {}),
+        ...versionParam,
       });
       setExecutionsData(data);
     } catch (error) {
       console.error('Failed to load executions:', error);
+      // A failed version filter must say why the list is empty, never fall back to an unfiltered one.
+      if (versionParam.versionState) {
+        setExecutionsData(null);
+        setExecutionsError((error as { message?: string })?.message || 'Could not load executions');
+      }
     } finally {
       setLoadingExecutions(false);
     }
-  }, [filterState, executionsPage, executionsPageSize, executionsSortField, executionsSortOrder, executionsVerdict]);
+  }, [filterState, executionsPage, executionsPageSize, executionsSortField, executionsSortOrder, executionsVerdict, versionStateParam]);
 
   // Keep ref in sync with latest loadExecutionsData
   loadExecutionsDataRef.current = loadExecutionsData;
@@ -649,13 +671,14 @@ export default function AnalyticsDashboardPage() {
         sortField: executionsSortField,
         sortOrder: executionsSortOrder,
         ...(executionsVerdict ? { verdict: executionsVerdict } : {}),
+        ...versionStateParam,
       });
       for (const group of res.groups) executions.push(...group.members);
       if (!res.pagination.hasNext || executions.length >= EXPORT_MAX_DOCS) {
         return { executions: executions.slice(0, EXPORT_MAX_DOCS), total: res.pagination.totalDocuments };
       }
     }
-  }, [filterState, executionsSortField, executionsSortOrder, executionsVerdict]);
+  }, [filterState, executionsSortField, executionsSortOrder, executionsVerdict, versionStateParam]);
 
   // Archive handlers
   const handleArchive = useCallback(async (groupKeys: string[]) => {
@@ -946,6 +969,7 @@ export default function AnalyticsDashboardPage() {
             availableErrorCodes={availableErrorCodes}
             availableBundleNames={availableBundleNames}
             loading={loadingFilters}
+            showVersionFilter={capabilities.testVersions && activeTab === 'executions'}
           />
         )}
 
@@ -1153,6 +1177,11 @@ export default function AnalyticsDashboardPage() {
                   Outcome: {VERDICT_LABELS[executionsVerdict]}
                   <span aria-hidden="true">✕</span>
                 </button>
+              </div>
+            )}
+            {executionsError && (
+              <div role="alert" className="rounded-md border border-warning/40 bg-warning-dim px-3 py-2 text-xs text-warning">
+                {executionsError}
               </div>
             )}
             <ExecutionsDataTable

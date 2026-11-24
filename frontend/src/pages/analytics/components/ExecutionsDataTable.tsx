@@ -35,6 +35,7 @@ import { browserApi } from '@/services/api/browser';
 import { defenderApi, type RelatedAlertsResponse } from '@/services/api/defender';
 import type { RelatedCrowdStrikeAlertsResponse } from '@/services/api/crowdstrike';
 import type { AlertsForTestItem } from '@/services/api/alertsForTests';
+import { useCapabilities } from '@/hooks/useCapabilities';
 import { useDefenderConfig } from '@/hooks/useDefenderConfig';
 import { useCrowdStrikeConfig } from '@/hooks/useCrowdStrikeConfig';
 import { useSentinelOneConfig } from '@/hooks/useSentinelOneConfig';
@@ -42,7 +43,7 @@ import { useSophosConfig } from '@/hooks/useSophosConfig';
 import { ENDPOINT_VENDOR_IDS, VENDORS, type EndpointVendorId } from './integrations/vendorConfig';
 import TestInfoModal from './TestInfoModal';
 import {
-  EXPORT_COLUMNS,
+  exportColumns,
   SORT_FIELDS,
   getCellValue,
   mapGroupsToDisplayRows,
@@ -114,6 +115,7 @@ export default function ExecutionsDataTable({
   reportHref,
   onFetchAllExecutions,
 }: ExecutionsDataTableProps) {
+  const { testVersions: showVersions } = useCapabilities();
   const { configured: defenderConfigured } = useDefenderConfig();
   const { configured: crowdstrikeConfigured } = useCrowdStrikeConfig();
   const { configured: sentineloneConfigured } = useSentinelOneConfig();
@@ -502,9 +504,10 @@ export default function ExecutionsDataTable({
   const exportToCsv = async () => {
     const executions = await rowsForExport();
     if (!executions?.length) return;
-    const headers = EXPORT_COLUMNS.map(c => c.label);
+    const columns = exportColumns(showVersions);
+    const headers = columns.map(c => c.label);
     const rows = executions.map(exec => {
-      return EXPORT_COLUMNS.map(col => {
+      return columns.map(col => {
         const value = getCellValue(exec, col.key);
         const strValue = String(value ?? '');
         if (strValue.includes(',') || strValue.includes('"') || strValue.includes('\n')) {
@@ -699,10 +702,12 @@ export default function ExecutionsDataTable({
               onSelect={handleSelect}
               checkedKeys={actionsEnabled ? selectedKeys : null}
               onToggleChecked={toggleSelect}
+              showVersions={showVersions}
             />
           </Card>
           <RunDetailPanel
             row={selectedRow}
+            showVersions={showVersions}
             defenderConfigured={defenderConfigured}
             endpointAlerts={endpointAlerts}
             descriptionMap={descriptionMap}

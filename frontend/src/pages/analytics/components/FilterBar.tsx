@@ -1,7 +1,8 @@
 import { X } from 'lucide-react';
 import MultiSelectFilter from './MultiSelectFilter';
 import type { UseAnalyticsFiltersReturn } from '@/hooks/useAnalyticsFilters';
-import type { FilterOption } from '@/services/api/analytics';
+import type { FilterOption, ResultVersionState } from '@/services/api/analytics';
+import { VERSION_FILTER_OPTIONS } from './executions/versionLabels';
 
 interface FilterBarProps {
   filterState: UseAnalyticsFiltersReturn;
@@ -15,6 +16,8 @@ interface FilterBarProps {
   availableErrorCodes: FilterOption[];
   availableBundleNames: FilterOption[];
   loading?: boolean;
+  /** Show the Version filter (Executions tab, capability `testVersions`). */
+  showVersionFilter?: boolean;
 }
 
 export default function FilterBar({
@@ -29,6 +32,7 @@ export default function FilterBar({
   availableErrorCodes,
   availableBundleNames,
   loading = false,
+  showVersionFilter = false,
 }: FilterBarProps) {
   const {
     filters,
@@ -43,6 +47,7 @@ export default function FilterBar({
     setErrorNames,
     setErrorCodes,
     setBundleNames,
+    setVersionState,
     clearAdvancedFilters,
   } = filterState;
 
@@ -109,6 +114,13 @@ export default function FilterBar({
       onClear: () => setBundleNames([]),
     });
   }
+  if (showVersionFilter && filters.versionState) {
+    const option = VERSION_FILTER_OPTIONS.find((o) => o.value === filters.versionState);
+    activeFilterTags.push({
+      label: `Version: ${option?.label ?? filters.versionState}`,
+      onClear: () => setVersionState(null),
+    });
+  }
 
   return (
     <div className="bg-card text-card-foreground border border-border rounded-lg p-4 mb-4">
@@ -127,6 +139,23 @@ export default function FilterBar({
             <option value="inconclusive">Inconclusive Only</option>
           </select>
         </div>
+
+        {/* Test version: executions only */}
+        {showVersionFilter && (
+          <div className="flex items-center gap-2">
+            <select
+              aria-label="Version"
+              value={filters.versionState ?? ''}
+              onChange={(e) => setVersionState((e.target.value || null) as ResultVersionState | null)}
+              className="px-3 py-1.5 bg-secondary text-foreground border border-border rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-primary"
+            >
+              <option value="">All versions</option>
+              {VERSION_FILTER_OPTIONS.map((o) => (
+                <option key={o.value} value={o.value}>{o.label}</option>
+              ))}
+            </select>
+          </div>
+        )}
 
         {/* Hostname Filter */}
         <MultiSelectFilter

@@ -1,7 +1,7 @@
 import { useState, useCallback, useMemo, useEffect } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import { joinFilterList, splitFilterList } from '@/lib/filterList';
-import type { ExtendedFilterParams } from '@/services/api/analytics';
+import type { ExtendedFilterParams, ResultVersionState } from '@/services/api/analytics';
 import {
   DEFAULT_TIME_RANGE,
   getDateRangeFilter,
@@ -31,6 +31,9 @@ export interface AnalyticsFilterState {
   errorNames: string[];
   errorCodes: string[];
   bundleNames: string[];
+
+  /** Executions tab only: kept out of toApiParams (the other endpoints ignore it). */
+  versionState: ResultVersionState | null;
 }
 
 export interface UseAnalyticsFiltersReturn {
@@ -53,6 +56,7 @@ export interface UseAnalyticsFiltersReturn {
   setErrorNames: (errorNames: string[]) => void;
   setErrorCodes: (errorCodes: string[]) => void;
   setBundleNames: (bundleNames: string[]) => void;
+  setVersionState: (versionState: ResultVersionState | null) => void;
   toggleExpanded: () => void;
   clearAllFilters: () => void;
   clearAdvancedFilters: () => void;
@@ -74,7 +78,10 @@ const defaultFilters: AnalyticsFilterState = {
   errorNames: [],
   errorCodes: [],
   bundleNames: [],
+  versionState: null,
 };
+
+const RESULT_VERSION_STATES = ['current', 'older', 'unknown', 'not_recorded'] as const;
 
 // Parse URL params into filter state
 export function parseUrlParams(searchParams: URLSearchParams): Partial<AnalyticsFilterState> {
@@ -118,6 +125,11 @@ export function parseUrlParams(searchParams: URLSearchParams): Partial<Analytics
   const bundleNames = searchParams.get('bundleNames');
   if (bundleNames) result.bundleNames = splitFilterList(bundleNames);
 
+  const versionState = searchParams.get('versionState');
+  if (versionState && (RESULT_VERSION_STATES as readonly string[]).includes(versionState)) {
+    result.versionState = versionState as ResultVersionState;
+  }
+
   return result;
 }
 
@@ -140,6 +152,7 @@ export function serializeToUrlParams(filters: AnalyticsFilterState): Record<stri
   if (filters.errorNames.length > 0) params.errorNames = joinFilterList(filters.errorNames);
   if (filters.errorCodes.length > 0) params.errorCodes = joinFilterList(filters.errorCodes);
   if (filters.bundleNames.length > 0) params.bundleNames = joinFilterList(filters.bundleNames);
+  if (filters.versionState) params.versionState = filters.versionState;
 
   return params;
 }
@@ -195,7 +208,7 @@ export function useAnalyticsFilters(syncWithUrl = true): UseAnalyticsFiltersRetu
         const newParams = new URLSearchParams(prev);
         // Clear all filter-related params first
         // 'severities' is a removed filter; still cleared so a legacy link's param doesn't linger
-        const filterKeys = ['org', 'date', 'from', 'to', 'result', 'hostnames', 'tests', 'techniques', 'categories', 'severities', 'threatActors', 'tags', 'errorNames', 'errorCodes', 'bundleNames'];
+        const filterKeys = ['org', 'date', 'from', 'to', 'result', 'hostnames', 'tests', 'techniques', 'categories', 'severities', 'threatActors', 'tags', 'errorNames', 'errorCodes', 'bundleNames', 'versionState'];
         filterKeys.forEach(key => newParams.delete(key));
         // Add back the current filter params
         Object.entries(filterParams).forEach(([key, value]) => {
@@ -219,6 +232,7 @@ export function useAnalyticsFilters(syncWithUrl = true): UseAnalyticsFiltersRetu
     if (filters.errorNames.length > 0) count++;
     if (filters.errorCodes.length > 0) count++;
     if (filters.bundleNames.length > 0) count++;
+    if (filters.versionState) count++;
     return count;
   }, [filters]);
 
@@ -275,6 +289,10 @@ export function useAnalyticsFilters(syncWithUrl = true): UseAnalyticsFiltersRetu
     setFilters(prev => ({ ...prev, bundleNames }));
   }, []);
 
+  const setVersionState = useCallback((versionState: ResultVersionState | null) => {
+    setFilters(prev => ({ ...prev, versionState }));
+  }, []);
+
   const toggleExpanded = useCallback(() => {
     setIsExpanded(prev => !prev);
   }, []);
@@ -296,6 +314,7 @@ export function useAnalyticsFilters(syncWithUrl = true): UseAnalyticsFiltersRetu
       errorNames: [],
       errorCodes: [],
       bundleNames: [],
+      versionState: null,
     }));
   }, []);
 
@@ -319,6 +338,7 @@ export function useAnalyticsFilters(syncWithUrl = true): UseAnalyticsFiltersRetu
     setErrorNames,
     setErrorCodes,
     setBundleNames,
+    setVersionState,
     toggleExpanded,
     clearAllFilters,
     clearAdvancedFilters,
