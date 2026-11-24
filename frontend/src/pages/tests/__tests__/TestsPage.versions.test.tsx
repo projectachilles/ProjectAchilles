@@ -1,8 +1,9 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { fireEvent, render, screen, waitFor, within } from '@testing-library/react';
+import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { MemoryRouter } from 'react-router-dom';
-import type { TestMetadata } from '@/types/test';
+import type { BuildInfo, TestMetadata } from '@/types/test';
 import type { TestVersionRow, TestVersionsResponse } from '@/types/testVersion';
+import type { BuildQueueDeps } from '@/lib/buildQueue';
 
 const mk = (uuid: string): TestMetadata => ({
   uuid,
@@ -15,6 +16,7 @@ const mk = (uuid: string): TestMetadata => ({
 
 const state = vi.hoisted(() => ({
   testVersions: true,
+  build: true,
   granted: new Set<string>(),
   data: null as unknown,
   checkError: null as string | null,
@@ -23,7 +25,8 @@ const state = vi.hoisted(() => ({
   reload: vi.fn(async () => {}),
 }));
 
-vi.mock('@/hooks/useCapabilities', () => ({ useCapabilities: () => ({ testVersions: state.testVersions }) }));
+vi.mock('@/hooks/useCapabilities', () => ({ useCapabilities: () => ({ testVersions: state.testVersions, build: state.build }),
+}));
 vi.mock('@/hooks/useTestVersions', () => ({
   useTestVersions: () => ({
     data: state.testVersions ? state.data : null,
@@ -68,7 +71,32 @@ vi.mock('@/hooks/useAnalyticsAuth', () => ({ useAnalyticsAuth: () => ({ configur
 vi.mock('@/hooks/useMediaQuery', () => ({ useIsDesktop: () => state.desktop }));
 vi.mock('@/components/browser/execution', () => ({ ExecutionDrawer: () => null }));
 
+import { BuildQueueProvider } from '@/hooks/useBuildQueue';
 import TestsPage from '../TestsPage';
+
+/** Each build waits for its gate; an abort (unmount) rejects it. */
+const gates: Array<() => void> = [];
+const deps: BuildQueueDeps = {
+  getBuildInfo: vi.fn(async () => ({ exists: false }) as BuildInfo),
+  getEmbedDependencies: vi.fn(async () => []),
+  buildTest: vi.fn(
+    (_uuid: string, opts: { signal?: AbortSignal }) =>
+      new Promise<BuildInfo>((resolve, reject) => {
+        gates.push(() => resolve({ exists: true, source: 'built' } as BuildInfo));
+        opts.signal?.addEventListener('abort', () => reject(new DOMException('aborted', 'AbortError')));
+      }),
+  ),
+};
+
+function Page() {
+  return (
+    <MemoryRouter>
+      <BuildQueueProvider deps={deps}>
+        <TestsPage />
+      </BuildQueueProvider>
+    </MemoryRouter>
+  );
+}
 
 const ref = (commit: string | null) => ({ commit, commitDate: null, fingerprint: null });
 const row = (over: Partial<TestVersionRow>): TestVersionRow => ({
@@ -110,11 +138,7 @@ function response(
 }
 
 function renderPage() {
-  render(
-    <MemoryRouter>
-      <TestsPage />
-    </MemoryRouter>,
-  );
+  render(<Page />);
   return screen.findByRole('button', { name: 'test a' });
 }
 
@@ -126,6 +150,7 @@ describe('TestsPage version status', () => {
     state.data = response();
     state.checkError = null;
     state.desktop = true;
+    state.build = true;
   });
 
   it('shows a version chip under each test name when the capability is on', async () => {
@@ -202,11 +227,7 @@ describe('TestsPage version status', () => {
   it('puts Check now in the header, left of Sync, with or without the banner', async () => {
     for (const library of [{ updatesAvailable: 1 }, {}]) {
       state.data = response(library);
-      const { unmount } = render(
-        <MemoryRouter>
-          <TestsPage />
-        </MemoryRouter>,
-      );
+      const { unmount } = render(<Page />);
       await screen.findByRole('button', { name: 'test a' });
       const check = screen.getAllByRole('button', { name: 'Check now' });
       expect(check).toHaveLength(1);
@@ -312,5 +333,184 @@ describe('TestsPage version status', () => {
     await renderPage();
     fireEvent.click(screen.getAllByRole('button', { name: 'Sync' })[0]);
     await waitFor(() => expect(state.reload).toHaveBeenCalled());
+  });
+});
+
+describe('TestsPage bulk build', () => {
+  const BUILD = 'tests:builds:create';
+  const RUN = 'endpoints:tasks:create';
+  const checkbox = (name: string) => screen.getByRole('checkbox', { name: `Select ${name}` });
+  const checked = (name: string) => checkbox(name).getAttribute('aria-checked') === 'true';
+  const button = (name: string | RegExp) => screen.getByRole('button', { name });
+  const noButton = (name: string | RegExp) => expect(screen.queryByRole('button', { name })).toBeNull();
+  const filterBy = (value: string) =>
+    fireEvent.change(screen.getByRole('combobox', { name: 'Version status' }), { target: { value } });
+
+  async function startRun(names: string[]) {
+    fireEvent.click(button('Select'));
+    for (const name of names) fireEvent.click(checkbox(name));
+    fireEvent.click(button(`Build ${names.length}`));
+    fireEvent.click(button('Build and sign'));
+  }
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    gates.length = 0;
+    state.testVersions = true;
+    state.build = true;
+    state.granted = new Set([BUILD, RUN]);
+    state.data = response();
+    state.checkError = null;
+    state.desktop = true;
+  });
+
+  it('shows Select with either the build or the run permission, and not without', async () => {
+    for (const granted of [[BUILD], [RUN], []]) {
+      state.granted = new Set(granted);
+      const { unmount } = render(<Page />);
+      await screen.findByRole('button', { name: 'test a' });
+      if (granted.length) button('Select');
+      else noButton('Select');
+      unmount();
+    }
+  });
+
+  it('Build N needs the build permission and the build capability; Run N needs the run permission', async () => {
+    const cases = [
+      { granted: [BUILD, RUN], build: true, buildBtn: true, runBtn: true },
+      { granted: [BUILD], build: true, buildBtn: true, runBtn: false },
+      { granted: [RUN], build: true, buildBtn: false, runBtn: true },
+      { granted: [BUILD, RUN], build: false, buildBtn: false, runBtn: true },
+    ];
+    for (const c of cases) {
+      state.granted = new Set(c.granted);
+      state.build = c.build;
+      const { unmount } = render(<Page />);
+      await screen.findByRole('button', { name: 'test a' });
+      fireEvent.click(button('Select'));
+      noButton('Build 1');
+      noButton('Run 1');
+      fireEvent.click(checkbox('test a'));
+      if (c.buildBtn) button('Build 1');
+      else noButton('Build 1');
+      if (c.runBtn) button('Run 1');
+      else noButton('Run 1');
+      unmount();
+    }
+  });
+
+  it('Select all (N) selects every test shown, then becomes Clear selection', async () => {
+    await renderPage();
+    noButton(/^Select all/);
+    fireEvent.click(button('Select'));
+    fireEvent.click(button('Select all (3)'));
+    expect(['test a', 'test b', 'test c'].every(checked)).toBe(true);
+    button('Build 3');
+    fireEvent.click(button('Clear selection'));
+    expect(['test a', 'test b', 'test c'].some(checked)).toBe(false);
+    noButton(/^Build \d/);
+    button('Select all (3)');
+  });
+
+  it('Select all follows the search and the version filter', async () => {
+    state.data = response({}, { c: row({ status: 'rebuild_needed', reason: 'test_source_changed' }) });
+    await renderPage();
+    fireEvent.click(button('Select'));
+    filterBy('rebuild_needed');
+    await waitFor(() => expect(screen.queryByRole('button', { name: 'test a' })).toBeNull());
+    fireEvent.click(checkbox('test b'));
+    fireEvent.click(button('Select all (2)'));
+    expect(checked('test b') && checked('test c')).toBe(true);
+    button('Build 2');
+
+    fireEvent.change(screen.getByPlaceholderText(/^Search by name/), { target: { value: 'test c' } });
+    await waitFor(() => expect(screen.queryByRole('button', { name: 'test b' })).toBeNull());
+    button('Clear selection');
+    button('Build 1');
+
+    filterBy('');
+    fireEvent.change(screen.getByPlaceholderText(/^Search by name/), { target: { value: '' } });
+    await screen.findByRole('button', { name: 'test a' });
+    button('Select all (3)');
+    button('Build 2');
+    fireEvent.click(button('Select all (3)'));
+    expect(checked('test a')).toBe(true);
+    button('Build 3');
+  });
+
+  it('confirming builds the selected tests in list order, leaves select mode and clears the selection', async () => {
+    await renderPage();
+    fireEvent.click(button('Select'));
+    fireEvent.click(checkbox('test c'));
+    fireEvent.click(checkbox('test a'));
+    fireEvent.click(button('Build 2'));
+    expect(screen.getByRole('heading', { name: 'Build and sign 2 tests' })).toBeTruthy();
+    fireEvent.click(button('Build and sign'));
+
+    expect(screen.queryByRole('heading', { name: /^Build and sign/ })).toBeNull();
+    noButton('Cancel');
+    expect(screen.queryByRole('checkbox')).toBeNull();
+    expect(await screen.findByText('Building 1 of 2 · test a')).toBeTruthy();
+    await waitFor(() => expect(deps.buildTest).toHaveBeenCalledTimes(1));
+    expect(vi.mocked(deps.buildTest).mock.calls[0][0]).toBe('a');
+
+    fireEvent.click(button('Select'));
+    expect(screen.queryAllByRole('checkbox').some((c) => c.getAttribute('aria-checked') === 'true')).toBe(false);
+
+    act(() => gates[0]());
+    expect(await screen.findByText('Building 2 of 2 · test c')).toBeTruthy();
+    await waitFor(() => expect(deps.buildTest).toHaveBeenCalledTimes(2));
+    expect(vi.mocked(deps.buildTest).mock.calls[1][0]).toBe('c');
+  });
+
+  it('Build N is disabled while a run is going', async () => {
+    await renderPage();
+    await startRun(['test a']);
+    await screen.findByText('Building 1 of 1 · test a');
+    fireEvent.click(button('Select'));
+    fireEvent.click(checkbox('test b'));
+    expect((button('Build 1') as HTMLButtonElement).disabled).toBe(true);
+    expect((button('Run 1') as HTMLButtonElement).disabled).toBe(false);
+  });
+
+  it('a test the version filter hides during the run is still named, and the run goes on with its own list', async () => {
+    state.data = response({}, { c: row({ status: 'rebuild_needed', reason: 'test_source_changed' }) });
+    await renderPage();
+    filterBy('rebuild_needed');
+    await waitFor(() => expect(screen.queryByRole('button', { name: 'test a' })).toBeNull());
+    fireEvent.click(button('Select'));
+    fireEvent.click(button('Select all (2)'));
+    fireEvent.click(button('Build 2'));
+    fireEvent.click(button('Build and sign'));
+    await screen.findByText('Building 1 of 2 · test b');
+    await waitFor(() => expect(gates).toHaveLength(1));
+
+    filterBy('up_to_date');
+    await waitFor(() => expect(screen.queryByRole('button', { name: 'test b' })).toBeNull());
+    expect(screen.queryByRole('button', { name: 'test c' })).toBeNull();
+    expect(screen.getByText('Building 1 of 2 · test b')).toBeTruthy();
+
+    act(() => gates[0]());
+    expect(await screen.findByText('Building 2 of 2 · test c')).toBeTruthy();
+    await waitFor(() => expect(gates).toHaveLength(2));
+    expect(vi.mocked(deps.buildTest).mock.calls.map((c) => c[0])).toEqual(['b', 'c']);
+    act(() => gates[1]());
+    expect(await screen.findByText('Built 2 of 2 · 0 failed · 0 skipped')).toBeTruthy();
+  });
+
+  it('reloads the version rows once for each result', async () => {
+    await renderPage();
+    await startRun(['test a', 'test b']);
+    await waitFor(() => expect(gates).toHaveLength(1));
+    expect(state.reload).not.toHaveBeenCalled();
+    act(() => gates[0]());
+    await waitFor(() => expect(state.reload).toHaveBeenCalledTimes(1));
+    await waitFor(() => expect(gates).toHaveLength(2));
+    act(() => gates[1]());
+    await screen.findByText('Built 2 of 2 · 0 failed · 0 skipped');
+    // The reload runs in an effect after the render that shows the result.
+    await waitFor(() => expect(state.reload).toHaveBeenCalledTimes(2));
+    await new Promise((r) => setTimeout(r, 20));
+    expect(state.reload).toHaveBeenCalledTimes(2);
   });
 });

@@ -22,6 +22,26 @@ A build can take minutes. The page keeps polling while it runs, so you can leave
 
 **Upload Binary** registers a binary you built elsewhere instead of building on the server.
 
+## Build several tests at once
+
+After an upgrade every test you had already built reads **Unknown build** until it is built once more. The Test Library can build them in one run instead of one visit per test:
+
+1. On the **Tests** page, filter the list to what you want built, for example **Unknown build** in the version status filter
+2. Click **Select**, then **Select all (N)**. It selects the tests the list shows, after search, filters and version status; you can also tick tests one by one
+3. Click **Build N** and confirm
+
+The console builds and signs the tests one at a time, each the same build as **Build & Sign** on the test's page. Each takes a few minutes. A bar above the list shows the test it is on, a progress bar and how many built, failed and were skipped. When the run ends, **Details** lists each failed or skipped test with the reason and a link to it, and **Dismiss** clears the bar.
+
+- Tests with an uploaded binary are left as they are. The dialog says so, and the console checks again right before each build, so a binary uploaded during the run is not replaced
+- A test that needs a file uploaded first (an external embed dependency) is skipped, not attempted. Upload the file on the test's page and build it there
+- A failed or skipped test never stops the run
+- **Stop** lets the build in progress finish and starts no other; the summary says how many were not started
+- If the server can't be reached between builds (a restart, for example), the console waits and goes on. If it stays unreachable, the run stops and says so
+
+The run lives in your browser tab, not on the server. It keeps going while the console stays open in that tab, also when you open other pages. Closing or reloading the tab ends it (the browser asks first), and so does signing out. To finish an interrupted run, filter and select what is left and build again: built tests no longer read **Unknown build**.
+
+**Build N** needs the permission to build tests and a backend that builds them; it is not shown on a Vercel (`backend-serverless`) install.
+
 ## Platform & Architecture Support
 
 | Platform | Architecture | Code Signing |
