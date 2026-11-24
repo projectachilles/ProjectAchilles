@@ -278,3 +278,62 @@ describe('parseTests for a bundle whose newest doc is a kill doc', () => {
     expect(t.stages).toHaveLength(1);
   });
 });
+
+describe('parseRuns test version', () => {
+  const COMMIT = 'abc1234' + '0'.repeat(33);
+  const stamp = (over: Record<string, unknown> = {}) => ({ built_at: '2026-11-20T10:00:00.000Z', build_source: 'built', commit: COMMIT, fingerprint: 'fp-1', ...over });
+  const stage = (controlId: string, testVersion?: Record<string, unknown>) => ({
+    _id: `${TASK}::${controlId}`,
+    _source: {
+      event: { ERROR: 101 },
+      f0rtika: {
+        is_bundle_control: true, bundle_id: BUNDLE, bundle_name: 'LockBit kill chain', control_id: controlId,
+        control_validator: 'Stage 1', test_name: controlId, ...(testVersion ? { test_version: testVersion } : {}),
+      },
+    },
+  });
+  const bundleRes = (...hits: unknown[]) => ({ aggregations: { runs: { buckets: [{
+    key: `bundle::${BUNDLE}::WS-0042::${T}`, doc_count: hits.length, completed: { value: T }, members: { hits: { hits } },
+  }] } } });
+  const standaloneRes = (testVersion?: Record<string, unknown>) => ({ aggregations: { runs: { buckets: [{
+    key: `standalone::u1::WS-0042::${T}`, doc_count: 1, completed: { value: T },
+    members: { hits: { hits: [{ _id: TASK, _source: { event: { ERROR: 126 }, f0rtika: {
+      test_uuid: 'u1', test_name: 'Mimikatz', ...(testVersion ? { test_version: testVersion } : {}),
+    } } }] } },
+  }] } } });
+
+  it('takes a standalone run\'s version from its document', () => {
+    const [run] = parseRuns(standaloneRes(stamp()), new Map([['u1', 'fp-1']]));
+    expect(run.version).toEqual({ commit: COMMIT, state: 'current' });
+  });
+
+  it('takes a bundle run\'s version from the first stage document that carries one', () => {
+    const [run] = parseRuns(bundleRes(stage('T1'), stage('T2', stamp({ fingerprint: 'fp-old' })), stage('T3', stamp({ commit: 'def5678' }))), new Map([[BUNDLE, 'fp-1']]));
+    expect(run.version).toEqual({ commit: COMMIT, state: 'older' });
+  });
+
+  it('is not recorded when no member carries a version', () => {
+    expect(parseRuns(bundleRes(stage('T1'), stage('T2')), new Map([[BUNDLE, 'fp-1']]))[0].version)
+      .toEqual({ commit: null, state: 'not_recorded' });
+    expect(parseRuns(standaloneRes(), new Map())[0].version).toEqual({ commit: null, state: 'not_recorded' });
+  });
+
+  it('is unknown when the version has no fingerprint or the test is not in the library', () => {
+    expect(parseRuns(standaloneRes(stamp({ fingerprint: undefined })), new Map([['u1', 'fp-1']]))[0].version)
+      .toEqual({ commit: COMMIT, state: 'unknown' });
+    expect(parseRuns(standaloneRes(stamp()), new Map([['other', 'fp-1']]))[0].version)
+      .toEqual({ commit: COMMIT, state: 'unknown' });
+  });
+
+  it('has no commit for a recorded build without one (a custom test or an uploaded binary)', () => {
+    const [run] = parseRuns(standaloneRes(stamp({ commit: undefined, build_source: 'uploaded', fingerprint: undefined })), new Map([['u1', 'fp-1']]));
+    expect(run.version).toEqual({ commit: null, state: 'unknown' });
+  });
+
+  it('has no state without the current fingerprints, except for a run with no version', () => {
+    const [recorded] = parseRuns(standaloneRes(stamp()));
+    expect(recorded.version).toEqual({ commit: COMMIT });
+    expect(recorded.version).not.toHaveProperty('state');
+    expect(parseRuns(bundleRes(stage('T1')))[0].version).toEqual({ commit: null, state: 'not_recorded' });
+  });
+});

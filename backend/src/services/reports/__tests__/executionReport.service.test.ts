@@ -60,21 +60,23 @@ function testsResponse() {
   }] } } };
 }
 
-const memberHit = (controlId: string, validator: string, exit: number, tactic: string) => ({
+const memberHit = (controlId: string, validator: string, exit: number, tactic: string, testVersion?: Record<string, unknown>) => ({
   _id: `${TASK}::${controlId}`,
   _source: {
     event: { ERROR: exit }, routing: { hostname: 'WS-FIN-014' },
     f0rtika: {
       is_bundle_control: true, bundle_id: BUNDLE, bundle_name: 'LockBit 3.0 Double Extortion Kill Chain', control_id: controlId,
       control_validator: validator, test_name: controlId, techniques: [controlId], tactics: [tactic],
+      ...(testVersion ? { test_version: testVersion } : {}),
     },
   },
 });
 
-function runsResponse() {
+/** `testVersion`: the f0rtika.test_version stamped on the second member only (the first lacks it). */
+function runsResponse(testVersion?: Record<string, unknown>) {
   return { aggregations: { runs: { buckets: [{
     key: `bundle::${BUNDLE}::WS-FIN-014::${T_RUN}`, doc_count: 2, completed: { value: T_RUN },
-    members: { hits: { hits: [memberHit('T1486', 'Stage 5', 126, 'impact'), memberHit('T1567.002', 'Stage 4', 101, 'exfiltration')] } },
+    members: { hits: { hits: [memberHit('T1486', 'Stage 5', 126, 'impact'), memberHit('T1567.002', 'Stage 4', 101, 'exfiltration', testVersion)] } },
   }] } } };
 }
 
@@ -134,6 +136,7 @@ function makeDeps(over: Record<string, unknown> = {}): any {
     readGuidance: vi.fn(() => '| [T1567.002](x) — Exfiltration to Cloud Storage | Exfiltration | [M1021](y) Restrict Web-Based Content |'),
     getRunStartTimes: vi.fn(async () => new Map([[TASK, '2026-10-12T12:41:06.000Z']])),
     getAcceptances: vi.fn(async () => ({})),
+    getCurrentFingerprints: vi.fn(async (): Promise<Map<string, string> | undefined> => undefined),
     budgetMs: 5_000,
     vendorBudgetMs: 5_000,
     // A fresh service per report, so env stubs made before generate() are read.
@@ -548,6 +551,97 @@ describe('ExecutionReportService.generate', () => {
   it('rejects an unknown time zone with a 400', async () => {
     await expect(new ExecutionReportService(settings, makeDeps()).generate(params({ tz: 'Nope/Nowhere' }), NOW))
       .rejects.toMatchObject({ statusCode: 400 });
+  });
+});
+
+describe('test version of each run', () => {
+  const COMMIT = 'abc1234' + '0'.repeat(33);
+  const stamp = (over: Record<string, unknown> = {}) => ({ built_at: '2026-11-20T10:00:00.000Z', build_source: 'built', commit: COMMIT, fingerprint: 'fp-1', ...over });
+  const stampedSearch = (testVersion?: Record<string, unknown>) => async (req: { aggs: Record<string, any> }) =>
+    (req.aggs.runs?.terms ? runsResponse(testVersion) : routeSearch()(req));
+
+  it('reads the current fingerprints once and states each run\'s version', async () => {
+    const deps = makeDeps({ getCurrentFingerprints: vi.fn(async () => new Map([[BUNDLE, 'fp-1']])) });
+    deps.client.search.mockImplementation(stampedSearch(stamp()));
+    const report = await new ExecutionReportService(settings, deps).generate(params(), NOW);
+    expect(deps.getCurrentFingerprints).toHaveBeenCalledTimes(1);
+    expect(report.runs.map((r) => r.version)).toEqual([{ commit: COMMIT, state: 'current' }]);
+  });
+
+  it('reads them in parallel with the report queries, not after them', async () => {
+    let called!: () => void;
+    const lookupStarted = new Promise<void>((resolve) => { called = resolve; });
+    const deps = makeDeps({ getCurrentFingerprints: vi.fn(async () => { called(); return new Map([[BUNDLE, 'fp-1']]); }) });
+    // The runs query answers only once the lookup has started (or fails after 500 ms).
+    deps.client.search.mockImplementation(async (req: { aggs: Record<string, any> }) => {
+      if (req.aggs.runs?.terms) {
+        await Promise.race([lookupStarted, new Promise((_, reject) => setTimeout(() => reject(new Error('lookup not started')), 500))]);
+      }
+      return stampedSearch(stamp())(req);
+    });
+    const report = await new ExecutionReportService(settings, deps).generate(params(), NOW);
+    expect(report.runs[0].version).toEqual({ commit: COMMIT, state: 'current' });
+  });
+
+  it('says older when the fingerprint differs from the current one', async () => {
+    const deps = makeDeps({ getCurrentFingerprints: vi.fn(async () => new Map([[BUNDLE, 'fp-2']])) });
+    deps.client.search.mockImplementation(stampedSearch(stamp()));
+    const report = await new ExecutionReportService(settings, deps).generate(params(), NOW);
+    expect(report.runs[0].version).toEqual({ commit: COMMIT, state: 'older' });
+  });
+
+  it('says not recorded when no member carries a version', async () => {
+    const deps = makeDeps({ getCurrentFingerprints: vi.fn(async () => new Map([[BUNDLE, 'fp-1']])) });
+    const report = await new ExecutionReportService(settings, deps).generate(params(), NOW);
+    expect(report.runs[0].version).toEqual({ commit: null, state: 'not_recorded' });
+  });
+
+  it.each([
+    ['resolves undefined', () => Promise.resolve(undefined)],
+    ['rejects', () => Promise.reject(new Error('library unreadable'))],
+    ['throws', () => { throw new Error('library unreadable'); }],
+  ])('drops the state but keeps the commit when the fingerprint lookup %s', async (_label, impl) => {
+    const deps = makeDeps({ getCurrentFingerprints: vi.fn(impl) });
+    deps.client.search.mockImplementation(stampedSearch(stamp()));
+    const report = await new ExecutionReportService(settings, deps).generate(params(), NOW);
+    expect(report.runs[0].version).toEqual({ commit: COMMIT });
+    expect(report.meta.unavailable).toEqual([]);
+    expect(report.meta.warnings).toEqual([]);
+    expect(report.defenseScore).not.toBeNull();
+  });
+
+  it('still says not recorded for a run without a version when the lookup fails', async () => {
+    const deps = makeDeps({ getCurrentFingerprints: vi.fn(async () => { throw new Error('library unreadable'); }) });
+    const report = await new ExecutionReportService(settings, deps).generate(params(), NOW);
+    expect(report.runs[0].version).toEqual({ commit: null, state: 'not_recorded' });
+    expect(report.meta.unavailable).toEqual([]);
+  });
+
+  it('gives up on a lookup that outlives the time budget, and still builds the report', async () => {
+    const deps = makeDeps({ budgetMs: 40, getCurrentFingerprints: vi.fn(() => new Promise(() => {})) });
+    deps.client.search.mockImplementation(stampedSearch(stamp()));
+    const started = Date.now();
+    const report = await new ExecutionReportService(settings, deps).generate(params(), NOW);
+    expect(Date.now() - started).toBeLessThan(2_000);
+    expect(report.runs[0].version).toEqual({ commit: COMMIT });
+    expect(report.totals.runs).toBe(1);
+    // The budget it used up can cost enrichments (their own warnings); the lookup adds no warning of its own.
+    expect(report.meta.warnings.filter((w) => /version/i.test(w))).toEqual([]);
+  });
+
+  it('changes nothing else in the payload', async () => {
+    const before = await new ExecutionReportService(settings, makeDeps()).generate(params(), NOW);
+    const deps = makeDeps({ getCurrentFingerprints: vi.fn(async () => new Map([[BUNDLE, 'fp-2']])) });
+    deps.client.search.mockImplementation(stampedSearch(stamp()));
+    const after = await new ExecutionReportService(settings, deps).generate(params(), NOW);
+    expect(after.runs[0].version).toEqual({ commit: COMMIT, state: 'older' });
+    const withoutVersion = (r: typeof before) => ({
+      ...r,
+      meta: { ...r.meta, reportId: 'RPT' },
+      runs: r.runs.map(({ version: _version, ...run }) => run),
+    });
+    expect(withoutVersion(after)).toEqual(withoutVersion(before));
+    expect(Object.keys(after.runs[0]).sort()).toEqual([...Object.keys(withoutVersion(before).runs[0]), 'version'].sort());
   });
 });
 

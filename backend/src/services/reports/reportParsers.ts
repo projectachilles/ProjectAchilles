@@ -7,8 +7,9 @@ import { EDR_VENDORS, EDR_VENDOR_KEYS } from '../outcomes/vendors.js';
 import type { EdrVendorKey } from '../outcomes/vendors.js';
 import { techniqueInfo } from '../../data/attackTechniques.js';
 import { tacticName, tacticRank } from '../../data/attackTactics.js';
+import { documentVersion } from '../analytics/testVersionState.js';
 import type {
-  OutcomeCounts, ReportActor, ReportHost, ReportRun, ReportRunStage, ReportStage,
+  OutcomeCounts, ReportActor, ReportHost, ReportRun, ReportRunStage, ReportRunVersion, ReportStage,
   ReportTechnique, ReportTest, ReportTimelineBucket,
 } from '../../types/reports.js';
 
@@ -209,7 +210,21 @@ export function taskIdFromDocId(docId: string, testKey: string): string | null {
   return UUID_RE.test(prefix) && prefix !== testKey ? prefix : null;
 }
 
-export function parseRuns(response: Agg): ReportRun[] {
+/**
+ * The run's test version: from the first member document that records one (a stage document can
+ * lack it), with its state when `current` (test uuid -> fingerprint of the synced library) is known.
+ * No member records one: not recorded, which needs no comparison.
+ */
+function runVersion(hits: Agg[], current: Map<string, string> | undefined): ReportRunVersion {
+  for (const h of hits) {
+    const { test_version, version_state } = documentVersion(h._source ?? {}, current);
+    if (test_version) return { commit: test_version.commit ?? null, ...(version_state && { state: version_state }) };
+  }
+  return { commit: null, state: 'not_recorded' };
+}
+
+/** `current`: the synced library's fingerprint per test; undefined when it could not be read (no state then). */
+export function parseRuns(response: Agg, current?: Map<string, string>): ReportRun[] {
   return buckets(response?.aggregations?.runs).map((b) => {
     const key = String(b.key);
     const [kind, testKey = '', hostname = '', epoch = ''] = key.split('::');
@@ -269,6 +284,7 @@ export function parseRuns(response: Agg): ReportRun[] {
       alerts: [],
       alertsChecked: false,
       ...(agentTerminated && { agentTerminated }),
+      version: runVersion(hits, current),
     };
   });
 }
