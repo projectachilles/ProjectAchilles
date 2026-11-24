@@ -67,6 +67,7 @@ vi.mock('child_process', async () => {
 });
 
 const { BuildService, BuildError } = await import('../buildService.js');
+const { deriveStatus } = await import('../../browser/testVersionStatus.js');
 type TestsSettingsService = import('../settings.js').TestsSettingsService;
 
 // ── Helpers ──────────────────────────────────────────────────────────
@@ -2122,6 +2123,103 @@ var data string
       await svc.buildAndSign(VALID_UUID);
       expect(writtenStamp().outputs_hash).toBeNull();
       expect(svc.currentOutputsHash(VALID_UUID)).toBeNull();
+    });
+
+    describe('deps_hash', () => {
+      // A compressed helper the script compiles, signs and gzips into the test
+      // folder. No source-built rule matches the `.exe.gz` name, so it is
+      // classed as external (uploaded) and covered by deps_hash.
+      const helper = 'helper.exe.gz';
+
+      function embedHelper(): void {
+        put(`${testDir}/main.go`, `${files.get(`${testDir}/main.go`)!.toString('utf8')}//go:embed ${helper}\nvar helper []byte\n`);
+        put(`${testDir}/build_all.sh`, `${files.get(`${testDir}/build_all.sh`)!.toString('utf8')}${[
+          'go build -o helper.exe ./helper',
+          'gzip -9 -k helper.exe',
+          `mv helper.exe.gz "$SCRIPT_DIR/${helper}"`,
+          '',
+        ].join('\n')}`);
+      }
+
+      /** The script also writes the helper, with different bytes on every run (signature time, gzip header). */
+      function scriptWritesHelper(): void {
+        const base = mockExecFileAsync.getMockImplementation()!;
+        mockExecFileAsync.mockImplementation(async (cmd: string, args: string[], opts?: unknown) => {
+          const result = await base(cmd, args, opts);
+          if (cmd === 'bash') put(`${testDir}/${helper}`, Buffer.from([0x1f, 0x8b, 0x08, 0x00, buildRuns, 0x42]));
+          return result;
+        });
+      }
+
+      it('classes the script-produced helper as external', () => {
+        embedHelper();
+        const dep = service().getEmbedDependencies(VALID_UUID).find(d => d.filename === helper);
+        expect(dep).toMatchObject({ sourceBuilt: false });
+      });
+
+      it('a build whose script produces an external-classed embed stamps deps_hash from the file as it is after the build', async () => {
+        embedHelper();
+        scriptWritesHelper();
+        const svc = service();
+        const beforeBuild = svc.currentDepsHash(VALID_UUID);
+        expect(files.has(`${testDir}/${helper}`)).toBe(false);
+
+        await svc.buildAndSign(VALID_UUID);
+
+        const stamp = writtenStamp();
+        expect(stamp.deps_hash).toMatch(/^[0-9a-f]{64}$/);
+        expect(stamp.deps_hash).not.toBe(beforeBuild);
+        expect(stamp.deps_hash).toBe(svc.currentDepsHash(VALID_UUID));
+      });
+
+      it('a build whose script rewrites an external-classed embed that existed before stamps deps_hash from the rewritten file', async () => {
+        embedHelper();
+        scriptWritesHelper();
+        put(`${testDir}/${helper}`, Buffer.from([0x1f, 0x8b, 0x08, 0x00, 0xff, 0x00]));
+        const svc = service();
+        const beforeBuild = svc.currentDepsHash(VALID_UUID);
+
+        await svc.buildAndSign(VALID_UUID);
+
+        const stamp = writtenStamp();
+        expect(stamp.deps_hash).not.toBe(beforeBuild);
+        expect(stamp.deps_hash).toBe(svc.currentDepsHash(VALID_UUID));
+      });
+
+      it('an uploaded dependency the build does not touch has the same deps_hash as before the build', async () => {
+        const svc = service();
+        const beforeBuild = svc.currentDepsHash(VALID_UUID);
+        expect(beforeBuild).toMatch(/^[0-9a-f]{64}$/);
+
+        await svc.buildAndSign(VALID_UUID);
+
+        expect(writtenStamp().deps_hash).toBe(beforeBuild);
+      });
+
+      it('editing the dependency after the build changes currentDepsHash', async () => {
+        embedHelper();
+        scriptWritesHelper();
+        const svc = service();
+        await svc.buildAndSign(VALID_UUID);
+        const stamp = writtenStamp();
+        const statusInput = (currentDepsHash: string | null) => ({
+          build: { exists: true, source: 'built' as const, version: stamp },
+          synced: identity,
+          published: undefined,
+          publishedKnown: false,
+          hasGit: false,
+          currentDepsHash,
+          currentOutputsHash: svc.currentOutputsHash(VALID_UUID),
+        });
+        expect(deriveStatus(statusInput(svc.currentDepsHash(VALID_UUID)))).toEqual({ status: 'up_to_date' });
+
+        // Someone replaces the helper after the build: the binary no longer embeds what is on disk.
+        put(`${testDir}/${helper}`, Buffer.from([0x1f, 0x8b, 0x08, 0x00, 0x99, 0x99]));
+
+        expect(svc.currentDepsHash(VALID_UUID)).not.toBe(stamp.deps_hash);
+        expect(deriveStatus(statusInput(svc.currentDepsHash(VALID_UUID))))
+          .toEqual({ status: 'rebuild_needed', reason: 'dependency_changed' });
+      });
     });
   });
   // ── go.mod restore ────────────────────────────────────────

@@ -700,12 +700,12 @@ const ARTIFACT_DIR = \`${artifactDir}\`
     // Read the version identity BEFORE compiling: the build compiles the
     // working tree as it is now, and a sync could change it mid-build. A
     // failure here only costs the stamp, never the build.
-    let versionBefore: { identity: TestVersionIdentity; modified: boolean; depsHash: string | null } | null = null;
+    let versionBefore: { identity: TestVersionIdentity; modified: boolean } | null = null;
     if (this.versionSource) {
       try {
         const current = await this.versionSource.current(uuid);
         if (current) {
-          versionBefore = { ...current, depsHash: this.currentDepsHash(uuid) };
+          versionBefore = current;
         } else {
           console.warn('Build of %s will not record its version: no version available for this test', uuid);
         }
@@ -1063,14 +1063,23 @@ const ARTIFACT_DIR = \`${artifactDir}\`
   /**
    * Final stamp: the identity read before the build plus the SHA-256 of every
    * artifact as it is now (after signing, which rewrites the file), and the
-   * source-built embed dependencies as the build left them (build_all.sh and
-   * every cleanup step have finished; nothing after this point touches the
-   * test folder). null when an artifact can't be read: no stamp is better
-   * than a wrong one.
+   * embed dependencies, uploaded and source-built, as the build left them
+   * (build_all.sh and every cleanup step have finished; nothing after this
+   * point touches the test folder). null when an artifact can't be read: no
+   * stamp is better than a wrong one.
+   *
+   * deps_hash is taken here, not before the build, because a build_all.sh can
+   * itself write an embedded file that is classed as uploaded (a gzipped
+   * helper no source-built rule matches). An uploaded dependency does not
+   * change during a build (uploads are refused while the test builds), so its
+   * hash is the same before and after; a file the script produced only
+   * changes when a build runs, and a build rewrites the stamp. So a difference
+   * between the stamped and the current hash means the file changed after
+   * the build.
    */
   private stampVersion(
     uuid: string,
-    before: { identity: TestVersionIdentity; modified: boolean; depsHash: string | null },
+    before: { identity: TestVersionIdentity; modified: boolean },
     buildDir: string,
     artifacts: NonNullable<BuildMetadata['binaries']>,
   ): BuildVersionStamp | null {
@@ -1083,7 +1092,7 @@ const ARTIFACT_DIR = \`${artifactDir}\`
       }
       return {
         ...before.identity,
-        deps_hash: before.depsHash,
+        deps_hash: this.currentDepsHash(uuid),
         outputs_hash: this.currentOutputsHash(uuid),
         modified: before.modified,
         binaries,
