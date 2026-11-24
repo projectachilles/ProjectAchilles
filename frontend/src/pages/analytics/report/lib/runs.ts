@@ -5,6 +5,7 @@ import { agentKillNote, killVendorLabel } from '../../components/executions/stag
 import { timeOf, truncate } from './format';
 import { emptyCounts } from './outcomes';
 import { findEdrVendor } from '@/lib/edrVendors';
+import { VERSION_STATE_LABEL } from '../../components/executions/versionLabels';
 
 /** Longest stage name printed beside a stage label in an alert row. */
 const STAGE_NAME_MAX = 34;
@@ -13,6 +14,37 @@ export function countStages(stages: ReportRunStage[]): OutcomeCounts {
   const c = emptyCounts();
   for (const s of stages) c[s.outcome] += 1;
   return c;
+}
+
+/** Which version sentence the Method page prints (see runVersionsBasis). */
+export type RunVersionsBasis = 'compared' | 'not_compared' | 'not_recorded';
+
+/**
+ * Which version sentence the Method page prints, from what the runs carry:
+ * - 'compared': a run has a state other than not recorded (the library was read);
+ * - 'not_compared': otherwise, a run has a commit, or neither a commit nor a state (it prints
+ *   "version unknown"): the library could not be read when the report was generated;
+ * - 'not_recorded': otherwise, every run with a version is not recorded;
+ * - null: no run carries a version (a server without test versions sends none).
+ */
+export function runVersionsBasis(runs: ReportRun[]): RunVersionsBasis | null {
+  const versions = runs.flatMap((r) => (r.version ? [r.version] : []));
+  if (versions.some((v) => v.state !== undefined && v.state !== 'not_recorded')) return 'compared';
+  if (versions.some((v) => v.commit || v.state === undefined)) return 'not_compared';
+  return versions.length > 0 ? 'not_recorded' : null;
+}
+
+/**
+ * The run's version line in the Execution log: the 7-character commit, then its state's label for
+ * every state; the commit alone when it could not be compared (no state); with no commit, the
+ * state's label, or "version unknown" with no state either. null when the run carries no version.
+ */
+export function runVersionLine(run: ReportRun): { commit: string | null; word: string | null } | null {
+  const v = run.version;
+  if (!v) return null;
+  const commit = v.commit?.slice(0, 7) || null;
+  const word = v.state ? VERSION_STATE_LABEL[v.state] : (commit ? null : VERSION_STATE_LABEL.unknown);
+  return { commit, word };
 }
 
 /** The run's earliest alert. An alert whose time does not parse is never first. */

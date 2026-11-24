@@ -15,6 +15,7 @@ The Execution Table is the **All Executions** tab of Analytics: a paginated, fil
 - **Sorting** — Sort by time, test name, hostname, result, category or score, ascending or descending
 - **Advanced filtering** — Filter by result, hostname, category, threat actor, tags, error name, error code, bundle, test, technique and date range
 - **Outcome chip** — Opening the table from the dashboard's Outcome breakdown card filters it to that outcome (Protected, Prevented, Detected only or Silent). An "Outcome: …" chip above the table removes the filter
+- **Test version** — each run shows the short commit of the test it ran and its state, compared with the test as it is synced now: **current**, **older**, **version unknown** or **not recorded**. The run's detail has a **Test version** block, the **Version** filter narrows the list to one state, and the CSV ends with the columns `version` and `version_state`. See [Test Versions](../test-browser/test-versions#versions-on-results)
 - **Export** — CSV, JSON, the [PDF report](./execution-report) and the SB Export. CSV and JSON hold every matching result, not only the current page, up to 10,000. See [Data Export](./defense-score#data-export)
 - **Bulk actions** — Tick runs to accept risk or archive them together
 

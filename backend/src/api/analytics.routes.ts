@@ -16,7 +16,7 @@ import type { AnalyticsQueryParams, ExtendedAnalyticsQueryParams, PaginatedExecu
 import { EXECUTION_VERDICTS } from '../types/analytics.js';
 import type { ResultVersionState } from '../types/testVersion.js';
 import { RESULT_VERSION_STATES, MAX_VERSION_FILTER_TESTS } from '../services/analytics/testVersionState.js';
-import { getTestVersionsService } from '../services/browser/testVersions.service.js';
+import { currentFingerprintMap } from '../services/browser/currentFingerprints.js';
 
 const router = Router();
 
@@ -325,26 +325,15 @@ router.get('/defense-score/by-technique', asyncHandler(async (req, res) => {
 /**
  * Current fingerprint of every test the library can read (uuid -> fingerprint),
  * for the result version labels and the versionState filter. undefined when
- * the versions service is missing or the read fails: rows then carry no
- * version_state, and a versionState request is refused (503) when `required`.
+ * the versions service is missing, the read fails, or it takes more than
+ * VERSION_READ_BUDGET_MS (5 s, bounded in currentFingerprintMap): rows then
+ * carry no version_state, and a versionState request is refused (503) when
+ * `required`.
  */
 async function currentFingerprints(required: boolean): Promise<Map<string, string> | undefined> {
-  const unavailable = () => new AppError('Test versions are not available', 503);
-  const service = getTestVersionsService();
-  if (!service) {
-    if (required) throw unavailable();
-    return undefined;
-  }
-  try {
-    const map = new Map<string, string>();
-    for (const [uuid, identity] of await service.synced()) map.set(uuid, identity.fingerprint);
-    return map;
-  } catch (err) {
-    // Fixed text and the error class only: git messages can carry a remote URL.
-    console.warn('Could not read the current test versions (%s)', err instanceof Error ? err.name : 'error');
-    if (required) throw unavailable();
-    return undefined;
-  }
+  const map = await currentFingerprintMap();
+  if (!map && required) throw new AppError('Test versions are not available', 503);
+  return map;
 }
 
 // GET /api/analytics/executions - Recent executions

@@ -9,6 +9,7 @@ import {
   getTestVersionsService,
 } from '../testVersions.service.js';
 import type { GitSyncService } from '../gitSyncService.js';
+import { FINGERPRINT_RULE_VERSION } from '../versionIdentity.js';
 import type { TreeEntry } from '../versionIdentity.js';
 
 const UUID_A = 'a1b2c3d4-e5f6-7890-abcd-ef1234567890';
@@ -336,6 +337,40 @@ describe('TestVersionsService', () => {
     });
   });
 
+  it.each([true, false])('a folder test that cannot be read is left out, the others are returned (git %s)', async (git) => {
+    const UUID_BAD = 'e1b2c3d4-e5f6-7890-abcd-ef1234567890';
+    const badDir = path.join(tmp, 'custom', UUID_BAD);
+    fs.mkdirSync(badDir, { recursive: true });
+    fs.writeFileSync(path.join(badDir, 'main.go'), 'package main\n');
+    fs.chmodSync(path.join(badDir, 'main.go'), 0o000);
+    try {
+      const svc = new TestVersionsService({
+        gitSync: git ? (fake as unknown as GitSyncService) : undefined,
+        sourceSubdir: 'tests_source',
+        listTests: () => [
+          { uuid: UUID_A, dir: path.join(repo, 'tests_source', 'intel-driven', UUID_A), provenance: 'upstream' },
+          { uuid: UUID_BAD, dir: badDir, provenance: 'custom' },
+          { uuid: UUID_CUSTOM, dir: customDir, provenance: 'custom' },
+        ],
+        stateFile: path.join(tmp, 'state', 'published.json'),
+      });
+      const ids = await svc.synced();
+      expect(ids.has(UUID_BAD)).toBe(false);
+      expect(ids.has(UUID_CUSTOM)).toBe(true);
+      expect(ids.has(UUID_A)).toBe(true);
+      expect(warn).toHaveBeenCalledTimes(1);
+      expect(warn).toHaveBeenCalledWith('Could not read the version of test %s (%s)', UUID_BAD, 'Error');
+      // Read again (the failure is not cached): no second line for the same failure.
+      await svc.synced();
+      expect(warn).toHaveBeenCalledTimes(1);
+      // Readable again: it is back.
+      fs.chmodSync(path.join(badDir, 'main.go'), 0o644);
+      expect((await svc.synced()).has(UUID_BAD)).toBe(true);
+    } finally {
+      fs.chmodSync(path.join(badDir, 'main.go'), 0o644);
+    }
+  });
+
   it('a git test missing from the HEAD tree gets no identity and no stamp', async () => {
     fake.listTree.mockResolvedValue([]);
     const svc = makeService();
@@ -517,6 +552,49 @@ describe('TestVersionsService', () => {
       expect(svc.published().commit).toBe('beef01');
       fs.rmSync(stateFile());
       expect(svc.published().commit).toBe('beef01');
+    });
+
+    describe('fingerprint rule of the stored state', () => {
+      /** The state file a check wrote, with its rule number replaced (undefined removes it). */
+      async function storedWithRule(rule: number | undefined): Promise<void> {
+        await makeService().check();
+        const raw = JSON.parse(fs.readFileSync(stateFile(), 'utf8')) as Record<string, unknown>;
+        expect(raw.fingerprintRule).toBe(FINGERPRINT_RULE_VERSION);
+        if (rule === undefined) delete raw.fingerprintRule;
+        else raw.fingerprintRule = rule;
+        fs.writeFileSync(stateFile(), JSON.stringify(raw));
+      }
+
+      it('a check writes the current rule number, and a state with it is used', async () => {
+        await storedWithRule(FINGERPRINT_RULE_VERSION);
+        const state = makeService().published();
+        expect(state.commit).toBe('beef01');
+        expect(state.checkedAt).not.toBeNull();
+        expect(state.byTest.has(UUID_A)).toBe(true);
+      });
+
+      it.each([
+        ['without a rule number', undefined],
+        ['with another rule number', FINGERPRINT_RULE_VERSION - 1],
+      ])('a state %s is no published result', async (_label, rule) => {
+        await storedWithRule(rule);
+        const state = makeService().published();
+        expect(state.commit).toBeNull();
+        expect(state.checkedAt).toBeNull();
+        expect(state.byTest.size).toBe(0);
+        expect(state.newTests).toBe(0);
+      });
+
+      it('a running process drops what it holds when another writes a state under another rule', async () => {
+        const svc = makeService();
+        await svc.check();
+        expect(svc.published().commit).toBe('beef01');
+        const raw = JSON.parse(fs.readFileSync(stateFile(), 'utf8')) as Record<string, unknown>;
+        raw.fingerprintRule = FINGERPRINT_RULE_VERSION + 1;
+        fs.writeFileSync(stateFile(), JSON.stringify(raw));
+        fs.utimesSync(stateFile(), new Date(), new Date(Date.now() + 5000));
+        expect(svc.published().commit).toBeNull();
+      });
     });
 
     it('the state file is written with a temp-file-then-rename', async () => {

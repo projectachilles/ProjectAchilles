@@ -2001,6 +2001,58 @@ var data string
       expect(createService().currentDepsHash(VALID_UUID)).not.toBe(first);
     });
 
+    // Files the content fingerprint leaves out by name (versionIdentity.ts).
+    // When a test embeds one, the embedded-files hash must still see it change.
+    describe('an embedded file the fingerprint leaves out by name', () => {
+      function embedding(name: string, content: string) {
+        mockExistsSync.mockImplementation((p: string) => p === testDir || p === `${testDir}/${name}`);
+        mockReadFileSync.mockImplementation((p: string) =>
+          p === `${testDir}/main.go` ? `//go:embed ${name}\nvar f []byte\n` : Buffer.from(content));
+        return createService();
+      }
+
+      it.each([
+        `${VALID_UUID}_hardening.ps1`,
+        `${VALID_UUID}_hardening_linux.sh`,
+        `${VALID_UUID}_hardening_linux.ps1`,
+        `${VALID_UUID}_sigma_rules.yml`,
+        `${VALID_UUID}_dr_rules.yaml`,
+      ])('%s is an uploaded embed dependency and changes currentDepsHash', (name) => {
+        const svc = embedding(name, 'one');
+        expect(svc.getEmbedDependencies(VALID_UUID)).toEqual([
+          { filename: name, sourceFile: 'main.go', exists: true, sourceBuilt: false },
+        ]);
+        const first = svc.currentDepsHash(VALID_UUID);
+        expect(first).toMatch(/^[0-9a-f]{64}$/);
+        expect(embedding(name, 'two').currentDepsHash(VALID_UUID)).not.toBe(first);
+      });
+
+      // Without the test's UUID prefix the name is a real script: a fingerprint
+      // input, never a dependency (it would block Build & Sign as missing).
+      it.each([
+        'apply_hardening.ps1',
+        'cis_hardening_linux.ps1',
+        '*_hardening.ps1',
+      ])('an embedded %s (a fingerprint input) is not an embed dependency', (name) => {
+        const svc = embedding(name, 'one');
+        expect(svc.getEmbedDependencies(VALID_UUID)).toEqual([]);
+        expect(svc.currentDepsHash(VALID_UUID)).toBeNull();
+      });
+
+      it('an embedded emergency_restore.ps1 (a fingerprint input) is still not an embed dependency', () => {
+        const svc = embedding('emergency_restore.ps1', 'one');
+        expect(svc.getEmbedDependencies(VALID_UUID)).toEqual([]);
+        expect(svc.currentDepsHash(VALID_UUID)).toBeNull();
+        expect(embedding('emergency_restore.ps1', 'two').currentDepsHash(VALID_UUID)).toBeNull();
+      });
+
+      it('an embedded .go file is still not an embed dependency', () => {
+        const svc = embedding('helper.go', 'package main');
+        expect(svc.getEmbedDependencies(VALID_UUID)).toEqual([]);
+        expect(svc.currentDepsHash(VALID_UUID)).toBeNull();
+      });
+    });
+
     it('versionSource.current is called before the compile step', async () => {
       const order: string[] = [];
       mockExecFileAsync.mockImplementation(async (cmd: string, args: string[]) => {
@@ -3056,8 +3108,185 @@ var data string
           // The build's own error, not a superseded one.
           await expect(service().buildAndSign(VALID_UUID)).rejects.toThrow(/undefined: foo/);
 
+          // voidedFields() strips version too: only this line fails on a put-back.
+          expect(readMeta()).not.toHaveProperty('version');
           expect(voidedFields()).toEqual(withoutVersion(prior.meta));
           expect(String(files.get(marker))).toBe(FOREIGN);
+        });
+
+        describe('a build over an unstamped binary records itself before it replaces the binary (H2)', () => {
+          const OLD_BUILT_AT = '2020-01-01T00:00:00.000Z';
+          /** The meta's fields a void keeps as they were (all but builtAt and source). */
+          const keptFields = (m: Record<string, unknown>) => {
+            const copy = { ...m };
+            delete copy.builtAt;
+            delete copy.source;
+            return copy;
+          };
+          /** Rewritten by a build: source built, no version, dated no earlier than `start`. */
+          function expectRewritten(meta: Record<string, unknown>, raw: string, start: number): void {
+            expect(meta).not.toHaveProperty('version');
+            expect(meta.source).toBe('built');
+            expect(meta.builtAt).not.toBe(OLD_BUILT_AT);
+            expect(Date.parse(meta.builtAt as string)).toBeGreaterThanOrEqual(start);
+            expect(keptFields(meta)).toEqual(keptFields(JSON.parse(raw) as Record<string, unknown>));
+          }
+          /** A binary uploaded by hand (uploadBinary's own meta), re-dated so a change is visible. */
+          function uploadedBinary(): string {
+            service().uploadBinary(VALID_UUID, Buffer.from([0x4D, 0x5A, 1, 2]));
+            const raw = JSON.stringify({ ...readMeta(), builtAt: OLD_BUILT_AT }, null, 2);
+            put(metaPath, raw);
+            return raw;
+          }
+          /** A binary built before test versions existed: source built, no version. */
+          function builtBeforeVersions(): string {
+            put(outputPath, 'plain binary v0');
+            const raw = JSON.stringify({
+              platform: { os: 'windows', arch: 'amd64' },
+              builtAt: OLD_BUILT_AT,
+              signed: false,
+              fileSize: 15,
+              filename: `${VALID_UUID}.exe`,
+              source: 'built',
+            }, null, 2);
+            put(metaPath, raw);
+            return raw;
+          }
+
+          describe.each([
+            ['an uploaded binary', uploadedBinary],
+            ['a binary built before test versions', builtBeforeVersions],
+          ])('over %s', (_label, prior) => {
+            it('while go build runs the meta reads source built, a newer builtAt and no version', async () => {
+              const raw = prior();
+              let during: Record<string, unknown> | undefined;
+              plainPath(out => {
+                during = JSON.parse(String(files.get(metaPath))) as Record<string, unknown>;
+                put(out, 'plain binary v1');
+              });
+              const start = Date.now();
+
+              await service().buildAndSign(VALID_UUID);
+
+              expect(during).toBeDefined();
+              expectRewritten(during!, raw, start);
+              expect(warn).not.toHaveBeenCalled();
+            });
+
+            it('a go build that fails and leaves the artifact unchanged puts the meta back byte for byte', async () => {
+              const raw = prior();
+              plainPath(() => { throw Object.assign(new Error('exit 1'), { stderr: './main.go:3: undefined: foo' }); });
+
+              await expect(service().buildAndSign(VALID_UUID)).rejects.toThrow(/undefined: foo/);
+
+              expect(String(files.get(metaPath))).toBe(raw);
+              expect(metaTemps()).toEqual([]);
+              expect(warn).not.toHaveBeenCalled();
+            });
+
+            it('a go build that changes the artifact and then fails leaves the meta rewritten', async () => {
+              const raw = prior();
+              plainPath(out => {
+                put(out, 'half-written');
+                throw Object.assign(new Error('exit 1'), { stderr: 'write failed' });
+              });
+              const start = Date.now();
+
+              await expect(service().buildAndSign(VALID_UUID)).rejects.toThrow(/write failed/);
+
+              expectRewritten(readMeta(), raw, start);
+              expect(metaTemps()).toEqual([]);
+            });
+
+            it('superseded before the failure: the artifact is unchanged, but the meta is never put back', async () => {
+              const raw = prior();
+              plainPath(() => {
+                put(marker, FOREIGN);
+                throw Object.assign(new Error('exit 1'), { stderr: './main.go:3: undefined: foo' });
+              });
+              const start = Date.now();
+
+              await expect(service().buildAndSign(VALID_UUID)).rejects.toThrow(/undefined: foo/);
+
+              expectRewritten(readMeta(), raw, start);
+              expect(String(files.get(marker))).toBe(FOREIGN);
+            });
+          });
+
+          it('build_all.sh over an uploaded binary, failing after its copy, leaves source built and no version', async () => {
+            const raw = uploadedBinary();
+            const base = mockStatSync.getMockImplementation()!;
+            mockStatSync.mockImplementation(((p: string) => {
+              if (p === outputPath) throw Object.assign(new Error('EIO: i/o error'), { code: 'EIO' });
+              return base(p);
+            }) as never);
+            const start = Date.now();
+
+            await expect(service().buildAndSign(VALID_UUID)).rejects.toThrow('EIO');
+
+            mockStatSync.mockImplementation(base);
+            expectRewritten(readMeta(), raw, start);
+            expect(String(files.get(outputPath))).toBe('orchestrator');
+            expect(warn).not.toHaveBeenCalled();
+          });
+
+          it('a meta with no binary beside it: nothing to prove, a failed go build leaves the meta rewritten', async () => {
+            const raw = builtBeforeVersions();
+            files.delete(outputPath);
+            plainPath(() => { throw Object.assign(new Error('exit 1'), { stderr: './main.go:3: undefined: foo' }); });
+            const start = Date.now();
+
+            await expect(service().buildAndSign(VALID_UUID)).rejects.toThrow(/undefined: foo/);
+
+            expectRewritten(readMeta(), raw, start);
+            expect(warn).not.toHaveBeenCalled();
+          });
+
+          it('an artifact that cannot be hashed before the void: the meta is still rewritten and never put back, with one warning', async () => {
+            const raw = builtBeforeVersions();
+            const base = mockReadFileSync.getMockImplementation()!;
+            // Only the first read of the artifact (the hash before the void) fails: the
+            // put-back's own read succeeds and the artifact is unchanged, so the missing
+            // pre-void hash is the only thing that can stop the restore.
+            let artifactReads = 0;
+            mockReadFileSync.mockImplementation(((p: string, enc?: unknown) => {
+              if (p === outputPath && artifactReads++ === 0) throw Object.assign(new Error('EIO: i/o error'), { code: 'EIO' });
+              return base(p, enc);
+            }) as never);
+            plainPath(() => { throw Object.assign(new Error('exit 1'), { stderr: './main.go:3: undefined: foo' }); });
+            const start = Date.now();
+
+            await expect(service().buildAndSign(VALID_UUID)).rejects.toThrow(/undefined: foo/);
+
+            mockReadFileSync.mockImplementation(base);
+            expect(String(files.get(outputPath))).toBe('plain binary v0');
+            expectRewritten(readMeta(), raw, start);
+            expect(warn).toHaveBeenCalledTimes(1);
+            expect(warn.mock.calls[0].map(String).join(' ')).toContain(VALID_UUID);
+          });
+
+          it('a stamped meta is rewritten with source built too', async () => {
+            plainPath(out => put(out, 'plain binary v1'));
+            await stampedBuild();
+            // Another source only so that the void's `source: 'built'` is visible.
+            const raw = JSON.stringify({ ...readMeta(), builtAt: OLD_BUILT_AT, source: 'uploaded' }, null, 2);
+            put(metaPath, raw);
+            let during: Record<string, unknown> | undefined;
+            plainPath(() => {
+              during = JSON.parse(String(files.get(metaPath))) as Record<string, unknown>;
+              throw Object.assign(new Error('exit 1'), { stderr: './main.go:3: undefined: foo' });
+            });
+            const start = Date.now();
+
+            await expect(service().buildAndSign(VALID_UUID)).rejects.toThrow(/undefined: foo/);
+
+            expect(during).toBeDefined();
+            expect(during!.source).toBe('built');
+            expect(during).not.toHaveProperty('version');
+            expect(Date.parse(during!.builtAt as string)).toBeGreaterThanOrEqual(start);
+            // The stamped hash still matches: the put-back is unchanged.
+            expect(String(files.get(metaPath))).toBe(raw);
+          });
         });
 
         it('a successful rebuild ends with the new stamp', async () => {

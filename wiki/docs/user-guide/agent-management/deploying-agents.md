@@ -68,10 +68,11 @@ code. Which code is built depends on the install:
   commit of that repository before every build, and fail the build when they
   cannot reach it.
 
-The version's release notes record what was built, for example
-`Built from source (windows/amd64) at 1bbe749`, and add `(source says 0.7.3)`
-when the version in the source differs from the one you typed. Check them
-before agents pick the version up.
+**Registered Versions** shows what was built in its **Source** column: the
+commit, for example `1bbe749`, and an amber `source says 0.7.3` when the
+version in the source differs from the one you typed. Check it before agents
+pick the version up. An amber line means old code was built under the new
+number: update the server's code and build again under a new version number.
 
 Signing failure on this path is non-fatal by design (the build still produced a
 working binary), so check that **Registered Versions** shows the version as

@@ -80,6 +80,23 @@ export function makeRun(over: Partial<ReportRun> = {}): ReportRun {
   };
 }
 
+/** A full commit; the report prints its first 7 characters. */
+export const COMMIT = 'abc1234' + '0'.repeat(33);
+
+/**
+ * Runs as a server with test versions sends them: current, older, a build that recorded no commit
+ * and could not be compared, and a run with no version recorded. makeReport()'s default runs carry
+ * no version (a server without the feature).
+ */
+export function versionedRuns(): ReportRun[] {
+  return [
+    makeRun({ version: { commit: COMMIT, state: 'current' } }),
+    makeRun({ hostname: 'WS-0042', completedAt: '2026-10-12T10:00:00.000Z', taskId: '1d6f3a2b-8c4e-4b7a-9e15-2f0c6d8a4b31', version: { commit: 'def5678' + '0'.repeat(33), state: 'older' } }),
+    makeRun({ hostname: 'WS-0043', completedAt: '2026-10-12T09:00:00.000Z', taskId: '5a9c2e71-4f3b-4d86-a0b2-7e1d9c3f6a54', version: { commit: null, state: 'unknown' } }),
+    makeRun({ hostname: 'WS-OPS-022', completedAt: '2026-10-11T09:12:00.000Z', taskId: '9e1b7c52-3d84-4a6f-b0c9-5f2a8d71e346', alerts: [], version: { commit: null, state: 'not_recorded' } }),
+  ];
+}
+
 export function makeWindow(over: Partial<ReportWindow> = {}): ReportWindow {
   return {
     preset: '30d',

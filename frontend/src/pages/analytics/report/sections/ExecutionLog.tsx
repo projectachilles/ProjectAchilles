@@ -1,7 +1,7 @@
 import type { ExecutionReport, ReportRun } from '@/services/api/reports';
 import { conclusive, defended } from '../lib/outcomes';
 import { fmtCount, fmtDate, fmtLatency, fmtTime, plural, truncate } from '../lib/format';
-import { agentKillText, countStages, firstAlert, vendorName } from '../lib/runs';
+import { agentKillText, countStages, firstAlert, runVersionLine, vendorName } from '../lib/runs';
 import { GlyphRow, OutcomeLegend } from '../diagrams/StageGlyph';
 import { Sheet, type SheetHead } from './Sheet';
 import { AlertsIncompleteNote } from './scope';
@@ -44,9 +44,20 @@ export function ExecutionLog({ report, head }: { report: ExecutionReport; head: 
         <tbody>
           {runs.map((r) => {
             const c = countStages(r.stages);
+            const version = runVersionLine(r);
             return (
               <tr key={r.key}>
-                <td className="rp-mono rp-nowrap">{fmtDate(r.completedAt, tz)} {fmtTime(r.completedAt, tz)}</td>
+                {/* The version line sits under the time: a column of its own widened the table past A4 next to a full Stages cell. */}
+                <td className="rp-mono rp-nowrap">
+                  {`${fmtDate(r.completedAt, tz)} ${fmtTime(r.completedAt, tz)}`}
+                  {version && (
+                    <p className="rp-caption rp-version">
+                      {version.commit && <span className="rp-mono">{version.commit}</span>}
+                      {version.commit && version.word && ' '}
+                      {version.word}
+                    </p>
+                  )}
+                </td>
                 <td className="rp-mono rp-id">{r.hostname}</td>
                 <td>{truncate(r.testName, 40)}</td>
                 {/* A kill run's one doc is the whole test, not a stage: its stages are unknown. */}

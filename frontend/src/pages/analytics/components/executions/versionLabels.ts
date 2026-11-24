@@ -1,6 +1,9 @@
 import type { EnrichedTestExecution, ResultVersionState } from '@/services/api/analytics';
 
-/** What a result's version state is called everywhere on the Executions screen (and in the CSV). */
+/**
+ * What a result's version state is called everywhere on the Executions screen (and in the CSV).
+ * The campaign CSV's VERSION_STATE_CSV_LABEL (backend) must match: versionLabels.parity.test.ts.
+ */
 export const VERSION_STATE_LABEL: Record<ResultVersionState, string> = {
   current: 'current',
   older: 'older',

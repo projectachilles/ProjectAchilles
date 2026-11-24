@@ -1,5 +1,5 @@
 import { apiClient } from '@/hooks/useAuthenticatedApi';
-import type { ExtendedFilterParams, StageCoverageResponse } from './analytics';
+import type { ExtendedFilterParams, ResultVersionState, StageCoverageResponse } from './analytics';
 import type { EdrVendorKey } from '@/lib/edrVendors';
 
 // ─── SB-PC-2026-001 compliance report ─────────────────────────────
@@ -292,6 +292,14 @@ export interface ReportAlert {
   autoResolvedAt: string | null;
 }
 
+/** The version of the test that produced a run. */
+export interface ReportRunVersion {
+  /** Full commit the test binary was built from; null for a custom test, an unstamped build or no record. */
+  commit: string | null;
+  /** Omitted when the synced library could not be read while the report was built. */
+  state?: ResultVersionState;
+}
+
 export interface ReportRun {
   key: string;
   testKey: string;
@@ -311,6 +319,8 @@ export interface ReportRun {
   alertsChecked: boolean;
   /** Set when the EDR killed the agent during this run: protected as a whole, stages unknown. */
   agentTerminated?: { vendors: EdrVendorKey[]; alertIds: string[] };
+  /** Compared with the test library synced on the console when the report was generated; absent from servers without test versions. */
+  version?: ReportRunVersion;
 }
 
 export interface AcceptedRiskRow {

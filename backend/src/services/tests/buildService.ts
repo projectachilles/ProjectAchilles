@@ -12,7 +12,7 @@ import { BuildJobs } from './buildJobs.js';
 import { describeCommandFailure } from '../shared/commandFailure.js';
 import { buildSubprocessEnv } from './buildEnv.js';
 import { isUsableSourceRoot } from '../browser/repositoryRoot.js';
-import { hashFiles } from '../browser/versionIdentity.js';
+import { hashFiles, isBuildInput } from '../browser/versionIdentity.js';
 import { sanitizeGitError } from '../browser/gitSyncService.js';
 import { AppError } from '../../middleware/error.middleware.js';
 import type { BuildVersionStamp, TestVersionIdentity } from '../../types/testVersion.js';
@@ -214,6 +214,19 @@ export interface BuildMarkerHandle {
  * error other than ENOENT (EMFILE, EIO...), so ownership is unknown.
  */
 type MarkerState = 'ours' | 'foreign' | 'gone' | 'unreadable';
+
+/** What a void of build-meta.json hands the put-back (see voidPreviousStamp). */
+interface VoidedMeta {
+  /** build-meta.json as it was before the void. */
+  raw: string;
+  /**
+   * For a meta with no version stamp: the artifact's SHA-256 taken just
+   * before the void. null when there was no artifact, when it can't be hashed,
+   * and on the build_all.sh path (which never puts the meta back). A stamped
+   * meta is proven by its stamp instead, so this stays null for it.
+   */
+  hashBefore: string | null;
+}
 
 /** What a build reads before compiling, for its stamp. */
 interface VersionBefore {
@@ -923,7 +936,9 @@ const ARTIFACT_DIR = \`${artifactDir}\`
       while ((match = embedRegex.exec(content)) !== null) {
         const filename = match[1];
         // Skip .go and .ps1 files — those are source that build_all.sh handles
-        if (filename.endsWith('.go') || filename.endsWith('.ps1')) continue;
+        // A .ps1 normally counts through the source fingerprint; one the fingerprint
+        // leaves out by name must be covered here, or nothing would notice it change.
+        if (filename.endsWith('.go') || (filename.endsWith('.ps1') && isBuildInput(filename))) continue;
         const exists = fs.existsSync(path.join(testDir, filename));
         const sourceBuilt = isSourceBuiltBinary(filename, uuid, goFileSet, buildScript);
         deps.push({ filename, sourceFile: goFile, exists, sourceBuilt });
@@ -1265,7 +1280,7 @@ const ARTIFACT_DIR = \`${artifactDir}\`
           this.resolveInside(testDir, filename),
         ];
         let found = false;
-        // The first write that replaces the previous artifact: its stamp goes first.
+        // The first write that replaces the previous artifact: its meta is voided first.
         let stampVoided = false;
         const voidStampOnce = (): void => {
           if (!stampVoided) this.voidPreviousStamp(uuid);
@@ -1358,10 +1373,10 @@ const ARTIFACT_DIR = \`${artifactDir}\`
           // File-list mode ("go build a.go b.go") doesn't resolve cross-platform build tags
           // on transitive dependencies, causing failures for windows-only imports on Linux.
           this.refreshBuildMarker(marker, uuid);
-          // go build writes the artifact in place: void the previous stamp
+          // go build writes the artifact in place: void the previous meta
           // first, and put it back only when the step failed and the artifact
-          // provably still is the stamped one.
-          const voided = this.voidPreviousStamp(uuid);
+          // provably is untouched.
+          const voided = this.voidPreviousStamp(uuid, outputPath);
           try {
             await runBuildCommand('go', ['build', '-o', outputPath, '.'], {
               cwd: testDir,
@@ -1507,16 +1522,23 @@ const ARTIFACT_DIR = \`${artifactDir}\`
 
   /**
    * Before a build first writes over the previous artifact: rewrite
-   * build-meta.json without its version stamp and with `builtAt` set to now
-   * (every other field kept), so a
-   * build that then fails, is superseded or dies leaves "Unknown build", never
-   * the old stamp beside bytes it does not describe. A successful build writes
-   * its full meta at the end. Returns the original text when a stamp was
-   * voided, else null. Never fails the build: a meta that can't be read,
-   * parsed or rewritten is left as it is, with a warning (an unparseable one
-   * already reads as no build).
+   * build-meta.json without its version stamp, with `builtAt` set to now and
+   * `source: 'built'` (every other field kept), also when it has no stamp (an
+   * uploaded binary, or one built before test versions), so a build that
+   * then fails, is superseded or dies leaves "Unknown build" dated by this
+   * build, never the old record beside bytes it does not describe. A
+   * successful build writes its full meta at the end. With `artifact` (the
+   * go build path, whose failure may put the meta back), an unstamped meta's
+   * artifact is hashed first: the proof restoreStampIfUntouched needs, since
+   * there is no stamped hash. A missing artifact proves nothing, and neither
+   * does one that can't be hashed (with a warning): the meta is still
+   * rewritten, and a failed build never puts it back, as for a stamped meta
+   * whose artifact changed. Returns the original text (and that hash, or
+   * null) when the meta was rewritten, else null. Never fails the build: a
+   * meta that can't be read, parsed or rewritten is left as it is, with a
+   * warning (an unparseable one already reads as no build).
    */
-  private voidPreviousStamp(uuid: string): string | null {
+  private voidPreviousStamp(uuid: string, artifact?: string): VoidedMeta | null {
     const metaFile = this.metaPath(uuid);
     if (!fs.existsSync(metaFile)) return null;
     try {
@@ -1525,44 +1547,72 @@ const ARTIFACT_DIR = \`${artifactDir}\`
       if (typeof parsed !== 'object' || parsed === null || Array.isArray(parsed)) {
         throw new Error('build-meta.json is not an object');
       }
-      if (!('version' in parsed)) return null;
+      const hashBefore = !('version' in parsed) && artifact !== undefined
+        ? this.hashBeforeVoid(uuid, artifact)
+        : null;
       const meta: Record<string, unknown> = { ...parsed };
       delete meta.version;
       // The bytes are about to change: a task created from here on must not
-      // carry the previous build's time beside them. The put-back after a
-      // failed go build restores the original text, old builtAt included.
+      // carry the previous build's time or source beside them. The put-back
+      // after a failed go build restores the original text, old builtAt and
+      // source included.
       meta.builtAt = new Date().toISOString();
+      meta.source = 'built';
       this.writeFileAtomic(metaFile, JSON.stringify(meta, null, 2));
-      return raw;
+      return { raw, hashBefore };
     } catch (err) {
-      console.warn('Build of %s could not clear the previous version stamp: %s', uuid,
+      console.warn('Build of %s could not rewrite the previous build record: %s', uuid,
         err instanceof Error ? err.message : String(err));
       return null;
     }
   }
 
   /**
+   * The artifact's SHA-256 just before an unstamped meta is voided, for
+   * restoreStampIfUntouched. null when there is no artifact (nothing to
+   * prove) or it can't be read (with a warning): either way a failed build
+   * then leaves the meta voided.
+   */
+  private hashBeforeVoid(uuid: string, artifact: string): string | null {
+    try {
+      return crypto.createHash('sha256').update(fs.readFileSync(artifact)).digest('hex');
+    } catch (err) {
+      if ((err as NodeJS.ErrnoException).code !== 'ENOENT') {
+        console.warn('Build of %s could not hash the previous artifact, so a failed build keeps the rewritten build record: %s',
+          uuid, err instanceof Error ? err.message : String(err));
+      }
+      return null;
+    }
+  }
+
+  /**
    * After a failed `go build`: put the voided meta back only while this
-   * build still holds its marker and the artifact's SHA-256 still equals the
-   * one its stamp recorded (go writes the output only after a successful
-   * link, but this does not rely on it). A superseded build never restores:
-   * the build that took over may already be writing the artifact, and its
-   * own void found no stamp to clear. Anything else, or any error, leaves the
-   * stamp voided; the caller rethrows the build's own error.
+   * build still holds its marker and the artifact provably is untouched: its
+   * SHA-256 still equals the one the stamp recorded or, for a meta with no
+   * stamp, the one taken just before the void (none when there was no
+   * artifact, nothing to prove, or it could not be hashed, nothing proven:
+   * either way the meta stays voided). go writes the output only after a
+   * successful link, but this does not rely on it. A superseded build never
+   * restores: the build that took over may already be writing the artifact,
+   * and its own void has rewritten the meta this one would put back.
+   * Anything else, or any error, leaves the meta voided; the caller rethrows
+   * the build's own error.
    */
   private restoreStampIfUntouched(
     uuid: string,
-    raw: string,
+    voided: VoidedMeta,
     filename: string,
     outputPath: string,
     marker: BuildMarkerHandle,
   ): void {
     if (this.markerState(marker) !== 'ours') return;
     try {
-      const stamped = (JSON.parse(raw) as { version?: { binaries?: Record<string, unknown> } }).version?.binaries?.[filename];
-      if (typeof stamped !== 'string') return;
+      const parsed = JSON.parse(voided.raw) as { version?: { binaries?: Record<string, unknown> } };
+      // Same test as the void's: a stamped meta is proven by its stamp only.
+      const expected = 'version' in parsed ? parsed.version?.binaries?.[filename] : voided.hashBefore;
+      if (typeof expected !== 'string') return;
       const now = crypto.createHash('sha256').update(fs.readFileSync(outputPath)).digest('hex');
-      if (now === stamped) this.writeFileAtomic(this.metaPath(uuid), raw);
+      if (now === expected) this.writeFileAtomic(this.metaPath(uuid), voided.raw);
     } catch {
       // Stays voided: "Unknown build" until the next build.
     }
