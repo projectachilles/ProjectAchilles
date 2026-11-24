@@ -325,8 +325,10 @@ router.get('/defense-score/by-technique', asyncHandler(async (req, res) => {
 /**
  * Current fingerprint of every test the library can read (uuid -> fingerprint),
  * for the result version labels and the versionState filter. undefined when
- * the versions service is missing or the read fails: rows then carry no
- * version_state, and a versionState request is refused (503) when `required`.
+ * the versions service is missing, the read fails, or it takes more than
+ * VERSION_READ_BUDGET_MS (5 s, bounded in currentFingerprintMap): rows then
+ * carry no version_state, and a versionState request is refused (503) when
+ * `required`.
  */
 async function currentFingerprints(required: boolean): Promise<Map<string, string> | undefined> {
   const map = await currentFingerprintMap();

@@ -120,7 +120,7 @@ EDR alerts reach ProjectAchilles a few minutes after a run (the Defender sync ru
 
 When a pair has more than one attempt in the run (a retry), the cell shows the **latest** attempt.
 
-Under each test name is the [test version](../test-browser/test-versions#versions-on-results) its tasks were sent with: the short commit and **current**, **older**, **version unknown** or **not recorded**. When the hosts ran different versions it reads **mixed versions**; hover it for each version and its number of hosts. When states were compared, the line with the **As of** time adds that version states compare each test with the synced test library as of that time. When the console could not read its test library, the commits show without a state and the line says "Version states could not be compared with the test library when this page was generated." The line is printed too.
+Under each test name is the [test version](../test-browser/test-versions#versions-on-results) its tasks were sent with: the short commit and **current**, **older**, **version unknown** or **not recorded**. When the hosts ran different versions it reads **mixed versions**; hover it for each version and its number of hosts. When states were compared, the line with the **As of** time adds that version states compare each test with the synced test library as of that time. When the console could not read its test library, or reading it took more than 5 seconds, the commits show without a state and the line says "Version states could not be compared with the test library when this page was generated." The line is printed too.
 
 ### % protected
 
