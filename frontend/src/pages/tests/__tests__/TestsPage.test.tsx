@@ -58,12 +58,15 @@ vi.mock('@/components/browser/execution', () => ({ ExecutionDrawer: () => null }
 
 import { analyticsApi } from '@/services/api/analytics';
 import { browserApi } from '@/services/api/browser';
+import { BuildQueueProvider } from '@/hooks/useBuildQueue';
 import TestsPage from '../TestsPage';
 
 function renderPage(path = '/') {
   return render(
     <MemoryRouter initialEntries={[path]}>
-      <TestsPage />
+      <BuildQueueProvider>
+        <TestsPage />
+      </BuildQueueProvider>
     </MemoryRouter>,
   );
 }

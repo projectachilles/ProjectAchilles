@@ -5,10 +5,12 @@ import {
   ArrowUpNarrowWide,
   CheckSquare,
   Filter,
+  Hammer,
   Play,
   X,
 } from 'lucide-react';
 import { useCapabilities } from '@/hooks/useCapabilities';
+import { useBuildQueue } from '@/hooks/useBuildQueue';
 import { useTestVersions } from '@/hooks/useTestVersions';
 import { VERSION_STATUS_LABEL } from '@/components/browser/VersionStatusChip';
 import type { TestVersionStatus } from '@/types/testVersion';
@@ -41,6 +43,8 @@ import { fleetResultText, type FleetState } from './components/fleetResult';
 import { FacetRail } from './components/FacetRail';
 import { SyncChip } from './components/SyncChip';
 import { VersionBanner, unrecordedBuildCount, versionBannerVisible } from './components/VersionBanner';
+import { BuildQueueBar } from './components/BuildQueueBar';
+import { BuildSelectedDialog } from './components/BuildSelectedDialog';
 import {
   DEFAULT_FILTERS,
   computeFacetCounts,
@@ -78,6 +82,7 @@ export default function TestsPage() {
   const { favorites, recentTests, isFavorite, toggleFavorite } = useTestPreferences();
   const canCreateTasks = useHasPermission('endpoints:tasks:create');
   const canSync = useHasPermission('tests:sync:execute');
+  const canBuildPermission = useHasPermission('tests:builds:create');
   const { configured: esConfigured } = useAnalyticsAuth();
 
   const [tests, setTests] = useState<TestMetadata[]>([]);
@@ -94,7 +99,10 @@ export default function TestsPage() {
   const [notRunYet, setNotRunYet] = useState(false);
   const [hasBinary, setHasBinary] = useState(false);
   const [versionStatus, setVersionStatus] = useState<TestVersionStatus | null>(null);
-  const { testVersions: versionsEnabled } = useCapabilities();
+  const { testVersions: versionsEnabled, build: buildEnabled } = useCapabilities();
+  const canBuild = canBuildPermission && buildEnabled;
+  const buildQueue = useBuildQueue();
+  const buildRunActive = buildQueue.state.status === 'running' || buildQueue.state.status === 'stopping';
   const versionState = useTestVersions();
   const reloadVersions = versionState.reload;
   const versions = versionsEnabled ? versionState.data : null;
@@ -109,6 +117,7 @@ export default function TestsPage() {
   const [selectedUuids, setSelectedUuids] = useState<Set<string>>(new Set());
   const [drawerOpen, setDrawerOpen] = useState(false);
   const [drawerTests, setDrawerTests] = useState<TestMetadata[]>([]);
+  const [buildDialogOpen, setBuildDialogOpen] = useState(false);
   const isDesktop = useIsDesktop();
   const [filtersOpen, setFiltersOpen] = useState(false);
 
@@ -281,6 +290,12 @@ export default function TestsPage() {
   const filtered = useMemo(() => filterTests(tests, filters, ctx), [tests, filters, ctx]);
   const counts = useMemo(() => computeFacetCounts(tests, filters, ctx), [tests, filters, ctx]);
   const groups = useMemo(() => groupByCategory(filtered), [filtered]);
+  // The selected tests that are shown, in the order the list shows them.
+  const selectedShown = useMemo(
+    () => groups.flatMap((g) => g.tests).filter((t) => selectedUuids.has(t.uuid)),
+    [groups, selectedUuids],
+  );
+  const allShownSelected = filtered.length > 0 && selectedShown.length === filtered.length;
 
   const unrecordedBuilds = useMemo(() => (versions ? unrecordedBuildCount(versions.tests) : 0), [versions]);
   const bannerVisible = versions != null && versionBannerVisible(versions.library, unrecordedBuilds);
@@ -348,6 +363,8 @@ export default function TestsPage() {
         <VersionBanner library={versions.library} unrecordedBuilds={unrecordedBuilds} />
       )}
 
+      <BuildQueueBar onResult={reloadVersions} />
+
       <div className="mb-4 flex flex-wrap items-center gap-2">
         <Input
           id="page-search"
@@ -413,9 +430,31 @@ export default function TestsPage() {
             )}
           </Button>
         )}
-        {canCreateTasks && (
+        {(canCreateTasks || canBuild) && (
           <>
-            {selectMode && selectedUuids.size > 0 && (
+            {selectMode && (
+              <Button
+                variant="outline"
+                disabled={filtered.length === 0}
+                onClick={() =>
+                  setSelectedUuids(allShownSelected ? new Set() : new Set(filtered.map((t) => t.uuid)))
+                }
+              >
+                {allShownSelected ? 'Clear selection' : `Select all (${filtered.length})`}
+              </Button>
+            )}
+            {canBuild && selectMode && selectedShown.length > 0 && (
+              <Button
+                variant="outline"
+                disabled={buildRunActive}
+                title={buildRunActive ? 'A build run is in progress' : undefined}
+                onClick={() => setBuildDialogOpen(true)}
+              >
+                <Hammer />
+                Build {selectedShown.length}
+              </Button>
+            )}
+            {canCreateTasks && selectMode && selectedUuids.size > 0 && (
               <Button onClick={() => openDrawer(filtered.filter((t) => selectedUuids.has(t.uuid)))}>
                 <Play />
                 Run {selectedUuids.size}
@@ -576,6 +615,18 @@ export default function TestsPage() {
           setDrawerTests([]);
         }}
         tests={drawerTests}
+      />
+
+      <BuildSelectedDialog
+        open={buildDialogOpen}
+        tests={selectedShown}
+        versions={versions?.tests ?? null}
+        onClose={() => setBuildDialogOpen(false)}
+        onStarted={() => {
+          setBuildDialogOpen(false);
+          setSelectMode(false);
+          setSelectedUuids(new Set());
+        }}
       />
     </div>
   );

@@ -143,6 +143,32 @@ describe('testsApi.buildTest', () => {
     expect(postMock).toHaveBeenCalledWith(`/tests/builds/${UUID}`, null, { params: { async: 'true' } });
   });
 
+  it('polls at the interval it is given', async () => {
+    postMock.mockResolvedValue({ status: 202, data: { success: true, data: { job: RUNNING } } });
+    getMock.mockResolvedValue(envelope(BUILT));
+
+    const result = testsApi.buildTest(UUID, { intervalMs: 5000 });
+    await vi.advanceTimersByTimeAsync(4999);
+    expect(getMock).not.toHaveBeenCalled();
+    await vi.advanceTimersByTimeAsync(1);
+    expect(getMock).toHaveBeenCalledTimes(1);
+    await expect(result).resolves.toEqual(BUILT);
+  });
+
+  it('polls every 2 s when no interval is given', async () => {
+    postMock.mockResolvedValue({ status: 202, data: { success: true, data: { job: RUNNING } } });
+    getMock.mockResolvedValueOnce(envelope({ exists: false, job: RUNNING })).mockResolvedValue(envelope(BUILT));
+
+    const result = testsApi.buildTest(UUID);
+    await vi.advanceTimersByTimeAsync(1999);
+    expect(getMock).not.toHaveBeenCalled();
+    await vi.advanceTimersByTimeAsync(1);
+    expect(getMock).toHaveBeenCalledTimes(1);
+    await vi.advanceTimersByTimeAsync(2000);
+    expect(getMock).toHaveBeenCalledTimes(2);
+    await expect(result).resolves.toEqual(BUILT);
+  });
+
   it('returns the BuildInfo directly when an older backend built synchronously', async () => {
     postMock.mockResolvedValue({ status: 200, data: { success: true, data: { exists: true, filename: `${UUID}.exe` } } });
 

@@ -41,12 +41,12 @@ const MAX_CONSECUTIVE_POLL_FAILURES = 5;
 // for a backend restart to finish and report the interrupted build.
 const MAX_BACKOFF_STEPS = 4;
 
-function isTransientPollError(err: unknown): boolean {
+export function isTransientPollError(err: unknown): boolean {
   if (!isAxiosError(err)) return false;
   return !err.response || TRANSIENT_POLL_STATUSES.has(err.response.status);
 }
 
-function isRateLimited(err: unknown): boolean {
+export function isRateLimited(err: unknown): boolean {
   return isAxiosError(err) && err.response?.status === 429;
 }
 
@@ -64,7 +64,7 @@ function abortError(): DOMException {
   return new DOMException('Build polling aborted', 'AbortError');
 }
 
-function sleep(ms: number, signal?: AbortSignal): Promise<void> {
+export function sleep(ms: number, signal?: AbortSignal): Promise<void> {
   return new Promise((resolve, reject) => {
     if (signal?.aborted) {
       reject(abortError());
@@ -185,9 +185,10 @@ export const testsApi = {
   /**
    * Build & sign a test. The build runs in the background on the server
    * (a cold Go build outlasts proxy timeouts), so this starts it with
-   * ?async=true and polls until it finishes.
+   * ?async=true and polls until it finishes, every `intervalMs` (default
+   * BUILD_POLL_INTERVAL_MS).
    */
-  async buildTest(uuid: string, opts: { signal?: AbortSignal } = {}): Promise<BuildInfo> {
+  async buildTest(uuid: string, opts: { intervalMs?: number; signal?: AbortSignal } = {}): Promise<BuildInfo> {
     // The single backend instance can be briefly unavailable while it restarts
     // (a load spike recycles it). A transient failure on the *start* request
     // shouldn't surface as a build failure — retry a few times with backoff,

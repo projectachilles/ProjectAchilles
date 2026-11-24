@@ -5,6 +5,7 @@ import { ClerkProvider } from '@clerk/clerk-react';
 import { ThemeProvider } from './hooks/useTheme';
 import { AnalyticsAuthProvider } from './hooks/useAnalyticsAuth';
 import { ConsoleIdentityProvider } from './hooks/useConsoleIdentity';
+import { BuildQueueProvider } from './hooks/useBuildQueue';
 import { useAuthenticatedApi } from './hooks/useAuthenticatedApi';
 import { store } from './store';
 import { ErrorBoundary } from './components/shared/ErrorBoundary';
@@ -20,13 +21,16 @@ function AppContent() {
   return (
     <ThemeProvider defaultTheme="dark">
       <AnalyticsAuthProvider>
-        <ErrorBoundary>
-          <BrowserRouter>
-            <ConsoleIdentityProvider>
-              <AppRouter />
-            </ConsoleIdentityProvider>
-          </BrowserRouter>
-        </ErrorBoundary>
+        {/* Above the ErrorBoundary: a page's render error must not unmount it and end a build run. */}
+        <BuildQueueProvider>
+          <ErrorBoundary>
+            <BrowserRouter>
+              <ConsoleIdentityProvider>
+                <AppRouter />
+              </ConsoleIdentityProvider>
+            </BrowserRouter>
+          </ErrorBoundary>
+        </BuildQueueProvider>
       </AnalyticsAuthProvider>
     </ThemeProvider>
   );
