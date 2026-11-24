@@ -225,8 +225,8 @@ describe('ReportDocument', () => {
     unmount();
 
     const { container } = render(<ReportDocument report={makeReport()} paper="A4" marking="None" />);
-    expect(screen.queryByRole('columnheader', { name: 'Version' })).toBeNull();
-    expect(container.textContent).not.toContain('Under each run\'s completion time');
+    expect(container.querySelector('.rp-version')).toBeNull();
+    expect(container.textContent).not.toContain('Test versions.');
   });
 
   it('picks the Method sentence from what the runs carry', () => {

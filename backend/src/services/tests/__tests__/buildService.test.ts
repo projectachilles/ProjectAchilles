@@ -3245,8 +3245,12 @@ var data string
           it('an artifact that cannot be hashed before the void: the meta is still rewritten and never put back, with one warning', async () => {
             const raw = builtBeforeVersions();
             const base = mockReadFileSync.getMockImplementation()!;
+            // Only the first read of the artifact (the hash before the void) fails: the
+            // put-back's own read succeeds and the artifact is unchanged, so the missing
+            // pre-void hash is the only thing that can stop the restore.
+            let artifactReads = 0;
             mockReadFileSync.mockImplementation(((p: string, enc?: unknown) => {
-              if (p === outputPath) throw Object.assign(new Error('EIO: i/o error'), { code: 'EIO' });
+              if (p === outputPath && artifactReads++ === 0) throw Object.assign(new Error('EIO: i/o error'), { code: 'EIO' });
               return base(p, enc);
             }) as never);
             plainPath(() => { throw Object.assign(new Error('exit 1'), { stderr: './main.go:3: undefined: foo' }); });
@@ -3255,6 +3259,7 @@ var data string
             await expect(service().buildAndSign(VALID_UUID)).rejects.toThrow(/undefined: foo/);
 
             mockReadFileSync.mockImplementation(base);
+            expect(String(files.get(outputPath))).toBe('plain binary v0');
             expectRewritten(readMeta(), raw, start);
             expect(warn).toHaveBeenCalledTimes(1);
             expect(warn.mock.calls[0].map(String).join(' ')).toContain(VALID_UUID);

@@ -622,19 +622,6 @@ describe('test version of each run', () => {
     expect(report.meta.unavailable).toEqual([]);
   });
 
-  it('gives up on a lookup that outlives the time budget, and still builds the report', async () => {
-    setTestVersionsService({ synced: () => new Promise(() => {}) } as unknown as TestVersionsService);
-    const deps = makeDeps({ budgetMs: 40, getCurrentFingerprints: currentFingerprintMap });
-    deps.client.search.mockImplementation(stampedSearch(stamp()));
-    const started = Date.now();
-    const report = await new ExecutionReportService(settings, deps).generate(params(), NOW);
-    expect(Date.now() - started).toBeLessThan(2_000);
-    expect(report.runs[0].version).toEqual({ commit: COMMIT });
-    expect(report.totals.runs).toBe(1);
-    // The budget it used up can cost enrichments (their own warnings); the lookup adds no warning of its own.
-    expect(report.meta.warnings.filter((w) => /version/i.test(w))).toEqual([]);
-  });
-
   it('passes the time left to its deadline as the read\'s limit', async () => {
     const deps = makeDeps({ budgetMs: 3_000, getCurrentFingerprints: vi.fn(async () => new Map([[BUNDLE, 'fp-1']])) });
     deps.client.search.mockImplementation(stampedSearch(stamp()));
@@ -704,7 +691,11 @@ describe('test version of each run', () => {
       const report = new ExecutionReportService(settings, deps).generate(params(), NOW).finally(() => { settled = true; });
       await vi.advanceTimersByTimeAsync(1_000);
       expect(settled).toBe(true);
-      expect((await report).runs[0].version).toEqual({ commit: COMMIT });
+      const done = await report;
+      expect(done.runs[0].version).toEqual({ commit: COMMIT });
+      expect(done.totals.runs).toBe(1);
+      // The budget it used up can cost enrichments (their own warnings); the read adds no warning of its own.
+      expect(done.meta.warnings.filter((w) => /version/i.test(w))).toEqual([]);
     });
 
     it('swallows a late rejection of the abandoned read', async () => {
