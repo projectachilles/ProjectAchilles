@@ -13,11 +13,58 @@ import {
 } from '@/components/shared/ui/Table';
 import { agentApi } from '@/services/api/agent';
 import type { AgentVersion } from '@/types/agent';
+import { describeVersionSource } from './agentVersionSource';
 
 function formatSize(bytes: number): string {
   if (bytes < 1024) return `${bytes} B`;
   if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
   return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
+}
+
+/**
+ * The commit a version was built from, so a build of old code under a new
+ * version number is visible before agents pick it up.
+ */
+function VersionSourceCell({ version, releaseNotes }: { version: string; releaseNotes?: string | null }) {
+  const source = describeVersionSource(releaseNotes);
+  if (source.kind === 'none') {
+    return (
+      <span data-testid="version-source-none" className="text-muted-foreground text-sm">
+        —
+      </span>
+    );
+  }
+  if (source.kind === 'notes') {
+    return (
+      <span className="block max-w-[16rem] truncate text-xs text-muted-foreground" title={source.notes}>
+        {source.notes}
+      </span>
+    );
+  }
+  return (
+    <span className="inline-flex flex-col gap-0.5">
+      {source.commit ? (
+        <span className="font-mono text-xs cursor-help" title={(releaseNotes ?? '').trim()}>
+          {source.commit}
+        </span>
+      ) : (
+        <span
+          className="text-xs text-muted-foreground cursor-help"
+          title="Built from source. The server could not read which commit."
+        >
+          commit not recorded
+        </span>
+      )}
+      {source.sourceVersion && (
+        <span
+          className="font-mono text-[11px] text-warning cursor-help"
+          title={`The code on the server was version ${source.sourceVersion} when this was built as ${version}. Update the server's code and build again under a new version number.`}
+        >
+          source says {source.sourceVersion}
+        </span>
+      )}
+    </span>
+  );
 }
 
 interface AgentVersionTableProps {
@@ -59,6 +106,7 @@ export function AgentVersionTable({ versions, canDelete = true, onDeleted }: Age
           <TableHead>Arch</TableHead>
           <TableHead>Size</TableHead>
           <TableHead>SHA-256</TableHead>
+          <TableHead>Source</TableHead>
           <TableHead>Signed</TableHead>
           <TableHead>Mandatory</TableHead>
           <TableHead>Created</TableHead>
@@ -80,6 +128,9 @@ export function AgentVersionTable({ versions, canDelete = true, onDeleted }: Age
                 title={v.binary_sha256}
               >
                 {v.binary_sha256.slice(0, 12)}...
+              </TableCell>
+              <TableCell>
+                <VersionSourceCell version={v.version} releaseNotes={v.release_notes} />
               </TableCell>
               <TableCell>
                 {v.signed ? (
