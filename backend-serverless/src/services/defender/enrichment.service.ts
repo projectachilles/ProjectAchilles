@@ -193,7 +193,9 @@ export class DefenderEnrichmentService {
           if (q.kind === 'wide')  entry.wideMatched = true;
           if (q.kind === 'stage') entry.stageMatched = true;
           for (const id of alertIds) entry.alertIds.add(id);
-          if (preventionQualifies) entry.preventionActions.push(...preventionActions);
+          // Exit 101 means the stage ran to completion: never prevented, whatever the alert says.
+          const stageCompleted = Number(q.hit._source?.event?.ERROR) === 101;
+          if (preventionQualifies && !stageCompleted) entry.preventionActions.push(...preventionActions);
         }
 
         // 5. Bulk update matched docs — test-doc flag(s) + alert-side flags.

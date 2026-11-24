@@ -553,6 +553,46 @@ describe('DefenderEnrichmentService', () => {
     expect(testPatch.defender_prevention_action).toBe('blocked');
   });
 
+  it('stage-match preventing alert on a doc that exited 101 → detected flags only, NO prevention', async () => {
+    const service = createService();
+    const base = eligibleStageDoc('d1', 'bf448c7a-307e-4458-ba36-341d6d8e671b', 'T1053.005');
+    const doneDoc = { ...base, _source: { ...base._source, event: { ERROR: 101 } } };
+    mockSearch.mockResolvedValueOnce(makeScanResponse([doneDoc]));
+    mockMsearch.mockResolvedValueOnce(makeMsearchResponse([
+      makePreventingMsearchHits(['alert-a'], 'process_killed'),
+      makePreventingMsearchHits(['alert-a'], 'process_killed'),
+    ]));
+    mockBulk.mockResolvedValueOnce(makeBulkResponse([{ ok: true }, { ok: true }]));
+
+    await service.runEnrichmentPass();
+
+    const testPatch = mockBulk.mock.calls[0][0].operations[1].doc.f0rtika;
+    expect(testPatch.defender_detected).toBe(true);
+    expect(testPatch.defender_stage_detected).toBe(true);
+    expect(testPatch).not.toHaveProperty('defender_prevented');
+    expect(testPatch).not.toHaveProperty('defender_prevention_action');
+  });
+
+  it('stage-match preventing alert on a doc that exited 999 still sets prevention', async () => {
+    const service = createService();
+    const base = eligibleStageDoc('d1', 'bf448c7a-307e-4458-ba36-341d6d8e671b', 'T1053.005');
+    const killedDoc = { ...base, _source: { ...base._source, event: { ERROR: 999 } } };
+    mockSearch.mockResolvedValueOnce(makeScanResponse([killedDoc]));
+    mockMsearch.mockResolvedValueOnce(makeMsearchResponse([
+      makePreventingMsearchHits(['alert-a'], 'process_killed'),
+      makePreventingMsearchHits(['alert-a'], 'process_killed'),
+    ]));
+    mockBulk.mockResolvedValueOnce(makeBulkResponse([{ ok: true }, { ok: true }]));
+
+    await service.runEnrichmentPass();
+
+    const testPatch = mockBulk.mock.calls[0][0].operations[1].doc.f0rtika;
+    expect(testPatch.defender_detected).toBe(true);
+    expect(testPatch.defender_stage_detected).toBe(true);
+    expect(testPatch.defender_prevented).toBe(true);
+    expect(testPatch.defender_prevention_action).toBe('process_killed');
+  });
+
   it('wide-match on a non-conclusive doc (exit 999) qualifies → defender_prevented set', async () => {
     // A stage killed mid-flight lands as 999 — wide matches MAY claim
     // prevention for it (docs/defender-prevention-action-detection.md).

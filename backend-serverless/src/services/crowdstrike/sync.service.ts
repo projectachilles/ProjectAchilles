@@ -8,6 +8,7 @@ import { IntegrationsSettingsService } from '../integrations/settings.js';
 import { SettingsService } from '../analytics/settings.js';
 import { createEsClient } from '../analytics/client.js';
 import { CrowdStrikeEnrichmentService } from './enrichment.service.js';
+import { clearPreventionOnCompletedResults } from '../edr/completedStageCleanup.js';
 import { CrowdStrikeAutoResolveService } from './auto-resolve.service.js';
 import type { Client } from '@elastic/elasticsearch';
 import type {
@@ -429,6 +430,8 @@ export class CrowdStrikeSyncService {
       const es = await this.getEsClient();
       const settingsService = new SettingsService();
       const settings = await settingsService.getSettings();
+      const cleanup = await clearPreventionOnCompletedResults(es, settings.indexPattern);
+      if (cleanup.cleared > 0) console.log(`[Completed-Stage-Cleanup] cleared=${cleanup.cleared}`);
       const service = new CrowdStrikeEnrichmentService(es, settings.indexPattern);
       const result = await service.runEnrichmentPass({ lookbackDays: 90 });
       console.log(

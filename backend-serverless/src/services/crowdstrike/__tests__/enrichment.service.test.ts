@@ -714,6 +714,46 @@ describe('CrowdStrikeEnrichmentService', () => {
     expect(testPatch.crowdstrike_prevention_action).toBe('blocked');
   });
 
+  it('stage-match preventing alert on a doc that exited 101 → detected flags only, NO prevention', async () => {
+    const service = createService();
+    const base = eligibleStageDoc('d1', 'bf448c7a-307e-4458-ba36-341d6d8e671b', 'T1053.005');
+    const doneDoc = { ...base, _source: { ...base._source, event: { ERROR: 101 } } };
+    mockSearch.mockResolvedValueOnce(makeScanResponse([doneDoc]));
+    mockMsearch.mockResolvedValueOnce(makeMsearchResponse([
+      makePreventingMsearchHits(['alert-a'], 'process_killed'),
+      makePreventingMsearchHits(['alert-a'], 'process_killed'),
+    ]));
+    mockBulk.mockResolvedValueOnce(makeBulkResponse([{ ok: true }, { ok: true }]));
+
+    await service.runEnrichmentPass();
+
+    const testPatch = mockBulk.mock.calls[0][0].operations[1].doc.f0rtika;
+    expect(testPatch.crowdstrike_detected).toBe(true);
+    expect(testPatch.crowdstrike_stage_detected).toBe(true);
+    expect(testPatch).not.toHaveProperty('crowdstrike_prevented');
+    expect(testPatch).not.toHaveProperty('crowdstrike_prevention_action');
+  });
+
+  it('stage-match preventing alert on a doc that exited 999 still sets prevention', async () => {
+    const service = createService();
+    const base = eligibleStageDoc('d1', 'bf448c7a-307e-4458-ba36-341d6d8e671b', 'T1053.005');
+    const killedDoc = { ...base, _source: { ...base._source, event: { ERROR: 999 } } };
+    mockSearch.mockResolvedValueOnce(makeScanResponse([killedDoc]));
+    mockMsearch.mockResolvedValueOnce(makeMsearchResponse([
+      makePreventingMsearchHits(['alert-a'], 'process_killed'),
+      makePreventingMsearchHits(['alert-a'], 'process_killed'),
+    ]));
+    mockBulk.mockResolvedValueOnce(makeBulkResponse([{ ok: true }, { ok: true }]));
+
+    await service.runEnrichmentPass();
+
+    const testPatch = mockBulk.mock.calls[0][0].operations[1].doc.f0rtika;
+    expect(testPatch.crowdstrike_detected).toBe(true);
+    expect(testPatch.crowdstrike_stage_detected).toBe(true);
+    expect(testPatch.crowdstrike_prevented).toBe(true);
+    expect(testPatch.crowdstrike_prevention_action).toBe('process_killed');
+  });
+
   it('detection-only matched alert → detected flags only, NO prevented fields', async () => {
     const service = createService();
     mockSearch.mockResolvedValueOnce(makeScanResponse([eligibleDoc('d1', 'bundle-A::T1')]));
