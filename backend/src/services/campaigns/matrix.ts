@@ -407,7 +407,8 @@ export const RUN_CSV_HEADER = 'test,techniques,host,os,outcome,exit_code,reason,
 
 /**
  * The CSV's names of the version states. Must equal the frontend's
- * VERSION_STATE_LABEL (frontend/src/pages/analytics/components/executions/versionLabels.ts).
+ * VERSION_STATE_LABEL (frontend/src/pages/analytics/components/executions/versionLabels.ts):
+ * versionLabels.parity.test.ts there reads this object and fails when they differ.
  */
 export const VERSION_STATE_CSV_LABEL: Record<ResultVersionState, string> = {
   current: 'current',

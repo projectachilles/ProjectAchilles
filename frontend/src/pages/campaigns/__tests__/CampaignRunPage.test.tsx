@@ -307,11 +307,43 @@ describe('CampaignRunPage', () => {
       expect(within(await testHeader()).getByTestId('test-version')).toHaveTextContent(/^version unknown$/);
     });
 
-    it('without states (library unreadable) shows the commit and no state text', async () => {
+    const NOT_COMPARED = 'Version states could not be compared with the test library when this page was generated.';
+
+    it('without states (library unreadable) shows the commit, no state text, and says the states could not be compared', async () => {
       api.getRun.mockResolvedValue(versioned([{ commit: COMMIT_A, fingerprint: 'fp-a' }, { commit: COMMIT_A, fingerprint: 'fp-a' }]));
-      setup();
+      const { container } = setup();
       const th = await testHeader();
       expect(within(th).getByTestId('test-version')).toHaveTextContent(/^abc1234$/);
+      const basis = screen.getByTestId('version-basis');
+      expect(basis).toHaveTextContent(NOT_COMPARED);
+      expect(basis.textContent).not.toMatch(/compare each test/);
+      // Printed too: inside the printed area, never print-hidden.
+      expect(container.querySelector('.campaign-run-print')).toContainElement(basis);
+      expect(basis.closest('.print\\:hidden')).toBeNull();
+    });
+
+    it('a matrix wider than a page, without states, prints the could-not-compare sentence', async () => {
+      const m = matrix(['protected']);
+      m.tests = Array.from({ length: 30 }, (_, i) => ({ uuid: `t${i}`, name: `Test ${i}` }));
+      m.agents = Array.from({ length: 40 }, (_, i) => ({ id: `a${i}`, hostname: `host${i}`, os: 'windows' }));
+      m.cells = Object.fromEntries(m.tests.map((t, ti) => [t.uuid, Object.fromEntries(m.agents.map((a) => [
+        a.id, { ...cell('protected'), version: ti % 2 === 0 ? { commit: COMMIT_A, fingerprint: 'fp-a' } : { commit: null, fingerprint: null, state: 'not_recorded' } },
+      ]))]));
+      api.getRun.mockResolvedValue(m);
+      const { container } = setup();
+      const blocks = await screen.findByTestId('print-blocks');
+      expect(within(blocks).getAllByTestId('test-version')[0]).toHaveTextContent(/^abc1234$/);
+      const basis = screen.getByTestId('version-basis');
+      expect(basis).toHaveTextContent(NOT_COMPARED);
+      expect(container.querySelector('.campaign-run-print')).toContainElement(basis);
+      expect(basis.closest('.print\\:hidden')).toBeNull();
+    });
+
+    it('all not recorded: no version sentence', async () => {
+      const notRecorded: CellVersion = { commit: null, fingerprint: null, state: 'not_recorded' };
+      api.getRun.mockResolvedValue(versioned([notRecorded, notRecorded]));
+      setup();
+      expect(within(await testHeader()).getByTestId('test-version')).toHaveTextContent(/^not recorded$/);
       expect(screen.queryByTestId('version-basis')).toBeNull();
     });
 

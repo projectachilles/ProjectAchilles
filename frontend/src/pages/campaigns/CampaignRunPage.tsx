@@ -60,10 +60,16 @@ function axisTitle(a: Axis): string {
   return a.version ? `${a.label}\n${a.version.title}` : a.label;
 }
 
-/** True when some cell's version was compared with the synced library (not_recorded needs no comparison). */
-function hasVersionComparison(m: RunMatrix): boolean {
-  return Object.values(m.cells).some((row) =>
-    Object.values(row).some((c) => c.version?.state !== undefined && c.version.state !== 'not_recorded'));
+/**
+ * The version basis sentence: 'compared' when some cell's version was compared with the synced
+ * library (not_recorded needs no comparison); 'not_compared' when none was and some cell carries a
+ * recorded version with no state (the library could not be read); null otherwise (no versions, or
+ * all not recorded).
+ */
+function versionBasis(m: RunMatrix): 'compared' | 'not_compared' | null {
+  const versions = Object.values(m.cells).flatMap((row) => Object.values(row).flatMap((c) => (c.version ? [c.version] : [])));
+  if (versions.some((v) => v.state !== undefined && v.state !== 'not_recorded')) return 'compared';
+  return versions.some((v) => v.state === undefined) ? 'not_compared' : null;
 }
 
 /** "covered/conclusive" for a row or column of cells, or "—" when nothing is conclusive. */
@@ -211,6 +217,7 @@ export default function CampaignRunPage() {
     ? 'EDR results unavailable: outcomes use test exit codes only'
     : matrix.edr.sources.length > 0 ? `EDR results from ${matrix.edr.sources.join(' and ')}` : null;
   const asOfLocal = new Date(matrix.as_of).toLocaleString();
+  const basis = versionBasis(matrix);
   const versionLine = (a: Axis) => a.version && (
     <span data-testid="test-version" className="block text-xs font-normal text-muted">{a.version.text}</span>
   );
@@ -325,9 +332,11 @@ export default function CampaignRunPage() {
                 {` · ${edrLine}`}
               </dd>
             )}
-            {hasVersionComparison(matrix) && (
+            {basis && (
               <dd data-testid="version-basis" className="inline text-muted">
-                {` · Version states compare each test with the synced test library as of ${asOfLocal}.`}
+                {basis === 'compared'
+                  ? ` · Version states compare each test with the synced test library as of ${asOfLocal}.`
+                  : ' · Version states could not be compared with the test library when this page was generated.'}
               </dd>
             )}
           </div>
