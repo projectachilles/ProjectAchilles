@@ -41,7 +41,7 @@ export interface TestLocation {
  * lists below or to the hash format, so a published state stored under an
  * older rule is dropped instead of compared (testVersions.service.ts).
  */
-export const FINGERPRINT_RULE_VERSION = 2;
+export const FINGERPRINT_RULE_VERSION = 3;
 
 /** Files with these extensions inside a test folder are not build inputs. */
 export const BUILD_INPUT_EXCLUDED_EXT: readonly string[] = [
@@ -238,10 +238,9 @@ export function identitiesFromTree(
   return result;
 }
 
-/** First bytes of ELF, PE/MZ and Mach-O (thin and fat) executables. */
+/** First bytes of ELF and Mach-O (thin and fat) executables. None is text. */
 const BINARY_MAGICS: readonly number[][] = [
   [0x7f, 0x45, 0x4c, 0x46],
-  [0x4d, 0x5a],
   [0xfe, 0xed, 0xfa, 0xce],
   [0xfe, 0xed, 0xfa, 0xcf],
   [0xce, 0xfa, 0xed, 0xfe],
@@ -249,17 +248,34 @@ const BINARY_MAGICS: readonly number[][] = [
   [0xca, 0xfe, 0xba, 0xbe],
 ];
 
-/** True when the file starts with a compiled-executable magic (reads 4 bytes). */
+/** Size of the DOS header a Windows executable starts with; the PE offset is its last field. */
+const DOS_HEADER_SIZE = 64;
+const PE_OFFSET_FIELD = 0x3c;
+
+/**
+ * A Windows executable (PE): `MZ`, and the signature `PE\0\0` at the offset
+ * the DOS header stores at 0x3C. `MZ` alone is not enough: those are two
+ * letters a text file can start with (a script whose first line is `MZ=1`),
+ * and such a file is source, not compiled output.
+ */
+function isPortableExecutable(fd: number, head: Buffer, headLength: number): boolean {
+  if (headLength < DOS_HEADER_SIZE || head[0] !== 0x4d || head[1] !== 0x5a) return false;
+  const signature = Buffer.alloc(4);
+  const read = fs.readSync(fd, signature, 0, 4, head.readUInt32LE(PE_OFFSET_FIELD));
+  return read === 4 && signature[0] === 0x50 && signature[1] === 0x45 && signature[2] === 0 && signature[3] === 0;
+}
+
+/** True when the file is a compiled executable: ELF or Mach-O by its magic, Windows by its PE header. */
 function hasBinaryMagic(fullPath: string): boolean {
-  const buf = Buffer.alloc(4);
-  let n = 0;
+  const head = Buffer.alloc(DOS_HEADER_SIZE);
   const fd = fs.openSync(fullPath, 'r');
   try {
-    n = fs.readSync(fd, buf, 0, 4, 0);
+    const n = fs.readSync(fd, head, 0, DOS_HEADER_SIZE, 0);
+    if (BINARY_MAGICS.some(m => n >= m.length && m.every((byte, i) => head[i] === byte))) return true;
+    return isPortableExecutable(fd, head, n);
   } finally {
     fs.closeSync(fd);
   }
-  return BINARY_MAGICS.some(m => n >= m.length && m.every((b, i) => buf[i] === b));
 }
 
 function isDiskGenerated(
