@@ -120,11 +120,41 @@ function matchesPrefix(p: string, prefix: string): boolean {
   return prefix.endsWith('/') ? p.startsWith(prefix) : p === prefix;
 }
 
+/**
+ * The tree is too large to read its versions: reading it would hold the
+ * process (one thread, shared with every request) for too long. Thrown, never
+ * worked through: a published tree is repository content, and its size is not
+ * ours to choose.
+ */
+export class TreeTooLargeError extends Error {
+  constructor(message = 'The repository tree is too large to read test versions from') {
+    super(message);
+    this.name = 'TreeTooLargeError';
+  }
+}
+
+/**
+ * Upper bound on the work of one identitiesFromTree() call: one unit per file
+ * of a test, plus one scan of all files per distinct set of shared inputs
+ * (one per category). The library today costs about 12,000; this leaves room
+ * for one a hundred times its size and stops a tree built to be expensive
+ * (many categories x many files) within a fraction of a second.
+ */
+export const MAX_IDENTITY_WORK = 5_000_000;
+
 export function identitiesFromTree(
   entries: TreeEntry[],
   tests: TestLocation[],
   commit: { hash: string; date: string },
+  opts: { maxWork?: number } = {},
 ): Map<string, TestVersionIdentity> {
+  const maxWork = opts.maxWork ?? MAX_IDENTITY_WORK;
+  let work = 0;
+  const spend = (units: number): void => {
+    work += units;
+    if (work > maxWork) throw new TreeTooLargeError();
+  };
+
   const result = new Map<string, TestVersionIdentity>();
   const blobs = entries.filter(e => e.type === 'blob');
   const treeByPath = new Map<string, string>();
@@ -132,9 +162,42 @@ export function identitiesFromTree(
     if (e.type === 'tree') treeByPath.set(e.path, e.hash);
   }
 
+  // The files of every test folder, in one pass over the tree: each file is
+  // looked up under its ancestor folders instead of every test scanning every
+  // file. A test folder inside another test's folder gets the file too, as a
+  // prefix match per test did.
+  const ownByRelPath = new Map<string, TreeEntry[]>();
+  for (const { relPath } of tests) {
+    if (!ownByRelPath.has(relPath)) ownByRelPath.set(relPath, []);
+  }
+  for (const b of blobs) {
+    for (let slash = b.path.indexOf('/'); slash !== -1; slash = b.path.indexOf('/', slash + 1)) {
+      const own = ownByRelPath.get(b.path.slice(0, slash));
+      if (own) {
+        spend(1);
+        own.push(b);
+      }
+    }
+  }
+
+  // The shared inputs are the same for every test of a category: hash each
+  // distinct set once.
+  const sharedHashes = new Map<string, string>();
+  const sharedHashOf = (relPath: string): string => {
+    const prefixes = sharedInputPrefixes(relPath);
+    const key = prefixes.join('\n');
+    let hash = sharedHashes.get(key);
+    if (hash === undefined) {
+      spend(blobs.length);
+      hash = hashLines(blobs.filter(b => prefixes.some(p => matchesPrefix(b.path, p))));
+      sharedHashes.set(key, hash);
+    }
+    return hash;
+  };
+
   for (const { uuid, relPath } of tests) {
     const dirPrefix = `${relPath}/`;
-    const own = blobs.filter(b => b.path.startsWith(dirPrefix));
+    const own = ownByRelPath.get(relPath) ?? [];
     if (own.length === 0) continue;
 
     const sourceHash = hashLines(
@@ -142,11 +205,7 @@ export function identitiesFromTree(
         .map(b => ({ path: b.path.slice(dirPrefix.length), hash: b.hash }))
         .filter(l => isBuildInput(l.path)),
     );
-
-    const prefixes = sharedInputPrefixes(relPath);
-    const sharedHash = hashLines(
-      blobs.filter(b => prefixes.some(p => matchesPrefix(b.path, p))),
-    );
+    const sharedHash = sharedHashOf(relPath);
 
     result.set(uuid, {
       fingerprint: fingerprintOf(uuid, sourceHash, sharedHash),

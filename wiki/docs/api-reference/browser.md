@@ -166,7 +166,7 @@ Both answer `{ "success": true, "data": { "library": {...}, "tests": {...} } }`:
 | `repoWebUrl` | `https://github.com/<owner>/<repo>` for a github.com remote, never with credentials; `null` for any other remote. |
 | `syncedCommit`, `syncedCommitDate` | The commit the synced library is at; `null` without git. |
 | `publishedCommit`, `publishedCommitDate`, `checkedAt` | The published commit and when the last successful check or Sync recorded it; `null` until one has. |
-| `checkError` | `null`, or one fixed text (never git's own message): `The test library could not be read` (git can't read the synced library; it wins over the others), `Could not reach the test repository`, `The test repository rejected the credentials` or `The update check failed`. |
+| `checkError` | `null`, or one fixed text (never git's own message): `The test library could not be read` (git can't read the synced library; it wins over the others), `Could not reach the test repository`, `The test repository rejected the credentials`, `The test repository is too large to check for updates` or `The update check failed`. |
 | `updatesAvailable` | Tests in `update_available`, plus `not_built` tests with `updateNote`. |
 | `rebuildsNeeded` | Tests in `rebuild_needed`. |
 | `newTests` | Tests in the published tree that this library does not have. |
