@@ -566,7 +566,7 @@ describe('test version of each run', () => {
     (req.aggs.runs?.terms ? runsResponse(testVersion) : routeSearch()(req));
 
   it('reads the current fingerprints once and states each run\'s version', async () => {
-    const deps = makeDeps({ getCurrentFingerprints: vi.fn(async () => new Map([[BUNDLE, 'fp-1']])) });
+    const deps = makeDeps({ getCurrentFingerprints: vi.fn(async () => new Map([[BUNDLE, { fingerprint: 'fp-1', commit: null }]])) });
     deps.client.search.mockImplementation(stampedSearch(stamp()));
     const report = await new ExecutionReportService(settings, deps).generate(params(), NOW);
     expect(deps.getCurrentFingerprints).toHaveBeenCalledTimes(1);
@@ -576,7 +576,7 @@ describe('test version of each run', () => {
   it('reads them in parallel with the report queries, not after them', async () => {
     let called!: () => void;
     const lookupStarted = new Promise<void>((resolve) => { called = resolve; });
-    const deps = makeDeps({ getCurrentFingerprints: vi.fn(async () => { called(); return new Map([[BUNDLE, 'fp-1']]); }) });
+    const deps = makeDeps({ getCurrentFingerprints: vi.fn(async () => { called(); return new Map([[BUNDLE, { fingerprint: 'fp-1', commit: null }]]); }) });
     // The runs query answers only once the lookup has started (or fails after 500 ms).
     deps.client.search.mockImplementation(async (req: { aggs: Record<string, any> }) => {
       if (req.aggs.runs?.terms) {
@@ -589,14 +589,14 @@ describe('test version of each run', () => {
   });
 
   it('says older when the fingerprint differs from the current one', async () => {
-    const deps = makeDeps({ getCurrentFingerprints: vi.fn(async () => new Map([[BUNDLE, 'fp-2']])) });
+    const deps = makeDeps({ getCurrentFingerprints: vi.fn(async () => new Map([[BUNDLE, { fingerprint: 'fp-2', commit: null }]])) });
     deps.client.search.mockImplementation(stampedSearch(stamp()));
     const report = await new ExecutionReportService(settings, deps).generate(params(), NOW);
     expect(report.runs[0].version).toEqual({ commit: COMMIT, state: 'older' });
   });
 
   it('says not recorded when no member carries a version', async () => {
-    const deps = makeDeps({ getCurrentFingerprints: vi.fn(async () => new Map([[BUNDLE, 'fp-1']])) });
+    const deps = makeDeps({ getCurrentFingerprints: vi.fn(async () => new Map([[BUNDLE, { fingerprint: 'fp-1', commit: null }]])) });
     const report = await new ExecutionReportService(settings, deps).generate(params(), NOW);
     expect(report.runs[0].version).toEqual({ commit: null, state: 'not_recorded' });
   });
@@ -623,7 +623,7 @@ describe('test version of each run', () => {
   });
 
   it('passes the time left to its deadline as the read\'s limit', async () => {
-    const deps = makeDeps({ budgetMs: 3_000, getCurrentFingerprints: vi.fn(async () => new Map([[BUNDLE, 'fp-1']])) });
+    const deps = makeDeps({ budgetMs: 3_000, getCurrentFingerprints: vi.fn(async () => new Map([[BUNDLE, { fingerprint: 'fp-1', commit: null }]])) });
     deps.client.search.mockImplementation(stampedSearch(stamp()));
     await new ExecutionReportService(settings, deps).generate(params(), NOW);
     const [limit] = deps.getCurrentFingerprints.mock.calls[0] as unknown as [number];
@@ -717,7 +717,7 @@ describe('test version of each run', () => {
 
   it('changes nothing else in the payload', async () => {
     const before = await new ExecutionReportService(settings, makeDeps()).generate(params(), NOW);
-    const deps = makeDeps({ getCurrentFingerprints: vi.fn(async () => new Map([[BUNDLE, 'fp-2']])) });
+    const deps = makeDeps({ getCurrentFingerprints: vi.fn(async () => new Map([[BUNDLE, { fingerprint: 'fp-2', commit: null }]])) });
     deps.client.search.mockImplementation(stampedSearch(stamp()));
     const after = await new ExecutionReportService(settings, deps).generate(params(), NOW);
     expect(after.runs[0].version).toEqual({ commit: COMMIT, state: 'older' });

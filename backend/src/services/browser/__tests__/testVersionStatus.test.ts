@@ -1,10 +1,11 @@
 import { describe, it, expect } from 'vitest';
 import type {
   BuildVersionStamp,
+  CurrentTestVersion,
   TaskTestVersion,
   TestVersionIdentity,
 } from '../../../types/testVersion.js';
-import { deriveStatus, resultVersionState } from '../testVersionStatus.js';
+import { deriveStatus, resultStateForTest, resultVersionState } from '../testVersionStatus.js';
 import type { StatusInput } from '../testVersionStatus.js';
 
 function identity(over: Partial<TestVersionIdentity> = {}): TestVersionIdentity {
@@ -107,7 +108,7 @@ describe('deriveStatus', () => {
         build: {
           exists: true,
           source: 'built',
-          version: stamp({ fingerprint: 'old', source_hash: 'old' }),
+          version: stamp({ commit: 'c0', fingerprint: 'old', source_hash: 'old' }),
         },
         published: identity({ fingerprint: 'fp2', source_hash: 'src2' }),
       }),
@@ -121,7 +122,7 @@ describe('deriveStatus', () => {
         build: {
           exists: true,
           source: 'built',
-          version: stamp({ fingerprint: 'old', source_hash: 'old' }),
+          version: stamp({ commit: 'c0', fingerprint: 'old', source_hash: 'old' }),
         },
       }),
     );
@@ -134,7 +135,7 @@ describe('deriveStatus', () => {
         build: {
           exists: true,
           source: 'built',
-          version: stamp({ fingerprint: 'old', shared_hash: 'old' }),
+          version: stamp({ commit: 'c0', fingerprint: 'old', shared_hash: 'old' }),
         },
       }),
     );
@@ -172,7 +173,7 @@ describe('deriveStatus', () => {
         build: {
           exists: true,
           source: 'built',
-          version: stamp({ fingerprint: 'old', source_hash: 'old' }),
+          version: stamp({ commit: 'c0', fingerprint: 'old', source_hash: 'old' }),
         },
         currentDepsHash: 'd2',
       }),
@@ -220,7 +221,7 @@ describe('deriveStatus', () => {
           build: {
             exists: true,
             source: 'built',
-            version: stamp({ fingerprint: 'old', shared_hash: 'old', outputs_hash: 'o1' }),
+            version: stamp({ commit: 'c0', fingerprint: 'old', shared_hash: 'old', outputs_hash: 'o1' }),
           },
           currentOutputsHash: 'o2',
         }),
@@ -275,10 +276,65 @@ describe('deriveStatus', () => {
   });
 });
 
+describe('deriveStatus: a build from the commit synced now', () => {
+  // The fingerprint rule changed between the build and now: the hashes differ
+  // although no file did. With git, one commit is one set of files.
+  const oldRule = (over: Partial<BuildVersionStamp> = {}): StatusInput['build'] => ({
+    exists: true,
+    source: 'built',
+    version: stamp({ fingerprint: 'old', source_hash: 'old', ...over }),
+  });
+
+  it('up_to_date when the fingerprints differ but the commit is the same', () => {
+    expect(deriveStatus(input({ build: oldRule() }))).toEqual({ status: 'up_to_date' });
+  });
+
+  it('rebuild_needed when the commit differs too', () => {
+    expect(deriveStatus(input({ build: oldRule({ commit: 'c0' }) }))).toEqual({
+      status: 'rebuild_needed',
+      reason: 'test_source_changed',
+    });
+  });
+
+  it('rebuild_needed without a commit on the build or on the synced side (no git)', () => {
+    expect(deriveStatus(input({ build: oldRule({ commit: null }) })).status).toBe('rebuild_needed');
+    expect(
+      deriveStatus(input({ build: oldRule({ commit: null }), synced: identity({ commit: null }), hasGit: false })).status,
+    ).toBe('rebuild_needed');
+  });
+
+  it('a build from changed source at the same commit stays unknown_build', () => {
+    expect(deriveStatus(input({ build: oldRule({ modified: true }) }))).toEqual({
+      status: 'unknown_build',
+      reason: 'modified_source',
+    });
+  });
+
+  it('the same commit still asks for a rebuild when an uploaded dependency changed', () => {
+    expect(deriveStatus(input({ build: oldRule(), currentDepsHash: 'd2' }))).toEqual({
+      status: 'rebuild_needed',
+      reason: 'dependency_changed',
+    });
+  });
+
+  it('the same commit still asks for a rebuild when a built embedded file changed', () => {
+    expect(deriveStatus(input({ build: oldRule({ outputs_hash: 'o1' }), currentOutputsHash: 'o2' }))).toEqual({
+      status: 'rebuild_needed',
+      reason: 'dependency_changed',
+    });
+  });
+
+  it('the same commit is not_checked while no published check has succeeded', () => {
+    expect(deriveStatus(input({ build: oldRule(), publishedKnown: false })).status).toBe('not_checked');
+  });
+});
+
 describe('deriveStatus never guesses up_to_date', () => {
   const builds: Array<[string, StatusInput['build']]> = [
     ['clean stamp', { exists: true, source: 'built', version: stamp() }],
-    ['older stamp', { exists: true, source: 'built', version: stamp({ fingerprint: 'old' }) }],
+    ['older stamp', { exists: true, source: 'built', version: stamp({ commit: 'c0', fingerprint: 'old' }) }],
+    ['old rule, same commit', { exists: true, source: 'built', version: stamp({ fingerprint: 'old' }) }],
+    ['old rule, no commit', { exists: true, source: 'built', version: stamp({ commit: null, fingerprint: 'old' }) }],
     ['other deps', { exists: true, source: 'built', version: stamp({ deps_hash: 'x' }) }],
     ['no build', { exists: false }],
     ['uploaded', { exists: true, source: 'uploaded' }],
@@ -318,7 +374,9 @@ describe('deriveStatus never guesses up_to_date', () => {
               expect(build.source).toBe('built');
               expect(v?.modified).toBe(false);
               expect(synced).toBeDefined();
-              expect(v?.fingerprint).toBe(synced?.fingerprint);
+              const sameFingerprint = v?.fingerprint === synced?.fingerprint;
+              const sameCommit = !!v?.commit && v.commit === synced?.commit;
+              expect(sameFingerprint || sameCommit).toBe(true);
               expect(v?.deps_hash).toBe(i.currentDepsHash);
               if (v?.outputs_hash !== undefined && currentOutputsHash !== undefined) {
                 expect(v.outputs_hash).toBe(currentOutputsHash);
@@ -337,23 +395,54 @@ describe('resultVersionState', () => {
   const rec = (over: Partial<TaskTestVersion> = {}): TaskTestVersion => ({
     built_at: '2026-01-01T00:00:00Z',
     build_source: 'built',
+    commit: 'c1',
     fingerprint: 'fp1',
     ...over,
   });
+  const now = (over: Partial<CurrentTestVersion> = {}): CurrentTestVersion => ({ fingerprint: 'fp1', commit: 'c1', ...over });
 
   it('not_recorded when nothing is stored', () => {
-    expect(resultVersionState(undefined, 'fp1')).toBe('not_recorded');
+    expect(resultVersionState(undefined, now())).toBe('not_recorded');
   });
   it('unknown without a recorded fingerprint', () => {
-    expect(resultVersionState(rec({ fingerprint: undefined }), 'fp1')).toBe('unknown');
+    expect(resultVersionState(rec({ fingerprint: undefined }), now())).toBe('unknown');
   });
-  it('unknown without a synced fingerprint', () => {
+  it('unknown without a synced version', () => {
     expect(resultVersionState(rec(), undefined)).toBe('unknown');
   });
-  it('current when equal', () => {
-    expect(resultVersionState(rec(), 'fp1')).toBe('current');
+  it('current when the fingerprints are equal', () => {
+    expect(resultVersionState(rec(), now())).toBe('current');
+    expect(resultVersionState(rec({ commit: 'c0' }), now())).toBe('current');
+    expect(resultVersionState(rec({ commit: undefined }), now({ commit: null }))).toBe('current');
   });
-  it('older when different', () => {
-    expect(resultVersionState(rec(), 'fp2')).toBe('older');
+  it('older when the fingerprint and the commit differ', () => {
+    expect(resultVersionState(rec({ commit: 'c0' }), now({ fingerprint: 'fp2' }))).toBe('older');
+  });
+  it('current when the fingerprints differ but the commit is the one synced now', () => {
+    // A fingerprint computed under an earlier rule: same commit, same files.
+    expect(resultVersionState(rec(), now({ fingerprint: 'fp2' }))).toBe('current');
+  });
+  it('older when the fingerprints differ and either side has no commit', () => {
+    expect(resultVersionState(rec({ commit: undefined }), now({ fingerprint: 'fp2' }))).toBe('older');
+    expect(resultVersionState(rec(), now({ fingerprint: 'fp2', commit: null }))).toBe('older');
+    expect(resultVersionState(rec({ commit: undefined }), now({ fingerprint: 'fp2', commit: null }))).toBe('older');
+  });
+  it('a commit is never compared on its own: no fingerprint, no state', () => {
+    expect(resultVersionState(rec({ fingerprint: undefined }), now())).toBe('unknown');
+  });
+});
+
+describe('resultStateForTest', () => {
+  const current = new Map<string, CurrentTestVersion>([['t1', { fingerprint: 'fp2', commit: 'c1' }]]);
+
+  it('not_recorded without a version', () => {
+    expect(resultStateForTest(undefined, 't1', current)).toBe('not_recorded');
+  });
+  it('unknown for a test that is not in the map, even at the same commit', () => {
+    expect(resultStateForTest({ fingerprint: 'fp1', commit: 'c1' }, 'gone', current)).toBe('unknown');
+  });
+  it('current for the same commit, older for another', () => {
+    expect(resultStateForTest({ fingerprint: 'fp1', commit: 'c1' }, 't1', current)).toBe('current');
+    expect(resultStateForTest({ fingerprint: 'fp1', commit: 'c0' }, 't1', current)).toBe('older');
   });
 });

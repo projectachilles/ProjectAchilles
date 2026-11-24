@@ -1383,7 +1383,7 @@ describe('elasticsearch.ts', () => {
   // ── Extended filter building (via getPaginatedExecutions) ──
   describe('test version on executions', () => {
     const UUID = 'a1b2c3d4-e5f6-4890-abcd-ef1234567890';
-    const current = new Map([[UUID, 'fp-now']]);
+    const current = new Map([[UUID, { fingerprint: 'fp-now', commit: null }]]);
     const versioned = (fp: string | undefined, extra: Record<string, unknown> = {}) => makeHitSource({
       'f0rtika.test_uuid': UUID,
       'f0rtika.test_version.built_at': '2026-11-01T00:00:00Z',
@@ -1468,6 +1468,21 @@ describe('elasticsearch.ts', () => {
       mockSearch.mockResolvedValue(hits(versioned('fp-old')));
       const rows = await createService().getRecentExecutions({ currentFingerprints: current });
       expect(rows[0].version_state).toBe('older');
+    });
+
+    it('a row from the commit synced now is current although its fingerprint differs, and the filter says the same', async () => {
+      // versioned() rows are at commit abc123; the fingerprint rule changed since they were written.
+      const atCommit = new Map([[UUID, { fingerprint: 'fp-now', commit: 'abc123' }]]);
+      mockSearch.mockResolvedValue(hits(versioned('fp-old-rule')));
+      const svc = createService();
+      const rows = await svc.getRecentExecutions({ currentFingerprints: atCommit });
+      expect(rows[0].version_state).toBe('current');
+
+      await svc.getPaginatedExecutions({ page: 1, pageSize: 25, versionState: 'current', currentFingerprints: atCommit });
+      const filters = mockCount.mock.calls[0][0].query.bool.filter;
+      const clauses = versionStateClauses('current', atCommit);
+      expect(JSON.stringify(clauses)).toContain('"f0rtika.test_version.commit":"abc123"');
+      expect(filters.slice(svc.buildExtendedFilters({}).length)).toEqual(clauses);
     });
 
     it.each(['older', 'current', 'unknown', 'not_recorded'] as const)('versionState=%s adds its clauses as filter context', async (state) => {

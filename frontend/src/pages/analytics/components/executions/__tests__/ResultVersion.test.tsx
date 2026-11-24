@@ -94,9 +94,9 @@ describe('ResultVersion (detail)', () => {
     expect(within(block).queryByRole('link')).toBeNull();
   });
 
-  it('older: says a newer version is synced and links to the test', () => {
+  it('older: says a different version is synced now and links to the test', () => {
     render(wrap(<ResultVersion exec={exec({ version_state: 'older' })} detail />));
-    expect(screen.getByText('A newer version of this test is synced.')).toBeInTheDocument();
+    expect(screen.getByText('A different version of this test is synced now.')).toBeInTheDocument();
     expect(screen.getByRole('link', { name: 'Open test' })).toHaveAttribute('href', `/tests/${UUID}`);
   });
 

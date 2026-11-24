@@ -170,8 +170,8 @@ Rows of `GET /api/analytics/executions` and `/executions/paginated` say which ve
 
 | Value | Meaning |
 |-------|---------|
-| `current` | The result's `fingerprint` equals the synced test's: built from the source you have now. |
-| `older` | The result has a `fingerprint` and the synced test's differs: the source changed since that binary was built. |
+| `current` | Built from the source you have now: the result's `fingerprint` equals the synced test's, or the result has a `fingerprint` and its `commit` is the library commit synced now. |
+| `older` | The result has a `fingerprint`, the synced test's differs, and its `commit` is not the one synced now: the source changed since that binary was built. |
 | `unknown` | A version was recorded but can't be compared: it has no `fingerprint`, or the test is no longer in the library. |
 | `not_recorded` | The result has no `test_version`: recorded before versions were stored, or from a task created before that (a Retry of an older task included). |
 
