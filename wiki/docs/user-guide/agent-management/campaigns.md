@@ -120,6 +120,8 @@ EDR alerts reach ProjectAchilles a few minutes after a run (the Defender sync ru
 
 When a pair has more than one attempt in the run (a retry), the cell shows the **latest** attempt.
 
+Under each test name is the [test version](../test-browser/test-versions#versions-on-results) its tasks were sent with: the short commit and **current**, **older**, **version unknown** or **not recorded**. When the hosts ran different versions it reads **mixed versions**; hover it for each version and its number of hosts. When states were compared, the line with the **As of** time adds that version states compare each test with the synced test library as of that time. The line is printed too.
+
 ### % protected
 
 ```
@@ -130,13 +132,14 @@ rounded to a whole number. This is the same basis as the Defense Score, which co
 
 ## Exporting Evidence
 
-- **Download CSV** produces one row for **every** test and host pair, including skipped and not-run pairs, with the columns `test, techniques, host, os, outcome, exit_code, reason, completed_at, as_of, stages, edr`.
+- **Download CSV** produces one row for **every** test and host pair, including skipped and not-run pairs, with the columns `test, techniques, host, os, outcome, exit_code, reason, completed_at, as_of, stages, edr, version, version_state`.
   - `outcome` is the cell state: `protected`, `prevented`, `detected`, `unprotected`, `error`, `not_run`, `running`, `waiting_for_notice`, or `na` for a pair skipped at launch.
   - `reason` explains every outcome, using the same text as the hover.
   - `stages` lists each stage's exit code, for example `1:101 2:999 3:skip`, or the compliant-control count for a cyber-hygiene bundle.
   - `edr` summarizes what the EDR reported, for example `Defender: prevented (process killed)` or `Defender: alert raised`, or `unavailable` when Elasticsearch could not be reached.
   - `exit_code` is empty for `na` and `not_run` pairs.
-  - `stages` and `edr` were added at the end of each row, so files read by position before they existed still parse.
+  - `version` is the short commit of the test the task ran, and `version_state` its state as of `as_of` (`current`, `older`, `version unknown` or `not recorded`). Both are empty for a pair with no task.
+  - `stages` and `edr`, then `version` and `version_state`, were added at the end of each row, so files read by position before they existed still parse.
   - The file name includes the as-of time, for example `campaign-run-<run-id>-20261023T1405Z.csv`, so two exports of the same run are distinguishable.
 - **Print** opens the browser print dialog with a landscape, light-theme layout, suitable for saving as PDF. The column header repeats on every page and rows never split across pages. When there are more than 12 columns, they print in blocks of 12, each block starting a new page and repeating the first column. Reasons are in the CSV, not on paper.
 
