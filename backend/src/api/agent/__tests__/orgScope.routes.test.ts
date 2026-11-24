@@ -45,6 +45,8 @@ const { errorHandler } = await import('../../../middleware/error.middleware.js')
 
 const ORG_A = 'org-a';
 const ORG_B = 'org-b';
+// UUID-shaped, as real test ids are: the schemas refuse anything else.
+const TEST_ID = '11111111-1111-4111-8111-111111111111';
 
 /** A Clerk admin session, in `orgId` or in no organization. */
 function appAs(orgId?: string) {
@@ -241,7 +243,7 @@ describe('tasks and schedules can never target another org agent', () => {
   });
 
   it('POST /tasks and /tasks/batch refuse another org agent before anything else', async () => {
-    const one = { agent_ids: ['b1'], test_uuid: 'u', test_name: 'n', binary_name: 'b.exe' };
+    const one = { agent_ids: ['b1'], test_uuid: TEST_ID, test_name: 'n', binary_name: 'b.exe' };
     const single = await request(appAs(ORG_A)).post('/admin/tasks').send({ org_id: ORG_A, ...one });
     expect(single.status).toBe(404);
     expect(single.body.error).toBe('Agent not found');
@@ -268,7 +270,7 @@ describe('tasks and schedules can never target another org agent', () => {
 
   it('POST /schedules refuses another org agent', async () => {
     const res = await request(appAs(ORG_A)).post('/admin/schedules').send({
-      agent_ids: ['b1'], org_id: ORG_A, test_uuid: 'u', test_name: 'n', binary_name: 'b.exe',
+      agent_ids: ['b1'], org_id: ORG_A, test_uuid: TEST_ID, test_name: 'n', binary_name: 'b.exe',
       schedule_type: 'daily', schedule_config: { time: '09:00' },
     });
     expect(res.status).toBe(404);
@@ -287,7 +289,7 @@ describe('tasks and schedules can never target another org agent', () => {
 describe('review findings', () => {
   it('a query org_id cannot hide a different body org_id', async () => {
     const res = await request(appAs(ORG_A)).post(`/admin/schedules?org_id=${ORG_A}`).send({
-      agent_ids: ['a1'], org_id: ORG_B, test_uuid: 'u', test_name: 'n', binary_name: 'b.exe',
+      agent_ids: ['a1'], org_id: ORG_B, test_uuid: TEST_ID, test_name: 'n', binary_name: 'b.exe',
       schedule_type: 'daily', schedule_config: { time: '09:00' },
     });
     expect(res.status).toBe(403);

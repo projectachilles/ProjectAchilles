@@ -633,7 +633,7 @@ describe('analytics routes', () => {
   });
 
   describe('executions versionState filter', () => {
-    const identity = (fingerprint: string) => ({ fingerprint });
+    const identity = (fingerprint: string) => ({ fingerprint, commit: `commit-of-${fingerprint}` });
     const useVersions = (entries: Array<[string, string]>) => {
       mockGetTestVersionsService.mockReturnValue({
         synced: vi.fn().mockResolvedValue(new Map(entries.map(([u, f]) => [u, identity(f)]))),
@@ -655,13 +655,13 @@ describe('analytics routes', () => {
       expect(mockGetPaginatedExecutions).not.toHaveBeenCalled();
     });
 
-    it('passes the state and the uuid -> fingerprint map (flat and grouped)', async () => {
+    it('passes the state and the uuid -> current version map (flat and grouped)', async () => {
       useVersions([['t1', 'f1'], ['t2', 'f2']]);
       const flat = await request(createApp()).get('/api/analytics/executions/paginated?versionState=older');
       expect(flat.status).toBe(200);
       const arg = mockGetPaginatedExecutions.mock.calls[0][0];
       expect(arg.versionState).toBe('older');
-      expect(arg.currentFingerprints).toEqual(new Map([['t1', 'f1'], ['t2', 'f2']]));
+      expect(arg.currentFingerprints).toEqual(new Map([['t1', { fingerprint: 'f1', commit: 'commit-of-f1' }], ['t2', { fingerprint: 'f2', commit: 'commit-of-f2' }]]));
       const grouped = await request(createApp()).get('/api/analytics/executions/paginated?versionState=current&grouped=true');
       expect(grouped.status).toBe(200);
       expect(mockGetGroupedPaginatedExecutions.mock.calls[0][0].versionState).toBe('current');
@@ -672,7 +672,7 @@ describe('analytics routes', () => {
       await request(createApp()).get('/api/analytics/executions/paginated');
       const arg = mockGetPaginatedExecutions.mock.calls[0][0];
       expect(arg.versionState).toBeUndefined();
-      expect(arg.currentFingerprints).toEqual(new Map([['t1', 'f1']]));
+      expect(arg.currentFingerprints).toEqual(new Map([['t1', { fingerprint: 'f1', commit: 'commit-of-f1' }]]));
     });
 
     it('answers 503 for a versionState request when there is no versions service', async () => {
@@ -709,7 +709,7 @@ describe('analytics routes', () => {
       mockGetRecentExecutions.mockResolvedValue([]);
       const res = await request(createApp()).get('/api/analytics/executions');
       expect(res.status).toBe(200);
-      expect(mockGetRecentExecutions.mock.calls[0][0].currentFingerprints).toEqual(new Map([['t1', 'f1']]));
+      expect(mockGetRecentExecutions.mock.calls[0][0].currentFingerprints).toEqual(new Map([['t1', { fingerprint: 'f1', commit: 'commit-of-f1' }]]));
     });
 
     it('refuses to build a clause for more than 10,000 tests', async () => {

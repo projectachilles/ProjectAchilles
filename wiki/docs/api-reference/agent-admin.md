@@ -105,9 +105,9 @@ POST /api/agent/admin/tasks
 {
   "org_id": "default",
   "agent_ids": ["agent-uuid-1", "agent-uuid-2"],
-  "test_uuid": "test-uuid",
+  "test_uuid": "7659eeba-f315-440e-9882-4aa015d68b27",
   "test_name": "Test name",
-  "binary_name": "test-uuid.exe",
+  "binary_name": "7659eeba-f315-440e-9882-4aa015d68b27.exe",
   "target_index": "achilles-results-engagement1"
 }
 ```
@@ -115,6 +115,8 @@ POST /api/agent/admin/tasks
 | Field | Notes |
 |-------|-------|
 | `org_id`, `agent_ids`, `test_uuid`, `test_name`, `binary_name` | Required. Every agent must belong to the caller's organization (`404` (`Agent not found`) otherwise) |
+| `test_uuid` | The test's id as the Test Library shows it (UUID). Anything else is a `400` |
+| `binary_name` | A file name, with no folder in it: the `filename` of the test's build (`GET /api/tests/builds/:uuid`). The server sends each agent the binary its build record lists for the agent's OS |
 | `execution_timeout` | Seconds, optional |
 | `arguments` | Array of strings, optional |
 | `priority` | 0 to 10, optional |
@@ -327,9 +329,9 @@ POST /api/agent/admin/schedules
 {
   "agent_ids": ["agent-uuid"],
   "org_id": "default",
-  "test_uuid": "test-uuid",
+  "test_uuid": "7659eeba-f315-440e-9882-4aa015d68b27",
   "test_name": "Test name",
-  "binary_name": "test-uuid.exe",
+  "binary_name": "7659eeba-f315-440e-9882-4aa015d68b27.exe",
   "metadata": {
     "category": "", "subcategory": "", "techniques": [], "tactics": [],
     "threat_actor": "", "target": [], "complexity": "", "tags": [], "score": null, "integrations": []

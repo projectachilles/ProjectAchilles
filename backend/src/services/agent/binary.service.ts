@@ -1,11 +1,9 @@
 import crypto from 'crypto';
 import fs from 'fs';
 import path from 'path';
-import os from 'os';
 import type { Response } from 'express';
 import { AppError } from '../../middleware/error.middleware.js';
-
-const BUILDS_DIR = path.join(os.homedir(), '.projectachilles', 'builds');
+import { getBuildDir, readBuildMeta, servableBinaryNames } from './testArtifacts.js';
 
 export interface BinaryInfo {
   path: string;
@@ -16,17 +14,32 @@ export interface BinaryInfo {
 
 /**
  * Resolve a test binary, verify it exists, and compute its SHA256 hash and size.
+ *
+ * Only a file the build record lists is a test binary (servableBinaryNames).
+ * The build folder holds other files (the record, the build marker, signing
+ * leftovers, uploaded embed files): asking for one of those is answered like a
+ * file that is not there.
  */
 export async function getBinaryInfo(testUuid: string, binaryName: string): Promise<BinaryInfo> {
-  // Prevent path traversal
-  const safeName = path.basename(binaryName);
-  const safeUuid = path.basename(testUuid);
+  const notFound = (): AppError => new AppError(`Binary not found: ${path.basename(binaryName)}`, 404);
 
-  const binaryPath = path.join(BUILDS_DIR, safeUuid, safeName);
+  const buildDir = getBuildDir(testUuid);
+  if (!buildDir) throw notFound();
 
-  if (!fs.existsSync(binaryPath)) {
-    throw new AppError(`Binary not found: ${safeName}`, 404);
+  let meta: unknown;
+  try {
+    meta = readBuildMeta(testUuid);
+  } catch {
+    throw notFound(); // unreadable record: nothing is known to be a binary
   }
+
+  // The served name is the one from the record, found by equality: the
+  // request only selects among the listed names and never becomes a path.
+  const listedName = servableBinaryNames(meta, testUuid).find(name => name === binaryName);
+  if (!listedName) throw notFound();
+
+  const binaryPath = path.join(buildDir, listedName);
+  if (!fs.existsSync(binaryPath)) throw notFound();
 
   const stat = fs.statSync(binaryPath);
   const sha256 = await computeSha256(binaryPath);
@@ -35,7 +48,7 @@ export async function getBinaryInfo(testUuid: string, binaryName: string): Promi
     path: binaryPath,
     sha256,
     size: stat.size,
-    name: safeName,
+    name: listedName,
   };
 }
 

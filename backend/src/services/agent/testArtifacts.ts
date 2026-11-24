@@ -24,18 +24,83 @@ export type ArtifactExistence = { ok: true; binaryName: string } | ArtifactFailu
 /* eslint-disable @typescript-eslint/no-explicit-any */
 type BuildMeta = any;
 
-export function getBuildDir(testUuid: string): string {
-  return path.join(os.homedir(), '.projectachilles', 'builds', testUuid);
+const isRecord = (v: unknown): v is Record<string, unknown> =>
+  typeof v === 'object' && v !== null && !Array.isArray(v);
+
+function buildsRoot(): string {
+  return path.resolve(os.homedir(), '.projectachilles', 'builds');
+}
+
+/** A name that is one path segment: no separator, not `.` or `..`, not empty. */
+function isPlainName(name: string): boolean {
+  return name !== '' && name !== '.' && name !== '..' && !/[/\\\0]/.test(name);
+}
+
+/**
+ * `name` directly inside `dir`, or null when it is not a plain name or the
+ * result is anywhere else. The resolved value is returned (not the join), and
+ * checked with path.relative: the file system layer keeps the boundary itself
+ * and does not depend on every caller having validated its input.
+ */
+function childOf(dir: string, name: string): string | null {
+  if (!isPlainName(name)) return null;
+  const resolved = path.resolve(dir, name);
+  const rel = path.relative(dir, resolved);
+  if (rel === '' || rel.startsWith('..') || path.isAbsolute(rel) || rel !== name) return null;
+  return resolved;
+}
+
+/**
+ * ~/.projectachilles/builds/<testUuid>, or null when the id is not one folder
+ * name (`..`, a path, an absolute path). An id such as `x/../<uuid>` is
+ * refused too: it would reach a real build under an id no test has.
+ */
+export function getBuildDir(testUuid: string): string | null {
+  return childOf(buildsRoot(), testUuid);
 }
 
 /**
  * Read ~/.projectachilles/builds/<uuid>/build-meta.json.
- * Returns null when absent; throws on malformed JSON (callers decide).
+ * Returns null when absent (or when the id names no build folder); throws on
+ * malformed JSON (callers decide).
  */
 export function readBuildMeta(testUuid: string): BuildMeta | null {
-  const metaPath = path.join(getBuildDir(testUuid), 'build-meta.json');
+  const dir = getBuildDir(testUuid);
+  if (!dir) return null;
+  const metaPath = path.join(dir, 'build-meta.json');
   if (!fs.existsSync(metaPath)) return null;
   return JSON.parse(fs.readFileSync(metaPath, 'utf-8'));
+}
+
+/**
+ * The file names a build record offers to agents: `filename`, the older
+ * `binary_name`, and each `binaries[os].filename`. A record that names none
+ * (written before the name was recorded) offers the two names a build can
+ * have, `<uuid>` and `<uuid>.exe`. Names that are not plain file names, or
+ * that start with a dot, are left out.
+ *
+ * A build folder also holds the record itself, the build marker, signing
+ * leftovers and uploaded embed files; none of those is a test binary, so the
+ * download route serves only what this lists.
+ */
+export function servableBinaryNames(meta: unknown, testUuid: string): string[] {
+  if (!isRecord(meta)) return [];
+  const names = new Set<string>();
+  const add = (value: unknown): void => {
+    if (typeof value === 'string' && isPlainName(value) && !value.startsWith('.')) names.add(value);
+  };
+  add(meta.filename);
+  add(meta.binary_name);
+  if (isRecord(meta.binaries)) {
+    for (const entry of Object.values(meta.binaries)) {
+      if (isRecord(entry)) add(entry.filename);
+    }
+  }
+  if (names.size === 0) {
+    add(testUuid);
+    add(`${testUuid}.exe`);
+  }
+  return [...names];
 }
 
 /**
@@ -66,6 +131,8 @@ export function resolveTestArtifact(
   opts: { fallbackFilename?: string; meta?: BuildMeta; hash?: boolean } = {},
 ): ArtifactResolution | ArtifactExistence {
   const fallbackFilename = opts.fallbackFilename;
+  const buildDir = getBuildDir(testUuid);
+  if (!buildDir) return { ok: false, reason: 'not built' };
   let meta: BuildMeta | null;
   try {
     meta = opts.meta ?? readBuildMeta(testUuid);
@@ -89,8 +156,10 @@ export function resolveTestArtifact(
     };
   }
 
-  const resolvedPath = path.join(getBuildDir(testUuid), filename);
-  if (!fs.existsSync(resolvedPath)) {
+  // Inside the build folder only: the name comes from the record, or from the
+  // request for a record that names none.
+  const resolvedPath = childOf(buildDir, filename);
+  if (!resolvedPath || !fs.existsSync(resolvedPath)) {
     return { ok: false, reason: 'binary missing on server', filename };
   }
   if (opts.hash === false) return { ok: true, binaryName: filename };
@@ -102,9 +171,6 @@ export function resolveTestArtifact(
     size: fs.statSync(resolvedPath).size,
   };
 }
-
-const isRecord = (v: unknown): v is Record<string, unknown> =>
-  typeof v === 'object' && v !== null && !Array.isArray(v);
 
 /**
  * The version a task carries, from the build-meta createTasks already read.

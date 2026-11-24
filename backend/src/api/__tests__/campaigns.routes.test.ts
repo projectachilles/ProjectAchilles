@@ -52,8 +52,11 @@ const app = () => {
   return a;
 };
 
+// UUID-shaped, as real test ids are: the schema refuses anything else.
+const T1 = '11111111-1111-4111-8111-111111111111';
+
 const body = (over: Record<string, unknown> = {}) => ({
-  org_id: 'org-1', name: 'Q4 plan', test_uuids: ['t1'], agent_ids: ['a1'], ...over,
+  org_id: 'org-1', name: 'Q4 plan', test_uuids: [T1], agent_ids: ['a1'], ...over,
 });
 
 async function create(over: Record<string, unknown> = {}) {
@@ -67,9 +70,9 @@ function insertRun(id: string, campaignId: string, org: string, startedAt = '202
      VALUES (?, ?, ?, 'u1', ?, NULL, ?, 0)`,
   ).run(id, campaignId, org, startedAt, JSON.stringify({
     campaign_name: 'Q4 plan', framework_label: null,
-    tests: [{ uuid: 't1', name: 'Test t1' }],
+    tests: [{ uuid: T1, name: 'Test t1' }],
     agents: [{ id: 'a1', hostname: 'h1', os: 'windows' }],
-    skipped: [{ test_uuid: 't1', agent_id: 'a1', reason: 'not built' }],
+    skipped: [{ test_uuid: T1, agent_id: 'a1', reason: 'not built' }],
   }));
 }
 
@@ -264,7 +267,7 @@ describe('run list pagination', () => {
 describe('run launch', () => {
   it('maps PartialRunError to 409 { success, error, skipped }', async () => {
     const c = await create();
-    const skipped = [{ test_uuid: 't1', agent_id: 'a1', reason: 'not built' }];
+    const skipped = [{ test_uuid: T1, agent_id: 'a1', reason: 'not built' }];
     launchSpy.mockImplementation(() => { throw new PartialRunError(skipped); });
     const res = await request(app()).post(`/api/campaigns/${c.body.data.id}/runs`).send({ org_id: 'org-1' });
     expect(res.status).toBe(409);

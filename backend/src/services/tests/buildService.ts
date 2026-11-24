@@ -11,6 +11,8 @@ import type { TestsSettingsService } from './settings.js';
 import { BuildJobs } from './buildJobs.js';
 import { describeCommandFailure } from '../shared/commandFailure.js';
 import { buildSubprocessEnv } from './buildEnv.js';
+import { writePrivateTempFile } from './privateTempFile.js';
+import type { PrivateTempFile } from './privateTempFile.js';
 import { isUsableSourceRoot } from '../browser/repositoryRoot.js';
 import { hashFiles, isBuildInput } from '../browser/versionIdentity.js';
 import { sanitizeGitError } from '../browser/gitSyncService.js';
@@ -1240,14 +1242,15 @@ const ARTIFACT_DIR = \`${artifactDir}\`
         // whenever Windows is a TARGET OS — not only the primary — so a
         // cross-platform build (primary resolved to Linux) still signs the
         // Windows orchestrator it emits, rather than shipping it unsigned.
-        let innerPassFile: string | null = null;
+        // The password file is outside the build folder (the agent download
+        // route serves from there) and lives for the whole script run.
+        let innerPassFile: PrivateTempFile | null = null;
         if (targetOSes.includes('windows')) {
           const activeCert = this.settingsService.getActiveCertPfxPath();
           if (activeCert) {
             env.F0_SIGN_CERT_PATH = activeCert.pfxPath;
-            innerPassFile = path.join(buildDir, '.tmp-inner-pass');
-            fs.writeFileSync(innerPassFile, activeCert.password, { mode: 0o600 });
-            env.F0_SIGN_CERT_PASS_FILE = innerPassFile;
+            innerPassFile = writePrivateTempFile(activeCert.password);
+            env.F0_SIGN_CERT_PASS_FILE = innerPassFile.path;
           }
         }
 
@@ -1264,9 +1267,7 @@ const ARTIFACT_DIR = \`${artifactDir}\`
             try { fs.unlinkSync(patchedScript); } catch { /* ignore */ }
           }
           // Clean up inner cert password file
-          if (innerPassFile && fs.existsSync(innerPassFile)) {
-            fs.unlinkSync(innerPassFile);
-          }
+          innerPassFile?.remove();
         }
 
         // The script may have outlived its timeout: a build superseded while
@@ -1421,16 +1422,17 @@ const ARTIFACT_DIR = \`${artifactDir}\`
       const activeCert = this.settingsService.getActiveCertPfxPath();
       if (activeCert) {
         const signedPath = outputPath + '.signed';
-        // L1: Pass password via temp file to avoid /proc/PID/cmdline exposure
-        const passFile = path.join(buildDir, '.tmp-pass');
+        // L1: Pass password via temp file to avoid /proc/PID/cmdline exposure.
+        // Not in the build folder: the agent download route serves from there.
+        let passFile: PrivateTempFile | null = null;
         try {
-          // Before the password file: it is in the build directory too.
+          // A superseded build stops here, before it signs anything.
           this.refreshBuildMarker(marker, uuid);
-          fs.writeFileSync(passFile, activeCert.password, { mode: 0o600 });
+          passFile = writePrivateTempFile(activeCert.password);
           await execFileAsync('osslsigncode', [
             'sign',
             '-pkcs12', activeCert.pfxPath,
-            '-readpass', passFile,
+            '-readpass', passFile.path,
             '-in', outputPath,
             '-out', signedPath,
           ], { timeout: SIGN_TIMEOUT });
@@ -1447,7 +1449,7 @@ const ARTIFACT_DIR = \`${artifactDir}\`
           // Superseded is not a signing failure: the build stops.
           if (err instanceof BuildSupersededError) throw err;
         } finally {
-          if (fs.existsSync(passFile)) fs.unlinkSync(passFile);
+          passFile?.remove();
         }
       }
     } else if (platform.os === 'darwin') {

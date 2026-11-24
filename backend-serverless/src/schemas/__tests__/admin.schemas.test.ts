@@ -79,3 +79,30 @@ describe('target_index (where a task writes its results)', () => {
     expect(CreateTaskSchema.safeParse({ ...base, target_index }).success).toBe(false);
   });
 });
+
+describe('test id and binary name (they become part of the blob key)', () => {
+  const schedule = { ...task, schedule_type: 'once', schedule_config: { date: '2030-01-01', time: '09:00' } };
+
+  it('accepts a test id as the library writes it', () => {
+    expect(CreateTaskSchema.safeParse(task).success).toBe(true);
+    expect(CreateTaskSchema.safeParse({ ...task, test_uuid: '00000000-0000-0000-0000-000000000001' }).success).toBe(true);
+    expect(CreateScheduleSchema.safeParse(schedule).success, JSON.stringify(CreateScheduleSchema.safeParse(schedule).error?.issues)).toBe(true);
+  });
+
+  it.each([`x/../${task.test_uuid}`, '..', '../../etc', `${task.test_uuid}/`, 'not-a-test-id'])(
+    'refuses test id %j for a task and a schedule',
+    (test_uuid) => {
+      expect(CreateTaskSchema.safeParse({ ...task, test_uuid }).success).toBe(false);
+      expect(CreateScheduleSchema.safeParse({ ...schedule, test_uuid }).success).toBe(false);
+    },
+  );
+
+  it.each(['../secret.exe', 'sub/test.exe', '..', '.hidden', '/etc/passwd', 'x'.repeat(256)])(
+    'refuses binary name %j for a task and a schedule',
+    (binary_name) => {
+      expect(CreateTaskSchema.safeParse({ ...task, binary_name }).success).toBe(false);
+      expect(CreateScheduleSchema.safeParse({ ...schedule, binary_name }).success).toBe(false);
+    },
+  );
+});
+

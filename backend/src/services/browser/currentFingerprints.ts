@@ -1,14 +1,15 @@
-// The current fingerprint of every synced test, for the result version states
+// The current version (fingerprint and commit) of every synced test, for the result version states
 // (Analytics → Executions, the campaign evidence matrix and the execution
 // report). Kept out of testVersions.service.ts so callers' tests can mock that
 // module's getTestVersionsService and still exercise this rule.
 import { getTestVersionsService } from './testVersions.service.js';
 import type { TestVersionsService } from './testVersions.service.js';
+import type { CurrentTestVersion } from '../../types/testVersion.js';
 
 /** Longest wait for the library read, per caller; a caller may pass a shorter limit. */
 export const VERSION_READ_BUDGET_MS = 5_000;
 
-type FingerprintMap = Map<string, string> | undefined;
+type FingerprintMap = Map<string, CurrentTestVersion> | undefined;
 
 /**
  * The read in flight, shared by every caller that comes while it runs (keyed by
@@ -25,8 +26,10 @@ function warnUnreadable(reason: string): void {
 /** One read of the library. Never rejects: a failure is undefined, logged once for all its callers. */
 async function readFingerprints(service: TestVersionsService): Promise<FingerprintMap> {
   try {
-    const map = new Map<string, string>();
-    for (const [uuid, identity] of await service.synced()) map.set(uuid, identity.fingerprint);
+    const map = new Map<string, CurrentTestVersion>();
+    for (const [uuid, identity] of await service.synced()) {
+      map.set(uuid, { fingerprint: identity.fingerprint, commit: identity.commit ?? null });
+    }
     return map;
   } catch (err) {
     warnUnreadable(err instanceof Error ? err.name : 'error');
@@ -35,7 +38,8 @@ async function readFingerprints(service: TestVersionsService): Promise<Fingerpri
 }
 
 /**
- * Current fingerprint of every test the library can read (uuid -> fingerprint).
+ * Current version of every test the library can read (uuid -> fingerprint and
+ * library commit).
  * undefined when the versions service is missing, the read fails, or it takes
  * longer than `limitMs` (at most VERSION_READ_BUDGET_MS): callers then show no
  * state (never a guess). Callers that come while a read runs share it; one that

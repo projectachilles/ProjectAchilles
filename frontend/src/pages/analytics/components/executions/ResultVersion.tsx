@@ -88,7 +88,7 @@ export function ResultVersion({ exec, detail = false }: ResultVersionProps) {
       </div>
       {state === 'older' && (
         <p className="mt-2 text-xs text-warning">
-          A newer version of this test is synced.{' '}
+          A different version of this test is synced now.{' '}
           <Link to={`/tests/${libraryUuid(exec)}`} className="underline underline-offset-2 hover:text-foreground">
             Open test
           </Link>

@@ -1,5 +1,6 @@
 import type {
   BuildVersionStamp,
+  CurrentTestVersion,
   ResultVersionState,
   TaskTestVersion,
   TestVersionIdentity,
@@ -39,6 +40,27 @@ function changeReason(
 }
 
 /**
+ * Whether `a` was made from the source `b` describes. Equal fingerprints, or
+ * the same library commit: with git, one commit is one set of files, so two
+ * fingerprints of the same commit can only differ because the rule that
+ * computes them changed (BUILD_INPUT_EXCLUDED_* in versionIdentity.ts). Without
+ * a commit on both sides (no git, custom tests) only the fingerprint counts.
+ * Callers pass a version they trust: a stamp that is not `modified`, or a
+ * result that carries a fingerprint. The commit rule leans on that check as it
+ * was made at build time, under the rule of that time: it is sound across a
+ * rule change that only leaves more files out (the one made so far). A change
+ * that makes the fingerprint count a file it ignored must not accept the same
+ * commit for older stamps: a local edit to that file was not seen as modified.
+ */
+function sameSource(
+  a: { fingerprint?: string | null; commit?: string | null },
+  b: { fingerprint?: string | null; commit?: string | null },
+): boolean {
+  if (a.fingerprint && a.fingerprint === b.fingerprint) return true;
+  return !!a.commit && a.commit === b.commit;
+}
+
+/**
  * The single status shown for a test. First matching rule wins. `up_to_date`
  * is only returned when every comparison could actually be made.
  */
@@ -71,7 +93,7 @@ export function deriveStatus(i: StatusInput): DerivedStatus {
     }
   }
 
-  if (built.fingerprint !== synced.fingerprint) {
+  if (!sameSource(built, synced)) {
     return { status: 'rebuild_needed', reason: changeReason(built, synced) };
   }
   if (built.deps_hash !== i.currentDepsHash) {
@@ -92,30 +114,35 @@ export function deriveStatus(i: StatusInput): DerivedStatus {
   return { status: 'up_to_date' };
 }
 
-/** How the version recorded on a stored result relates to the synced one. */
+/**
+ * How the version recorded on a stored result relates to the one synced now.
+ * A result without a fingerprint is unknown whatever else it carries: a task
+ * gets a fingerprint (and a commit) only for a binary whose stamp could be
+ * trusted (taskTestVersion), so the commit is never compared on its own.
+ */
 export function resultVersionState(
-  v: Pick<TaskTestVersion, 'fingerprint'> | undefined,
-  syncedFingerprint: string | undefined,
+  v: Pick<TaskTestVersion, 'fingerprint' | 'commit'> | undefined,
+  synced: CurrentTestVersion | undefined,
 ): ResultVersionState {
   if (!v) return 'not_recorded';
-  if (!v.fingerprint || !syncedFingerprint) return 'unknown';
-  return v.fingerprint === syncedFingerprint ? 'current' : 'older';
+  if (!v.fingerprint || !synced) return 'unknown';
+  return sameSource(v, synced) ? 'current' : 'older';
 }
 
 /**
- * The state of a result of one test, given the current fingerprint of every
- * test that can be read (uuid -> fingerprint). The one rule for the Executions
- * rows and the campaign evidence matrix: no recorded version is not_recorded;
- * a test missing from `current` (removed, or its identity unreadable now) is
- * unknown, never older.
+ * The state of a result of one test, given the current version of every test
+ * that can be read (uuid -> fingerprint and commit). The one rule for the
+ * Executions rows, the campaign evidence matrix and the execution report: no
+ * recorded version is not_recorded; a test missing from `current` (removed, or
+ * its identity unreadable now) is unknown, never older.
  */
 export function resultStateForTest(
-  version: { fingerprint?: string } | undefined,
+  version: { fingerprint?: string; commit?: string } | undefined,
   testUuid: string,
-  current: Map<string, string>,
+  current: Map<string, CurrentTestVersion>,
 ): ResultVersionState {
   if (!version) return 'not_recorded';
-  const fingerprint = current.get(testUuid);
-  if (fingerprint === undefined) return 'unknown';
-  return resultVersionState(version, fingerprint);
+  const synced = current.get(testUuid);
+  if (synced === undefined) return 'unknown';
+  return resultVersionState(version, synced);
 }

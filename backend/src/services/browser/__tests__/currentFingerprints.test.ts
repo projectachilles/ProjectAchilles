@@ -6,9 +6,10 @@ vi.mock('../testVersions.service.js', () => ({ getTestVersionsService: mockGetSe
 
 const { currentFingerprintMap, VERSION_READ_BUDGET_MS } = await import('../currentFingerprints.js');
 
-const identity = (fingerprint: string) => ({ fingerprint }) as TestVersionIdentity;
-const IDS = new Map([['t1', identity('fp-1')], ['t2', identity('fp-2')]]);
-const MAP = new Map([['t1', 'fp-1'], ['t2', 'fp-2']]);
+const identity = (fingerprint: string, commit: string | null) => ({ fingerprint, commit }) as TestVersionIdentity;
+// t1 is a library test at a commit; t2 has none (a custom test, or git sync off).
+const IDS = new Map([['t1', identity('fp-1', 'c0ffee1')], ['t2', identity('fp-2', null)]]);
+const MAP = new Map([['t1', { fingerprint: 'fp-1', commit: 'c0ffee1' }], ['t2', { fingerprint: 'fp-2', commit: null }]]);
 
 /** A versions service whose synced() is `read`; a new object per call, so reads never mix across tests. */
 function serviceReading(read: () => Promise<Map<string, TestVersionIdentity>>) {
@@ -31,7 +32,7 @@ describe('currentFingerprintMap', () => {
     mockGetService.mockReset();
   });
 
-  it('maps every synced test to its fingerprint', async () => {
+  it('maps every synced test to its fingerprint and its commit', async () => {
     serviceReading(async () => IDS);
     expect(await currentFingerprintMap()).toEqual(MAP);
   });

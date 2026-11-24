@@ -24,9 +24,17 @@ export interface TestLocation {
 // deliberately. The hash line format changes every fingerprint. An excluded
 // extension, excluded name or disk exclusion changes the fingerprints of the
 // tests that have such a file. A shared prefix changes those of the git tests
-// whose shared files it adds or removes. Each changed fingerprint makes that
-// test's stored results read `older` once. Bump FINGERPRINT_RULE_VERSION with
-// any change to the lists or to the hash format.
+// whose shared files it adds or removes. A build or a stored result made at
+// the commit that is synced now is not affected when the change only leaves
+// more files out: sameSource() in testVersionStatus.ts also accepts the same
+// library commit (read its comment before a change that adds files: it must
+// not accept the commit for stamps made before). Once a Sync moves
+// the library, each changed fingerprint makes that test's earlier builds read
+// "Rebuild needed" and its earlier results `older` once, whether or not its
+// files changed: fingerprints made under two rules can't be compared. If that
+// is not acceptable for a change, record the rule on the build stamp and on
+// results in the same change, and compare only fingerprints of one rule. Bump
+// FINGERPRINT_RULE_VERSION with any change to the lists or to the hash format.
 
 /**
  * The rule that made a fingerprint: bump it with any change to the input

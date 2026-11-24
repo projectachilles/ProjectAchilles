@@ -60,6 +60,16 @@ export type VersionReason =
 
 export type ResultVersionState = 'current' | 'older' | 'unknown' | 'not_recorded';
 
+/**
+ * The version of one test that is synced now: what a build or a stored result
+ * is compared with. `commit` is the library commit, null without git and for
+ * custom tests.
+ */
+export interface CurrentTestVersion {
+  fingerprint: string;
+  commit: string | null;
+}
+
 /** One version of a test: the commit it is from and its content fingerprint. */
 export interface VersionRef {
   commit: string | null;

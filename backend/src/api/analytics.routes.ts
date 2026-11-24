@@ -14,7 +14,7 @@ import { validate } from '../middleware/validation.js';
 import { AnalyticsSettingsSchema, AnalyticsTestSchema, CreateIndexSchema, ArchiveByGroupKeysSchema, ArchiveByDateSchema } from '../schemas/analytics.schemas.js';
 import type { AnalyticsQueryParams, ExtendedAnalyticsQueryParams, PaginatedExecutionsParams, ExecutionVerdict } from '../types/analytics.js';
 import { EXECUTION_VERDICTS } from '../types/analytics.js';
-import type { ResultVersionState } from '../types/testVersion.js';
+import type { CurrentTestVersion, ResultVersionState } from '../types/testVersion.js';
 import { RESULT_VERSION_STATES, MAX_VERSION_FILTER_TESTS } from '../services/analytics/testVersionState.js';
 import { currentFingerprintMap } from '../services/browser/currentFingerprints.js';
 
@@ -323,14 +323,15 @@ router.get('/defense-score/by-technique', asyncHandler(async (req, res) => {
 }));
 
 /**
- * Current fingerprint of every test the library can read (uuid -> fingerprint),
+ * Current version of every test the library can read (uuid -> fingerprint and
+ * library commit),
  * for the result version labels and the versionState filter. undefined when
  * the versions service is missing, the read fails, or it takes more than
  * VERSION_READ_BUDGET_MS (5 s, bounded in currentFingerprintMap): rows then
  * carry no version_state, and a versionState request is refused (503) when
  * `required`.
  */
-async function currentFingerprints(required: boolean): Promise<Map<string, string> | undefined> {
+async function currentFingerprints(required: boolean): Promise<Map<string, CurrentTestVersion> | undefined> {
   const map = await currentFingerprintMap();
   if (!map && required) throw new AppError('Test versions are not available', 503);
   return map;
