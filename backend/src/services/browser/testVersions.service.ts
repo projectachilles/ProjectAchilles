@@ -11,6 +11,7 @@ import type { BuildVersionSource } from '../tests/buildService.js';
 import { sanitizeGitError } from './gitSyncService.js';
 import type { GitSyncService } from './gitSyncService.js';
 import {
+  FINGERPRINT_RULE_VERSION,
   identitiesFromTree,
   identityFromDisk,
   isBuildInput,
@@ -92,7 +93,16 @@ function matchesPrefix(p: string, prefix: string): boolean {
   return prefix.endsWith('/') ? p.startsWith(prefix) : p === prefix;
 }
 
-type StoredState = Omit<PublishedState, 'byTest'> & { byTest: Record<string, TestVersionIdentity> };
+/**
+ * The shared state file. `fingerprintRule` is the FINGERPRINT_RULE_VERSION the
+ * stored fingerprints were made under: a state without it, or with another
+ * number, is no published result (its fingerprints would all differ from the
+ * synced ones and read as updates).
+ */
+type StoredState = Omit<PublishedState, 'byTest'> & {
+  byTest: Record<string, TestVersionIdentity>;
+  fingerprintRule: number;
+};
 
 interface SyncedSnapshot {
   identities: Map<string, TestVersionIdentity>;
@@ -265,7 +275,9 @@ export class TestVersionsService implements BuildVersionSource {
       const mtime = fs.statSync(this.stateFile).mtimeMs;
       if (mtime !== this.loadedMtimeMs) {
         const raw = JSON.parse(fs.readFileSync(this.stateFile, 'utf8')) as Partial<StoredState>;
-        this.state = {
+        // Made under another fingerprint rule (or before rules were numbered):
+        // no published result until the next check.
+        this.state = raw.fingerprintRule !== FINGERPRINT_RULE_VERSION ? emptyState() : {
           checkedAt: raw.checkedAt ?? null,
           commit: raw.commit ?? null,
           commitDate: raw.commitDate ?? null,
@@ -284,7 +296,11 @@ export class TestVersionsService implements BuildVersionSource {
 
   private persist(): void {
     try {
-      const stored: StoredState = { ...this.state, byTest: Object.fromEntries(this.state.byTest) };
+      const stored: StoredState = {
+        ...this.state,
+        byTest: Object.fromEntries(this.state.byTest),
+        fingerprintRule: FINGERPRINT_RULE_VERSION,
+      };
       fs.mkdirSync(path.dirname(this.stateFile), { recursive: true });
       const tmp = `${this.stateFile}.${process.pid}.tmp`;
       fs.writeFileSync(tmp, JSON.stringify(stored), { mode: 0o600 });

@@ -155,12 +155,12 @@ describe('identitiesFromTree', () => {
   });
 
   const DETECTION_NAMES = [
-    'x_sigma_rules.yml',
-    'x_dr_rules.yaml',
-    'x_hardening.ps1',
-    'x_hardening_linux.sh',
-    'x_hardening_macos.sh',
-    'x_hardening_linux.ps1',
+    `${UUID_A}_sigma_rules.yml`,
+    `${UUID_A}_dr_rules.yaml`,
+    `${UUID_A}_hardening.ps1`,
+    `${UUID_A}_hardening_linux.sh`,
+    `${UUID_A}_hardening_macos.sh`,
+    `${UUID_A}_hardening_linux.ps1`,
   ];
 
   it.each(DETECTION_NAMES.flatMap(n => [n, `sub/${n}`, `a/b/${n}`]))(
@@ -176,11 +176,25 @@ describe('identitiesFromTree', () => {
     'config.yml',
     'rules.yaml',
     'hardening.ps1',
-    'x_hardening.ps1.bak',
-    'x_sigma_rules.yaml',
-    'X_SIGMA_RULES.YML',
-    'x_hardening_.sh',
+    `${UUID_A}_hardening.ps1.bak`,
+    `${UUID_A}_sigma_rules.yaml`,
+    `${UUID_A.toUpperCase()}_SIGMA_RULES.YML`,
+    `${UUID_A}_hardening_.sh`,
     'sub/emergency_restore.ps1',
+    // The library's files are always <uuid>_<suffix>: other names with the
+    // same ending are real scripts or configuration.
+    'apply_hardening.ps1',
+    'cis_hardening_linux.sh',
+    'custom_sigma_rules.yml',
+    'x_sigma_rules.yml',
+    'x_dr_rules.yaml',
+    'sub/apply_hardening.ps1',
+    `${UUID_A.toUpperCase()}_sigma_rules.yml`,
+    `${UUID_A.toUpperCase()}_hardening.ps1`,
+    `${UUID_A}-sigma_rules.yml`,
+    `${UUID_A}-hardening.ps1`,
+    `${UUID_A}.dr_rules.yaml`,
+    `stage_${UUID_A}_hardening.ps1`,
   ])('isBuildInput stays true for %s', (p) => {
     expect(isBuildInput(p)).toBe(true);
   });
@@ -189,11 +203,13 @@ describe('identitiesFromTree', () => {
     const SIGMA = `${REL_A}/${UUID_A}_sigma_rules.yml`;
     const HARDENING = `${REL_A}/${UUID_A}_hardening.ps1`;
     const PAYLOAD = `${REL_A}/payload.ps1`;
+    const APPLY = `${REL_A}/apply_hardening.ps1`;
     const entries = () => [
       ...baseEntries(),
       blob(SIGMA, 'h-sigma'),
       blob(HARDENING, 'h-hard'),
       blob(PAYLOAD, 'h-payload'),
+      blob(APPLY, 'h-apply'),
     ];
 
     it.each([SIGMA, HARDENING])('a change to %s keeps fingerprint and source_hash, changes test_tree', (p) => {
@@ -205,9 +221,9 @@ describe('identitiesFromTree', () => {
       expect(after.test_tree).not.toBe(before.test_tree);
     });
 
-    it('a change to an embedded-style payload.ps1 changes the fingerprint', () => {
+    it.each([PAYLOAD, APPLY])('a change to %s changes the fingerprint', (p) => {
       const before = idOf(entries());
-      const after = idOf(change(entries(), PAYLOAD, 'changed'));
+      const after = idOf(change(entries(), p, 'changed'));
       expect(after.source_hash).not.toBe(before.source_hash);
       expect(after.fingerprint).not.toBe(before.fingerprint);
     });
@@ -338,7 +354,7 @@ describe('identityFromDisk', () => {
     expect(identityFromDisk(dir, UUID_A)).toEqual(before);
   });
 
-  it.each([`${UUID_A}_sigma_rules.yml`, `${UUID_A}_hardening.ps1`])(
+  it.each([`${UUID_A}_sigma_rules.yml`, `${UUID_A}_dr_rules.yaml`, `${UUID_A}_hardening.ps1`])(
     'a change to %s keeps fingerprint and source_hash',
     (name) => {
       write(name, 'one');

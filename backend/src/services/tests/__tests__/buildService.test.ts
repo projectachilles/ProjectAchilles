@@ -2014,7 +2014,9 @@ var data string
       it.each([
         `${VALID_UUID}_hardening.ps1`,
         `${VALID_UUID}_hardening_linux.sh`,
+        `${VALID_UUID}_hardening_linux.ps1`,
         `${VALID_UUID}_sigma_rules.yml`,
+        `${VALID_UUID}_dr_rules.yaml`,
       ])('%s is an uploaded embed dependency and changes currentDepsHash', (name) => {
         const svc = embedding(name, 'one');
         expect(svc.getEmbedDependencies(VALID_UUID)).toEqual([
@@ -2023,6 +2025,18 @@ var data string
         const first = svc.currentDepsHash(VALID_UUID);
         expect(first).toMatch(/^[0-9a-f]{64}$/);
         expect(embedding(name, 'two').currentDepsHash(VALID_UUID)).not.toBe(first);
+      });
+
+      // Without the test's UUID prefix the name is a real script: a fingerprint
+      // input, never a dependency (it would block Build & Sign as missing).
+      it.each([
+        'apply_hardening.ps1',
+        'cis_hardening_linux.ps1',
+        '*_hardening.ps1',
+      ])('an embedded %s (a fingerprint input) is not an embed dependency', (name) => {
+        const svc = embedding(name, 'one');
+        expect(svc.getEmbedDependencies(VALID_UUID)).toEqual([]);
+        expect(svc.currentDepsHash(VALID_UUID)).toBeNull();
       });
 
       it('an embedded emergency_restore.ps1 (a fingerprint input) is still not an embed dependency', () => {

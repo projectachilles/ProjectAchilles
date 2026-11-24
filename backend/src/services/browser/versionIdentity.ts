@@ -25,6 +25,13 @@ export interface TestLocation {
 // fingerprint, so every stored fingerprint compares as older once. Change them
 // deliberately.
 
+/**
+ * The rule that made a fingerprint: bump it with any change to the input
+ * lists below or to the hash format, so a published state stored under an
+ * older rule is dropped instead of compared (testVersions.service.ts).
+ */
+export const FINGERPRINT_RULE_VERSION = 2;
+
 /** Files with these extensions inside a test folder are not build inputs. */
 export const BUILD_INPUT_EXCLUDED_EXT: readonly string[] = [
   '.md', '.html', '.kql', '.yar', '.yara', '.ndjson',
@@ -46,7 +53,7 @@ export const BUILD_INPUT_EXCLUDED_EXT: readonly string[] = [
  * later token on the line is covered by nothing. A known gap.
  */
 export const BUILD_INPUT_EXCLUDED_NAME =
-  /_(?:sigma_rules\.yml|dr_rules\.yaml|hardening(?:_[a-z0-9]+)?\.ps1|hardening_[a-z0-9]+\.sh)$/;
+  /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}_(?:sigma_rules\.yml|dr_rules\.yaml|hardening(?:_[a-z0-9]+)?\.ps1|hardening_[a-z0-9]+\.sh)$/;
 
 /** Compiled output never counts as source when hashing a folder on disk. */
 const DISK_BINARY_EXT: readonly string[] = ['.exe', '.dll', '.so', '.dylib', '.bin'];

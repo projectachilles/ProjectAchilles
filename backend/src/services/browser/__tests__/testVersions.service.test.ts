@@ -9,6 +9,7 @@ import {
   getTestVersionsService,
 } from '../testVersions.service.js';
 import type { GitSyncService } from '../gitSyncService.js';
+import { FINGERPRINT_RULE_VERSION } from '../versionIdentity.js';
 import type { TreeEntry } from '../versionIdentity.js';
 
 const UUID_A = 'a1b2c3d4-e5f6-7890-abcd-ef1234567890';
@@ -517,6 +518,49 @@ describe('TestVersionsService', () => {
       expect(svc.published().commit).toBe('beef01');
       fs.rmSync(stateFile());
       expect(svc.published().commit).toBe('beef01');
+    });
+
+    describe('fingerprint rule of the stored state', () => {
+      /** The state file a check wrote, with its rule number replaced (undefined removes it). */
+      async function storedWithRule(rule: number | undefined): Promise<void> {
+        await makeService().check();
+        const raw = JSON.parse(fs.readFileSync(stateFile(), 'utf8')) as Record<string, unknown>;
+        expect(raw.fingerprintRule).toBe(FINGERPRINT_RULE_VERSION);
+        if (rule === undefined) delete raw.fingerprintRule;
+        else raw.fingerprintRule = rule;
+        fs.writeFileSync(stateFile(), JSON.stringify(raw));
+      }
+
+      it('a check writes the current rule number, and a state with it is used', async () => {
+        await storedWithRule(FINGERPRINT_RULE_VERSION);
+        const state = makeService().published();
+        expect(state.commit).toBe('beef01');
+        expect(state.checkedAt).not.toBeNull();
+        expect(state.byTest.has(UUID_A)).toBe(true);
+      });
+
+      it.each([
+        ['without a rule number', undefined],
+        ['with another rule number', FINGERPRINT_RULE_VERSION - 1],
+      ])('a state %s is no published result', async (_label, rule) => {
+        await storedWithRule(rule);
+        const state = makeService().published();
+        expect(state.commit).toBeNull();
+        expect(state.checkedAt).toBeNull();
+        expect(state.byTest.size).toBe(0);
+        expect(state.newTests).toBe(0);
+      });
+
+      it('a running process drops what it holds when another writes a state under another rule', async () => {
+        const svc = makeService();
+        await svc.check();
+        expect(svc.published().commit).toBe('beef01');
+        const raw = JSON.parse(fs.readFileSync(stateFile(), 'utf8')) as Record<string, unknown>;
+        raw.fingerprintRule = FINGERPRINT_RULE_VERSION + 1;
+        fs.writeFileSync(stateFile(), JSON.stringify(raw));
+        fs.utimesSync(stateFile(), new Date(), new Date(Date.now() + 5000));
+        expect(svc.published().commit).toBeNull();
+      });
     });
 
     it('the state file is written with a temp-file-then-rename', async () => {
