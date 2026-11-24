@@ -42,6 +42,15 @@ interface Fake {
   sync: ReturnType<typeof vi.fn>;
 }
 
+/** Frozen clock for the HEAD cache: step past its 5 s window. */
+function clockAt0(): void {
+  vi.useFakeTimers({ toFake: ['Date'] });
+  vi.setSystemTime(new Date('2026-11-23T10:00:00Z'));
+}
+function pastHeadCache(): void {
+  vi.setSystemTime(Date.now() + 6000);
+}
+
 describe('TestVersionsService', () => {
   let tmp: string;
   let repo: string;
@@ -273,6 +282,7 @@ describe('TestVersionsService', () => {
     });
 
     it('is set when the HEAD tree or commit cannot be read for git tests, and cleared by the next successful read', async () => {
+      clockAt0();
       const svc = makeService();
       fake.listTree.mockRejectedValueOnce(new Error('fatal: bad object HEAD'));
       const synced = await svc.synced();
@@ -282,12 +292,14 @@ describe('TestVersionsService', () => {
       await svc.synced();
       expect(svc.syncedError()).toBeNull();
 
+      pastHeadCache();
       fake.commitInfo.mockRejectedValueOnce(new Error('fatal: ambiguous argument HEAD'));
       await svc.synced();
       expect(svc.syncedError()).toBe('The test library could not be read');
     });
 
     it('logs the sanitized detail once for repeated identical failures, and again for a different one', async () => {
+      clockAt0();
       const svc = makeService();
       fake.listTree.mockRejectedValue(new Error("fatal: unable to read tree in 'https://user:s3cret@example.invalid/lib.git'"));
       await svc.synced();
@@ -309,6 +321,7 @@ describe('TestVersionsService', () => {
       fake.listTree.mockResolvedValue(treeFor(UUID_A, 'h1'));
       await svc.synced();
       expect(svc.syncedError()).toBeNull();
+      pastHeadCache();
       fake.commitInfo.mockRejectedValueOnce(new Error('fatal: bad object HEAD'));
       await svc.synced();
       expect(warn).toHaveBeenCalledTimes(3);
@@ -526,12 +539,58 @@ describe('TestVersionsService', () => {
     const headCalls = () => fake.listTree.mock.calls.filter(c => c[0] === 'HEAD').length;
 
     it('synced() recomputes when HEAD changes without afterSync() being called', async () => {
+      clockAt0();
       const svc = makeService();
       expect((await svc.synced()).get(UUID_A)?.commit).toBe('c0ffee');
+      pastHeadCache();
       fake.commitInfo.mockImplementation(async (ref: string) =>
         ref === 'HEAD' ? { hash: 'newhead', date: COMMIT.date } : REMOTE);
       expect((await svc.synced()).get(UUID_A)?.commit).toBe('newhead');
       expect(headCalls()).toBe(2);
+    });
+
+    describe('HEAD cache (5 s)', () => {
+      const headReads = () => fake.commitInfo.mock.calls.filter(c => c[0] === 'HEAD').length;
+
+      it('two calls within 5 s read HEAD once; a call after 5 s reads it again', async () => {
+        clockAt0();
+        const svc = makeService();
+        await svc.synced();
+        vi.setSystemTime(Date.now() + 4900);
+        await svc.synced();
+        expect(headReads()).toBe(1);
+        vi.setSystemTime(Date.now() + 200);
+        await svc.synced();
+        expect(headReads()).toBe(2);
+      });
+
+      it('afterSync() clears it', async () => {
+        process.env.TESTS_UPDATE_CHECK = 'off';
+        clockAt0();
+        const svc = makeService();
+        await svc.synced();
+        svc.afterSync();
+        await svc.synced();
+        expect(headReads()).toBe(2);
+      });
+
+      it('recordPublishedFromLocal() clears it', async () => {
+        clockAt0();
+        const svc = makeService();
+        await svc.synced();
+        await svc.recordPublishedFromLocal();
+        await svc.synced();
+        expect(headReads()).toBe(2);
+      });
+
+      it('does not cache a failed read', async () => {
+        clockAt0();
+        const svc = makeService();
+        fake.commitInfo.mockRejectedValueOnce(new Error('fatal: bad HEAD'));
+        await svc.synced();
+        await svc.synced();
+        expect(headReads()).toBe(2);
+      });
     });
 
     it('does not call listTree again when HEAD is unchanged', async () => {

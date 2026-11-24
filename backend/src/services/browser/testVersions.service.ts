@@ -51,6 +51,8 @@ export class CheckBusyError extends Error {
 const UUID_PATTERN = /^[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}$/i;
 const FIRST_CHECK_MS = 2 * 60_000;
 const DISK_CACHE_MS = 30_000;
+/** How long a read of the library HEAD commit is reused (a listing reads it on every request). */
+const HEAD_CACHE_MS = 5000;
 const MIN_TIMED_GAP_MS = 10 * 60_000;
 const CHECK_INTERVAL_MS = 6 * 60 * 60_000;
 
@@ -99,6 +101,7 @@ export class TestVersionsService implements BuildVersionSource {
   private readonly listTests: TestVersionsOptions['listTests'];
   private readonly embedDependencyFiles: (uuid: string) => string[];
 
+  private headCache: { at: number; commit: { hash: string; date: string } } | null = null;
   private gitCache: { commit: { hash: string; date: string }; ids: Map<string, TestVersionIdentity> } | null = null;
   /** The last read of the git tests at HEAD failed (syncedError); its sanitized detail, logged once. */
   private syncedFailure: string | null = null;
@@ -164,7 +167,7 @@ export class TestVersionsService implements BuildVersionSource {
       return none;
     }
     try {
-      const commit = await this.gitSync.commitInfo('HEAD');
+      const commit = await this.headCommit(this.gitSync);
       if (!(this.gitCache && this.gitCache.commit.hash === commit.hash)) {
         const entries = await this.gitSync.listTree('HEAD');
         this.gitCache = { commit, ids: identitiesFromTree(entries, gitTests, commit) };
@@ -180,6 +183,15 @@ export class TestVersionsService implements BuildVersionSource {
       this.syncedFailure = detail;
       return { ...none, error };
     }
+  }
+
+  /** HEAD's commit, reused for HEAD_CACHE_MS; a failed read is never cached. */
+  private async headCommit(git: GitSyncService): Promise<{ hash: string; date: string }> {
+    const now = Date.now();
+    if (this.headCache && now - this.headCache.at < HEAD_CACHE_MS) return this.headCache.commit;
+    const commit = await git.commitInfo('HEAD');
+    this.headCache = { at: now, commit };
+    return commit;
   }
 
   /**
@@ -386,6 +398,7 @@ export class TestVersionsService implements BuildVersionSource {
   }
 
   private dropSyncedCaches(): void {
+    this.headCache = null;
     this.gitCache = null;
     this.diskCache = null;
   }
