@@ -908,10 +908,12 @@ exports[`EDR vendor characterization (pre-registry refactor) > SOURCE_FIELDS 1`]
   "f0rtika.crowdstrike_prevented",
   "f0rtika.crowdstrike_prevention_action",
   "f0rtika.crowdstrike_stage_detected",
+  "f0rtika.crowdstrike_stage_prevented",
   "f0rtika.defender_detected",
   "f0rtika.defender_prevented",
   "f0rtika.defender_prevention_action",
   "f0rtika.defender_stage_detected",
+  "f0rtika.defender_stage_prevented",
   "f0rtika.edr_launch_blocked",
   "f0rtika.is_bundle_control",
   "f0rtika.launch_block.vendors",
@@ -919,10 +921,12 @@ exports[`EDR vendor characterization (pre-registry refactor) > SOURCE_FIELDS 1`]
   "f0rtika.sentinelone_prevented",
   "f0rtika.sentinelone_prevention_action",
   "f0rtika.sentinelone_stage_detected",
+  "f0rtika.sentinelone_stage_prevented",
   "f0rtika.sophos_detected",
   "f0rtika.sophos_prevented",
   "f0rtika.sophos_prevention_action",
   "f0rtika.sophos_stage_detected",
+  "f0rtika.sophos_stage_prevented",
 ]
 `;
 
@@ -3807,7 +3811,7 @@ exports[`EDR vendor characterization (pre-registry refactor) > grouped execution
     "defenderDetected": true,
     "defenderPrevented": false,
     "sentineloneDetected": true,
-    "sentinelonePrevented": false,
+    "sentinelonePrevented": true,
   },
 ]
 `;

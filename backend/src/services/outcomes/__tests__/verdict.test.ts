@@ -12,6 +12,21 @@ const edr = (docs: Record<string, Record<string, unknown>> = {}, status: EdrDocs
 
 const doc = (exit: number, f: Record<string, unknown> = {}) => ({ event: { ERROR: exit }, f0rtika: { is_bundle_control: true, category: 'intel-driven', ...f } });
 
+/** A document as `fetchEdrDocs` returns it: only the dotted paths in SOURCE_FIELDS. */
+const fetched = (src: Record<string, unknown>): Record<string, unknown> => {
+  const out: Record<string, unknown> = {};
+  for (const path of SOURCE_FIELDS) {
+    const parts = path.split('.');
+    let from: unknown = src;
+    for (const part of parts) from = from && typeof from === 'object' ? (from as Record<string, unknown>)[part] : undefined;
+    if (from === undefined) continue;
+    let to = out;
+    for (const part of parts.slice(0, -1)) to = (to[part] ??= {}) as Record<string, unknown>;
+    to[parts[parts.length - 1]] = from;
+  }
+  return out;
+};
+
 const base = (o: Partial<VerdictInput>): VerdictInput => ({
   taskId: 't1', exitCode: 101, error: null, stderrTail: null, category: 'intel-driven', controls: null, edr: edr(), ...o,
 });
@@ -76,6 +91,7 @@ describe('cellVerdict: rules', () => {
     const v = cellVerdict(base({ edr: edr({ t1: { event: { ERROR: 101 }, f0rtika: { crowdstrike_detected: true, crowdstrike_stage_detected: true, crowdstrike_prevented: true, crowdstrike_prevention_action: 'quarantined' } } }) }));
     expect(v.state).toBe('detected');
     expect(v.reason).toContain('CrowdStrike raised an alert; it did not stop the test.');
+    expect(v.edr).toBe('CrowdStrike: alert raised');
   });
 
   it('a prevention flag on an errored or skipped sibling does not make the run Prevented', () => {
@@ -177,10 +193,28 @@ describe('cellVerdict: every EDR vendor counts, like Analytics', () => {
 
   it('the fetched fields cover every vendor the verdict reads', () => {
     for (const { key } of EDR_VENDORS) {
-      for (const f of ['detected', 'stage_detected', 'prevented', 'prevention_action']) {
+      for (const f of ['detected', 'stage_detected', 'prevented', 'prevention_action', 'stage_prevented']) {
         expect(SOURCE_FIELDS).toContain(`f0rtika.${key}_${f}`);
       }
     }
+  });
+
+  it.each(EDR_VENDORS.map((v) => v.key))('%s: an errored stage whose own alert carried no action stays Detected on the fetched fields', (key) => {
+    const errored = doc(999, {
+      [`${key}_detected`]: true,
+      [`${key}_stage_detected`]: true,
+      [`${key}_stage_prevented`]: false,
+      [`${key}_prevented`]: true,
+      [`${key}_prevention_action`]: 'process_killed',
+    });
+    const v = cellVerdict(base({
+      controls: [stage('T1105', 101), stage('T1572', 999)],
+      edr: edr({
+        't1::T1105': fetched(doc(101, { [`${key}_detected`]: true, [`${key}_stage_detected`]: true })),
+        't1::T1572': fetched(errored),
+      }),
+    }));
+    expect(v.state).toBe('detected');
   });
 
   it.each(EDR_VENDORS.map((v) => v.key))('%s: same outcome as classifyStage (Analytics) for prevented and detected stages', (key) => {

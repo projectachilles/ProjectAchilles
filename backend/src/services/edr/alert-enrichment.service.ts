@@ -339,7 +339,8 @@ export class EdrAlertEnrichmentService {
             .map((h) => h._id)
             .filter((id): id is string => typeof id === 'string');
           // Prevention-flag qualification rule (docs/edr-prevention-action-detection.md):
-          //   - stage matches always qualify — the alert names this stage's own binary;
+          //   - stage matches qualify — the alert names this stage's own binary —
+          //     except on a result that exited 101 (no action counts there, below);
           //   - wide/bundle matches qualify only when this stage did NOT reach a
           //     conclusive outcome (101 executed; 105/126/127 policy-prevented) —
           //     a sibling stage that ran to completion was not prevented by the
@@ -412,9 +413,10 @@ export class EdrAlertEnrichmentService {
             if (wide)  f0rtika[`${v}_detected`]       = true;
             if (stage) f0rtika[`${v}_stage_detected`] = true;
             // Vendor-confirmed prevention — rides alongside the detected flags.
-            // The actions are already qualification-filtered above (stage
-            // matches always; wide matches only for non-conclusive docs), and
-            // the stage's own action is preferred over a wide one.
+            // The actions are already qualification-filtered above (none on a
+            // result that exited 101; otherwise stage matches always, wide
+            // matches only for non-conclusive docs), and the stage's own action
+            // is preferred over a wide one.
             // Prevention ⊆ detection: a prevention flag implies a matched alert.
             const actions = [...u.stageActions, ...u.wideActions];
             if (actions.length > 0 && existing[`${v}_prevented`] !== true) {
@@ -627,7 +629,8 @@ export class EdrAlertEnrichmentService {
         must_not: [{ term: { [`f0rtika.${v}_evidence_rule`]: EVIDENCE_RULE } }],
       },
     });
-    // In-run prevention rules: a doc prevented before them is checked once.
+    // Prevention rules (PREVENTION_RULE; its value 'in_run' is historical):
+    // a doc prevented before them is checked once.
     eligible.push({
       bool: {
         should: [

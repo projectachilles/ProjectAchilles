@@ -127,11 +127,11 @@ describe('EDR vendor characterization (pre-registry refactor)', () => {
   });
 
   it('grouped executions roll up per-vendor flags', async () => {
-    const member = (id: string, flags: Record<string, unknown>) => ({
+    const member = (id: string, flags: Record<string, unknown>, exit = 101) => ({
       _id: id,
       _source: {
         routing: { event_time: '2026-10-01T00:00:00Z', hostname: 'H1' },
-        event: { ERROR: 101 },
+        event: { ERROR: exit },
         f0rtika: { test_uuid: `b::${id}`, bundle_id: 'b', is_bundle_control: true, control_id: id, ...flags },
       },
     });
@@ -148,7 +148,9 @@ describe('EDR vendor characterization (pre-registry refactor)', () => {
               hits: {
                 hits: [
                   member('C1', { defender_detected: true, crowdstrike_prevented: true }),
-                  member('C2', { sentinelone_detected: true, sentinelone_prevented: true }),
+                  // C1 ran to completion (101): its crowdstrike_prevented is never a prevention.
+                  // C2 errored (999) and its own SentinelOne alert carried a confirmed action.
+                  member('C2', { sentinelone_detected: true, sentinelone_prevented: true, sentinelone_stage_detected: true, sentinelone_prevention_action: 'quarantined' }, 999),
                 ],
               },
             },

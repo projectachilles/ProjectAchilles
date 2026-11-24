@@ -569,16 +569,39 @@ describe.each(VENDORS)('EDR alert enrichment — $name completed stages', ({ pre
     });
   });
 
-  it('an action during the run on a stage that ran to completion (101) is detection too', async () => {
+  // Shaped like the live alert behind this rule: the vendor marks the stage's own
+  // binary malicious and killed, and lists a kill under another binary of the bundle.
+  const ownFileKilled = () => one({
+    prevention_action: 'process_killed',
+    evidence_filenames: ['b1-t1003.exe', 'b1-t1204.exe'],
+    evidence_file_verdicts: [{ file: 'b1-t1003.exe', verdict: 'malicious', action: 'process_killed' }],
+    evidence_child_actions: [{ parent: 'b1-t1204.exe', action: 'process_killed' }],
+  });
+
+  it('an alert that marks the stage\'s own file as killed still gives detection only on a stage that ran to completion', async () => {
     search.mockResolvedValueOnce({ hits: { hits: [resultDoc(101)] } });
-    const alert = one({ prevention_action: 'blocked', created_at: IN_RUN });
+    const alert = ownFileKilled();
     msearch.mockResolvedValueOnce({ responses: [alert, alert] });
     await make(client).runEnrichmentPass({ batchSize: 200 });
-    expect(bulk.mock.calls[0][0].operations[1].doc.f0rtika).toEqual({
+    const flags = bulk.mock.calls[0][0].operations[1].doc.f0rtika;
+    expect(flags).toMatchObject({
       [`${prefix}_detected`]: true,
       [`${prefix}_stage_detected`]: true,
       [`${prefix}_stage_prevented`]: false,
-      ...evaluated,
+    });
+    expect(flags).not.toHaveProperty(`${prefix}_prevented`);
+    expect(flags).not.toHaveProperty(`${prefix}_prevention_action`);
+  });
+
+  it('the same alert on an error-coded stage is that stage\'s own prevention', async () => {
+    search.mockResolvedValueOnce({ hits: { hits: [resultDoc(999)] } });
+    const alert = ownFileKilled();
+    msearch.mockResolvedValueOnce({ responses: [alert, alert] });
+    await make(client).runEnrichmentPass({ batchSize: 200 });
+    expect(bulk.mock.calls[0][0].operations[1].doc.f0rtika).toMatchObject({
+      [`${prefix}_stage_detected`]: true,
+      [`${prefix}_stage_prevented`]: true,
+      [`${prefix}_prevention_action`]: 'process_killed',
     });
   });
 
@@ -598,7 +621,11 @@ describe.each(VENDORS)('EDR alert enrichment — $name completed stages', ({ pre
     search.mockResolvedValueOnce({ hits: { hits: [{ ...d, _source: { ...d._source, event: { ERROR: '101' } } }] } });
     msearch.mockResolvedValueOnce({ responses: [hits('process_killed'), hits('process_killed')] });
     await make(client).runEnrichmentPass({ batchSize: 200 });
-    expect(bulk.mock.calls[0][0].operations[1].doc.f0rtika[`${prefix}_prevented`]).toBeUndefined();
+    const flags = bulk.mock.calls[0][0].operations[1].doc.f0rtika;
+    expect(flags[`${prefix}_prevented`]).toBeUndefined();
+    expect(flags[`${prefix}_stage_prevented`]).toBe(false);
+    expect(flags[`${prefix}_stage_detected`]).toBe(true);
+    expect(flags).not.toHaveProperty(`${prefix}_prevention_action`);
   });
 
   it('an error-coded stage is not gated: a later action still counts (the error fits the EDR stopping it)', async () => {

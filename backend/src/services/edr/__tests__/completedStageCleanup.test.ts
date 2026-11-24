@@ -63,10 +63,12 @@ describe('completedStageCleanup', () => {
         defender_prevented: false, defender_stage_prevented: false, defender_prevention_action: null,
       } } },
     ] });
-    expect(res).toEqual({ cleared: 1, errors: [] });
+    expect(res).toEqual({ matched: 1, sent: 1, cleared: 1, errors: [] });
     const req = mockSearch.mock.calls[0][0];
     expect(req).not.toHaveProperty('sort');
     expect(req).not.toHaveProperty('aggs');
+    expect(req).toMatchObject({ ignore_unavailable: true, allow_no_indices: true });
+    expect(req._source).toContain('event.ERROR');
   });
 
   it('clears two vendors on one result', async () => {
@@ -104,7 +106,7 @@ describe('completedStageCleanup', () => {
     mockSearch.mockResolvedValue(hitsOf());
     const res = await clearPreventionOnCompletedResults(client, 'i');
     expect(mockBulk).not.toHaveBeenCalled();
-    expect(res).toEqual({ cleared: 0, errors: [] });
+    expect(res).toEqual({ matched: 0, sent: 0, cleared: 0, errors: [] });
   });
 
   it('stops when a batch clears nothing', async () => {
@@ -114,7 +116,7 @@ describe('completedStageCleanup', () => {
     const res = await clearPreventionOnCompletedResults(client, 'i');
 
     expect(mockSearch).toHaveBeenCalledTimes(1);
-    expect(res.cleared).toBe(0);
+    expect(res).toMatchObject({ matched: 1, sent: 1, cleared: 0 });
     expect(res.errors).toHaveLength(1);
     expect(res.errors[0]).toContain('version conflict');
     expect(res.errors[0]).toBe('bulk[0]: version conflict');
@@ -134,12 +136,19 @@ describe('completedStageCleanup', () => {
     mockBulk.mockResolvedValue(OK);
     const res = await clearPreventionOnCompletedResults(client, 'i');
     expect(mockBulk).toHaveBeenCalledTimes(1);
-    expect(res.cleared).toBe(1);
+    // The second search returns the same document: matched again, never re-sent.
+    expect(res).toEqual({ matched: 2, sent: 1, cleared: 1, errors: [] });
+  });
+
+  it('counts a hit whose stored exit code is 999 as matched, never sent', async () => {
+    mockSearch.mockResolvedValueOnce(hitsOf({ _id: 'r1', _index: 'i', _source: { event: { ERROR: 999 }, f0rtika: { defender_prevented: true } } }));
+    expect(await clearPreventionOnCompletedResults(client, 'i')).toEqual({ matched: 1, sent: 0, cleared: 0, errors: [] });
+    expect(mockBulk).not.toHaveBeenCalled();
   });
 
   it('skips a hit whose stored exit code is not 101', async () => {
     mockSearch.mockResolvedValueOnce(hitsOf({ _id: 'r1', _index: 'i', _source: { event: { ERROR: 999 }, f0rtika: { defender_prevented: true } } }));
-    expect(await clearPreventionOnCompletedResults(client, 'i')).toEqual({ cleared: 0, errors: [] });
+    expect(await clearPreventionOnCompletedResults(client, 'i')).toEqual({ matched: 1, sent: 0, cleared: 0, errors: [] });
     expect(mockBulk).not.toHaveBeenCalled();
 
     mockSearch.mockResolvedValueOnce(hitsOf({ _id: 'r2', _index: 'i', _source: { event: { ERROR: '101' }, f0rtika: { defender_prevented: true } } }))
@@ -151,17 +160,33 @@ describe('completedStageCleanup', () => {
   it('reports a failed bulk call', async () => {
     mockSearch.mockResolvedValue(hitsOf({ _id: 'r1', _index: 'i', _source: { event: { ERROR: 101 }, f0rtika: { defender_prevented: true } } }));
     mockBulk.mockRejectedValue(new Error('down'));
-    expect(await clearPreventionOnCompletedResults(client, 'i')).toEqual({ cleared: 0, errors: ['bulk: down'] });
+    expect(await clearPreventionOnCompletedResults(client, 'i')).toEqual({ matched: 1, sent: 1, cleared: 0, errors: ['bulk: down'] });
   });
 
   it('never throws', async () => {
     mockSearch.mockRejectedValue(new Error('boom'));
-    expect(await clearPreventionOnCompletedResults(client, 'i')).toEqual({ cleared: 0, errors: ['search: boom'] });
+    expect(await clearPreventionOnCompletedResults(client, 'i')).toEqual({ matched: 0, sent: 0, cleared: 0, errors: ['search: boom'] });
   });
 
   it('runCompletedStageCleanup skips when Analytics is not configured', async () => {
     esConfigured = false;
-    expect(await runCompletedStageCleanup()).toEqual({ cleared: 0, errors: [] });
+    expect(await runCompletedStageCleanup()).toEqual({ matched: 0, sent: 0, cleared: 0, errors: [] });
     expect(mockSearch).not.toHaveBeenCalled();
+  });
+
+  it('runCompletedStageCleanup logs matched, sent and cleared whenever something matched', async () => {
+    const log = vi.spyOn(console, 'log').mockImplementation(() => {});
+    try {
+      mockSearch.mockResolvedValueOnce(hitsOf({ _id: 'r1', _index: 'i', _source: { event: { ERROR: 999 }, f0rtika: { defender_prevented: true } } }));
+      await runCompletedStageCleanup();
+      expect(log).toHaveBeenCalledWith('[Completed-Stage-Cleanup] matched=1 sent=0 cleared=0');
+
+      log.mockClear();
+      mockSearch.mockResolvedValueOnce(hitsOf());
+      await runCompletedStageCleanup();
+      expect(log).not.toHaveBeenCalled();
+    } finally {
+      log.mockRestore();
+    }
   });
 });

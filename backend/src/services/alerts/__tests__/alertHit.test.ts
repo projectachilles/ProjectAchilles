@@ -181,8 +181,8 @@ describe('projectAlertHit: multi-test alerts', () => {
 });
 
 // The action an alert shows under a stage (Nov 2026): the stage's own, as the
-// verdict uses, and whether it can have happened during the run.
-describe('projectAlertHit stage action and timing', () => {
+// verdict uses.
+describe('projectAlertHit stage action', () => {
   const lumma = (extra: Record<string, unknown> = {}) => ({
     alert_id: 'a',
     prevention_action: 'process_killed',
