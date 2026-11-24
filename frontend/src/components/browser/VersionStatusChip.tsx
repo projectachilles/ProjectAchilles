@@ -30,9 +30,23 @@ const TONE: Record<TestVersionStatus, string> = {
   not_checked: 'border-border bg-raised text-muted',
 };
 
-/** First 7 characters of the commit the test was built from (synced when not built). */
+/** Statuses that describe a built binary, so the built commit belongs next to them. */
+const BUILT_COMMIT_STATUSES: ReadonlySet<TestVersionStatus> = new Set([
+  'up_to_date',
+  'rebuild_needed',
+  'update_available',
+  'not_checked',
+]);
+
+/**
+ * First 7 characters of the commit the row's status describes: the built commit for a
+ * built, version-recorded test (none when absent, e.g. a custom test). Never the synced
+ * commit, and nothing for not_built, unknown_build or uploaded: a commit there would
+ * read as the build's own when it is a guess.
+ */
 export function shortCommit(row: TestVersionRow): string | null {
-  const commit = row.built?.commit ?? row.synced?.commit ?? null;
+  if (!BUILT_COMMIT_STATUSES.has(row.status)) return null;
+  const commit = row.built?.commit ?? null;
   return commit ? commit.slice(0, 7) : null;
 }
 
