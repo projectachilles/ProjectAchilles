@@ -568,6 +568,29 @@ describe('identitiesFromTree on a large or hostile tree', () => {
     expect(3000 * 6000).toBeGreaterThan(MAX_IDENTITY_WORK);
   });
 
+  it('a file many folders deep belongs to its test, and costs no more than a shallow one', () => {
+    const rel = `tests_source/intel-driven/${idN(1)}`;
+    const shallow = [blob(`${rel}/main.go`, 'h-main'), blob(`${rel}/a/b/c/d/deep.go`, 'h-deep')];
+
+    const id = identitiesFromTree(shallow, [{ uuid: idN(1), relPath: rel }], COMMIT).get(idN(1))!;
+    const withoutDeep = identitiesFromTree([shallow[0]], [{ uuid: idN(1), relPath: rel }], COMMIT).get(idN(1))!;
+    expect(id.source_hash).not.toBe(withoutDeep.source_hash);
+
+    // 6,000 files, each 3,000 one-letter folders below the test folder (a
+    // 37 MB listing, under the listing limit). A lookup per ancestor folder
+    // took about 4 s here and was not counted against the work limit; stopping
+    // at the depth of the test folders takes about 50 ms.
+    const deepFolder = `${rel}/${'d/'.repeat(3000)}`;
+    const deep: TreeEntry[] = [];
+    for (let f = 0; f < 6000; f++) deep.push(blob(`${deepFolder}f${f}.go`, `h-${f}`));
+
+    const started = Date.now();
+    const ids = identitiesFromTree(deep, [{ uuid: idN(1), relPath: rel }], COMMIT);
+
+    expect(Date.now() - started).toBeLessThan(1500);
+    expect(ids.get(idN(1))!.source_hash).toMatch(/^[0-9a-f]{64}$/);
+  });
+
   it('the default limit leaves room for a library a hundred times the current one', () => {
     // Today: about 70 tests, 2,000 files, 5 categories.
     const filesInLibrary = 200_000;

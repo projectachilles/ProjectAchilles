@@ -167,11 +167,21 @@ export function identitiesFromTree(
   // file. A test folder inside another test's folder gets the file too, as a
   // prefix match per test did.
   const ownByRelPath = new Map<string, TreeEntry[]>();
+  // Folder depth of the deepest test: no deeper ancestor of a file can be a
+  // test folder, so the lookup stops there. Without the stop, a file nested
+  // thousands of folders deep would cost one lookup per folder, each over a
+  // longer prefix, and none of it counted against the limit.
+  let maxTestDepth = 0;
   for (const { relPath } of tests) {
-    if (!ownByRelPath.has(relPath)) ownByRelPath.set(relPath, []);
+    if (ownByRelPath.has(relPath)) continue;
+    ownByRelPath.set(relPath, []);
+    maxTestDepth = Math.max(maxTestDepth, relPath.split('/').length);
   }
   for (const b of blobs) {
-    for (let slash = b.path.indexOf('/'); slash !== -1; slash = b.path.indexOf('/', slash + 1)) {
+    let slash = -1;
+    for (let depth = 1; depth <= maxTestDepth; depth++) {
+      slash = b.path.indexOf('/', slash + 1);
+      if (slash === -1) break;
       const own = ownByRelPath.get(b.path.slice(0, slash));
       if (own) {
         spend(1);
