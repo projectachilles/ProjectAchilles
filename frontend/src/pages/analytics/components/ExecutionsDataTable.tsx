@@ -49,7 +49,7 @@ import {
   mapGroupsToDisplayRows,
 } from './executions/shared';
 import { RunList } from './executions/RunList';
-import { type EndpointAlertState } from './executions/detailParts';
+import { stageAlertsKey, type EndpointAlertState } from './executions/detailParts';
 import {
   RunDetailPanel,
   type AcceptRiskItem,
@@ -185,10 +185,7 @@ export default function ExecutionsDataTable({
   // Per-stage cache key. Each stage queries with its own routing.event_time +
   // techniques; the bundle-level callout aggregates `attribution === 'bundle'`
   // alerts across every stage cache and dedupes by alert_id.
-  const stageAlertsCacheKey = useCallback(
-    (exec: EnrichedTestExecution) => `${exec.test_uuid}::${exec.hostname}::stage-alerts`,
-    [],
-  );
+  const stageAlertsCacheKey = stageAlertsKey;
 
   // Related-alert lookup for one execution: its techniques, host and the
   // bundle binary `<uuid>.exe` (bundle controls carry `<uuid>::<control>`).
@@ -199,6 +196,7 @@ export default function ExecutionsDataTable({
     return {
       techniques: exec.techniques,
       timestamp: exec.timestamp,
+      ...(exec.run_started_at ? { runStartedAt: exec.run_started_at } : {}),
       windowMinutes: 30,
       hostname: exec.hostname,
       binaryName: `${baseUuid}.exe`,
