@@ -79,7 +79,7 @@ export const PREVENTION_RULE = 'in_run';
  * so a flag that only an earlier run's evidence supported goes when the
  * alerts are still in the index and none counts for this run.
  */
-export const RUN_RULE = 'run_evidence';
+export const RUN_RULE = 'run_activity';
 
 /**
  * Prevention actions that count as vendor-confirmed PREVENTION (vs.
@@ -158,7 +158,9 @@ export interface EnrichmentVendorTarget {
    * own run (edr/runEvidence.ts): the alert sub-queries also fetch
    * `evidence_items`, and the run window is the scanned result's
    * `routing.run_started_at` .. `routing.event_time`. A result without a run
-   * start, or an alert without items, keeps the rule as it was. Defender sets
+   * start keeps the rule as it was; so does an alert found by its own
+   * created/updated time that has no items, whereas an alert found only by its
+   * activity span and without items is treated as not returned. Defender sets
    * it once its v9 re-sync has completed; off (default), nothing changes.
    */
   runScopedEvidence?: boolean;

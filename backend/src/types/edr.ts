@@ -31,7 +31,7 @@ export interface EnrichmentPassResult {
   alertsMarkedCorrelated: number;
   /**
    * Run-evidence re-check (Defender `runScopedEvidence`, marker
-   * `<vendor>_run_rule: 'run_evidence'`): docs whose `<vendor>_stage_detected`
+   * `<vendor>_run_rule: 'run_activity'`): docs whose `<vendor>_stage_detected`
    * went from true to false in this pass. 0 for every other vendor.
    */
   stageDetectionsRemoved: number;
