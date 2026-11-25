@@ -223,3 +223,26 @@ export function isOtherRunAlert(
   if (!items) return false;
   return namesTest(items, uuid, pathNamesTest) && !namesTest(items.filter((i) => inRun(i, window)), uuid, pathNamesTest);
 }
+
+/** True when the hit's matched_queries is an array that has 'activity_span' and not 'alert_time'. */
+export function foundBySpanOnly(hit: { matched_queries?: unknown } | null | undefined): boolean {
+  const named = hit?.matched_queries;
+  return Array.isArray(named) && named.includes(ACTIVITY_SPAN_QUERY_NAME) && !named.includes(ALERT_TIME_QUERY_NAME);
+}
+
+/** A span-only hit the run rule cannot judge: no run window, or the alert has no item list. */
+export function spanHitUnusable(src: Record<string, unknown>, window: RunWindow | null): boolean {
+  return !window || evidenceItems(src) === null;
+}
+
+/** One of the alert's in-run items names test `uuid` (by file or parent name, or by path with pathNamesTest). False without a run view. */
+export function namesTestInRun(
+  src: Record<string, unknown>,
+  window: RunWindow | null,
+  uuid: string,
+  pathNamesTest?: (path: string) => boolean,
+): boolean {
+  if (!window || !uuid) return false;
+  const items = evidenceItems(src);
+  return !!items && namesTest(items.filter((i) => inRun(i, window)), uuid, pathNamesTest);
+}

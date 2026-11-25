@@ -8,10 +8,13 @@ import {
   VERDICT_RANK,
   alertCreditForRun,
   evidenceItems,
+  foundBySpanOnly,
   isOtherRunAlert,
+  namesTestInRun,
   runActions,
   runEvidence,
   runWindow,
+  spanHitUnusable,
   type EvidenceItem,
   type RunWindow,
 } from '../runEvidence.js';
@@ -330,5 +333,39 @@ describe('isOtherRunAlert', () => {
     ]);
     expect(isOtherRunAlert(src, W, U)).toBe(false);
     expect(isOtherRunAlert(src, W, U, (p) => p.includes(U))).toBe(true);
+  });
+});
+
+describe('how a hit was found', () => {
+  const UUID = 'a1b2c3d4-0000-4000-8000-00000000f001';
+  const win = runWindow('2026-11-25T00:46:47.000Z', '2026-11-25T00:47:56.000Z');
+  const it_ = (over: object) => ({ file: `${UUID}-t1047.exe`, path: null, parent: null, parent_path: null, kind: 'process',
+    verdict: 'suspicious', action: null, started_at: '2026-11-25T00:47:10.000Z', added_at: '2026-11-25T00:49:00.000Z', ...over });
+
+  it.each([
+    [{ matched_queries: ['activity_span'] }, true],
+    [{ matched_queries: ['alert_time', 'activity_span'] }, false],
+    [{ matched_queries: ['alert_time'] }, false],
+    [{ matched_queries: [] }, false],
+    [{}, false], [null, false], [undefined, false],
+    [{ matched_queries: { activity_span: 1 } }, false],
+  ])('foundBySpanOnly(%j) is %s', (hit, want) => expect(foundBySpanOnly(hit as never)).toBe(want));
+
+  it('spanHitUnusable: no window, or no item list', () => {
+    expect(spanHitUnusable({ evidence_items: [it_({})] }, null)).toBe(true);
+    expect(spanHitUnusable({ evidence_items: null }, win)).toBe(true);
+    expect(spanHitUnusable({}, win)).toBe(true);
+    expect(spanHitUnusable({ evidence_items: [] }, win)).toBe(false);
+    expect(spanHitUnusable({ evidence_items: [it_({})] }, win)).toBe(false);
+  });
+
+  it('namesTestInRun: only an in-run item naming the test', () => {
+    expect(namesTestInRun({ evidence_items: [it_({})] }, win, UUID)).toBe(true);
+    expect(namesTestInRun({ evidence_items: [it_({ started_at: '2026-11-19T09:05:00.000Z' })] }, win, UUID)).toBe(false);
+    expect(namesTestInRun({ evidence_items: [it_({ file: 'cmd.exe' })] }, win, UUID)).toBe(false);
+    expect(namesTestInRun({ evidence_items: [it_({ file: 'cmd.exe', path: `c:\\f0\\${UUID}\\x.txt` })] }, win, UUID, (p) => p.includes(UUID))).toBe(true);
+    expect(namesTestInRun({ evidence_items: null }, win, UUID)).toBe(false);
+    expect(namesTestInRun({ evidence_items: [it_({})] }, null, UUID)).toBe(false);
+    expect(namesTestInRun({ evidence_items: [it_({})] }, win, '')).toBe(false);
   });
 });
