@@ -14,9 +14,11 @@ import type { EnrichmentPassOptions, EnrichmentPassResult } from '../../types/ed
 import { isAchillesMitigated, ACHILLES_MITIGATION_FIELDS, ACHILLES_MITIGATED_QUERY } from '../shared/achillesMitigation.js';
 import { alertCredit, isStageFile, isTestFile, MULTI_TEST_EVIDENCE_FIELDS } from './multiTestEvidence.js';
 import {
-  alertCreditForRun, EVIDENCE_ITEMS_FIELD, evidenceItems, foundBySpanOnly, holdsNothingOfRun, runWindow, spanHitUnusable, type RunWindow,
+  alertCreditForRun, EVIDENCE_ITEMS_FIELD, evidenceItems, foundBySpanOnly, heldItemBeforeRun, holdsNothingOfRun, runWindow, spanHitUnusable,
+  type RunWindow,
 } from './runEvidence.js';
 import { enrichmentEligibleClauses } from '../analytics/enrichment-eligibility.js';
+import { RESULTS_INDEX_MAPPING } from '../analytics/index-management.service.js';
 import type { EdrVendorKey } from '../outcomes/vendors.js';
 
 const DEFAULT_LOOKBACK_DAYS = 90;
@@ -101,7 +103,7 @@ export const DEFAULT_RECHECK_UNPREVENTED_HOURS = 72;
 /** Result ids a pass lists in `removedFlagDocs`; past this it only counts them (`removedFlagDocsOmitted`). */
 export const REMOVED_FLAG_DOCS_LISTED = 20;
 
-/** Result ids a pass lists in `noRunEvidenceDocs`; past this they are not listed. */
+/** Result ids a pass lists in `noRunEvidenceDocs`; past this it only counts them (`noRunEvidenceDocsOmitted`). */
 export const NO_RUN_EVIDENCE_DOCS_LISTED = 20;
 
 /** Alerts a `<vendor>_no_run_evidence` note describes, the first ones its sub-query read. */
@@ -207,6 +209,12 @@ export interface EnrichmentVendorTarget {
 }
 
 export class EdrAlertEnrichmentService {
+  /**
+   * Results indices this instance put the `<vendor>_no_run_evidence` mapping
+   * on (true) or failed to (false: no note is written to that index by it).
+   */
+  private readonly noteMappingByIndex = new Map<string, boolean>();
+
   constructor(
     private readonly client: Client,
     private readonly resultsIndexPattern: string,
@@ -231,6 +239,7 @@ export class EdrAlertEnrichmentService {
       stageDetectionsRemoved: 0,
       detectionsRemoved: 0,
       preventionsRemoved: 0,
+      keptWithoutRunEvidence: 0,
       removedFlagDocs: [],
       noRunEvidenceDocs: [],
       errors: [],
@@ -403,21 +412,25 @@ export class EdrAlertEnrichmentService {
           wideHitsAll: number;
           wideHitsCounting: number;
           /**
-           * No stored flag is removed on the strength of that kind. Two reasons:
+           * No stored flag is removed on the strength of that kind. Two reasons
+           * found while reading the answers:
            * span form, the sub-query left matches found only by span unread
            * (nobody judged them; one may hold this run's evidence); or the
            * result did not run to completion and every alert found holds
-           * nothing of its run (`<kind>NoRunItems`: Defender can stop a file
-           * it already knows and update the alert without adding an item).
+           * nothing of its run, one of them an item from before it
+           * (`<kind>NoRunItems`: Defender can stop a file it already knows
+           * and update the alert without adding an item).
            * The stage kind in that case holds back both kinds; the test-level
-           * kind only itself.
+           * kind only itself. Both are also set when the update is built if a
+           * sub-query the result queued did not answer this pass.
            */
           stageUnjudged: boolean;
           wideUnjudged: boolean;
           /**
            * The sub-query found at least one usable alert, left none unread,
-           * and every usable alert holds nothing of the run (runEvidence.ts
-           * holdsNothingOfRun).
+           * every usable alert holds nothing of the run (runEvidence.ts
+           * holdsNothingOfRun), and at least one holds an item from before
+           * the run began (heldItemBeforeRun).
            */
           stageNoRunItems: boolean;
           wideNoRunItems: boolean;
@@ -500,11 +513,15 @@ export class EdrAlertEnrichmentService {
           // Span form: the matches left unread beyond the alert-time ones were
           // found only by span. Not crediting, but judged by nobody.
           const unreadSpanOnly = q.spanForm ? Math.max(0, (total - allHits.length) - unread) : 0;
-          // Every alert found holds nothing of the run (none unread). On a
-          // result that did not run to completion that kind is unjudged: the
-          // vendor may have stopped the stage without adding an item.
+          // Every alert found holds nothing of the run (none unread), and at
+          // least one holds an item from before the run began (the vendor
+          // knew the file already; an alert created after the run cannot
+          // be that). On a result that did not run to completion that kind
+          // is unjudged: the vendor may have stopped the stage without
+          // adding an item.
           const nothingOfRun = usableHits.length > 0 && unread === 0 && unreadSpanOnly === 0
-            && usableHits.every((h) => holdsNothingOfRun(h._source ?? {}, q.window));
+            && usableHits.every((h) => holdsNothingOfRun(h._source ?? {}, q.window))
+            && usableHits.some((h) => heldItemBeforeRun(h._source ?? {}, q.window));
           // What those alerts looked like, for the note (step 5).
           const noRunAlerts = nothingOfRun ? usableHits.slice(0, NO_RUN_EVIDENCE_ALERTS).map(noRunEvidenceAlert) : [];
           if (q.kind === 'stage') {
@@ -601,6 +618,8 @@ export class EdrAlertEnrichmentService {
             removed?: { stage: boolean; wide: boolean; prevention: boolean };
             /** The update carries a `<vendor>_no_run_evidence` note. */
             note?: boolean;
+            /** The keep rule held this re-checked result back (counted on `updated`). */
+            kept?: boolean;
           }> = [];
           const alertIdsEmitted = new Set<string>();
           // One time per batch: the alert stamps and the note's `seen_at` and freshness.
@@ -622,6 +641,14 @@ export class EdrAlertEnrichmentService {
             const window = this.runWindowOf(u.hit);
             const runView = window !== null;
             const runRecheck = runView && existing[`${v}_run_rule`] !== RUN_RULE;
+            // A result with a sub-query that did not answer this pass is held
+            // back whole: the kind that answered, judged alone, could remove
+            // what the other kind would have kept. The next pass decides.
+            const queued = queuedByHitId.get(u.hit._id) ?? 0;
+            if (u.answered < queued) {
+              u.stageUnjudged = true;
+              u.wideUnjudged = true;
+            }
             if (wide)  f0rtika[`${v}_detected`]       = true;
             if (stage) f0rtika[`${v}_stage_detected`] = true;
             // Vendor-confirmed prevention — rides alongside the detected flags.
@@ -752,11 +779,17 @@ export class EdrAlertEnrichmentService {
             // a result that was or now is flagged, once every sub-query it
             // queued answered (else the next pass re-checks it). A result no
             // alert flags has nothing to re-check and stays unmarked.
-            const queued = queuedByHitId.get(u.hit._id) ?? 0;
             const flagged = (k: string) => existing[k] === true || f0rtika[k] === true;
+            // The keep rule (a kind whose alerts all hold nothing of the run,
+            // on a result that did not run to completion) held back a result
+            // already flagged: counted once, in the update that writes its
+            // marker (a later pass no longer re-checks it).
+            let kept = false;
             if (runRecheck && queued > 0) {
               if (u.answered === queued && (flagged(`${v}_detected`) || flagged(`${v}_stage_detected`))) {
                 f0rtika[`${v}_run_rule`] = RUN_RULE;
+                kept = (u.stageNoRunItems || u.wideNoRunItems) && !this.ranToCompletion(u.hit)
+                  && (existing[`${v}_detected`] === true || existing[`${v}_stage_detected`] === true);
               }
             } else if (
               this.target.runScopedEvidence
@@ -792,11 +825,16 @@ export class EdrAlertEnrichmentService {
             // `routing.event_time`.
             const noteKey = `${v}_no_run_evidence`;
             const noteKind = u.stageNoRunItems ? 'stage' : u.wideNoRunItems ? 'wide' : null;
+            // The field's mapping goes on the result's index before the first
+            // note there (an index older than it would map the note
+            // dynamically, for good); when that fails, the note is left out
+            // and the rest of the update is written as usual.
             const note = window !== null
               && noteKind !== null
               && !this.ranToCompletion(u.hit)
               && passTime.getTime() - window.eventTimeMs <= this.recheckHours * 3_600_000
-              && !(noteKey in existing);
+              && !(noteKey in existing)
+              && await this.noteMappingReady(u.hit._index, noteKey);
             if (note) {
               f0rtika[noteKey] = {
                 seen_at: matchedAt,
@@ -817,7 +855,7 @@ export class EdrAlertEnrichmentService {
                   prevention: gone(`${v}_prevented`) || gone(`${v}_stage_prevented`),
                 }
                 : undefined;
-              testOpMeta.push({ kind: 'test', docId: u.hit._id, wide, stage, removed, note });
+              testOpMeta.push({ kind: 'test', docId: u.hit._id, wide, stage, removed, note, kept });
             }
 
             // Alert-doc updates (dedup per batch)
@@ -865,8 +903,10 @@ export class EdrAlertEnrichmentService {
                       else result.removedFlagDocsOmitted = (result.removedFlagDocsOmitted ?? 0) + 1;
                     }
                   }
-                  if (meta.note && item?.result === 'updated' && result.noRunEvidenceDocs.length < NO_RUN_EVIDENCE_DOCS_LISTED) {
-                    result.noRunEvidenceDocs.push(String(meta.docId));
+                  if (meta.kept && item?.result === 'updated') result.keptWithoutRunEvidence += 1;
+                  if (meta.note && item?.result === 'updated') {
+                    if (result.noRunEvidenceDocs.length < NO_RUN_EVIDENCE_DOCS_LISTED) result.noRunEvidenceDocs.push(String(meta.docId));
+                    else result.noRunEvidenceDocsOmitted = (result.noRunEvidenceDocsOmitted ?? 0) + 1;
                   }
                 } else if (meta?.kind === 'alert') {
                   result.alertsMarkedCorrelated += 1;
@@ -1004,6 +1044,28 @@ export class EdrAlertEnrichmentService {
     if (!this.target.runScopedEvidence) return null;
     const routing = hit._source?.routing ?? {};
     return runWindow(routing.run_started_at, routing.event_time);
+  }
+
+  /**
+   * Put the canonical mapping of `f0rtika.<field>` on `index`, once per index
+   * per instance. Only a note due on a result of that index calls it (run
+   * scoped, so Defender only). A failure is logged once and the instance
+   * writes no note to that index.
+   */
+  private async noteMappingReady(index: string, field: string): Promise<boolean> {
+    const known = this.noteMappingByIndex.get(index);
+    if (known !== undefined) return known;
+    let ready = true;
+    try {
+      const entry = (RESULTS_INDEX_MAPPING.mappings.properties.f0rtika.properties as Record<string, unknown>)[field];
+      if (!entry) throw new Error('no canonical mapping for the field');
+      await this.client.indices.putMapping({ index, properties: { f0rtika: { properties: { [field]: entry } } } } as any);
+    } catch (err) {
+      ready = false;
+      console.warn(`[EDR-Enrichment] putMapping of f0rtika.${field} failed for ${index}, no note is written to it: ${this.errMsg(err)}`);
+    }
+    this.noteMappingByIndex.set(index, ready);
+    return ready;
   }
 
   private get recheckHours(): number {

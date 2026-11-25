@@ -188,7 +188,8 @@ describe.each(VENDORS.filter((v) => v.prefix !== 'defender'))('EDR alert enrichm
   const search = vi.fn();
   const msearch = vi.fn();
   const bulk = vi.fn();
-  const client = { search, msearch, bulk };
+  const putMapping = vi.fn().mockResolvedValue({ acknowledged: true });
+  const client = { search, msearch, bulk, indices: { putMapping } };
   beforeEach(() => vi.clearAllMocks());
 
   it('the alert sub-queries\' _source has no evidence_items', async () => {
@@ -216,7 +217,7 @@ describe.each(VENDORS.filter((v) => v.prefix !== 'defender'))('EDR alert enrichm
     }
   });
 
-  it('the other three EDRs never write a no_run_evidence note and return noRunEvidenceDocs: []', async () => {
+  it('the other three EDRs never write a no_run_evidence note, never put its mapping, and return noRunEvidenceDocs: []', async () => {
     // The Defender situation exactly: a fresh, stopped stage with a run start
     // whose alerts carry only other-run items and the alert times.
     vi.useFakeTimers({ toFake: ['Date'] });
@@ -248,6 +249,9 @@ describe.each(VENDORS.filter((v) => v.prefix !== 'defender'))('EDR alert enrichm
       const ops = (bulk.mock.calls[0]?.[0].operations ?? []) as any[];
       expect(JSON.stringify(ops)).not.toContain('no_run_evidence');
       expect(result.noRunEvidenceDocs).toEqual([]);
+      // Nor do they put the note's mapping, or count a keep.
+      expect(putMapping).not.toHaveBeenCalled();
+      expect(result.keptWithoutRunEvidence).toBe(0);
     } finally {
       vi.useRealTimers();
     }

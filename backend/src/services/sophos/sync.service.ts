@@ -650,7 +650,7 @@ export class SophosSyncService {
   /** Correlate Sophos alerts with Achilles test results (f0rtika.sophos_* flags). Never throws. */
   async runEnrichmentPass(es?: Client): Promise<EnrichmentPassResult> {
     const empty = (errors: string[] = []): EnrichmentPassResult => ({
-      scanned: 0, detected: 0, stageDetected: 0, skipped: 0, batches: 0, alertsMarkedCorrelated: 0, stageDetectionsRemoved: 0, detectionsRemoved: 0, preventionsRemoved: 0, removedFlagDocs: [], noRunEvidenceDocs: [], errors, durationMs: 0,
+      scanned: 0, detected: 0, stageDetected: 0, skipped: 0, batches: 0, alertsMarkedCorrelated: 0, stageDetectionsRemoved: 0, detectionsRemoved: 0, preventionsRemoved: 0, keptWithoutRunEvidence: 0, removedFlagDocs: [], noRunEvidenceDocs: [], errors, durationMs: 0,
     });
     try {
       if (!this.settingsService().getSophosSettings()?.configured) return empty();

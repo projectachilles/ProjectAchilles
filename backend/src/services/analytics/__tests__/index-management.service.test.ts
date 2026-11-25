@@ -154,15 +154,16 @@ describe('index-management.service', () => {
       expect(conflicts).toEqual(['f0rtika.test_version: text (wanted object)']);
     });
 
-    it('maps defender_no_run_evidence as a stored, never indexed object and reports it missing on an index without it', () => {
+    it('maps defender_no_run_evidence with seen_at and kind searchable, the rest stored only, and reports it missing on an index without it', () => {
       const canonical = RESULTS_INDEX_MAPPING.mappings.properties;
       const f0rtika = canonical.f0rtika.properties as Record<string, unknown>;
-      expect(f0rtika.defender_no_run_evidence).toEqual({ type: 'object', enabled: false });
+      const note = { type: 'object', dynamic: false, properties: { seen_at: { type: 'date' }, kind: { type: 'keyword' } } };
+      expect(f0rtika.defender_no_run_evidence).toEqual(note);
       const { defender_no_run_evidence: _note, ...f0rtikaWithout } = f0rtika;
       void _note;
       const live = { ...canonical, f0rtika: { properties: f0rtikaWithout } };
       const { missing, conflicts } = missingMappingProperties(live as any, canonical);
-      expect(missing).toEqual({ f0rtika: { properties: { defender_no_run_evidence: { type: 'object', enabled: false } } } });
+      expect(missing).toEqual({ f0rtika: { properties: { defender_no_run_evidence: note } } });
       expect(conflicts).toEqual([]);
     });
 

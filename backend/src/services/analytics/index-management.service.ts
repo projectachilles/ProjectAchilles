@@ -129,8 +129,14 @@ export const RESULTS_INDEX_MAPPING = {
           ...edrFlagMappings(),
           // What the alerts looked like when a Defender stage that did not run
           // to completion found only alerts holding nothing of its run
-          // (edr/alert-enrichment.service.ts). Written once, stored, never indexed.
-          defender_no_run_evidence: { type: 'object' as const, enabled: false },
+          // (edr/alert-enrichment.service.ts). Written once; `seen_at` and
+          // `kind` are searchable, `alerts` is kept in _source only. The pass
+          // puts this entry on an index before its first note there.
+          defender_no_run_evidence: {
+            type: 'object' as const,
+            dynamic: false,
+            properties: { seen_at: { type: 'date' as const }, kind: { type: 'keyword' as const } },
+          },
           tenant_label: { type: 'keyword' as const },
         },
       },

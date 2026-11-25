@@ -992,7 +992,8 @@ describe('DefenderSyncService', () => {
     it('logs how many flags the run-evidence re-check removed', async () => {
       mockEnrichmentResult = {
         scanned: 9, detected: 1, stageDetected: 1, skipped: 0, batches: 1, alertsMarkedCorrelated: 0,
-        stageDetectionsRemoved: 2, detectionsRemoved: 3, preventionsRemoved: 4, removedFlagDocs: [], noRunEvidenceDocs: [], errors: [], durationMs: 5,
+        stageDetectionsRemoved: 2, detectionsRemoved: 3, preventionsRemoved: 4, keptWithoutRunEvidence: 5, removedFlagDocs: [], noRunEvidenceDocs: [],
+        errors: [], durationMs: 5,
       };
       const log = vi.spyOn(console, 'log').mockImplementation(() => {});
       try {
@@ -1000,7 +1001,7 @@ describe('DefenderSyncService', () => {
         const line = log.mock.calls.map((c) => String(c[0])).find((l) => l.startsWith('[Defender-Enrichment]'));
         expect(line).toContain('stageDetectionsRemoved=2');
         expect(line).toContain('detectionsRemoved=3');
-        expect(line).toContain('preventionsRemoved=4');
+        expect(line).toContain('preventionsRemoved=4 keptWithoutRunEvidence=5 ');
       } finally {
         log.mockRestore();
         mockEnrichmentResult = undefined;
@@ -1010,7 +1011,8 @@ describe('DefenderSyncService', () => {
     describe('the results the run-evidence re-check removed flags on', () => {
       const pass = (over: Record<string, unknown>) => ({
         scanned: 9, detected: 0, stageDetected: 0, skipped: 0, batches: 1, alertsMarkedCorrelated: 0,
-        stageDetectionsRemoved: 0, detectionsRemoved: 0, preventionsRemoved: 0, removedFlagDocs: [], noRunEvidenceDocs: [], errors: [], durationMs: 5,
+        stageDetectionsRemoved: 0, detectionsRemoved: 0, preventionsRemoved: 0, keptWithoutRunEvidence: 0, removedFlagDocs: [], noRunEvidenceDocs: [],
+        errors: [], durationMs: 5,
         ...over,
       });
       const linesOf = async () => {
@@ -1047,19 +1049,26 @@ describe('DefenderSyncService', () => {
       it('logs the results that got a no-run-evidence note', async () => {
         mockEnrichmentResult = pass({ noRunEvidenceDocs: ['t1::T1003', 't2::T1059'] });
         const lines = await linesOf();
-        expect(lines).toContain('[Defender] Stage stopped with no evidence of its run, note stored on: t1::T1003, t2::T1059');
+        expect(lines).toContain('[Defender] No evidence of the run for a stage that did not complete, note stored on: t1::T1003, t2::T1059');
+      });
+
+      it('says how many more got a note past the 20 listed', async () => {
+        const ids = Array.from({ length: 20 }, (_, n) => `t${n + 1}`);
+        mockEnrichmentResult = pass({ noRunEvidenceDocs: ids, noRunEvidenceDocsOmitted: 2 });
+        const lines = await linesOf();
+        expect(lines).toContain(`[Defender] No evidence of the run for a stage that did not complete, note stored on: ${ids.join(', ')} (+2 more)`);
       });
 
       it('logs nothing extra when no result got a note', async () => {
         mockEnrichmentResult = pass({});
         const without = await linesOf();
-        expect(without.some((l) => l.includes('no evidence of its run'))).toBe(false);
+        expect(without.some((l) => l.includes('note stored on'))).toBe(false);
         expect(without.some((l) => l.startsWith('[Defender-Enrichment]'))).toBe(true);
         // The note line is the only line a non-empty list adds.
         mockEnrichmentResult = pass({ noRunEvidenceDocs: ['t1::T1003'] });
         const withNote = await linesOf();
         expect(withNote.filter((l) => !without.includes(l))).toEqual([
-          '[Defender] Stage stopped with no evidence of its run, note stored on: t1::T1003',
+          '[Defender] No evidence of the run for a stage that did not complete, note stored on: t1::T1003',
         ]);
       });
     });

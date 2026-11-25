@@ -9,6 +9,7 @@ import {
   alertCreditForRun,
   evidenceItems,
   foundBySpanOnly,
+  heldItemBeforeRun,
   holdsNothingOfRun,
   isOtherRunAlert,
   namesTestInRun,
@@ -387,5 +388,49 @@ describe('holdsNothingOfRun', () => {
     expect(holdsNothingOfRun({ evidence_items: null }, win)).toBe(false);
     expect(holdsNothingOfRun({}, win)).toBe(false);
     expect(holdsNothingOfRun({ evidence_items: [it_({})] }, null)).toBe(false);
+  });
+});
+
+describe('heldItemBeforeRun', () => {
+  const UUID = 'a1b2c3d4-0000-4000-8000-00000000f001';
+  // Window 00:45:47 .. 00:48:56 (slack included); file items count up to 01:17:56.
+  const win = runWindow('2026-11-25T00:46:47.000Z', '2026-11-25T00:47:56.000Z');
+  const EARLIER = { started_at: '2026-11-24T22:40:27.000Z', added_at: '2026-11-24T22:42:19.000Z' };
+  const LATER = { started_at: '2026-11-25T02:10:00.000Z', added_at: '2026-11-25T02:11:30.000Z' };
+  const IN_RUN = { started_at: '2026-11-25T00:47:10.000Z', added_at: '2026-11-25T00:48:40.000Z' };
+  const it_ = (over: object) => ({ file: `${UUID}-t1572.exe`, path: null, parent: null, parent_path: null, kind: 'process',
+    verdict: 'malicious', action: 'process_killed', ...EARLIER, ...over });
+
+  it('true when an item is from before the run', () => {
+    expect(heldItemBeforeRun({ evidence_items: [it_({})] }, win)).toBe(true);
+    expect(heldItemBeforeRun({ evidence_items: [it_(LATER), it_(EARLIER), it_(IN_RUN)] }, win)).toBe(true);
+    expect(heldItemBeforeRun({ evidence_items: [it_({ kind: 'file', started_at: null, added_at: EARLIER.added_at })] }, win)).toBe(true);
+  });
+  it('false when every item is from after the run', () => {
+    expect(heldItemBeforeRun({ evidence_items: [it_(LATER), it_({ kind: 'file', started_at: null, added_at: LATER.added_at })] }, win)).toBe(false);
+  });
+  it('false when every item is in the run', () => {
+    expect(heldItemBeforeRun({ evidence_items: [it_(IN_RUN), it_({ kind: 'file', started_at: null, added_at: '2026-11-25T00:50:00.000Z' })] }, win)).toBe(false);
+  });
+  it('a time inside the slack before the run start is not before the run', () => {
+    // 00:46:00 is before run_started_at but after window.startMs (00:45:47).
+    expect(heldItemBeforeRun({ evidence_items: [it_({ started_at: '2026-11-25T00:46:00.000Z', added_at: '2026-11-25T00:46:00.000Z' })] }, win)).toBe(false);
+    expect(heldItemBeforeRun({ evidence_items: [it_({ started_at: '2026-11-25T00:45:46.000Z' })] }, win)).toBe(true);
+  });
+  it('false for an empty item list', () => expect(heldItemBeforeRun({ evidence_items: [] }, win)).toBe(false));
+  it('false without an item list or without a window', () => {
+    expect(heldItemBeforeRun({ evidence_items: null }, win)).toBe(false);
+    expect(heldItemBeforeRun({}, win)).toBe(false);
+    expect(heldItemBeforeRun({ evidence_items: [it_({})] }, null)).toBe(false);
+  });
+  it('a process item with no start is judged by added_at', () => {
+    // Process items started long before, but with no (or an unparseable) start: added_at decides.
+    expect(heldItemBeforeRun({ evidence_items: [it_({ started_at: null, added_at: LATER.added_at })] }, win)).toBe(false);
+    expect(heldItemBeforeRun({ evidence_items: [it_({ started_at: 'not-a-date', added_at: LATER.added_at })] }, win)).toBe(false);
+    expect(heldItemBeforeRun({ evidence_items: [it_({ started_at: null, added_at: EARLIER.added_at })] }, win)).toBe(true);
+  });
+  it('a process item with a start is judged by it, not by added_at', () => {
+    expect(heldItemBeforeRun({ evidence_items: [it_({ started_at: EARLIER.started_at, added_at: LATER.added_at })] }, win)).toBe(true);
+    expect(heldItemBeforeRun({ evidence_items: [it_({ started_at: LATER.started_at, added_at: EARLIER.added_at })] }, win)).toBe(false);
   });
 });
