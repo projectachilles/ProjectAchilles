@@ -145,7 +145,11 @@ The span clause needs a usable `routing.run_started_at` (a date not after
 pass it is used only with per-run crediting on (`runScopedEvidence`, the alert
 re-sync finished). A hit found only by the span (`foundBySpanOnly`) counts, and
 is listed, only through in-run evidence items; an alert without `evidence_items`
-found only that way is treated as not returned (`spanHitUnusable`). In the
+found only that way is treated as not returned (`spanHitUnusable`). The
+enrichment pass marks an alert found only by the span as an Achilles alert
+(`f0rtika.achilles_correlated`), so that auto-resolve can close it, only when
+it counts for the run; an alert found by alert time is marked as before,
+whether it counts or not. In the
 console list and the report only the first tier (the one that names the test)
 uses the span; the technique-only tier stays on alert time. Credit for a late
 alert needs no one-time pass: the enrichment pass revisits every result of the
@@ -166,6 +170,10 @@ Known limits:
   starting more than 5 minutes after the alert's last activity, is not found.
 - Past the first 100 alerts of one query, only alerts found by alert time count
   the older way; alerts found only by span beyond the 100 read are ignored.
+  When alerts found only by span were left unread, nobody judged them, so no
+  stored flag is removed for that result on that query's alerts: not the stage
+  flags (stage query), not `defender_detected` (test-level query), and not a
+  prevention flag read from that query. The result is still marked as checked.
 - The technique-only tier of the alert list and the report, and CrowdStrike,
   SentinelOne and Sophos, are unchanged.
 - A result older than 90 days is not revisited.

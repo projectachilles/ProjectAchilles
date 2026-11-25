@@ -78,7 +78,8 @@ counts as prevention only when that file was blocked, prevented or remediated,
 never because of the alert-wide action. A listing therefore counts for no test.
 For EDRs that report no per-file verdict (CrowdStrike, SentinelOne, Sophos),
 an alert naming several tests counts for none of them. These alerts are still
-linked to Achilles, so auto-resolve closes them as security testing. In
+linked to Achilles, so auto-resolve closes them as security testing (except
+an alert found only by its activity, see below). In
 **All executions** they appear as one muted line ("N Defender alerts list files
 from several Achilles tests on this host…") with the list one click away,
 instead of a row per alert.
@@ -116,7 +117,8 @@ usable time), Defender alerts last updated before the 90-day look-back (the
 version 9 sync did not re-read them, so they have no per-item data),
 CrowdStrike, SentinelOne and Sophos keep the rules above unchanged.
 When more than 100 alerts match one stage or test query, the alerts past the
-first 100 still count the old way. A block by a Defender attack-surface-
+first 100 still count the old way (with a run start, only those found by alert
+time; see the known limits below). A block by a Defender attack-surface-
 reduction rule raises no alert, so a **Protected** stage (exit `126`) can have
 no alert listed.
 
@@ -144,7 +146,9 @@ end. The second way needs a known run start; the enrichment pass uses it only
 after the alert re-sync has finished. An alert found only by its activity
 counts, and is listed, only through evidence of that run; without per-item
 evidence it is ignored. So an alert Defender raised long after the activity
-still reaches its run, and every run of a long-open alert is judged.
+still reaches its run, and every run of a long-open alert is judged. An alert
+found only by its activity is linked to Achilles (`achilles_correlated`), and
+so can be auto-resolved, only when it counts for the run.
 
 Known limits of this lookup:
 
@@ -154,7 +158,10 @@ Known limits of this lookup:
 - Activity recorded more than 30 minutes after the run's end, or a process
   starting more than 5 minutes after the alert's last activity, is not found.
 - Past the first 100 alerts of one query, only alerts found by alert time count
-  the older way.
+  the older way. When alerts found only by their activity were left unread, no
+  stored flag that query decides is removed for that result (the stage flags
+  for a stage query, `*_detected` for a test-level one, and a prevention flag
+  read from it); the result is still marked as checked.
 - The technique-only step of the alert list, and CrowdStrike, SentinelOne and
   Sophos, are unchanged.
 - A result older than 90 days is not revisited.
