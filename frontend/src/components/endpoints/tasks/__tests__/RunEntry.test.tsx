@@ -97,6 +97,14 @@ describe('RunEntry, named form (up to 8 tasks)', () => {
     expect(screen.getByRole('button', { name: 'HOST-4: Failed, exit 1' })).toHaveTextContent('✕ exit 1');
   });
 
+  it('draws a command the agent finished with a non-zero exit code as failed, not as a success', () => {
+    const cmd = { test_uuid: '', test_name: '', binary_name: '', execution_timeout: 60 } as AgentTask['payload'];
+    setup(group([task(1, { type: 'execute_command', payload: cmd, status: 'completed', result: { ...baseResult, exit_code: 1 } })]));
+    const mark = screen.getByRole('button', { name: 'HOST-1: Failed, exit 1' });
+    expect(mark).toHaveTextContent('✕ exit 1');
+    expect(mark).not.toHaveTextContent('✓');
+  });
+
   it('renders one pill and no hosts toggle for a single task', () => {
     const { container } = setup(group([task(1)]));
     expect(marks(container)).toHaveLength(1);
@@ -188,6 +196,19 @@ describe('RunEntry host list', () => {
     rerender(<RunEntry group={group(after)} selectedTaskId={null} onSelectTask={onSelectTask} checkedTaskIds={[]} />);
     expect(screen.getByRole('button', { name: '21 unprotected' })).toHaveAttribute('aria-pressed', 'true');
     expect(within(screen.getByRole('list')).getAllByRole('listitem')[0]).toHaveTextContent('Unprotected');
+  });
+});
+
+describe('RunEntry host list when its segment empties', () => {
+  it('shows every task instead of an empty box once nothing is in progress any more', async () => {
+    const running = many(81, (n) => (n <= 3 ? task(n, { status: 'executing', result: null }) : task(n)));
+    const { rerender, onSelectTask } = setup(group(running));
+    await userEvent.click(screen.getByRole('button', { name: '3 in progress' }));
+    expect(within(screen.getByRole('list')).getAllByRole('listitem')).toHaveLength(3);
+
+    rerender(<RunEntry group={group(many(81))} selectedTaskId={null} onSelectTask={onSelectTask} checkedTaskIds={[]} />);
+    expect(screen.queryByRole('button', { name: /in progress$/ })).toBeNull();
+    expect(within(screen.getByRole('list')).getAllByRole('listitem')).toHaveLength(HOST_LIST_PAGE);
   });
 });
 

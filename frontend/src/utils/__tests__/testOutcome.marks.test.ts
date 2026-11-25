@@ -90,6 +90,13 @@ describe('taskBucket', () => {
     expect(taskBucket(task({ status: 'expired', result: undefined }))).toBe('no-verdict');
   });
 
+  it('a command the agent finished with a non-zero exit code failed', () => {
+    // The agent marks every submitted result "completed"; the exit code says whether it worked.
+    expect(taskBucket(task({ type: 'execute_command', result: { ...base, exit_code: 1 } }))).toBe('failed');
+    expect(taskBucket(task({ type: 'update_agent', result: { ...base, exit_code: 2 } }))).toBe('failed');
+    expect(taskBucket(task({ type: 'execute_command', result: undefined }))).toBe('completed');
+  });
+
   it('other task types count by lifecycle', () => {
     expect(taskBucket(task({ type: 'execute_command', result: { ...base, exit_code: 0 } }))).toBe('completed');
     expect(taskBucket(task({ type: 'execute_command', status: 'failed' }))).toBe('failed');

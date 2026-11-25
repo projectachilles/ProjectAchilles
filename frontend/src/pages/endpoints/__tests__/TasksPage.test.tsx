@@ -152,16 +152,29 @@ describe('TasksPage', () => {
     await waitFor(() => expect(list).toHaveBeenLastCalledWith(expect.objectContaining({ breakdown: 'failed:offline' })));
   });
 
-  it('keeps the task list on screen while it reloads', async () => {
+  it('keeps the task list and its pager on screen while the same query reloads', async () => {
     const user = userEvent.setup();
     setup();
-    list.mockResolvedValue({ groups: [group('b1')], total: 1, typeCounts: {} });
+    list.mockResolvedValue({ groups: [group('b1')], total: 60, typeCounts: {} });
     await user.click(await screen.findByRole('button', { name: /Refresh/ }));
     await waitFor(() => expect(screen.getByTestId('task-stream')).toHaveAttribute('data-groups', '1'));
     list.mockReturnValue(new Promise(() => {})); // a reload that has not answered yet
     await user.click(screen.getByRole('button', { name: /Refresh/ }));
     expect(screen.getByTestId('task-stream')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /Older/ })).toBeInTheDocument();
     expect(screen.queryByText('Loading tasks...')).toBeNull();
+  });
+
+  it('replaces the list with the loading message when the page changes: rows of another page are never shown as this one', async () => {
+    const user = userEvent.setup();
+    setup();
+    list.mockResolvedValue({ groups: [group('b1')], total: 60, typeCounts: {} });
+    await user.click(await screen.findByRole('button', { name: /Refresh/ }));
+    await waitFor(() => expect(screen.getByTestId('task-stream')).toHaveAttribute('data-groups', '1'));
+    list.mockReturnValue(new Promise(() => {}));
+    await user.click(screen.getByRole('button', { name: /Older/ }));
+    expect(await screen.findByText('Loading tasks...')).toBeInTheDocument();
+    expect(screen.queryByTestId('task-stream')).toBeNull();
   });
 
   it('falls back to the last page when the total shrinks under the current page', async () => {

@@ -168,7 +168,10 @@ export function taskBucket(task: Pick<AgentTask, 'type' | 'status' | 'result'>):
     const kind = testOutcome(task)?.kind;
     return kind === 'protected' || kind === 'unprotected' ? kind : 'no-verdict';
   }
-  return task.status === 'completed' ? 'completed' : 'failed';
+  // The agent marks every submitted result "completed"; a non-zero exit code
+  // means the command did not work (the same rule as resolveTaskStatusDisplay).
+  const succeeded = task.status === 'completed' && (!task.result || task.result.exit_code === 0);
+  return succeeded ? 'completed' : 'failed';
 }
 
 export const TONE_TEXT: Record<TestOutcomeTone, string> = {

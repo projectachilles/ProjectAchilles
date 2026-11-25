@@ -126,7 +126,7 @@ On a pill, a multi-stage test shows one small square per stage, read left to rig
 
 Other tasks show one square in the colour of their result, the status while they are pending or running, or the exit code of a command. A run's dot on the left takes the colour of its worst result, and is blue while any of its tasks is still in progress.
 
-Every run with more than one task has an arrow at the right of its header that opens its **host list**: the same tasks as rows, worst results first, with the hostname, result and duration in words and a checkbox on each row. On a run drawn as a bar, clicking a segment opens the list on that result. The list shows 8 rows first; **Show n more** adds the rest.
+Every run with more than one task has an arrow at the right of its header that opens its **host list**: the same tasks as rows, worst results first, with the hostname, result and duration in words and a checkbox on each row. On a run drawn as a bar, clicking a count under the bar (or a segment of the bar) opens the list on that result. The list shows 8 rows first; **Show n more** adds up to 100 more each time.
 
 Clicking any task (a pill, a square or a row) shows its detail on the right. The left and right arrow keys move between tasks. A retry of a task appears in the same run as a second mark for the same host.
 
@@ -249,14 +249,14 @@ The pills above the list choose which tasks it shows, each with its count:
 
 ### Task stream
 
-Tasks render as a chronological stream:
+Tasks render as a chronological stream, described under [The run timeline](#the-run-timeline):
 
 - **Date markers** separate days, so "when did this run" is answerable at a glance
-- **One row per task**: time, a coloured dot, the test name, the host, and the result. A security test shows its **outcome** (see [Status and outcome](#status-badges)); other tasks show `✓` / `✕` with the duration or `exit N`
-- **Batch rows** — a task targeting multiple agents collapses into one parent row that counts its outcomes by colour; expand it to see each agent's result. The row also carries the run tag when a pre-execution notice was sent
-- **Single tasks** render as flat rows
+- **One entry per run**: the time, the name, and a mark for each task. A task targeting several agents is one entry, not one row per agent. The entry also carries the run tag when a pre-execution notice was sent
+- **A mark per task**: a security test shows its **outcome** by colour, and by stage for a multi-stage test (see [Status and outcome](#status-badges)); other tasks show `✓` / `✕` with `exit N`. Hover a mark, or open the run's host list, to read the result in words
+- **A run of one task** is an entry with a single mark
 
-Selecting a row opens the **detail panel** on the right: status, agent,
+Selecting a task opens the **detail panel** on the right: status, agent,
 duration, exit code with its meaning, created time, batch id, and the full
 `stdout` / `stderr`. For a multi-stage test the exit code is labelled **Final
 exit**, because it is the last stage's code and can differ from the outcome; a
@@ -284,7 +284,7 @@ cyber-hygiene run can emit hundreds of lines) is readable without scrolling a
 Finished `execute_test` tasks (completed, failed or expired) carry a **Retry** action in the detail panel. It
 re-dispatches the same test to the same agent as a new pending task and links
 the two through `original_task_id`, so the retry chain stays auditable. The
-stream marks retried tasks with a `Retry n/m` chip.
+detail panel of a retried task shows `retry n/m` under its name.
 
 Manual retries are not capped by the task's `max_retries` budget — that governs
 automatic retries only. Command tasks cannot be retried this way; re-issue them

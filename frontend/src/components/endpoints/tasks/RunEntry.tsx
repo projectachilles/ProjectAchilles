@@ -29,13 +29,16 @@ export interface RunEntryProps {
  */
 export function RunEntry({ group, selectedTaskId, onSelectTask, checkedTaskIds, onToggleTask, onToggleGroup }: RunEntryProps) {
   // Which host list is open. Kept here: the parent keys entries by batch id, so a refresh does not close it.
-  const [open, setOpen] = useState<HostListFilter | null>(null);
+  const [opened, setOpen] = useState<HostListFilter | null>(null);
 
   const { tasks, notices } = group;
   const form = runForm(tasks.length);
   const name = group.payload?.test_name || group.type.replace(/_/g, ' ');
   const time = clockTime(group.created_at);
   const segments = bucketSegments(tasks);
+  // A refresh can empty the open segment (the last task in progress finishes):
+  // show every task then, not an empty box.
+  const open = opened !== null && opened !== 'all' && !segments.some((s) => s.key === opened) ? 'all' : opened;
   const partial = new Set(tasks.map((t) => t.agent_id)).size < group.agent_count;
   const runTags = Array.from(new Set(Object.values(notices ?? {}).map((n) => n.run_tag))).join(', ');
   const noticeOf = (noticeId?: string | null) => (noticeId ? notices?.[noticeId] : undefined);

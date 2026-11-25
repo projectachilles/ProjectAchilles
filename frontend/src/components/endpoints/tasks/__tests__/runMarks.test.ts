@@ -109,10 +109,23 @@ describe('railTone', () => {
 });
 
 describe('taskMarkTone', () => {
-  it('follows the task bucket', () => {
+  it('is the tone of the test outcome, the same colour as the detail badge', () => {
     expect(taskMarkTone(prot)).toBe('accent');
     expect(taskMarkTone(unprot)).toBe('danger');
+    expect(taskMarkTone(withExit('e', 999))).toBe('warning'); // test error
+    expect(taskMarkTone(withExit('i', 0))).toBe('muted'); // inconclusive: grey, not amber
+  });
+
+  it('is blue while the task is in progress', () => {
     expect(taskMarkTone(running)).toBe('info');
-    expect(taskMarkTone(withExit('e', 999))).toBe('warning');
+  });
+
+  it('is grey for a test that expired before it ran', () => {
+    expect(taskMarkTone(task('x', { status: 'expired', result: null }))).toBe('muted');
+  });
+
+  it('follows the lifecycle for other task types', () => {
+    expect(taskMarkTone(withExit('c0', 0, { type: 'execute_command' }))).toBe('accent');
+    expect(taskMarkTone(withExit('c1', 1, { type: 'execute_command' }))).toBe('danger');
   });
 });

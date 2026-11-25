@@ -5,7 +5,7 @@
  */
 
 import type { AgentTask, TaskGroup } from '@/types/agent';
-import { taskBucket, type TaskBucket } from '@/utils/testOutcome';
+import { taskBucket, testOutcome, type TaskBucket } from '@/utils/testOutcome';
 import type { BarSegment } from '../../shared/marks/VerdictBar';
 import type { MarkTone } from '../../shared/marks/markTone';
 
@@ -105,6 +105,14 @@ export function railTone(tasks: AgentTask[]): MarkTone {
   return worst ? BUCKET_META[worst].tone : 'muted';
 }
 
+/**
+ * The colour of one task's mark. For a test it is the tone of its outcome,
+ * the same colour as the badge in its detail (so an inconclusive run is grey
+ * while a test error is amber, though both count under "no verdict").
+ */
 export function taskMarkTone(task: AgentTask): MarkTone {
-  return BUCKET_META[taskBucket(task)].tone;
+  const bucket = taskBucket(task);
+  if (bucket === 'in-progress') return 'info';
+  if (task.type === 'execute_test') return testOutcome(task)?.tone ?? 'muted';
+  return BUCKET_META[bucket].tone;
 }
