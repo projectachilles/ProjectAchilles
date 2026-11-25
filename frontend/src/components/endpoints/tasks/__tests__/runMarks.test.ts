@@ -1,14 +1,19 @@
 import { describe, it, expect } from 'vitest';
 import type { AgentTask } from '@/types/agent';
+import type { TaskGroup } from '@/types/agent';
 import {
   BUCKET_META,
   BUCKET_ORDER,
   bucketSegments,
   compareWorstFirst,
+  findRun,
   railTone,
   runForm,
+  runIdOf,
+  runTimeLabel,
   taskMarkTone,
 } from '../runMarks';
+import { clockTime } from '../taskFormat';
 
 function task(id: string, overrides: Partial<AgentTask> = {}): AgentTask {
   return {
@@ -94,17 +99,61 @@ describe('compareWorstFirst', () => {
 });
 
 describe('railTone', () => {
+  const expired = task('x', { status: 'expired', result: null }); // never ran: a grey mark
+  const testError = withExit('e', 999); // an amber mark
+
   it('is info while anything is in progress', () => {
     expect(railTone([prot, unprot, running])).toBe('info');
   });
 
-  it('is the tone of the worst bucket present', () => {
-    expect(railTone([prot, unprot])).toBe('danger');
+  it('is the worst colour among the run\'s marks: red, then amber, then grey, then green', () => {
+    expect(railTone([prot, unprot, testError, expired])).toBe('danger');
+    expect(railTone([prot, testError, expired])).toBe('warning');
+    expect(railTone([prot, expired])).toBe('muted');
     expect(railTone([prot])).toBe('accent');
+  });
+
+  it('matches the mark of a run with one task: a grey mark has a grey dot, not an amber one', () => {
+    expect(railTone([expired])).toBe(taskMarkTone(expired));
+    expect(railTone([expired])).toBe('muted');
   });
 
   it('is muted for an empty run', () => {
     expect(railTone([])).toBe('muted');
+  });
+});
+
+describe('runs', () => {
+  const group = (overrides: Partial<TaskGroup>): TaskGroup => ({
+    batch_id: 'b1', type: 'execute_test', payload: prot.payload, created_at: '2026-10-28 12:00:00', created_by: 'u',
+    agent_count: 1, status_counts: {}, tasks: [prot], ...overrides,
+  });
+
+  it('identifies a run by its run id, or by its batch when the server sends none (serverless, older backend)', () => {
+    expect(runIdOf(group({ run_id: 'n:n1|execute_test|u' }))).toBe('n:n1|execute_test|u');
+    expect(runIdOf(group({}))).toBe('b1');
+  });
+
+  it('finds a run by that id even when two runs share a batch', () => {
+    const first = group({ run_id: 'n:n1|execute_test|u' });
+    const retry = group({ run_id: 'n:n2|execute_test|u' });
+    expect(findRun([first, retry], 'n:n2|execute_test|u')).toBe(retry);
+    expect(findRun([first, retry], 'nope')).toBeUndefined();
+  });
+
+  it('shows one time for a run created in one go', () => {
+    expect(runTimeLabel(group({}))).toBe(clockTime('2026-10-28 12:00:00'));
+  });
+
+  it('shows the first and last time for a run of several batches spread over time', () => {
+    const tasks = [task('a', { created_at: '2026-10-28 13:10:00', batch_id: 'b1' }), task('b', { created_at: '2026-10-28 15:48:11', batch_id: 'b2' })];
+    const label = runTimeLabel(group({ run_id: 'n:n1|execute_test|u', batch_ids: ['b2', 'b1'], created_at: '2026-10-28 15:48:11', tasks }));
+    expect(label).toBe(`${clockTime('2026-10-28 13:10:00')} – ${clockTime('2026-10-28 15:48:11')}`);
+  });
+
+  it('keeps one time for a batch whose retry came later', () => {
+    const tasks = [task('a', { created_at: '2026-10-28 12:00:00' }), task('a2', { created_at: '2026-10-28 12:30:00' })];
+    expect(runTimeLabel(group({ batch_ids: ['b1'], tasks }))).toBe(clockTime('2026-10-28 12:00:00'));
   });
 });
 

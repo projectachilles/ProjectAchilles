@@ -8,6 +8,7 @@ import type { AgentTask, TaskGroup } from '@/types/agent';
 import { taskBucket, testOutcome, type TaskBucket } from '@/utils/testOutcome';
 import type { BarSegment } from '../../shared/marks/VerdictBar';
 import type { MarkTone } from '../../shared/marks/markTone';
+import { clockTime, normalizeUtc } from './taskFormat';
 
 /** Up to this many tasks, a run shows a named pill per task. */
 export const NAMED_MAX = 8;
@@ -97,12 +98,44 @@ export function compareWorstFirst(a: AgentTask, b: AgentTask): number {
   return a.id.localeCompare(b.id);
 }
 
-/** The colour of a run's dot on the timeline rail. */
+/** Worst first, for the dot of a run: red, amber, grey, green. */
+const RAIL_ORDER: readonly MarkTone[] = ['danger', 'warning', 'muted', 'accent'];
+
+/**
+ * The colour of a run's dot on the timeline rail: blue while anything is in
+ * progress, otherwise the worst colour among its tasks' marks, so the dot of
+ * a one-task run is always the colour of that task's mark.
+ */
 export function railTone(tasks: AgentTask[]): MarkTone {
-  const buckets = new Set(tasks.map(taskBucket));
-  if (buckets.has('in-progress')) return 'info';
-  const worst = BUCKET_ORDER.find((bucket) => buckets.has(bucket));
-  return worst ? BUCKET_META[worst].tone : 'muted';
+  const tones = new Set(tasks.map(taskMarkTone));
+  if (tones.has('info')) return 'info';
+  return RAIL_ORDER.find((tone) => tones.has(tone)) ?? 'muted';
+}
+
+/** What identifies a run on the page. The server sends run_id; where it does not, a run is its batch. */
+export function runIdOf(group: Pick<TaskGroup, 'run_id' | 'batch_id'>): string {
+  return group.run_id ?? group.batch_id;
+}
+
+export function findRun(groups: TaskGroup[], runId: string): TaskGroup | undefined {
+  return groups.find((g) => runIdOf(g) === runId);
+}
+
+/**
+ * The time a run shows. A run of several batches (one announced run that
+ * reached its agents over hours) shows when its first and last task were
+ * created; any other run shows one time.
+ */
+export function runTimeLabel(group: Pick<TaskGroup, 'created_at' | 'batch_ids' | 'tasks'>): string {
+  if ((group.batch_ids?.length ?? 1) > 1 && group.tasks.length > 0) {
+    const times = group.tasks.map((t) => t.created_at).sort((a, b) => Date.parse(normalizeUtc(a)) - Date.parse(normalizeUtc(b)));
+    const first = times[0];
+    const last = times[times.length - 1];
+    if (Date.parse(normalizeUtc(last)) - Date.parse(normalizeUtc(first)) > 60_000) {
+      return `${clockTime(first)} – ${clockTime(last)}`;
+    }
+  }
+  return clockTime(group.created_at);
 }
 
 /**

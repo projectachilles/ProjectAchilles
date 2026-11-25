@@ -247,6 +247,33 @@ describe('RunEntry selection', () => {
   });
 });
 
+describe('RunEntry for a run of several batches', () => {
+  const spread = () =>
+    group(
+      [
+        task(1, { batch_id: 'b1', created_at: '2026-10-28 13:10:00' }),
+        task(2, { batch_id: 'b2', created_at: '2026-10-28 14:02:00' }),
+        task(3, { batch_id: 'b3', created_at: '2026-10-28 15:48:00' }),
+      ],
+      { run_id: 'n:n1|execute_test|u', batch_id: 'b3', batch_ids: ['b3', 'b2', 'b1'], created_at: '2026-10-28 15:48:00' },
+    );
+
+  it('is one entry with the name once, a mark per task, and the time it started and ended', () => {
+    const { container } = setup(spread());
+    expect(screen.getAllByText('LockBit Chain')).toHaveLength(1);
+    expect(marks(container)).toHaveLength(3);
+    const entry = screen.getByRole('group', { name: /^LockBit Chain, / });
+    expect(entry).toHaveTextContent(/\d{2}:10:00 – \d{2}:48:00/);
+  });
+
+  it('reports its run id, not a batch id, when its checkbox is ticked', async () => {
+    const onToggleGroup = vi.fn();
+    setup(spread(), { onToggleGroup });
+    await userEvent.click(screen.getByRole('checkbox', { name: 'Select every task of LockBit Chain' }));
+    expect(onToggleGroup).toHaveBeenCalledWith('n:n1|execute_test|u');
+  });
+});
+
 describe('RunEntry edge cases', () => {
   it('says "1 of 5 agents" for a batch listed in part, and keeps the named form', () => {
     const { container } = setup(group([task(1)], { agent_count: 5 }));

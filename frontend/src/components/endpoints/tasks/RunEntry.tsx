@@ -8,8 +8,7 @@ import { VerdictBar } from '../../shared/marks/VerdictBar';
 import { MARK_BG } from '../../shared/marks/markTone';
 import { RunHostList, type HostListFilter } from './RunHostList';
 import { TaskMark } from './TaskMark';
-import { agentCountLabel, bucketSegments, railTone, runForm } from './runMarks';
-import { clockTime } from './taskFormat';
+import { agentCountLabel, bucketSegments, railTone, runForm, runIdOf, runTimeLabel } from './runMarks';
 
 export interface RunEntryProps {
   group: TaskGroup;
@@ -19,7 +18,8 @@ export interface RunEntryProps {
   /** Tasks ticked for a bulk action. */
   checkedTaskIds: string[];
   onToggleTask?: (taskId: string) => void;
-  onToggleGroup?: (batchId: string) => void;
+  /** Called with the run's id (runIdOf). */
+  onToggleGroup?: (runId: string) => void;
 }
 
 /**
@@ -34,7 +34,7 @@ export function RunEntry({ group, selectedTaskId, onSelectTask, checkedTaskIds, 
   const { tasks, notices } = group;
   const form = runForm(tasks.length);
   const name = group.payload?.test_name || group.type.replace(/_/g, ' ');
-  const time = clockTime(group.created_at);
+  const time = runTimeLabel(group);
   const segments = bucketSegments(tasks);
   // A refresh can empty the open segment (the last task in progress finishes):
   // show every task then, not an empty box.
@@ -56,7 +56,7 @@ export function RunEntry({ group, selectedTaskId, onSelectTask, checkedTaskIds, 
             <Checkbox
               aria-label={`Select every task of ${name}`}
               checked={tasks.length > 0 && tasks.every((t) => checkedTaskIds.includes(t.id))}
-              onChange={() => onToggleGroup(group.batch_id)}
+              onChange={() => onToggleGroup(runIdOf(group))}
             />
           )}
           <span className="shrink-0 font-mono text-xs text-muted">{time}</span>
