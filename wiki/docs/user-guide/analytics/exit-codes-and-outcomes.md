@@ -156,7 +156,7 @@ Known limits of this lookup:
 
 - A later run that Defender re-detects without adding a new evidence item gets
   no credit for that run. A flag already stored on such a result is kept when
-  the stage did not run to completion (see below).
+  the stage may have been stopped (see below).
 - An alert raised late whose only evidence is a file is still not credited.
 - Activity recorded more than 30 minutes after the run's end, or a process
   starting more than 5 minutes after the alert's last activity, is not found.
@@ -169,10 +169,11 @@ Known limits of this lookup:
   Sophos, are unchanged.
 - A result older than 90 days is not revisited.
 
-**A stage that did not run to completion keeps its flags.** Defender can stop a
+**A stage that may have been stopped keeps its flags.** Defender can stop a
 file it already knows and update the open alert without adding an evidence
-item. So when the check finds alerts for a stage that exited with any code other
-than 101, or has no exit code, none of them holds any evidence of that run, and
+item. So when the check finds alerts for a stage that started and did not
+finish, or was blocked (an exit code other than 0 and 101), none of them holds
+any evidence of that run, and
 at least one of them already held evidence from before the run began, it
 removes no flag of that result. When only the test-level alerts (the ones about
 the whole test) are in that state, only what they decide is kept: the stage's
@@ -186,9 +187,9 @@ stage, still lose their flags. No flag is ever created this way. The backend's
 What a kept flag does to the verdicts: on a stage that ended with an error code
 (1, 259, 999, …), a kept flag that carries the stage's own prevention keeps it
 **Prevented**, which the Defense Score and the reports count, and a kept stage
-detection alone keeps it **Detected**. On a stage with exit code 0 or no exit
-code a kept flag changes no stage verdict (the reports treat those as never
-blocked by an EDR); it only keeps the alert chip and the run-level detection.
+detection alone keeps it **Detected**. A stage with exit code 0 or no exit code
+is not covered and is judged as before: on a multi-stage test, exit 0 means the
+stage was skipped and never ran, so having no evidence of its run says nothing.
 
 On a recent result (ended within 72 hours) in that situation the backend also
 stores a small note once, `f0rtika.defender_no_run_evidence` (not shown in the
@@ -201,7 +202,7 @@ an `exists` query on `f0rtika.defender_no_run_evidence.seen_at`, or read the log
 line. The backend adds this field to an index's mapping before it writes the
 first note there; if that fails, it writes no note to that index and logs one
 warning on each pass that has a note to write. A note is not proof that Defender stopped the stage: it is written the
-first time any stage that did not complete has alerts holding nothing of its
+first time a stage with such an exit code has alerts holding nothing of its
 run, and it stays even if evidence arrives later. Limits:
 
 - A kept flag can show an alert chip beside an empty alert list, because the

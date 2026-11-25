@@ -169,7 +169,7 @@ Known limits:
 
 - A later run that Defender re-detects without adding a new evidence item gets
   no credit for that run. A flag already stored on such a result is kept when
-  the stage did not run to completion (see the next section).
+  the stage may have been stopped (see the next section).
 - An alert raised late whose only evidence is a file is still not credited (a
   file item counts by when Defender added it).
 - Activity recorded more than 30 minutes after the run's end, or a process
@@ -184,7 +184,7 @@ Known limits:
   SentinelOne and Sophos, are unchanged.
 - A result older than 90 days is not revisited.
 
-### A stage that did not run to completion keeps its flags
+### A stage that may have been stopped keeps its flags
 
 Defender can stop a file it already knows and update the open alert without
 adding an evidence item, so a run it really stopped can look like a run with no
@@ -198,9 +198,10 @@ before the run (`heldItemBeforeRun`: an item whose time, the one `inRun` judges
 it by, a process item's `started_at` when it has one, else `added_at`, is
 earlier than the window start, run start - 60 s). An alert that only has items
 from after the run (found through the 30-minute file tail or its activity span)
-cannot be a file Defender already knew, so it keeps nothing. When the result
-did not run to completion (`ranToCompletion` false: any exit code other than
-101, or none), the pass sets the unjudged gates it uses for unread alerts,
+cannot be a file Defender already knew, so it keeps nothing. When the result's
+stage may have been stopped (`mayHaveBeenStopped`: it started and did not
+finish, or was blocked, i.e. an exit code other than 0 and 101), the pass sets
+the unjudged gates it uses for unread alerts,
 `stageUnjudged` and `wideUnjudged`, from those two facts:
 
 - the stage query has nothing of the run: both gates are set, so no stored flag
@@ -225,10 +226,11 @@ that ended with an error code (1, 259, 999, …) a kept flag that carries the
 stage's own prevention (`defender_stage_prevented`, or on older documents the
 stage detection with a confirmed action) keeps it **Prevented**, which the
 Defense Score counts (`EDR_PREVENTED_ERROR_STAGE`) and the reports show, and a
-kept stage detection alone keeps it **Detected**. On a stage with exit code 0
-or no exit code a kept flag changes no stage verdict (`classifyStage` never
-treats those as blocked); it only keeps the alert chip and the run-level
-detection (`edrDetectedTerms()`).
+kept stage detection alone keeps it **Detected**. A stage with exit code 0 or no
+exit code is not covered by the rule and is judged as before: on a stage of a
+multi-stage test exit 0 means the stage was skipped and never executed, so
+having no evidence of its run says nothing, and `classifyStage` never treats
+either as blocked by an EDR.
 
 On a fresh result in that situation the pass also stores a note, once, to learn
 what Defender writes on the alert: `f0rtika.defender_no_run_evidence =
@@ -236,11 +238,12 @@ what Defender writes on the alert: `f0rtika.defender_no_run_evidence =
 `{ id, found_by, updated_at, first_activity_at, last_activity_at, items }`
 (`id` is the alert document id, `found_by` the query clauses that matched it,
 `updated_at` its last update, `items` the number of evidence items the run rule
-reads). It is written only when the result has a run window, did not run to
-completion, ended within the last 72 hours (`recheckHours`) and has no note yet;
+reads). It is written only when the result has a run window, may have been
+stopped (an exit code other than 0 and 101), ended within the last 72 hours
+(`recheckHours`) and has no note yet;
 `kind` is `stage` when the stage query has nothing of the run, else `wide`. A
 note is not proof that Defender stopped the stage: it is written at first sight
-for any stage that did not complete while its alerts hold nothing of its run,
+for any stage with such an exit code while its alerts hold nothing of its run,
 and it stays even if evidence arrives later. No API returns it.
 
 The field is mapped `{ type: 'object', dynamic: false, properties: { seen_at:
