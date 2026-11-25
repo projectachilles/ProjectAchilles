@@ -228,6 +228,33 @@ export function isOtherRunAlert(
   return namesTest(items, uuid, pathNamesTest) && !namesTest(items.filter((i) => inRun(i, window)), uuid, pathNamesTest);
 }
 
+/** The alert has an item list, the run has a window, and no item of any file is inside the run. */
+export function holdsNothingOfRun(src: Record<string, unknown>, window: RunWindow | null): boolean {
+  if (!window) return false;
+  const items = evidenceItems(src);
+  return !!items && !items.some((i) => inRun(i, window));
+}
+
+/** The time `inRun` judges an item by: a process item's start when it has one, else when the vendor added it. */
+function judgedTimeMs(item: EvidenceItem): number | null {
+  const started = item.kind === 'process' ? timeMs(item.started_at) : null;
+  return started ?? timeMs(item.added_at);
+}
+
+/**
+ * The alert has an item list, the run has a window, and at least one item's
+ * time (the one `inRun` judges it by) is earlier than the window start: the
+ * vendor knew the file before this run began.
+ */
+export function heldItemBeforeRun(src: Record<string, unknown>, window: RunWindow | null): boolean {
+  if (!window) return false;
+  const items = evidenceItems(src);
+  return !!items && items.some((i) => {
+    const t = judgedTimeMs(i);
+    return t !== null && t < window.startMs;
+  });
+}
+
 /** True when the hit's matched_queries is an array that has 'activity_span' and not 'alert_time'. */
 export function foundBySpanOnly(hit: { matched_queries?: unknown } | null | undefined): boolean {
   const named = hit?.matched_queries;

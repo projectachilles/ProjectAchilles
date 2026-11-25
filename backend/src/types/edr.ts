@@ -40,6 +40,14 @@ export interface EnrichmentPassResult {
   /** As `stageDetectionsRemoved`: docs whose `<vendor>_prevented` or `<vendor>_stage_prevented` went from true to false. */
   preventionsRemoved: number;
   /**
+   * Results the keep rule held back in this pass (Defender, crediting by
+   * run: a kind whose alerts all hold nothing of the run, on a result that
+   * did not run to completion): once per result, in the pass that re-checks
+   * it and writes its run marker, on an `updated` bulk item. 0 for every
+   * other vendor.
+   */
+  keptWithoutRunEvidence: number;
+  /**
    * The `_id`s of the results on which the run-evidence re-check removed a
    * flag, counted as the three counters above are (a bulk item answered
    * `updated`); at most REMOVED_FLAG_DOCS_LISTED per pass. `[]` when none,
@@ -48,6 +56,14 @@ export interface EnrichmentPassResult {
   removedFlagDocs: string[];
   /** Results with a removed flag past the ones `removedFlagDocs` lists; absent when none. */
   removedFlagDocsOmitted?: number;
+  /**
+   * Results that got a `<vendor>_no_run_evidence` note this pass (at most
+   * NO_RUN_EVIDENCE_DOCS_LISTED ids, counted on `updated` only). `[]` when
+   * none, and always for every vendor but Defender (crediting by run).
+   */
+  noRunEvidenceDocs: string[];
+  /** Results that got a note past the ones `noRunEvidenceDocs` lists; absent when none. */
+  noRunEvidenceDocsOmitted?: number;
   /** Per-batch errors collected non-fatally. */
   errors: string[];
   /** Wall-clock duration of the pass. */

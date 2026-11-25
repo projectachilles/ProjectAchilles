@@ -442,7 +442,7 @@ export class CrowdStrikeSyncService {
     try {
       const integrationsService = new IntegrationsSettingsService();
       if (!integrationsService.isCrowdStrikeConfigured()) {
-        return { scanned: 0, detected: 0, stageDetected: 0, skipped: 0, batches: 0, alertsMarkedCorrelated: 0, stageDetectionsRemoved: 0, detectionsRemoved: 0, preventionsRemoved: 0, removedFlagDocs: [], errors: [], durationMs: 0 };
+        return { scanned: 0, detected: 0, stageDetected: 0, skipped: 0, batches: 0, alertsMarkedCorrelated: 0, stageDetectionsRemoved: 0, detectionsRemoved: 0, preventionsRemoved: 0, keptWithoutRunEvidence: 0, removedFlagDocs: [], noRunEvidenceDocs: [], errors: [], durationMs: 0 };
       }
       const es = this.getEsClient();
       const settingsService = new SettingsService();
@@ -461,7 +461,7 @@ export class CrowdStrikeSyncService {
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
       console.error(`[CrowdStrike-Enrichment] pass threw: ${msg}`);
-      return { scanned: 0, detected: 0, stageDetected: 0, skipped: 0, batches: 0, alertsMarkedCorrelated: 0, stageDetectionsRemoved: 0, detectionsRemoved: 0, preventionsRemoved: 0, removedFlagDocs: [], errors: [msg], durationMs: 0 };
+      return { scanned: 0, detected: 0, stageDetected: 0, skipped: 0, batches: 0, alertsMarkedCorrelated: 0, stageDetectionsRemoved: 0, detectionsRemoved: 0, preventionsRemoved: 0, keptWithoutRunEvidence: 0, removedFlagDocs: [], noRunEvidenceDocs: [], errors: [msg], durationMs: 0 };
     }
   }
 
