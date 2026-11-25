@@ -421,8 +421,9 @@ export class EdrAlertEnrichmentService {
            * (`<kind>NoRunItems`: Defender can stop a file it already knows
            * and update the alert without adding an item).
            * The stage kind in that case holds back both kinds; the test-level
-           * kind only itself. Both are also set when the update is built if a
-           * sub-query the result queued did not answer this pass.
+           * kind only itself. Both are also set when the update is built if,
+           * during the run re-check, a sub-query the result queued did not
+           * answer this pass.
            */
           stageUnjudged: boolean;
           wideUnjudged: boolean;
@@ -641,11 +642,14 @@ export class EdrAlertEnrichmentService {
             const window = this.runWindowOf(u.hit);
             const runView = window !== null;
             const runRecheck = runView && existing[`${v}_run_rule`] !== RUN_RULE;
-            // A result with a sub-query that did not answer this pass is held
-            // back whole: the kind that answered, judged alone, could remove
-            // what the other kind would have kept. The next pass decides.
+            // During the run re-check a result with a sub-query that did not
+            // answer this pass is held back whole: the kind that answered,
+            // judged alone, could remove what the other kind would have kept.
+            // The marker waits, and the re-check re-arms every one-time check
+            // on the next pass. Off a run re-check nothing re-arms them, so
+            // each kind is judged from its own answer, as before.
             const queued = queuedByHitId.get(u.hit._id) ?? 0;
-            if (u.answered < queued) {
+            if (runRecheck && u.answered < queued) {
               u.stageUnjudged = true;
               u.wideUnjudged = true;
             }

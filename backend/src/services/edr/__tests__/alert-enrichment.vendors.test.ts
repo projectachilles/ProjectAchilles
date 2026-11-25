@@ -589,6 +589,25 @@ describe.each(VENDORS)('EDR alert enrichment — $name per-file verdicts', ({ pr
     });
   });
 
+  // Off a run re-check (every vendor here; Defender without crediting by run)
+  // a failed sub-query holds nothing back: the kind that answered is judged
+  // from its own answer, and its one-time check is consumed as before.
+  it('a failed stage sub-query: the test-level check is still judged from the wide answer', async () => {
+    search.mockResolvedValueOnce({ hits: { hits: [doc(QILIN, 'T1055', { [`${prefix}_detected`]: true, [`${prefix}_prevented`]: true, [`${prefix}_prevention_action`]: 'blocked' }, 999)] } });
+    const failed = { error: { type: 'search_phase_execution_exception', reason: 'shard failure' } };
+    msearch.mockResolvedValueOnce({ responses: [page(listing), failed] });
+    const result = await make(client).runEnrichmentPass({ batchSize: 200 });
+    expect(bulk.mock.calls[0][0].operations[1].doc.f0rtika).toEqual({
+      [`${prefix}_detected`]: false,
+      [`${prefix}_prevented`]: false,
+      [`${prefix}_prevention_action`]: null,
+      [`${prefix}_evidence_rule`]: 'file_verdict',
+      [`${prefix}_prevention_rule`]: 'in_run',
+    });
+    expect(result.errors).toHaveLength(1);
+    expect(result.errors[0]).toMatch(/^msearch\[1\/stage\]: /);
+  });
+
   it('keeps _detected when one alert still counts for the test', async () => {
     search.mockResolvedValueOnce({ hits: { hits: [doc(QILIN, 'T1055', { [`${prefix}_detected`]: true }, 999)] } });
     msearch.mockResolvedValueOnce({ responses: [page(listing, av), page()] });
