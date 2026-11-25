@@ -1812,6 +1812,39 @@ describe('DefenderEnrichmentService — credit by run (runScopedEvidence)', () =
         expect(result.preventionsRemoved).toBe(1);
       });
 
+      // The settle branch: a detected stage with an action on record and no
+      // `_stage_prevented` key, whose stage alerts are visible but none counts,
+      // is settled `_stage_prevented: false` (a stage that read Prevented by the
+      // fallback then reads Detected). Every one-time check is disarmed here
+      // (all markers on), so that branch alone decides.
+      const unsettled = () => {
+        const doc = resultDoc(999, {
+          f0rtika: {
+            ...storedFlags, defender_prevented: true, defender_prevention_action: 'process_killed',
+            defender_prevention_rule: 'in_run', defender_run_rule: RUN_RULE,
+          },
+        });
+        delete (doc._source.f0rtika as Record<string, unknown>).defender_stage_prevented;
+        return doc;
+      };
+
+      it('settle: the stage kind unjudged: `_stage_prevented: false` is not written, no flag is removed', async () => {
+        const { f, result } = await run(unsettled(), [none, earlierRunOnly(150)]);
+        expect(f?.defender_stage_prevented).toBeUndefined();
+        expect(f?.defender_stage_detected).not.toBe(false);
+        expect(f?.defender_detected).not.toBe(false);
+        expect(f?.defender_prevented).not.toBe(false);
+        expect(f?.defender_prevention_action).toBeUndefined();
+        expect([result.stageDetectionsRemoved, result.detectionsRemoved, result.preventionsRemoved]).toEqual([0, 0, 0]);
+        // Nothing else to write: the result is not updated at all.
+        expect(f).toBeUndefined();
+      });
+
+      it('settle: everything read: the same hits settle `_stage_prevented: false` as today', async () => {
+        const { f } = await run(unsettled(), [none, earlierRunOnly(100)]);
+        expect(f).toEqual({ defender_stage_prevented: false });
+      });
+
       it('prevention: the stage kind unjudged (conclusive exit reads it): no prevention flag is removed', async () => {
         const { f, result } = await run(prevented(105), [earlierRunOnly(100), earlierRunOnly(150)]);
         expect(f?.defender_prevented).not.toBe(false);

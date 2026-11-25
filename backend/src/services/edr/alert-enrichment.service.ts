@@ -579,14 +579,15 @@ export class EdrAlertEnrichmentService {
             } else if (
               existing[`${v}_stage_detected`] === true
               && existing[`${v}_stage_prevented`] === undefined
-              && u.stageQueried && u.stageHitsAll > 0
+              && u.stageQueried && !u.stageUnjudged && u.stageHitsAll > 0
             ) {
               // An older stage with an action on record whose stage alerts are
               // still in the index but none counts for it any more (a multi-test
               // alert that blocked another test's file): the evidence is there
               // and gives it no action of its own, so settle it. Without this,
               // the verdicts' fallback (stage detected + a confirmed action)
-              // keeps calling it Prevented.
+              // keeps calling it Prevented. Not while span-only matches were
+              // left unread (stageUnjudged): one may hold the stage's action.
               f0rtika[`${v}_stage_prevented`] = false;
             }
             // Single-test stage rule (multiTestEvidence.ts). A stage stored
