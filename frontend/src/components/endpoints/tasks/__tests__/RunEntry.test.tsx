@@ -266,6 +266,16 @@ describe('RunEntry for a run of several batches', () => {
     expect(entry).toHaveTextContent(/\d{2}:10:00 – \d{2}:48:00/);
   });
 
+  it('lets its header wrap in a narrow list, with the name on a line of its own, so nothing is pushed out of view', () => {
+    // A time range is more than twice as wide as one time; with a count and a run tag it does not fit one line of a phone.
+    setup(spread());
+    const name = screen.getByText('LockBit Chain');
+    expect(name.parentElement!.className).toContain('flex-wrap');
+    expect(name.className).toContain('basis-full');
+    expect(name.className).toContain('@lg:basis-0');
+    expect(name.closest('.\\@container')).not.toBeNull();
+  });
+
   it('reports its run id, not a batch id, when its checkbox is ticked', async () => {
     const onToggleGroup = vi.fn();
     setup(spread(), { onToggleGroup });

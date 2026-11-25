@@ -1,6 +1,6 @@
 /**
  * Task Stream — the Tasks page's list and detail. The list is a run timeline:
- * one entry per batch under date markers, each task drawn as a mark (see
+ * one entry per run under date markers, each task drawn as a mark (see
  * RunEntry), and a detail panel for the selected task. The props mirror the
  * old TaskList so TasksPage keeps all of its handlers unchanged.
  */

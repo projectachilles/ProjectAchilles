@@ -412,7 +412,8 @@ const GROUPED_TASK_TYPES: ReadonlySet<string> = new Set<TaskType>(['execute_test
 
 /**
  * GET /admin/tasks/grouped
- * List tasks grouped by batch_id with server-side pagination.
+ * List tasks grouped by run (a batch, or the batches of one announced run of one
+ * test) with server-side pagination. limit, offset and total count runs.
  */
 adminTasksRouter.get(
   '/tasks/grouped',

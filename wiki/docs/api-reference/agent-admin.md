@@ -239,7 +239,7 @@ GET /api/agent/admin/tasks/grouped
 
 Returns tasks grouped by run, newest first, for the Tasks page. A run is a batch, or, for
 tasks announced by a pre-execution notice, every task of that notice and test whatever
-its batch (a randomized or scheduled run creates one batch per agent). `limit`, `offset`
+its batch (a run with a randomized start per machine creates one batch per agent). `limit`, `offset`
 and `total` count runs. A group is listed whole when any of its tasks matches the filters.
 
 Each group carries:
@@ -249,7 +249,7 @@ Each group carries:
 | `run_id` | `b:<batch id>` for a batch, `n:…` for an announced run. Treat it as an opaque id |
 | `batch_id` | The run's batch; for a run of several batches, the newest one |
 | `batch_ids` | Every batch with a task in the run, newest first |
-| `created_at` | The batch's time; for a run of several batches, its newest task's |
+| `created_at` | The batch's time; for a run of several batches, its newest task's (with a filter, its newest matching task's) |
 | `agent_count`, `status_counts` | Describe the whole run, also under a `breakdown` filter |
 
 `run_id` and `batch_ids` are not sent by the Vercel backend, which has no notices: there a

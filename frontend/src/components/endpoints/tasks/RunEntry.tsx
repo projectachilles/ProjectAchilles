@@ -29,7 +29,7 @@ export interface RunEntryProps {
  * list (open from "Show hosts" or a bar segment) is the same tasks as rows.
  */
 export function RunEntry({ group, selectedTaskId, onSelectTask, checkedTaskIds, onToggleTask, onToggleGroup }: RunEntryProps) {
-  // Which host list is open. Kept here: the parent keys entries by batch id, so a refresh does not close it.
+  // Which host list is open. Kept here: the parent keys entries by run id, so a refresh does not close it.
   const [opened, setOpen] = useState<HostListFilter | null>(null);
 
   const { tasks, notices } = group;
@@ -53,8 +53,10 @@ export function RunEntry({ group, selectedTaskId, onSelectTask, checkedTaskIds, 
         <span className={cn('absolute left-0.5 top-3 h-[9px] w-[9px] rounded-full ring-[3px] ring-surface', MARK_BG[railTone(tasks)])} />
       </div>
 
-      <div className="min-w-0 flex-1 py-2">
-        <div className="flex items-center gap-2">
+      {/* A container, so the header adapts to the width of the list, not of the window. */}
+      <div className="@container min-w-0 flex-1 py-2">
+        {/* In a narrow list the name takes a line of its own: a time range, a count and a run tag fill one line of a phone. */}
+        <div className="flex flex-wrap items-center gap-x-2 gap-y-0.5">
           {onToggleGroup && (
             <Checkbox
               aria-label={`Select every task of ${shortName}`}
@@ -63,8 +65,12 @@ export function RunEntry({ group, selectedTaskId, onSelectTask, checkedTaskIds, 
             />
           )}
           <span className="shrink-0 font-mono text-xs text-muted">{time}</span>
+          <span aria-hidden="true" className="flex-1 @lg:hidden" />
           <span
-            className={cn('min-w-0 flex-1 truncate', isCommand ? 'font-mono text-xs' : 'text-[13px] font-medium')}
+            className={cn(
+              'order-last min-w-0 basis-full truncate @lg:order-none @lg:flex-1 @lg:basis-0',
+              isCommand ? 'font-mono text-xs' : 'text-[13px] font-medium',
+            )}
             title={name}
           >
             {name}

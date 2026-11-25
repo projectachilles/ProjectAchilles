@@ -210,6 +210,43 @@ describe('listTasksGrouped groups by announced run', () => {
     expect(everyone.groups.map(ids)).toEqual(expect.arrayContaining([['mine'], ['theirs']]));
   });
 
+  it('lists a merged run whole when only one of its agents or hostnames matches the filter', () => {
+    insertNotice('n1');
+    seed({ id: 't1', batch: 'b1', agentNo: 1, notice: 'n1' });
+    seed({ id: 't2', batch: 'b2', agentNo: 2, notice: 'n1' });
+    seed({ id: 'other', batch: 'b3', agentNo: 3 });
+
+    const byAgent = listTasksGrouped({ agent_id: 'agent-002' }, ALL);
+    expect(byAgent.total).toBe(1);
+    expect(ids(byAgent.groups[0])).toEqual(['t1', 't2']);
+
+    const bySearch = listTasksGrouped({ search: 'host-001' }, ALL);
+    expect(bySearch.total).toBe(1);
+    expect(ids(bySearch.groups[0])).toEqual(['t1', 't2']);
+  });
+
+  it('gives a task without a batch a run of its own instead of failing the whole list', () => {
+    seed({ id: 'loose', batch: 'tmp', agentNo: 1 });
+    seed({ id: 'normal', batch: 'b1', agentNo: 2, created: at(5) });
+    testDb.prepare("UPDATE tasks SET batch_id = NULL WHERE id = 'loose'").run();
+
+    const out = listTasksGrouped({}, ALL);
+
+    expect(out.total).toBe(2);
+    expect(out.groups.map(ids)).toEqual([['normal'], ['loose']]);
+    expect(out.groups[1].run_id).toBe('b:loose');
+  });
+
+  it('reports the total on a page past the end', () => {
+    seed({ id: 't1', batch: 'b1', agentNo: 1 });
+    seed({ id: 't2', batch: 'b2', agentNo: 2 });
+
+    const out = listTasksGrouped({ limit: 25, offset: 50 }, ALL);
+
+    expect(out.groups).toEqual([]);
+    expect(out.total).toBe(2);
+  });
+
   it('keeps a multi-agent batch with a notice as one group', () => {
     insertNotice('n1');
     seed({ id: 't1', batch: 'b1', agentNo: 1, notice: 'n1' });

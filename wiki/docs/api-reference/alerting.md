@@ -150,7 +150,7 @@ Settings and status for [pre-execution notices](../user-guide/integrations/pre-e
 }
 ```
 
-The grouped task list response (`GET /api/agent/admin/tasks/grouped`) adds a `notices` map (notice id to `run_tag`, `state`, `last_error`, `release_at`, `pickup_deadline`) on each batch group whose tasks are linked to notices. For a caller in an organization, the map only lists that organization's notices.
+The grouped task list response (`GET /api/agent/admin/tasks/grouped`) adds a `notices` map (notice id to `run_tag`, `state`, `last_error`, `release_at`, `pickup_deadline`) on each group whose tasks are linked to notices. For a caller in an organization, the map only lists that organization's notices.
 
 `GET /api/notices/status` returns `smtpCheck` as `{ "ok": null, "at": null, "message": null }` while notices are disabled. `pendingOverdue` and `notDeliveredLast7d` are always counted.
 

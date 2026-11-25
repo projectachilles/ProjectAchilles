@@ -28,7 +28,7 @@ export function runForm(taskCount: number): RunForm {
 
 /**
  * "5 agents", or "1 of 5 agents" when a filter (the Tasks page breakdown)
- * lists only part of the batch; agent_count always describes the whole batch.
+ * lists only part of the run; agent_count always describes the whole run.
  */
 export function agentCountLabel(group: Pick<TaskGroup, 'tasks' | 'agent_count'>): string {
   const listed = new Set(group.tasks.map((t) => t.agent_id)).size;
@@ -128,12 +128,16 @@ export function findRun(groups: TaskGroup[], runId: string): TaskGroup | undefin
  */
 export function runTimeLabel(group: Pick<TaskGroup, 'created_at' | 'batch_ids' | 'tasks'>): string {
   if ((group.batch_ids?.length ?? 1) > 1 && group.tasks.length > 0) {
-    const times = group.tasks.map((t) => t.created_at).sort((a, b) => Date.parse(normalizeUtc(a)) - Date.parse(normalizeUtc(b)));
-    const first = times[0];
-    const last = times[times.length - 1];
-    if (Date.parse(normalizeUtc(last)) - Date.parse(normalizeUtc(first)) > 60_000) {
-      return `${clockTime(first)} – ${clockTime(last)}`;
+    let first = group.tasks[0].created_at;
+    let last = first;
+    let firstMs = Date.parse(normalizeUtc(first));
+    let lastMs = firstMs;
+    for (const task of group.tasks) {
+      const ms = Date.parse(normalizeUtc(task.created_at));
+      if (ms < firstMs) [first, firstMs] = [task.created_at, ms];
+      if (ms > lastMs) [last, lastMs] = [task.created_at, ms];
     }
+    if (lastMs - firstMs > 60_000) return `${clockTime(first)} – ${clockTime(last)}`;
   }
   return clockTime(group.created_at);
 }

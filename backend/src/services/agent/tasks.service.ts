@@ -962,20 +962,21 @@ export function listTasks(
 
 /**
  * What one entry of the task list is. Tasks announced by a pre-execution
- * notice form one run per notice and test, whatever their batch: a randomized
- * or scheduled run makes one single-task batch per agent, hours apart, and
+ * notice form one run per notice and test, whatever their batch: a run with a
+ * randomized start per machine makes one single-task batch per agent, hours apart, and
  * they are one run to the person who started it. The test is part of the key
  * because one notice can cover several tests (a campaign, a scheduler tick).
  * The organization is part of the key too: a notice written before notices
  * were per-organization can cover several, and a run must never show one
  * organization another's tasks (the page's tasks are matched by this key).
  * Tasks without a notice keep the batch as their run: nothing is merged by
- * guessing from names or times. The alias must be `t`.
+ * guessing from names or times. (A task without a batch, which no code path
+ * writes, is a run of its own.) The alias must be `t`.
  */
 const RUN_KEY_SQL = `CASE
   WHEN t.notice_id IS NOT NULL
     THEN 'n:' || t.notice_id || '|' || COALESCE(t.org_id, '') || '|' || t.type || '|' || COALESCE(NULLIF(t.test_uuid, ''), json_extract(t.payload, '$.test_uuid'), '')
-  ELSE 'b:' || t.batch_id
+  ELSE 'b:' || COALESCE(t.batch_id, t.id)
 END`;
 
 /**
@@ -1059,51 +1060,74 @@ export function listTasksGrouped(
   const limit = filters.limit ?? 50;
   const offset = filters.offset ?? 0;
 
-  // 1. One page of runs, newest first. A run is a batch, or the batches of one
-  //    announced run (one notice) of one test: see RUN_KEY_SQL.
+  // 1. One page of runs, newest first, with the number of runs in all (one
+  //    pass: counting them separately walks every row a second time). A run is
+  //    a batch, or the batches of one announced run of one test: see RUN_KEY_SQL.
   const runRows = db.prepare(`
-    SELECT ${RUN_KEY_SQL} AS run_key, MAX(t.created_at) as latest_created
-    FROM tasks t LEFT JOIN agents a ON t.agent_id = a.id
-    ${whereClause}
-    GROUP BY run_key
+    SELECT run_key, latest_created, COUNT(*) OVER () AS total_runs FROM (
+      SELECT ${RUN_KEY_SQL} AS run_key, MAX(t.created_at) AS latest_created
+      FROM tasks t LEFT JOIN agents a ON t.agent_id = a.id
+      ${whereClause}
+      GROUP BY run_key
+    )
     ORDER BY latest_created DESC, run_key
     LIMIT ? OFFSET ?
-  `).all(...params, limit, offset) as { run_key: string; latest_created: string }[];
-
-  // 2. Get total run count
-  const countRow = db.prepare(`
-    SELECT COUNT(*) as total FROM (
-      SELECT DISTINCT ${RUN_KEY_SQL} FROM tasks t
-      LEFT JOIN agents a ON t.agent_id = a.id
-      ${whereClause}
-    )
-  `).get(...params) as { total: number };
+  `).all(...params, limit, offset) as { run_key: string; latest_created: string; total_runs: number }[];
 
   if (runRows.length === 0) {
+    // 2. Nothing on this page (no runs, or a page past the end): the window
+    //    count came back with no rows, so count on its own.
+    const countRow = db.prepare(`
+      SELECT COUNT(*) as total FROM (
+        SELECT DISTINCT ${RUN_KEY_SQL} FROM tasks t
+        LEFT JOIN agents a ON t.agent_id = a.id
+        ${whereClause}
+      )
+    `).get(...params) as { total: number };
     return { groups: [], total: countRow.total, type_counts };
   }
+  const countRow = { total: runRows[0].total_runs };
 
-  // 3. Fetch every task of the runs on this page, matching or not: a group is
-  //    described whole. Batch and notice ids are indexed; the run key is then
-  //    compared per row, because a notice can cover other tests, and a batch can
-  //    hold a retry that was announced by a notice of its own.
+  // 3. Fetch every task of the runs on this page, matching the filters or not:
+  //    a group is described whole. The indexed batch and notice ids narrow the
+  //    rows; the run key then decides, in SQL, because a notice can cover other
+  //    tests (a 100-test campaign is one notice) and a batch can hold a retry
+  //    that was announced by a notice of its own.
   const pageKeys = new Set(runRows.map((r) => r.run_key));
   const batchIds: string[] = [];
-  const noticeIds: string[] = [];
+  const noticeIdSet = new Set<string>();
   for (const key of pageKeys) {
     if (key.startsWith('b:')) batchIds.push(key.slice(2));
-    else noticeIds.push(key.slice(2, key.indexOf('|')));
+    else noticeIdSet.add(key.slice(2, key.indexOf('|')));
   }
-  const inList = (column: string, ids: string[]) =>
-    ids.length > 0 ? `${column} IN (${ids.map(() => '?').join(', ')})` : null;
-  const membership = [inList('t.batch_id', batchIds), inList('t.notice_id', noticeIds)].filter(Boolean).join(' OR ');
+  const noticeIds = [...noticeIdSet];
+  const marks = (ids: string[]) => ids.map(() => '?').join(', ');
+  const membership: string[] = [];
+  const membershipParams: string[] = [];
+  if (batchIds.length > 0) {
+    // The second clause finds a task without a batch, whose run id is its own id.
+    membership.push(`t.batch_id IN (${marks(batchIds)})`, `(t.batch_id IS NULL AND t.id IN (${marks(batchIds)}))`);
+    membershipParams.push(...batchIds, ...batchIds);
+  }
+  if (noticeIds.length > 0) {
+    membership.push(`t.notice_id IN (${marks(noticeIds)})`);
+    membershipParams.push(...noticeIds);
+  }
+  // A caller scoped to an organization never gets another's rows, whatever a batch or notice holds.
+  const orgClause = filters.org_id ? 'AND t.org_id = ?' : '';
 
   const taskRows = db.prepare(`
     SELECT t.*, a.hostname AS agent_hostname, ${RUN_KEY_SQL} AS run_key
     FROM tasks t LEFT JOIN agents a ON t.agent_id = a.id
-    WHERE ${membership}
+    WHERE (${membership.join(' OR ')})
+      AND ${RUN_KEY_SQL} IN (SELECT value FROM json_each(?))
+      ${orgClause}
     ORDER BY a.hostname, t.created_at, t.id
-  `).all(...batchIds, ...noticeIds) as Array<TaskRow & { run_key: string }>;
+  `).all(
+    ...membershipParams,
+    JSON.stringify([...pageKeys]),
+    ...(filters.org_id ? [filters.org_id] : []),
+  ) as Array<TaskRow & { run_key: string }>;
 
   const tasksByRun = new Map<string, Task[]>();
   for (const { run_key: runKey, ...row } of taskRows) {
@@ -1133,8 +1157,9 @@ export function listTasksGrouped(
     // The run's batches, newest first (by each batch's newest task).
     const batchNewest = new Map<string, string>();
     for (const t of allTasks) {
-      const seen = batchNewest.get(t.batch_id);
-      if (seen === undefined || t.created_at > seen) batchNewest.set(t.batch_id, t.created_at);
+      const batch = t.batch_id ?? t.id;
+      const seen = batchNewest.get(batch);
+      if (seen === undefined || t.created_at > seen) batchNewest.set(batch, t.created_at);
     }
     const runBatchIds = [...batchNewest.entries()]
       .sort((x, y) => (x[1] === y[1] ? x[0].localeCompare(y[0]) : y[1].localeCompare(x[1])))
