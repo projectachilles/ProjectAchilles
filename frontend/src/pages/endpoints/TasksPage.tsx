@@ -63,6 +63,11 @@ export default function TasksPage() {
   }, []);
 
   const [groups, setGroups] = useState<TaskGroup[]>([]);
+  // The filters and page the rows on screen were fetched with. A reload of the
+  // same query (after Retry, Cancel, Delete, a saved note, Refresh) keeps the
+  // list on screen; a new page or filter replaces it, so rows of another
+  // query are never shown as this one.
+  const [listQuery, setListQuery] = useState<string | null>(null);
   const [metrics, setMetrics] = useState<AgentMetrics | null>(null);
   const [totalGroups, setTotalGroups] = useState(0);
   const [loading, setLoading] = useState(true);
@@ -120,6 +125,7 @@ export default function TasksPage() {
       setGroups(result.groups);
       setTotalGroups(result.total);
       setTypeCounts(result.typeCounts);
+      setListQuery(JSON.stringify(filters));
       listBreakdown.current = filters.breakdown ?? null;
     } catch (err) {
       console.error('Failed to fetch tasks:', err);
@@ -173,6 +179,7 @@ export default function TasksPage() {
       setGroups(taskResult.groups);
       setTotalGroups(taskResult.total);
       setTypeCounts(taskResult.typeCounts);
+      setListQuery(JSON.stringify(filters));
       listBreakdown.current = filters.breakdown ?? null;
       setSchedules(scheduleResult);
       if (metricsResult) setMetrics(metricsResult);
@@ -381,7 +388,9 @@ export default function TasksPage() {
 
   const tiles = metrics ? taskTiles(metrics) : null;
 
-  const pagination = view === 'tasks' && !loading && totalGroups > 0 ? (
+  const replacingList = loading && (groups.length === 0 || listQuery !== JSON.stringify(buildFilters()));
+
+  const pagination = view === 'tasks' && !replacingList && totalGroups > 0 ? (
     <div className="flex flex-wrap gap-y-2 items-center justify-between text-sm text-muted-foreground">
       <div className="flex items-center gap-3">
         <span>Showing {rangeStart}&ndash;{rangeEnd} of {totalGroups}</span>
@@ -541,7 +550,9 @@ export default function TasksPage() {
             onTogglePause={canWriteSchedule ? handleTogglePause : undefined}
             onDelete={canDeleteSchedule ? handleDeleteSchedule : undefined}
           />
-        ) : loading ? (
+        ) : replacingList ? (
+          // A reload of the same query keeps the list mounted, so the selected
+          // task and an open host list survive it.
           <Loading message="Loading tasks..." />
         ) : (
           <div ref={fillRef} style={fillHeight ? { height: fillHeight } : undefined}>

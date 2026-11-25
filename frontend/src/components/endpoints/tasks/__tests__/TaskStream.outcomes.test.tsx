@@ -40,19 +40,21 @@ describe('TaskStream test outcomes', () => {
     expect(screen.getByText(/execution prevented/)).toBeTruthy();
   });
 
-  it('names each row by its outcome', () => {
+  it('names each mark by its host and outcome', () => {
     render(<TaskStream groups={[group]} loading={false} />);
-    for (const word of ['protected', 'run failed', 'test error', 'not run']) {
-      expect(screen.getByText(word)).toBeTruthy();
+    for (const name of ['HOST-a: Protected', 'HOST-b: Run failed', 'HOST-c: Test error', 'HOST-d: Not run']) {
+      expect(screen.getByRole('button', { name })).toBeTruthy();
     }
   });
 
-  it('counts the batch by outcome: 1 protected, 3 that produced no verdict', () => {
+  it('counts the run by outcome: 1 protected, 3 that produced no verdict, nothing "failed"', async () => {
+    const { default: userEvent } = await import('@testing-library/user-event');
     render(<TaskStream groups={[group]} loading={false} />);
-    const header = screen.getByRole('button', { name: /batch · LockBit Chain/ });
-    expect(within(header).getByText('1').className).toContain('text-accent');
-    expect(within(header).getByText('3').className).toContain('text-warning');
-    expect(header.textContent).not.toMatch(/✕/);
+    await userEvent.click(screen.getByRole('button', { name: 'Show hosts' }));
+    const list = screen.getByRole('list').parentElement!;
+    expect(within(list).getByRole('button', { name: '1 protected' })).toBeTruthy();
+    expect(within(list).getByRole('button', { name: '3 no verdict' })).toBeTruthy();
+    expect(within(list).queryByRole('button', { name: /^\d+ failed$/ })).toBeNull(); // no count of "failed": a test that did not run is not a failure
   });
 });
 
@@ -85,19 +87,17 @@ describe('TaskStream bundle verdict vs final exit', () => {
   });
 });
 
-describe('TaskStream selected row', () => {
-  it('marks the selected task clearly (accent wash + inset bar, aria-current) and moves it on click', async () => {
+describe('TaskStream selected mark', () => {
+  it('marks the selected task clearly (accent outline, aria-current) and moves it on click', async () => {
     const { default: userEvent } = await import('@testing-library/user-event');
     render(<TaskStream groups={[group]} loading={false} />);
-    const rows = () => screen.getAllByRole('button').filter((b) => b.textContent?.includes('LockBit Chain') && !b.textContent.includes('batch'));
-    const first = rows()[0];
-    expect(first.getAttribute('aria-current')).toBe('true');
-    expect(first.className).toContain('bg-accent-dim');
-    expect(first.className).toContain('shadow-[inset_3px_0_0_var(--color-accent)]');
+    const marks = () => screen.getAllByRole('button', { name: /^HOST-[a-d]: / });
+    expect(marks()[0].getAttribute('aria-current')).toBe('true');
+    expect(marks()[0].className).toContain('outline-accent');
 
-    await userEvent.click(rows()[2]);
-    expect(rows()[2].getAttribute('aria-current')).toBe('true');
-    expect(rows()[0].getAttribute('aria-current')).toBeNull();
+    await userEvent.click(marks()[2]);
+    expect(marks()[2].getAttribute('aria-current')).toBe('true');
+    expect(marks()[0].getAttribute('aria-current')).toBeNull();
   });
 });
 
