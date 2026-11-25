@@ -91,9 +91,9 @@ when alerts are still in the index and none of them counts for the test.
 for days and adds evidence to it from every later run of the same binary on
 the host, so a file name alone says nothing about which run it came from.
 Achilles stores each result's run start (`routing.run_started_at`, taken from
-the agent task) and keeps each Defender evidence item with its times
-(`evidence_items`). A stage is credited from an alert only through evidence of
-its own run:
+the agent task and stored in UTC ISO form) and keeps each Defender evidence
+item with its times (`evidence_items`). A stage is credited from an alert only
+through evidence of its own run:
 
 - a process item counts when the process started inside the run, from 60
   seconds before the run started to 60 seconds after the result's event time;
@@ -112,17 +112,39 @@ each of them, with each stage's own action.
 The run rule needs both values. A result without a run start (older results
 the start-up backfill could not fill, because the task is gone), an alert
 stored without `evidence_items` (more than 1,000 file items, or an item with no
-time), CrowdStrike, SentinelOne and Sophos keep the rules above unchanged.
+usable time), Defender alerts last updated before the 90-day look-back (the
+version 9 sync did not re-read them, so they have no per-item data),
+CrowdStrike, SentinelOne and Sophos keep the rules above unchanged.
 When more than 100 alerts match one stage or test query, the alerts past the
 first 100 still count the old way. A block by a Defender attack-surface-
 reduction rule raises no alert, so a **Protected** stage (exit `126`) can have
 no alert listed.
 
+The detection and prevention flags use the run rule once the Defender sync
+has re-read its whole 90-day look-back without a write error. If that re-sync
+ends with errors three times in a row, the run rule stays off for the flags
+until the backend restarts, and the backend log has one warning saying so.
+Until then a stage's flags follow the older rule while the alert list under it
+is already limited to the run, so the two can disagree.
+
 Results flagged before this rule are checked once more, under the run rule: a
-result with a detection flag and a run start loses the flag only when alerts
-for it are still in the index and none counts for its run. The result carries
+result with a detection flag and a run start loses a flag only when the run's
+own alert lookup still finds at least one alert for it and none of the alerts
+found counts for its run. The result carries
 `f0rtika.defender_run_rule: 'run_evidence'` once checked. Stored labels, and past
 Defense Scores that include them, can change once when this check runs.
+
+This check has a known limit. The check, the alert list under a stage and the
+execution report all find a run's alerts through the same time window, which
+matches a Defender alert only when it was created, or last updated, between 5 minutes
+before and 30 minutes after the run's end (the result's event time). A
+long-open alert has one last-update time, which moves each time Defender adds
+evidence to it. For an older run whose alert has since been updated by a later
+run, the lookup no longer finds the alert, unless the alert was created during
+that run. The stored flag then stays as it is, and the stage can show an alert
+chip beside an empty alert list. Of the runs one long-open alert collected,
+only the run it was created in and about the most recent one are checked
+against it.
 
 **Late actions.** EDRs often add the action after the alert was first
 matched: Defender updates the alert's remediation status, SentinelOne adds
