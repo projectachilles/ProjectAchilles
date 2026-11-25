@@ -258,8 +258,10 @@ export class EdrAlertEnrichmentService {
       //    matched alert _ids (needed for the alert-side correlation update)
       //    and can classify each alert. _source carries only what the flags
       //    need (prevention_action + the multi-test evidence fields, and the
-      //    evidence items when crediting by run).
-      if (queries.length > 0) {
+      //    evidence items when crediting by run). Crediting by run, a batch
+      //    with no usable query still reaches the update step, so a result the
+      //    run clause selected can get its marker (step 5).
+      if (queries.length > 0 || this.target.runScopedEvidence) {
         const searches: unknown[] = [];
         const runFields = this.target.runScopedEvidence ? [EVIDENCE_ITEMS_FIELD] : [];
         for (const q of queries) {
@@ -288,7 +290,7 @@ export class EdrAlertEnrichmentService {
 
         let msearchResponse;
         try {
-          msearchResponse = await this.client.msearch({ searches } as any);
+          msearchResponse = queries.length > 0 ? await this.client.msearch({ searches } as any) : { responses: [] };
         } catch (err) {
           result.errors.push(`msearch: ${this.errMsg(err)}`);
           searchAfter = hits[hits.length - 1].sort;
@@ -600,12 +602,34 @@ export class EdrAlertEnrichmentService {
             // a result that was or now is flagged, once every sub-query it
             // queued answered (else the next pass re-checks it). A result no
             // alert flags has nothing to re-check and stays unmarked.
-            if (runRecheck) {
-              const queued = queuedByHitId.get(u.hit._id) ?? 0;
-              const flagged = (k: string) => existing[k] === true || f0rtika[k] === true;
-              if (queued > 0 && u.answered === queued && (flagged(`${v}_detected`) || flagged(`${v}_stage_detected`))) {
+            const queued = queuedByHitId.get(u.hit._id) ?? 0;
+            const flagged = (k: string) => existing[k] === true || f0rtika[k] === true;
+            if (runRecheck && queued > 0) {
+              if (u.answered === queued && (flagged(`${v}_detected`) || flagged(`${v}_stage_detected`))) {
                 f0rtika[`${v}_run_rule`] = RUN_RULE;
               }
+            } else if (
+              this.target.runScopedEvidence
+              && u.hit._source?.routing?.run_started_at != null
+              && existing[`${v}_run_rule`] !== RUN_RULE
+              && (existing[`${v}_detected`] === true || existing[`${v}_stage_detected`] === true)
+              && u.answered === queued
+            ) {
+              // Selected by the run clause but never evaluable by run: its
+              // stored times give no run window, or no alert query can be
+              // built for it. Today's rule decides it on every pass alike, so
+              // it gets the marker alone instead of being selected forever.
+              f0rtika[`${v}_run_rule`] = RUN_RULE;
+            }
+            // A pass without a run view that sets a detection flag on a marked
+            // result: the marker no longer vouches for that flag, so it is
+            // cleared and the run rule re-checks the result once it is back.
+            if (
+              !runView
+              && existing[`${v}_run_rule`] === RUN_RULE
+              && (f0rtika[`${v}_detected`] === true || f0rtika[`${v}_stage_detected`] === true)
+            ) {
+              f0rtika[`${v}_run_rule`] = null;
             }
             if (Object.keys(f0rtika).length > 0) {
               operations.push({ update: { _index: u.hit._index, _id: u.hit._id } });

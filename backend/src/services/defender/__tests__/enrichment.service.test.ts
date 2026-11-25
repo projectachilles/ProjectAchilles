@@ -1097,7 +1097,7 @@ describe('DefenderEnrichmentService — credit by run (runScopedEvidence)', () =
       });
     const recheck = async (doc: unknown, responses: unknown[], mode: Mode = 'on') => {
       search.mockResolvedValueOnce({ hits: { hits: [doc] } });
-      msearch.mockResolvedValueOnce({ responses });
+      if (responses.length > 0) msearch.mockResolvedValueOnce({ responses });
       const result = await make(mode).runEnrichmentPass({ batchSize: 200 });
       const ops = (bulk.mock.calls[0]?.[0].operations ?? []) as any[];
       const at = ops.findIndex((o) => o.update?._id === 'r1');
@@ -1307,6 +1307,93 @@ describe('DefenderEnrichmentService — credit by run (runScopedEvidence)', () =
       expect(f).toMatchObject({ defender_detected: false });
       expect(f?.defender_stage_detected).toBeUndefined();
       expect(f?.defender_run_rule).toBeUndefined();
+    });
+
+    // Fix round 1. The marker vouches for flags evaluated by run: a pass
+    // without a run view that sets a detection flag on a marked result clears
+    // it (null), so the run rule re-checks that result once the flag is back.
+    describe('the marker never outlives the flags it vouches for', () => {
+      /** A result the run rule already downgraded (marker on, both detection flags false). */
+      const downgraded = (routing: Record<string, unknown> = {}) =>
+        stored(101, { defender_detected: false, defender_stage_detected: false, defender_run_rule: 'run_evidence' }, routing);
+      /** The stored doc after a partial update (ES merges the fields; null is stored as null). */
+      const merged = (doc: ReturnType<typeof stored>, f: Record<string, unknown>) => ({
+        ...doc,
+        _source: { ...doc._source, f0rtika: { ...doc._source.f0rtika, ...f } },
+      });
+
+      it('a flag-off pass that re-flags a marked result clears the marker; the next flag-on pass re-checks it with counters', async () => {
+        const old = alertSource([item(EARLIER)]);
+        const doc = downgraded();
+        const off = await recheck(doc, [alertHits(old), alertHits(old)], 'off');
+        expect(off.f).toMatchObject({ defender_detected: true, defender_stage_detected: true, defender_run_rule: null });
+        expect(removed(off.result)).toEqual([0, 0, 0]);
+
+        vi.clearAllMocks();
+        answerBulk('updated');
+        const reflagged = merged(doc, off.f!);
+        expect(reflagged._source.f0rtika).toMatchObject({ defender_detected: true, defender_run_rule: null });
+        const on = await recheck(reflagged, [alertHits(old), alertHits(old)], 'on');
+        expect(on.f).toMatchObject({
+          defender_stage_detected: false,
+          defender_detected: false,
+          defender_run_rule: 'run_evidence',
+        });
+        expect(removed(on.result)).toEqual([1, 1, 0]);
+      });
+
+      it('flag on but no run window: re-flagging a marked result also clears the marker', async () => {
+        const old = alertSource([item(EARLIER)]);
+        const { f } = await recheck(downgraded({ run_started_at: '2026-10-20T11:00:00Z' }), [alertHits(old), alertHits(old)], 'on');
+        expect(f).toMatchObject({ defender_detected: true, defender_stage_detected: true, defender_run_rule: null });
+      });
+
+      it('a flag-off pass that flags an unmarked result writes no defender_run_rule key', async () => {
+        const old = alertSource([item(EARLIER)]);
+        const { f } = await recheck(resultDoc(101), [alertHits(old), alertHits(old)], 'off');
+        expect(f).toMatchObject({ defender_detected: true, defender_stage_detected: true });
+        expect(f).not.toHaveProperty('defender_run_rule');
+      });
+    });
+
+    // Fix round 1. A result the run clause selects but the pass cannot
+    // evaluate by run gets the marker alone (its outcome under today's rule
+    // cannot change: the reason comes from stored fields), so it is not
+    // selected on every pass forever.
+    describe('a selected result that cannot be evaluated by run gets the marker alone', () => {
+      it.each([
+        ['the run start is after the event time', { run_started_at: '2026-10-20T11:00:00Z' }],
+        ['the run start is not a date string', { run_started_at: 'not-a-date' }],
+        ['the run start is a number, not an ISO string', { run_started_at: 1_729_418_330_000 }],
+      ])('no run window (%s): only the marker is written', async (_label, routing) => {
+        const old = alertSource([item(EARLIER)]);
+        const { f, result } = await recheck(stored(101, {}, routing), [alertHits(old), alertHits(old)]);
+        expect(f).toEqual({ defender_run_rule: 'run_evidence' });
+        expect(removed(result)).toEqual([0, 0, 0]);
+      });
+
+      it('no alert query can be built (no hostname): only the marker is written, no alert search runs', async () => {
+        const { f, result } = await recheck(stored(101, {}, { hostname: '' }), []);
+        expect(msearch).not.toHaveBeenCalled();
+        expect(f).toEqual({ defender_run_rule: 'run_evidence' });
+        expect(removed(result)).toEqual([0, 0, 0]);
+      });
+
+      it('no run window, but a sub-query did not answer: no marker', async () => {
+        const old = alertSource([item(EARLIER)]);
+        const { f } = await recheck(stored(101, {}, { run_started_at: 'not-a-date' }), [alertHits(old), { error: { type: 'search_phase_execution_exception' } }]);
+        expect(f?.defender_run_rule).toBeUndefined();
+      });
+
+      it('an unflagged result that cannot be evaluated by run is not marked', async () => {
+        const { f } = await recheck(resultDoc(101, { routing: { hostname: '' } }), []);
+        expect(f).toBeUndefined();
+      });
+
+      it('runScopedEvidence off: such a result is not marked', async () => {
+        const { f } = await recheck(stored(101, {}, { hostname: '' }), [], 'off');
+        expect(f).toBeUndefined();
+      });
     });
 
     it('a failed update is not counted as a removal', async () => {
