@@ -89,7 +89,7 @@ The header shows a one-line summary of the last 7 days: for example `last 7 days
 
 **Protected**, **Unprotected** and **No verdict** open a menu that lists the exit codes behind the number, for example `126 ExecutionPrevented` or `259 StillActive` (names come from the exit-code table), with a bar and a count for each. Runs that failed without an exit code get their own rows: **Agent offline**, **Timeout** and **Other failure**. **Timeout** means the server gave up waiting for a result (the task exceeded its execution timeout and the agent never reported back); a test the agent itself stopped at its time limit shows as `259 StillActive` instead. No verdict is split into groups (the test did not run, the run failed, the test reported an error, inconclusive).
 
-Choosing a row filters the task list to that outcome. A chip next to the search box names the filter and its **x** clears it. Press **Esc** to close the menu without choosing. The filter covers security-test tasks from the last 7 days, the same window as the numbers, so the list shows exactly the tasks counted in that row. The pager counts batches, so its total can be lower than the number you clicked. A batch shows only its matching tasks, and its header says how many of the batch's agents are listed, for example `1 of 5 agents`.
+Choosing a row filters the task list to that outcome. A chip next to the search box names the filter and its **x** clears it. Press **Esc** to close the menu without choosing. The filter covers security-test tasks from the last 7 days, the same window as the numbers, so the list shows exactly the tasks counted in that row. The pager counts runs, so its total can be lower than the number you clicked. A run shows only its matching tasks, and its header says how many of the run's agents are listed, for example `1 of 5 agents`.
 
 If the list can't load while a filter is on (a network error, or the server is restarting), the filter stays and the list retries on its next refresh; rows fetched without the filter are never shown under its chip. Only if the server rejects the filter itself is it cleared, with a "Couldn't filter the task list." message.
 
@@ -103,9 +103,38 @@ Next to the **Tasks** title are three sections, the three ways tests reach agent
 
 The sections sit on the title row, so they take no space from the list. The 7-day numbers under the title stay on Runs and Schedules; choosing a breakdown row from Schedules switches to Runs with that filter.
 
+### The run timeline
+
+The list shows one entry per run: a test (or command) sent to one or more agents at the same time. Each entry has the time, the name written once, and one mark per task. Entries are grouped by day, newest first.
+
+How the tasks of a run are drawn depends on how many there are:
+
+| Tasks in the run | Drawn as |
+|---|---|
+| Up to 8 | A pill per task, with the hostname |
+| 9 to 80 | One small square per task, with the counts below. Hover a square for its hostname |
+| More than 80 | One bar split by result, with the counts below |
+
+On a pill, a multi-stage test shows one small square per stage, read left to right:
+
+| Square | Meaning |
+|---|---|
+| Green | The stage was blocked |
+| Red | The stage ran without being blocked |
+| Amber or grey | The stage did not produce a result (for example a test error) |
+| Outline only | The stage was skipped, usually because an earlier stage was blocked |
+
+Other tasks show one square in the colour of their result, the status while they are pending or running, or the exit code of a command. A run's dot on the left takes the colour of its worst result, and is blue while any of its tasks is still in progress.
+
+Every run with more than one task has an arrow at the right of its header that opens its **host list**: the same tasks as rows, worst results first, with the hostname, result and duration in words and a checkbox on each row. On a run drawn as a bar, clicking a segment opens the list on that result. The list shows 8 rows first; **Show n more** adds the rest.
+
+Clicking any task (a pill, a square or a row) shows its detail on the right. The left and right arrow keys move between tasks. A retry of a task appears in the same run as a second mark for the same host.
+
+To act on several tasks at once, tick the checkbox of a run (all of its tasks), rows in a host list, or **select all on page**.
+
 ### List and detail layout
 
-On a large screen the task list and the detail of the selected task fill the rest of the window and scroll independently, so the detail never scrolls out of view while you move down the list. Pagination sits at the bottom of the list pane. On a small screen the page scrolls as a whole.
+On a large screen the task list and the detail of the selected task fill the rest of the window and scroll independently, so the detail never scrolls out of view while you move down the list. The list stays on screen while it reloads (after a retry, a cancel, a delete or a saved note), so the task you selected stays selected. Pagination sits at the bottom of the list pane. On a small screen the page scrolls as a whole.
 
 ## Task Results
 
