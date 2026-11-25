@@ -136,8 +136,8 @@ found counts for its run. The result carries
 `f0rtika.defender_run_rule: 'run_activity'` once checked. Results checked by the
 previous release (marked `run_evidence`) are checked once more. Stored labels,
 and past Defense Scores that include them, can change once when this check runs.
-No flag is removed from a result in a pass in which one of its alert queries
-failed; the next pass decides.
+During this one-time check of a Defender result, no flag is removed until both
+of its alert queries have answered: when one fails, the next pass decides.
 
 The check, the alert list under a stage and the execution report find a run's
 alerts in two ways. A Defender alert is found when it was created, or last
@@ -200,7 +200,7 @@ can be searched, its alert list is stored only; to find the recorded cases, run
 an `exists` query on `f0rtika.defender_no_run_evidence.seen_at`, or read the log
 line. The backend adds this field to an index's mapping before it writes the
 first note there; if that fails, it writes no note to that index and logs one
-warning. A note is not proof that Defender stopped the stage: it is written the
+warning on each pass that has a note to write. A note is not proof that Defender stopped the stage: it is written the
 first time any stage that did not complete has alerts holding nothing of its
 run, and it stays even if evidence arrives later. Limits:
 

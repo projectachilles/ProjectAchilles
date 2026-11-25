@@ -122,10 +122,12 @@ A result without `routing.run_started_at`, and an alert without
 `run_evidence`; those results are checked once more). A pass
 without a run view that sets a detection or prevention flag on a marked result
 clears the marker (`null`), so the result is re-checked once the run rule is
-back. No flag is removed from a result in a pass in which one of the alert
-queries it queued did not answer (an msearch sub-response error): both queries
-are then unjudged for it (`stageUnjudged`, `wideUnjudged`), the marker waits,
-and the next pass decides.
+back. During this re-check (`runRecheck`), no flag is removed from a result in
+a pass in which one of the alert queries it queued did not answer (an msearch
+sub-response error): both queries are then unjudged for it (`stageUnjudged`,
+`wideUnjudged`), the marker waits, and the next pass re-checks the result with
+every one-time check re-armed. Outside the re-check (results already marked, no
+run view, the other EDRs) each query is judged from its own answer, as before.
 
 ## Finding a run's alerts: alert time or activity span
 
