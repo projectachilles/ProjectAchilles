@@ -20,6 +20,10 @@ import {
   type EvidenceFileVerdict,
 } from './multiTestEvidence.js';
 
+/** Names of the two time clauses of the Defender alert queries (matched_queries). */
+export const ALERT_TIME_QUERY_NAME = 'alert_time';
+export const ACTIVITY_SPAN_QUERY_NAME = 'activity_span';
+
 /** Alert doc field holding the per-item evidence with its times (stored, not indexed). */
 export const EVIDENCE_ITEMS_FIELD = 'evidence_items';
 

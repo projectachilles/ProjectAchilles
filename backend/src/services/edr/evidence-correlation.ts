@@ -41,6 +41,8 @@ export interface TestEvidenceInput {
    * inside a bundle-specific sandbox directory (e.g. `\BlueHammerSandbox\`).
    */
   bundle_name?: string;
+  /** The result's `routing.run_started_at`. Only the Defender builders use it; these builders ignore it. */
+  run_started_at?: string;
 }
 
 /** How long before / after a result's routing.event_time an alert still correlates with it. */
