@@ -120,6 +120,12 @@ describe('Defender index management', () => {
       expect(props.f0rtika.properties.auto_resolve_mode.type).toBe('keyword');
       expect(props.f0rtika.properties.auto_resolve_error.type).toBe('keyword');
     });
+
+    // Read from _source only (edr/runEvidence.ts), so stored without indexing.
+    it('stores evidence_items without indexing it', () => {
+      const props = DEFENDER_INDEX_MAPPING.mappings.properties as Record<string, unknown>;
+      expect(props.evidence_items).toEqual({ type: 'object', enabled: false });
+    });
   });
 
   describe('ensureDefenderIndexMappings', () => {

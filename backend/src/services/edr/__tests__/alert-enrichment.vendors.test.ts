@@ -182,6 +182,25 @@ describe.each(VENDORS)('EDR alert enrichment — $name', ({ prefix, index, make 
   });
 });
 
+// Credit by run (edr/runEvidence.ts) is Defender-only: the other vendors'
+// alerts carry no per-item evidence, so their sub-queries never ask for it.
+describe.each(VENDORS.filter((v) => v.prefix !== 'defender'))('EDR alert enrichment — $name never reads evidence_items', ({ make }) => {
+  const search = vi.fn();
+  const msearch = vi.fn();
+  const bulk = vi.fn();
+  const client = { search, msearch, bulk };
+  beforeEach(() => vi.clearAllMocks());
+
+  it('the alert sub-queries\' _source has no evidence_items', async () => {
+    search.mockResolvedValueOnce({ hits: { hits: [resultDoc(999)] } });
+    msearch.mockResolvedValueOnce({ responses: [none, none] });
+    await make(client).runEnrichmentPass({ batchSize: 200 });
+    const bodies = (msearch.mock.calls[0][0].searches as any[]).filter((_, i) => i % 2 === 1);
+    expect(bodies).toHaveLength(2);
+    for (const b of bodies) expect(b._source).not.toContain('evidence_items');
+  });
+});
+
 // Late prevention: an EDR often attaches its action after the alert was first
 // matched (Defender's remediation status, SentinelOne's mitigation report,
 // Sophos' remedy event). A stage already flagged detected is re-checked, and

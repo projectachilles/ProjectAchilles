@@ -5,6 +5,8 @@ import { apiClient } from '@/hooks/useAuthenticatedApi';
 export interface AlertsForTestItem {
   techniques: string[];
   timestamp: string;
+  /** When the run started (`run_started_at`); absent when the result has none. */
+  runStartedAt?: string;
   windowMinutes?: number;
   hostname?: string;
   binaryName?: string;

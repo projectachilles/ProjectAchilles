@@ -175,6 +175,23 @@ describe('parseRuns', () => {
     ]);
   });
 
+  it('reads startedAt from the smallest routing.run_started_at of the run\'s docs (the `started` min)', () => {
+    const started = Date.parse('2026-10-12T12:41:06.000Z');
+    const res = { aggregations: { runs: { buckets: [{
+      key: `bundle::${BUNDLE}::WS-FIN-014::${T}`, doc_count: 1, completed: { value: T }, started: { value: started },
+      members: { hits: { hits: [member(`${TASK}::T1486`, 'T1486', 'Stage 5', 101, ['impact'])] } },
+    }] } } };
+    expect(parseRuns(res)[0].startedAt).toBe('2026-10-12T12:41:06.000Z');
+  });
+
+  it('leaves startedAt empty when none of the run\'s docs has routing.run_started_at', () => {
+    const res = { aggregations: { runs: { buckets: [{
+      key: `bundle::${BUNDLE}::WS-FIN-014::${T}`, doc_count: 1, completed: { value: T }, started: { value: null },
+      members: { hits: { hits: [member(`${TASK}::T1486`, 'T1486', 'Stage 5', 101, ['impact'])] } },
+    }] } } };
+    expect(parseRuns(res)[0].startedAt).toBeNull();
+  });
+
   it('lists at most MEMBERS_CAP stages and reports the rest as moreStages', () => {
     const members = Array.from({ length: MEMBERS_CAP }, (_, i) =>
       member(`${TASK}::C${i}`, `C${i}`, `Stage ${i + 1}`, 101, ['impact']));

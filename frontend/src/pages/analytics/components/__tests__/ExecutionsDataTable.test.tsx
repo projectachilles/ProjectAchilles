@@ -457,6 +457,19 @@ describe('ExecutionsDataTable — bundle-level alert callout dedupe', () => {
     csConfigured.value = false;
   });
 
+  it('sends runStartedAt for a stage with run_started_at and omits the key without it', async () => {
+    getAlertsForTestMock.mockResolvedValue({ alerts: [], matchedTechniques: [], total: 0 });
+    const withStart = makeStage({ test_uuid: `${BUNDLE_UUID}::T1083`, control_id: 'T1083', techniques: ['T1083'], run_started_at: '2026-05-12T11:59:00.000Z' });
+    const without = makeStage({ test_uuid: `${BUNDLE_UUID}::T1486`, control_id: 'T1486', techniques: ['T1486'] });
+    renderTable(makeData([withStart, without], { defenderDetected: true }));
+
+    await userEvent.click(screen.getAllByText(withStart.bundle_name!)[0]);
+    await waitFor(() => expect(defenderBatch).toHaveBeenCalled());
+    const items = defenderBatch.mock.calls[0][0] as Array<Record<string, unknown>>;
+    expect(items[0].runStartedAt).toBe('2026-05-12T11:59:00.000Z');
+    expect('runStartedAt' in items[1]).toBe(false);
+  });
+
   it('renders nothing in the callout when no stage returned a bundle-attribution alert', async () => {
     // Only stage-attribution alerts in the response — callout should NOT
     // render (this preserves the original behavior of hiding the amber

@@ -271,6 +271,21 @@ POST /api/analytics/defender/correlation/alerts-for-tests
   permission as the GET. Clients should fall back to the GET per item on `404`
   (older backends, the serverless backend).
 
+  An item may carry `runStartedAt` (ISO time, the result's `run_started_at`;
+  `400 Invalid runStartedAt` when it is not a date). With it, an alert counts
+  only through evidence of that run: a process item that started from 60 s
+  before the start to 60 s after `timestamp`, or a file item (or a process item
+  with no start time) that Defender added from 60 s before the start to 30
+  minutes after `timestamp`. An alert that names the test (a test binary, or a
+  path holding the test's uuid or its bundle-name token) only in an earlier
+  run's evidence is left out. Without it the older name-based rule applies. Each
+  alert in the response carries `attributed_control_ids` (every stage it has
+  evidence for, in this run when a run is given; `attributed_control_id` is the
+  first of them) and `stage_actions` (stage to the strongest action on that
+  stage's own evidence). `total` is the number of alerts returned. The GET form
+  takes no `runStartedAt`. The serverless backend returns only
+  `attributed_control_ids`, by name.
+
 #### Detection Rate
 
 ```

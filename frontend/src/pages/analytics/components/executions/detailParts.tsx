@@ -163,23 +163,53 @@ export function RiskActions({
 
 // ── Stage-attributed EDR alerts ────────────────────────────────────
 
+/** The alert fields the stage rules read. */
+interface StageAttributable {
+  attribution?: string;
+  attributed_control_id?: string;
+  attributed_control_ids?: string[];
+  stage_actions?: Record<string, string>;
+  prevention_action?: string;
+}
+
+/** The stage's own control token among `tokens`: exact match OR a `<control_id>-` variant prefix (the `-` keeps `T108` off `T1083`). */
+function tokenForStage(tokens: string[], stageControlId: string): string | undefined {
+  return tokens.find((t) => t === stageControlId || t.startsWith(`${stageControlId}-`));
+}
+
 /**
- * Alerts whose evidence binary is THIS specific stage's technique. Accept
- * exact match OR a `<control_id>-` prefix; the `-` boundary prevents `T108`
- * from accidentally matching `T1083`.
+ * Alerts that have evidence for THIS specific stage, each with that stage's own
+ * action as `prevention_action`. An alert is listed under every control in
+ * `attributed_control_ids` (falling back to `attributed_control_id`). When the
+ * alert carries `stage_actions` the stage's entry is its action (none when the
+ * stage has no entry); without `stage_actions` the alert's own
+ * `prevention_action` shows under every stage.
  */
-function filterStageAlerts<A extends { attribution?: string; attributed_control_id?: string }>(
-  alerts: A[],
-  controlId: string | undefined,
-): A[] {
+function filterStageAlerts<A extends StageAttributable>(alerts: A[], controlId: string | undefined): A[] {
   const stageControlId = controlId?.toLowerCase();
   if (!stageControlId) return [];
-  return alerts.filter((a) => {
-    if (a.attribution !== 'stage') return false;
-    const att = a.attributed_control_id?.toLowerCase();
-    if (!att) return false;
-    return att === stageControlId || att.startsWith(`${stageControlId}-`);
-  });
+  const out: A[] = [];
+  for (const a of alerts) {
+    if (a.attribution !== 'stage') continue;
+    const tokens = (a.attributed_control_ids?.length ? a.attributed_control_ids : a.attributed_control_id ? [a.attributed_control_id] : []).map(
+      (t) => t.toLowerCase(),
+    );
+    const token = tokenForStage(tokens, stageControlId);
+    if (!token) continue;
+    if (!a.stage_actions) {
+      out.push(a);
+      continue;
+    }
+    const actions = Object.entries(a.stage_actions).map(([k, v]) => [k.toLowerCase(), v] as const);
+    const own = actions.find(([k]) => k === token)?.[1] ?? actions.find(([k]) => tokenForStage([k], stageControlId))?.[1];
+    out.push({ ...a, prevention_action: own });
+  }
+  return out;
+}
+
+/** Cache key of one execution's alerts: its time keeps two runs of a test on a host apart. */
+export function stageAlertsKey(exec: Pick<EnrichedTestExecution, 'test_uuid' | 'hostname' | 'timestamp'>): string {
+  return `${exec.test_uuid}::${exec.hostname}::${exec.timestamp}::stage-alerts`;
 }
 
 /** Shown when a related-alerts lookup failed (not "no alerts"); selecting the run again retries it. */
@@ -211,7 +241,7 @@ export function stageAlertState(
   // reads as orchestrator-attributed ('bundle').
   // Alerts naming several tests that single out none of this run's files are
   // never the run's own ('multi_test'): they render as one note instead.
-  const pick = <A extends { attribution?: string; attributed_control_id?: string }>(alerts: A[]): A[] =>
+  const pick = <A extends StageAttributable>(alerts: A[]): A[] =>
     exec.is_bundle_control
       ? filterStageAlerts(alerts, exec.control_id)
       : alerts.filter((a) => a.attribution !== 'multi_test');

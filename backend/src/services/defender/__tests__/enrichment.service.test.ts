@@ -844,3 +844,682 @@ describe('DefenderEnrichmentService', () => {
     expect(mockBulk).not.toHaveBeenCalled();
   });
 });
+
+// A Defender alert stays open for days and collects the evidence of every
+// later run. With `runScopedEvidence` (the v9 re-sync has completed), a
+// result is credited only from the alert's evidence items of its own run
+// (edr/runEvidence.ts), at stage and test level.
+describe('DefenderEnrichmentService — credit by run (runScopedEvidence)', () => {
+  const search = vi.fn();
+  const msearch = vi.fn();
+  const bulk = vi.fn();
+  const client = { search, msearch, bulk } as any;
+  beforeEach(() => {
+    vi.clearAllMocks();
+    bulk.mockResolvedValue({ items: [] });
+  });
+
+  // UUID-shaped: the test-level matcher only knows Achilles binaries by a UUID name.
+  const B = 'b1000000-0000-4000-8000-0000000000b1';
+  const STAGE_FILE = `${B}-t1003.exe`;
+  const IN_RUN = '2026-10-20T09:59:20Z';
+  const EARLIER = '2026-10-14T09:06:46Z';
+
+  const resultDoc = (exit: number, over: { f0rtika?: Record<string, unknown>; routing?: Record<string, unknown> } = {}) => ({
+    _id: 'r1',
+    _index: 'achilles-results-org',
+    _source: {
+      f0rtika: { test_uuid: `${B}::T1003`, control_id: 'T1003', ...over.f0rtika },
+      routing: { event_time: '2026-10-20T10:00:00Z', hostname: 'win-host-01', run_started_at: '2026-10-20T09:58:50Z', ...over.routing },
+      event: { ERROR: exit },
+    },
+    sort: ['2026-10-20T10:00:00Z'],
+  });
+  const singleDoc = (routing: Record<string, unknown> = {}) => {
+    const d = resultDoc(101, { f0rtika: { test_uuid: B }, routing });
+    delete (d._source.f0rtika as Record<string, unknown>).control_id;
+    return d;
+  };
+
+  type Item = {
+    file: string; path: string | null; parent: string | null; parent_path: string | null;
+    kind: 'process' | 'file'; verdict: string | null; action: string | null; started_at: string | null; added_at: string;
+  };
+  /** A process item of the stage binary, started at `started`. */
+  const item = (started: string, over: Partial<Item> = {}): Item => ({
+    file: STAGE_FILE, path: 'c:\\f0', parent: `${B}.exe`, parent_path: 'c:\\f0', kind: 'process',
+    verdict: 'suspicious', action: null, started_at: started, added_at: new Date(Date.parse(started) + 90_000).toISOString(),
+    ...over,
+  });
+  const rank: Record<string, number> = { malicious: 3, suspicious: 2, quarantined: 3, process_killed: 2, blocked: 1 };
+  /** An alert as the v9 sync stores it: alert-wide fields over its whole history, plus the items. */
+  const alertSource = (items: Item[] | null, extra: Record<string, unknown> = {}) => {
+    const all = items ?? [];
+    const uniq = (xs: Array<string | null>) => [...new Set(xs.filter((x): x is string => !!x))];
+    const verdicts = new Map<string, { file: string; verdict: string; action: string | null }>();
+    for (const i of all) {
+      if (!i.verdict) continue;
+      const prev = verdicts.get(i.file);
+      verdicts.set(i.file, {
+        file: i.file,
+        verdict: prev && rank[prev.verdict] >= rank[i.verdict] ? prev.verdict : i.verdict,
+        action: prev && (rank[prev.action ?? ''] ?? 0) >= (rank[i.action ?? ''] ?? 0) ? prev.action : i.action,
+      });
+    }
+    const actions = all.map((i) => i.action).filter((a): a is string => !!a).sort((a, b) => rank[b] - rank[a]);
+    return {
+      evidence_filenames: uniq(all.flatMap((i) => [i.file, i.parent])),
+      evidence_filepaths: uniq(all.flatMap((i) => [i.path, i.parent_path])),
+      evidence_file_verdicts: [...verdicts.values()],
+      evidence_child_actions: all.filter((i) => i.kind === 'process' && i.parent && i.action).map((i) => ({ parent: i.parent, action: i.action })),
+      prevention_action: actions[0] ?? null,
+      evidence_items: items,
+      ...extra,
+    };
+  };
+  const alertHits = (src: Record<string, unknown>) => ({ hits: { total: { value: 1 }, hits: [{ _id: 'alert-1', _source: src }] } });
+  const none = { hits: { total: { value: 0 }, hits: [] } };
+
+  type Mode = 'on' | 'off' | 'default constructor';
+  const make = (mode: Mode) =>
+    mode === 'default constructor'
+      ? new DefenderEnrichmentService(client, 'achilles-results-*')
+      : new DefenderEnrichmentService(client, 'achilles-results-*', { runScopedEvidence: mode === 'on' });
+
+  /**
+   * One pass over `doc`; returns the result doc's update (undefined when none).
+   * Also checks that production fetches the fields the fixtures carry: the
+   * scan reads whole result docs (routing.run_started_at included) and the
+   * alert sub-queries ask for `evidence_items` exactly when run-scoped.
+   */
+  const pass = async (doc: unknown, responses: unknown[], mode: Mode = 'on') => {
+    search.mockResolvedValueOnce({ hits: { hits: [doc] } });
+    msearch.mockResolvedValueOnce({ responses });
+    await make(mode).runEnrichmentPass({ batchSize: 200 });
+    expect(search.mock.calls[0][0]._source).toBeUndefined();
+    const bodies = (msearch.mock.calls[0][0].searches as any[]).filter((_, i) => i % 2 === 1);
+    for (const b of bodies) expect(b._source.includes('evidence_items')).toBe(mode === 'on');
+    const ops = (bulk.mock.calls[0]?.[0].operations ?? []) as any[];
+    const at = ops.findIndex((o) => o.update?._id === 'r1');
+    return at >= 0 ? (ops[at + 1].doc.f0rtika as Record<string, unknown>) : undefined;
+  };
+
+  it('an alert whose stage-file evidence is all from an earlier run gives no stage or test credit (exit 101)', async () => {
+    const old = alertSource([item(EARLIER)]);
+    const f = await pass(resultDoc(101), [alertHits(old), alertHits(old)]);
+    expect(f?.defender_stage_detected).toBeUndefined();
+    expect(f?.defender_detected).toBeUndefined();
+  });
+
+  it('the stage sub-response matched, the wide one has only earlier-run items too: no defender_detected', async () => {
+    const stageAlert = alertSource([item(EARLIER), item(IN_RUN, { file: 'net.exe', path: 'c:\\windows\\system32', parent: 'explorer.exe', parent_path: 'c:\\windows' })]);
+    const wideAlert = alertSource([item(EARLIER)]);
+    const f = await pass(resultDoc(101), [alertHits(wideAlert), alertHits(stageAlert)]);
+    expect(f?.defender_stage_detected).toBeUndefined();
+    expect(f?.defender_detected).toBeUndefined();
+  });
+
+  it('one in-run item for the stage file: stage and test detected', async () => {
+    const a = alertSource([item(EARLIER), item(IN_RUN)]);
+    const f = await pass(resultDoc(101), [alertHits(a), alertHits(a)]);
+    expect(f).toMatchObject({ defender_stage_detected: true, defender_detected: true });
+  });
+
+  it('exit 999, the kill is on an earlier run\'s item, the in-run item has no action: detected, not prevented', async () => {
+    const a = alertSource([
+      item(EARLIER, { verdict: 'malicious', action: 'process_killed' }),
+      item(IN_RUN, { verdict: 'suspicious', action: null }),
+    ]);
+    expect(a.prevention_action).toBe('process_killed');
+    const f = await pass(resultDoc(999), [alertHits(a), alertHits(a)]);
+    expect(f).toMatchObject({ defender_stage_detected: true, defender_stage_prevented: false });
+    expect(f?.defender_prevented).toBeUndefined();
+    expect(f?.defender_prevention_action).toBeUndefined();
+  });
+
+  it('exit 999, the kill is on an in-run item: stage prevented', async () => {
+    const a = alertSource([
+      item(EARLIER, { verdict: 'suspicious' }),
+      item(IN_RUN, { verdict: 'malicious', action: 'process_killed' }),
+    ]);
+    const f = await pass(resultDoc(999), [alertHits(a), alertHits(a)]);
+    expect(f).toMatchObject({
+      defender_stage_detected: true,
+      defender_stage_prevented: true,
+      defender_prevented: true,
+      defender_prevention_action: 'process_killed',
+    });
+  });
+
+  it('a single-binary test: an in-run item naming its binary detects it; only earlier-run items do not', async () => {
+    const binary = (started: string) => item(started, { file: `${B}.exe`, parent: 'explorer.exe', parent_path: 'c:\\windows' });
+    const inRun = await pass(singleDoc(), [alertHits(alertSource([binary(IN_RUN)]))]);
+    expect(inRun).toMatchObject({ defender_detected: true });
+
+    vi.clearAllMocks();
+    bulk.mockResolvedValue({ items: [] });
+    const old = await pass(singleDoc(), [alertHits(alertSource([binary(EARLIER)]))]);
+    expect(old?.defender_detected).toBeUndefined();
+  });
+
+  it('the stage file only as the parent of an in-run net.exe item: stage detected', async () => {
+    const a = alertSource([
+      item(EARLIER),
+      item(IN_RUN, { file: 'net.exe', path: 'c:\\windows\\system32', parent: STAGE_FILE, parent_path: 'c:\\f0' }),
+    ]);
+    const f = await pass(resultDoc(101), [alertHits(a), alertHits(a)]);
+    expect(f).toMatchObject({ defender_stage_detected: true, defender_detected: true });
+  });
+
+  it('test level by path: an in-run file under the bundle-named folder detects the test; from an earlier run it does not', async () => {
+    const bundle = { f0rtika: { bundle_name: 'BlueHammer Early-Stage Behavioral Pattern' } };
+    const dropped = (added: string) => item(added, {
+      file: 'payload.bin', path: 'c:\\users\\public\\bluehammersandbox', parent: null, parent_path: null,
+      kind: 'file', started_at: null, added_at: added,
+    });
+    const inRun = await pass(resultDoc(101, bundle), [alertHits(alertSource([item(EARLIER), dropped('2026-10-20T10:05:00Z')])), none]);
+    expect(inRun).toMatchObject({ defender_detected: true });
+
+    vi.clearAllMocks();
+    bulk.mockResolvedValue({ items: [] });
+    const old = await pass(resultDoc(101, bundle), [alertHits(alertSource([item(EARLIER), dropped('2026-10-14T09:10:00Z')])), none]);
+    expect(old?.defender_detected).toBeUndefined();
+
+    // The path rule is for the test level only: the stage sub-query answered
+    // with the same path-only alert gives the stage nothing.
+    vi.clearAllMocks();
+    bulk.mockResolvedValue({ items: [] });
+    const pathOnly = alertHits(alertSource([item(EARLIER), dropped('2026-10-20T10:05:00Z')]));
+    const both = await pass(resultDoc(101, bundle), [pathOnly, pathOnly]);
+    expect(both).toMatchObject({ defender_detected: true });
+    expect(both).not.toHaveProperty('defender_stage_detected');
+  });
+
+  it('a result without routing.run_started_at keeps today\'s rule (credited by an earlier run\'s alert)', async () => {
+    const a = alertSource([item(EARLIER)]);
+    const f = await pass(resultDoc(101, { routing: { run_started_at: undefined } }), [alertHits(a), alertHits(a)]);
+    expect(f).toMatchObject({ defender_stage_detected: true, defender_detected: true });
+  });
+
+  it('an alert with evidence_items: null keeps today\'s rule', async () => {
+    const a = { ...alertSource([item(EARLIER)]), evidence_items: null };
+    const f = await pass(resultDoc(101), [alertHits(a), alertHits(a)]);
+    expect(f).toMatchObject({ defender_stage_detected: true, defender_detected: true });
+  });
+
+  it('the alert sub-queries fetch evidence_items only when run-scoped', async () => {
+    await pass(resultDoc(101), [none, none], 'on');
+    const on = msearch.mock.calls[0][0].searches[1]._source;
+    expect(on).toEqual(['prevention_action', 'f0rtika.achilles_correlated', 'evidence_filenames', 'evidence_filepaths', 'evidence_file_verdicts', 'evidence_child_actions', 'evidence_items']);
+
+    vi.clearAllMocks();
+    await pass(resultDoc(101), [none, none], 'off');
+    expect(msearch.mock.calls[0][0].searches[1]._source).not.toContain('evidence_items');
+
+    vi.clearAllMocks();
+    await pass(resultDoc(101), [none, none], 'default constructor');
+    expect(msearch.mock.calls[0][0].searches[1]._source).not.toContain('evidence_items');
+  });
+
+  it('runScopedEvidence off (default constructor): an earlier run\'s alert credits as today', async () => {
+    const a = alertSource([item(EARLIER)]);
+    const f = await pass(resultDoc(101), [alertHits(a), alertHits(a)], 'default constructor');
+    expect(f).toEqual({
+      defender_detected: true,
+      defender_stage_detected: true,
+      defender_stage_prevented: false,
+      defender_stage_rule: 'single_test',
+      defender_evidence_rule: 'file_verdict',
+    });
+  });
+
+  it('runScopedEvidence off: an earlier run\'s kill still prevents an error stage, as today', async () => {
+    const a = alertSource([
+      item(EARLIER, { verdict: 'malicious', action: 'process_killed' }),
+      item(IN_RUN, { verdict: 'suspicious', action: null }),
+    ]);
+    const f = await pass(resultDoc(999), [alertHits(a), alertHits(a)], 'off');
+    expect(f).toMatchObject({ defender_stage_prevented: true, defender_prevented: true, defender_prevention_action: 'process_killed' });
+  });
+
+  // Stored results are re-checked once under the run rule (marker
+  // defender_run_rule: 'run_evidence'): a flag only an earlier run's evidence
+  // supported is removed, through the existing one-time downgrade blocks.
+  describe('re-check of stored results (RUN_RULE)', () => {
+    /** Bulk answers every operation with `result` (ES: 'noop' when the update changes nothing). */
+    const answerBulk = (result: 'updated' | 'noop') =>
+      bulk.mockImplementation(async ({ operations }: { operations: any[] }) => ({
+        items: operations.filter((o) => 'update' in o).map((o) => ({ update: { _id: o.update._id, result } })),
+      }));
+    /** A result an earlier pass flagged under the older rules (their markers on). */
+    const stored = (exit: number, f0rtika: Record<string, unknown> = {}, routing: Record<string, unknown> = {}) =>
+      resultDoc(exit, {
+        f0rtika: {
+          defender_detected: true,
+          defender_stage_detected: true,
+          defender_stage_prevented: false,
+          defender_stage_rule: 'single_test',
+          defender_evidence_rule: 'file_verdict',
+          ...f0rtika,
+        },
+        routing,
+      });
+    const recheck = async (doc: unknown, responses: unknown[], mode: Mode = 'on') => {
+      search.mockResolvedValueOnce({ hits: { hits: [doc] } });
+      if (responses.length > 0) msearch.mockResolvedValueOnce({ responses });
+      const result = await make(mode).runEnrichmentPass({ batchSize: 200 });
+      const ops = (bulk.mock.calls[0]?.[0].operations ?? []) as any[];
+      const at = ops.findIndex((o) => o.update?._id === 'r1');
+      const f = at >= 0 ? (ops[at + 1].doc.f0rtika as Record<string, unknown>) : undefined;
+      return { f, result };
+    };
+    const removed = (r: { stageDetectionsRemoved: number; detectionsRemoved: number; preventionsRemoved: number }) =>
+      [r.stageDetectionsRemoved, r.detectionsRemoved, r.preventionsRemoved];
+    const eligibleClauses = () => {
+      const query = search.mock.calls.at(-1)![0].query as any;
+      return query.bool.filter.at(-1).bool.should as unknown[];
+    };
+    beforeEach(() => {
+      answerBulk('updated');
+    });
+
+    it('RUN_RULE is the marker value', async () => {
+      const { RUN_RULE } = await import('../../edr/alert-enrichment.service.js');
+      expect(RUN_RULE).toBe('run_evidence');
+    });
+
+    it('the scan selects a flagged result with a run start that lacks the marker; the clause is absent when off', async () => {
+      search.mockResolvedValue({ hits: { hits: [] } });
+      await make('on').runEnrichmentPass();
+      const clause = {
+        bool: {
+          filter: [
+            {
+              bool: {
+                should: [
+                  { term: { 'f0rtika.defender_detected': true } },
+                  { term: { 'f0rtika.defender_stage_detected': true } },
+                ],
+                minimum_should_match: 1,
+              },
+            },
+            { exists: { field: 'routing.run_started_at' } },
+          ],
+          must_not: [{ term: { 'f0rtika.defender_run_rule': 'run_evidence' } }],
+        },
+      };
+      expect(eligibleClauses()).toContainEqual(clause);
+
+      for (const mode of ['off', 'default constructor'] as const) {
+        await make(mode).runEnrichmentPass();
+        expect(JSON.stringify(eligibleClauses())).not.toContain('defender_run_rule');
+      }
+    });
+
+    it('every stage and wide alert item is from an earlier run (exit 101): both detection flags go, the marker is written', async () => {
+      const old = alertSource([item(EARLIER)]);
+      const { f, result } = await recheck(stored(101), [alertHits(old), alertHits(old)]);
+      expect(f).toEqual({
+        defender_stage_detected: false,
+        defender_stage_prevented: false,
+        defender_detected: false,
+        // The existing blocks also clear prevention when the flags go (none was stored here).
+        defender_prevented: false,
+        defender_prevention_action: null,
+        defender_run_rule: 'run_evidence',
+      });
+      expect(removed(result)).toEqual([1, 1, 0]);
+    });
+
+    it('exit 999 prevented by an earlier run\'s kill: the prevention flags go too', async () => {
+      const old = alertSource([item(EARLIER, { verdict: 'malicious', action: 'process_killed' })]);
+      const doc = stored(999, {
+        defender_stage_prevented: true,
+        defender_prevented: true,
+        defender_prevention_action: 'process_killed',
+        defender_prevention_rule: 'in_run',
+      });
+      const { f, result } = await recheck(doc, [alertHits(old), alertHits(old)]);
+      expect(f).toEqual({
+        defender_stage_detected: false,
+        defender_stage_prevented: false,
+        defender_detected: false,
+        defender_prevented: false,
+        defender_prevention_action: null,
+        defender_run_rule: 'run_evidence',
+      });
+      expect(removed(result)).toEqual([1, 1, 1]);
+    });
+
+    it('exit 999, the stage\'s own kill was an earlier run\'s, a sibling stage\'s kill is in-run: only the stage prevention goes, and it counts', async () => {
+      const a = alertSource([
+        item(EARLIER, { verdict: 'malicious', action: 'process_killed' }),
+        item(IN_RUN),
+        item(IN_RUN, { file: `${B}-t1059.exe`, verdict: 'malicious', action: 'process_killed' }),
+      ]);
+      const doc = stored(999, {
+        defender_stage_prevented: true,
+        defender_prevented: true,
+        defender_prevention_action: 'process_killed',
+        defender_prevention_rule: 'in_run',
+      });
+      const { f, result } = await recheck(doc, [alertHits(a), alertHits(a)]);
+      expect(f).toEqual({ defender_stage_prevented: false, defender_run_rule: 'run_evidence' });
+      expect(removed(result)).toEqual([0, 0, 1]);
+    });
+
+    it('a result that also lacks the older markers: the removals count whichever rule armed the block', async () => {
+      const old = alertSource([item(EARLIER)]);
+      const doc = stored(101, { defender_stage_rule: undefined, defender_evidence_rule: undefined });
+      const { f, result } = await recheck(doc, [alertHits(old), alertHits(old)]);
+      expect(f).toMatchObject({
+        defender_stage_detected: false,
+        defender_detected: false,
+        defender_stage_rule: 'single_test',
+        defender_evidence_rule: 'file_verdict',
+        defender_run_rule: 'run_evidence',
+      });
+      expect(removed(result)).toEqual([1, 1, 0]);
+    });
+
+    it('one in-run item still counts: only the marker is written', async () => {
+      const a = alertSource([item(EARLIER), item(IN_RUN)]);
+      const { f, result } = await recheck(stored(101), [alertHits(a), alertHits(a)]);
+      expect(f).toEqual({ defender_run_rule: 'run_evidence' });
+      expect(removed(result)).toEqual([0, 0, 0]);
+    });
+
+    it('no alert for it is in the index: only the marker is written', async () => {
+      const doc = stored(999, { defender_prevented: true, defender_prevention_action: 'process_killed', defender_prevention_rule: 'in_run' });
+      const { f, result } = await recheck(doc, [none, none]);
+      expect(f).toEqual({ defender_run_rule: 'run_evidence' });
+      expect(removed(result)).toEqual([0, 0, 0]);
+    });
+
+    it('the only matching alert has evidence_items: null: today\'s rule counts it, only the marker is written', async () => {
+      const a = { ...alertSource([item(EARLIER)]), evidence_items: null };
+      const { f, result } = await recheck(stored(101), [alertHits(a), alertHits(a)]);
+      expect(f).toEqual({ defender_run_rule: 'run_evidence' });
+      expect(removed(result)).toEqual([0, 0, 0]);
+    });
+
+    it('a result without routing.run_started_at is neither re-checked nor marked', async () => {
+      const old = alertSource([item(EARLIER)]);
+      const { f, result } = await recheck(stored(101, {}, { run_started_at: undefined }), [alertHits(old), alertHits(old)]);
+      expect(f).toBeUndefined();
+      expect(removed(result)).toEqual([0, 0, 0]);
+    });
+
+    it('a result already re-checked (marker on) is not re-checked again', async () => {
+      const old = alertSource([item(EARLIER)]);
+      const { f, result } = await recheck(stored(101, { defender_run_rule: 'run_evidence' }), [alertHits(old), alertHits(old)]);
+      expect(f).toBeUndefined();
+      expect(removed(result)).toEqual([0, 0, 0]);
+    });
+
+    it('runScopedEvidence off: a stored result is not re-checked, not marked, and the counters stay 0', async () => {
+      const old = alertSource([item(EARLIER)]);
+      for (const mode of ['off', 'default constructor'] as const) {
+        vi.clearAllMocks();
+        answerBulk('updated');
+        const { f, result } = await recheck(stored(101), [alertHits(old), alertHits(old)], mode);
+        expect(f).toBeUndefined();
+        expect(removed(result)).toEqual([0, 0, 0]);
+      }
+    });
+
+    it('a new result flagged this pass gets the marker in the same update', async () => {
+      const a = alertSource([item(IN_RUN)]);
+      const { f, result } = await recheck(resultDoc(101), [alertHits(a), alertHits(a)]);
+      expect(f).toEqual({
+        defender_detected: true,
+        defender_stage_detected: true,
+        defender_stage_prevented: false,
+        defender_stage_rule: 'single_test',
+        defender_evidence_rule: 'file_verdict',
+        defender_run_rule: 'run_evidence',
+      });
+      expect(result).toMatchObject({ detected: 1, stageDetected: 1 });
+      expect(removed(result)).toEqual([0, 0, 0]);
+    });
+
+    it('a result no alert flags is not marked (nothing for the run rule to re-check)', async () => {
+      const { f } = await recheck(resultDoc(101), [none, none]);
+      expect(f).toBeUndefined();
+    });
+
+    it('exit 101 with an in-run kill: the re-check writes no prevention', async () => {
+      const kill = alertSource([item(IN_RUN, { verdict: 'malicious', action: 'process_killed' })]);
+      const { f } = await recheck(stored(101), [alertHits(kill), alertHits(kill)]);
+      expect(f).toEqual({ defender_run_rule: 'run_evidence' });
+
+      vi.clearAllMocks();
+      answerBulk('updated');
+      const fresh = await recheck(resultDoc(101), [alertHits(kill), alertHits(kill)]);
+      expect(fresh.f?.defender_prevented).toBeUndefined();
+      expect(fresh.f?.defender_stage_prevented).toBe(false);
+      expect(fresh.f?.defender_prevention_action).toBeUndefined();
+      expect(fresh.f?.defender_run_rule).toBe('run_evidence');
+    });
+
+    it('an update Elasticsearch answers noop is not counted as a removal', async () => {
+      answerBulk('noop');
+      const old = alertSource([item(EARLIER)]);
+      const { f, result } = await recheck(stored(101), [alertHits(old), alertHits(old)]);
+      expect(f).toMatchObject({ defender_stage_detected: false, defender_detected: false });
+      expect(removed(result)).toEqual([0, 0, 0]);
+    });
+
+    it('a sub-query that failed this pass: the wide check still runs, but no marker (the next pass re-checks the stage)', async () => {
+      const old = alertSource([item(EARLIER)]);
+      const { f } = await recheck(stored(101), [alertHits(old), { error: { type: 'search_phase_execution_exception' } }]);
+      expect(f).toMatchObject({ defender_detected: false });
+      expect(f?.defender_stage_detected).toBeUndefined();
+      expect(f?.defender_run_rule).toBeUndefined();
+    });
+
+    // Fix round 1. The marker vouches for flags evaluated by run: a pass
+    // without a run view that sets a detection flag on a marked result clears
+    // it (null), so the run rule re-checks that result once the flag is back.
+    describe('the marker never outlives the flags it vouches for', () => {
+      /** A result the run rule already downgraded (marker on, both detection flags false). */
+      const downgraded = (routing: Record<string, unknown> = {}) =>
+        stored(101, { defender_detected: false, defender_stage_detected: false, defender_run_rule: 'run_evidence' }, routing);
+      /** The stored doc after a partial update (ES merges the fields; null is stored as null). */
+      const merged = (doc: ReturnType<typeof stored>, f: Record<string, unknown>) => ({
+        ...doc,
+        _source: { ...doc._source, f0rtika: { ...doc._source.f0rtika, ...f } },
+      });
+
+      it('a flag-off pass that re-flags a marked result clears the marker; the next flag-on pass re-checks it with counters', async () => {
+        const old = alertSource([item(EARLIER)]);
+        const doc = downgraded();
+        const off = await recheck(doc, [alertHits(old), alertHits(old)], 'off');
+        expect(off.f).toMatchObject({ defender_detected: true, defender_stage_detected: true, defender_run_rule: null });
+        expect(removed(off.result)).toEqual([0, 0, 0]);
+
+        vi.clearAllMocks();
+        answerBulk('updated');
+        const reflagged = merged(doc, off.f!);
+        expect(reflagged._source.f0rtika).toMatchObject({ defender_detected: true, defender_run_rule: null });
+        const on = await recheck(reflagged, [alertHits(old), alertHits(old)], 'on');
+        expect(on.f).toMatchObject({
+          defender_stage_detected: false,
+          defender_detected: false,
+          defender_run_rule: 'run_evidence',
+        });
+        expect(removed(on.result)).toEqual([1, 1, 0]);
+      });
+
+      it('flag on but no run window: re-flagging a marked result also clears the marker', async () => {
+        const old = alertSource([item(EARLIER)]);
+        const { f } = await recheck(downgraded({ run_started_at: '2026-10-20T11:00:00Z' }), [alertHits(old), alertHits(old)], 'on');
+        expect(f).toMatchObject({ defender_detected: true, defender_stage_detected: true, defender_run_rule: null });
+      });
+
+      // Final fix wave A2. The 72-hour late-prevention clause can set a
+      // prevention flag on a marked, detected result in a flag-off pass, from
+      // an earlier run's action: that clears the marker too.
+      it('a flag-off pass that sets a prevention flag on a marked result clears the marker; the next flag-on pass removes it', async () => {
+        const a = alertSource([
+          item(EARLIER, { verdict: 'malicious', action: 'process_killed' }),
+          item(IN_RUN, { verdict: 'suspicious', action: null }),
+        ]);
+        const doc = stored(999, { defender_prevention_rule: 'in_run', defender_run_rule: 'run_evidence' });
+        const off = await recheck(doc, [alertHits(a), alertHits(a)], 'off');
+        expect(off.f).toEqual({
+          defender_prevented: true,
+          defender_prevention_action: 'process_killed',
+          defender_stage_prevented: true,
+          defender_run_rule: null,
+        });
+
+        vi.clearAllMocks();
+        answerBulk('updated');
+        const prevented = merged(doc, off.f!);
+        const on = await recheck(prevented, [alertHits(a), alertHits(a)], 'on');
+        // Selected again: the run clause matches a flagged result whose marker is not 'run_evidence'.
+        expect(JSON.stringify(eligibleClauses())).toContain('defender_run_rule');
+        expect(on.f).toEqual({
+          defender_stage_prevented: false,
+          defender_prevented: false,
+          defender_prevention_action: null,
+          defender_run_rule: 'run_evidence',
+        });
+        expect(removed(on.result)).toEqual([0, 0, 1]);
+      });
+
+      it('a flag-off pass that sets a prevention flag on an unmarked result writes no defender_run_rule key', async () => {
+        const a = alertSource([item(EARLIER, { verdict: 'malicious', action: 'process_killed' })]);
+        const { f } = await recheck(stored(999, { defender_prevention_rule: 'in_run' }), [alertHits(a), alertHits(a)], 'off');
+        expect(f).toMatchObject({ defender_prevented: true, defender_stage_prevented: true });
+        expect(f).not.toHaveProperty('defender_run_rule');
+      });
+
+      it('the other three vendors\' updates never carry a _run_rule key, prevention flags included', async () => {
+        const { CrowdStrikeEnrichmentService } = await import('../../crowdstrike/enrichment.service.js');
+        const { SentinelOneEnrichmentService } = await import('../../sentinelone/enrichment.service.js');
+        const { SophosEnrichmentService } = await import('../../sophos/enrichment.service.js');
+        const vendors = [
+          ['crowdstrike', (c: any) => new CrowdStrikeEnrichmentService(c, 'achilles-results-*')],
+          ['sentinelone', (c: any) => new SentinelOneEnrichmentService(c, 'achilles-results-*')],
+          ['sophos', (c: any) => new SophosEnrichmentService(c, 'achilles-results-*')],
+        ] as const;
+        const kill = { hits: { total: { value: 1 }, hits: [{ _id: 'alert-1', _source: { prevention_action: 'process_killed' } }] } };
+        for (const [prefix, makeVendor] of vendors) {
+          for (const flags of [{}, { [`${prefix}_detected`]: true, [`${prefix}_stage_detected`]: true, [`${prefix}_stage_prevented`]: false }]) {
+            vi.clearAllMocks();
+            answerBulk('updated');
+            search.mockResolvedValueOnce({ hits: { hits: [resultDoc(999, { f0rtika: flags })] } });
+            msearch.mockResolvedValueOnce({ responses: [kill, kill] });
+            await makeVendor(client).runEnrichmentPass({ batchSize: 200 });
+            const ops = (bulk.mock.calls[0]?.[0].operations ?? []) as any[];
+            const at = ops.findIndex((o) => o.update?._id === 'r1');
+            const f = ops[at + 1].doc.f0rtika as Record<string, unknown>;
+            expect(f).toMatchObject({ [`${prefix}_prevented`]: true, [`${prefix}_stage_prevented`]: true });
+            expect(Object.keys(f).filter((k) => k.endsWith('_run_rule'))).toEqual([]);
+          }
+        }
+      });
+
+      it('a flag-off pass that flags an unmarked result writes no defender_run_rule key', async () => {
+        const old = alertSource([item(EARLIER)]);
+        const { f } = await recheck(resultDoc(101), [alertHits(old), alertHits(old)], 'off');
+        expect(f).toMatchObject({ defender_detected: true, defender_stage_detected: true });
+        expect(f).not.toHaveProperty('defender_run_rule');
+      });
+    });
+
+    // Fix round 1. A result the run clause selects but the pass cannot
+    // evaluate by run gets the marker alone (its outcome under today's rule
+    // cannot change: the reason comes from stored fields), so it is not
+    // selected on every pass forever.
+    describe('a selected result that cannot be evaluated by run gets the marker alone', () => {
+      it.each([
+        ['the run start is after the event time', { run_started_at: '2026-10-20T11:00:00Z' }],
+        ['the run start is not a date string', { run_started_at: 'not-a-date' }],
+        ['the run start is a number, not an ISO string', { run_started_at: 1_729_418_330_000 }],
+      ])('no run window (%s): only the marker is written', async (_label, routing) => {
+        const old = alertSource([item(EARLIER)]);
+        const { f, result } = await recheck(stored(101, {}, routing), [alertHits(old), alertHits(old)]);
+        expect(f).toEqual({ defender_run_rule: 'run_evidence' });
+        expect(removed(result)).toEqual([0, 0, 0]);
+      });
+
+      it('no alert query can be built (no hostname): only the marker is written, no alert search runs', async () => {
+        const { f, result } = await recheck(stored(101, {}, { hostname: '' }), []);
+        expect(msearch).not.toHaveBeenCalled();
+        expect(f).toEqual({ defender_run_rule: 'run_evidence' });
+        expect(removed(result)).toEqual([0, 0, 0]);
+      });
+
+      it('no run window, but a sub-query did not answer: no marker', async () => {
+        const old = alertSource([item(EARLIER)]);
+        const { f } = await recheck(stored(101, {}, { run_started_at: 'not-a-date' }), [alertHits(old), { error: { type: 'search_phase_execution_exception' } }]);
+        expect(f?.defender_run_rule).toBeUndefined();
+      });
+
+      it('an unflagged result that cannot be evaluated by run is not marked', async () => {
+        const { f } = await recheck(resultDoc(101, { routing: { hostname: '' } }), []);
+        expect(f).toBeUndefined();
+      });
+
+      it('runScopedEvidence off: such a result is not marked', async () => {
+        const { f } = await recheck(stored(101, {}, { hostname: '' }), [], 'off');
+        expect(f).toBeUndefined();
+      });
+    });
+
+    // Final fix wave A6: which results lost a flag, counted as the removal counters are.
+    describe('removedFlagDocs', () => {
+      it('lists a result the re-check downgraded', async () => {
+        const old = alertSource([item(EARLIER)]);
+        const { result } = await recheck(stored(101), [alertHits(old), alertHits(old)]);
+        expect(result.removedFlagDocs).toEqual(['r1']);
+        expect(result.removedFlagDocsOmitted).toBeUndefined();
+      });
+
+      it('is empty when nothing was removed, and for an update Elasticsearch answers noop', async () => {
+        const a = alertSource([item(EARLIER), item(IN_RUN)]);
+        const kept = await recheck(stored(101), [alertHits(a), alertHits(a)]);
+        expect(kept.result.removedFlagDocs).toEqual([]);
+
+        vi.clearAllMocks();
+        answerBulk('noop');
+        const old = alertSource([item(EARLIER)]);
+        const noop = await recheck(stored(101), [alertHits(old), alertHits(old)]);
+        expect(noop.f).toMatchObject({ defender_detected: false });
+        expect(noop.result.removedFlagDocs).toEqual([]);
+        expect(noop.result.removedFlagDocsOmitted).toBeUndefined();
+      });
+
+      it('keeps at most 20 ids and counts the rest', async () => {
+        const old = alertSource([item(EARLIER)]);
+        const docs = Array.from({ length: 25 }, (_, n) => ({ ...stored(101), _id: `r${n + 1}` }));
+        search.mockResolvedValueOnce({ hits: { hits: docs } });
+        msearch.mockResolvedValueOnce({ responses: docs.flatMap(() => [alertHits(old), alertHits(old)]) });
+        const result = await make('on').runEnrichmentPass({ batchSize: 200 });
+        expect(result.detectionsRemoved).toBe(25);
+        expect(result.removedFlagDocs).toEqual(Array.from({ length: 20 }, (_, n) => `r${n + 1}`));
+        expect(result.removedFlagDocsOmitted).toBe(5);
+      });
+
+      it('is empty with the flag off', async () => {
+        const old = alertSource([item(EARLIER)]);
+        const { result } = await recheck(stored(101), [alertHits(old), alertHits(old)], 'off');
+        expect(result.removedFlagDocs).toEqual([]);
+      });
+    });
+
+    it('a failed update is not counted as a removal', async () => {
+      bulk.mockImplementation(async ({ operations }: { operations: any[] }) => ({
+        items: operations.filter((o) => 'update' in o).map(() => ({ update: { error: { reason: 'version conflict' } } })),
+      }));
+      const old = alertSource([item(EARLIER)]);
+      const { result } = await recheck(stored(101), [alertHits(old), alertHits(old)]);
+      expect(removed(result)).toEqual([0, 0, 0]);
+      expect(result.removedFlagDocs).toEqual([]);
+      expect(result.errors.length).toBeGreaterThan(0);
+    });
+  });
+});

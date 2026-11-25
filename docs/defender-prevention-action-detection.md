@@ -75,6 +75,70 @@ status; the next enrichment pass backfills `defender_prevented` on eligible docs
 detected flags set are not re-scanned — same one-time `update_by_query` pattern used for the
 CrowdStrike backfill may be applied operationally where needed).
 
+## Per-run evidence (sync v9)
+
+A Defender alert stays open for days and collects evidence from later runs, so
+matching a stage by file name alone can credit a run with another run's
+evidence. `ALERT_SYNC_VERSION = 9` adds `evidence_items` to each alert doc (un-indexed):
+one entry per file-naming evidence item with `file`, `path`, `parent`,
+`parent_path`, `kind`, `verdict`, `action`, `started_at` and `added_at`. It is
+`null` when an alert has more than 1,000 such items or an item has no time
+Defender added it (`createdDateTime` missing or not a date). `started_at` is
+`null` for a file item, and for a process item whose `processCreationDateTime`
+is empty, not a date, or earlier than `2000-01-01T00:00:00Z` (Defender sends
+`0001-01-01T00:00:00Z` as a placeholder). The forced full re-sync selects by
+`lastUpdateDateTime` over the 90-day look-back, so a Defender alert last
+updated before the look-back is not re-read, has no `evidence_items` and keeps
+the older rule. `evidence_items_version` records that a full look-back finished
+without a write error; per-run crediting stays off until it does. A full
+look-back that ends with write errors is repeated on the next cycle, at most 3
+times in a row. After the third, the sync goes on incrementally, logs one
+warning, and per-run crediting stays off until the backend restarts. Until
+then the enrichment pass sets stage flags by the older rule while the console's
+alert list and the execution report are already run-scoped (they do not wait
+for the re-sync), so the two can disagree.
+
+Each result stores `routing.run_started_at` in UTC ISO form (from the agent
+task's `started_at`; filled on stored results at start-up by
+`runStartBackfill.ts`). `edr/runEvidence.ts`
+turns it into a run window, `[run_started_at - 60 s, event_time + 60 s]`. A
+process item is in the run when it started inside the window; a file item (or a
+process item without a start time) when Defender added it from the window start
+up to 30 minutes after `event_time`. With a run view, the prevention action of
+a stage, and of a single-test alert at test level, comes from the in-run items
+only, not from the alert-wide `prevention_action`.
+
+At test level the run rule counts an in-run name only when it is a test
+binary (`<uuid>.exe`, `<uuid>-<control>.exe`), or, by path, a path naming the
+test (the uuid, or the bundle-name token the wide query matches on). An in-run
+file such as `<uuid>_output.txt` alone gives no test-level credit, although the
+wide query's `<uuid>*` filename clause matched it. The alert lookup and the
+execution report use the same path rule (`defenderPathNamesTest`) when they
+leave out an alert that names the test only in an earlier run.
+
+A result without `routing.run_started_at`, and an alert without
+`evidence_items`, keep the rules above. Stored results are re-checked once;
+`f0rtika.defender_run_rule: 'run_evidence'` marks the ones that were. A pass
+without a run view that sets a detection or prevention flag on a marked result
+clears the marker (`null`), so the result is re-checked once the run rule is
+back.
+
+## Known limit: older runs of a long-open alert
+
+A flag is removed only when the run's own alert lookup still finds at least one
+alert for it and none of the alerts found counts for the run. The re-check, the
+console's alert list and the execution report find a run's alerts through the
+same time window (`buildAlertTimeWindowQuery`, used by
+`buildDefenderEvidenceQuery` and the technique fallback), which matches an
+alert only when it was created, or last updated, between 5 minutes before and
+30 minutes after the result's `event_time`. A long-open alert has one last-update time, which moves
+each time Defender adds evidence to it. For an older run whose alert has since
+been updated by a later run, the lookup no longer finds the alert, unless the
+alert was created during that run. The stored flag then stays as it is, and the
+stage can show an alert chip beside an empty alert list. Of the runs one
+long-open alert collected, only the run it was created in and about the most
+recent one are checked against it.
+
 ## Tests
 
 - transformAlert: normalization table (each status → action), precedence across multiple evidence

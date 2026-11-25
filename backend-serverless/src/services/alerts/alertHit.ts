@@ -25,6 +25,8 @@ export interface ProjectedAlert {
   recommended_actions: string;
   attribution: 'stage' | 'bundle';
   attributed_control_id?: string;
+  /** Every stage binary the alert names (lower-case, evidence order, each once); [0] is attributed_control_id. Absent unless stage-attributed. */
+  attributed_control_ids?: string[];
   prevention_action?: string;
   portal_url?: string;
   /** Only for an enabled, error-free auto-resolve receipt (not dry-run, not failed attempts). */
@@ -38,14 +40,21 @@ export interface ProjectedAlert {
  * UUID prefix, or another bundle's UUID → bundle-level.
  */
 export function classifyAttribution(filenames: readonly string[], bundleUuid: string): AlertAttribution {
-  if (!bundleUuid) return { attribution: 'bundle' };
+  const [first] = stageControlIds(filenames, bundleUuid);
+  return first ? { attribution: 'stage', attributed_control_id: first } : { attribution: 'bundle' };
+}
+
+/** Every `<bundleUuid>-<token>.exe` evidence binary's token, lower-case, in order, each once. */
+export function stageControlIds(filenames: readonly string[], bundleUuid: string): string[] {
+  if (!bundleUuid) return [];
   const escaped = bundleUuid.toLowerCase().replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
   const stagePattern = new RegExp(`^${escaped}-([a-z0-9._-]+?)\\.exe$`, 'i');
+  const ids: string[] = [];
   for (const fn of filenames) {
     const m = fn.match(stagePattern);
-    if (m) return { attribution: 'stage', attributed_control_id: m[1].toLowerCase() };
+    if (m && !ids.includes(m[1].toLowerCase())) ids.push(m[1].toLowerCase());
   }
-  return { attribution: 'bundle' };
+  return ids;
 }
 
 const text = (v: unknown): string => (v === undefined || v === null ? '' : String(v));
@@ -53,10 +62,9 @@ const optional = (v: unknown): string | undefined => (v === undefined || v === n
 
 export function projectAlertHit(source: Record<string, unknown>, bundleUuid: string): ProjectedAlert {
   const f0 = (source.f0rtika ?? {}) as Record<string, unknown>;
-  const { attribution, attributed_control_id } = classifyAttribution(
-    (source.evidence_filenames as string[] | undefined) ?? [],
-    bundleUuid,
-  );
+  const filenames = (source.evidence_filenames as string[] | undefined) ?? [];
+  const { attribution, attributed_control_id } = classifyAttribution(filenames, bundleUuid);
+  const attributed_control_ids = stageControlIds(filenames, bundleUuid);
   const prevention_action = optional(source.prevention_action);
   const portal_url = optional(source.portal_url);
   // The auto-resolve receipt writer stamps auto_resolved_at on EVERY receipt,
@@ -84,6 +92,7 @@ export function projectAlertHit(source: Record<string, unknown>, bundleUuid: str
     recommended_actions: text(source.recommended_actions),
     attribution,
     ...(attributed_control_id ? { attributed_control_id } : {}),
+    ...(attributed_control_ids.length > 0 ? { attributed_control_ids } : {}),
     ...(prevention_action ? { prevention_action } : {}),
     ...(portal_url ? { portal_url } : {}),
     ...(auto_resolved_at ? { auto_resolved_at } : {}),

@@ -92,6 +92,10 @@ export interface CrowdStrikeAlertItem {
    * Frontend matches case-insensitively against `f0rtika.control_id`.
    */
   attributed_control_id?: string;
+  /** Every stage control token (lower case) the alert has evidence for; the first equals `attributed_control_id`. */
+  attributed_control_ids?: string[];
+  /** Lower-case control token -> that stage's own action. Absent when the vendor has no per-file data. */
+  stage_actions?: Record<string, string>;
   /**
    * Vendor-confirmed prevention disposition (from pattern_disposition_details):
    * 'quarantined' | 'process_killed' | 'blocked' = Falcon prevented the action;

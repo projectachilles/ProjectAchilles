@@ -257,25 +257,22 @@ function payloadRuns(runs: ReportRun[]): ReportRun[] {
   return runs.map((run) => ({ ...run, stages: run.stages.map(slim) }));
 }
 
-/** Credit each correlated alert to the stage its evidence binary names. */
+/** Credit each correlated alert to every stage its evidence binaries name, once per stage. */
 function countStageAlerts(tests: ReportTest[], runs: ReportRun[]): void {
   const byKey = new Map(tests.map((t) => [t.testKey, t]));
   for (const run of runs) {
     const test = byKey.get(run.testKey);
     if (!test) continue;
     for (const alert of run.alerts) {
-      const token = alert.stageControlId;
       // A standalone test has one stage, which takes every alert. A bundle filtered down to one
       // stage does not: the alert must still name that stage's control.
-      const stage = !test.isBundle && test.stages.length === 1
-        ? test.stages[0]
-        : token === null
-          ? undefined
-          : test.stages.find((s) => {
-              const id = s.controlId?.toLowerCase();
-              return id !== undefined && (token === id || token.startsWith(`${id}-`));
-            });
-      if (stage) stage.alerts[alert.vendor]++;
+      const stages = !test.isBundle && test.stages.length === 1
+        ? [test.stages[0]]
+        : test.stages.filter((s) => {
+            const id = s.controlId?.toLowerCase();
+            return id !== undefined && alert.stageControlIds.some((token) => token === id || token.startsWith(`${id}-`));
+          });
+      for (const stage of stages) stage.alerts[alert.vendor]++;
     }
   }
 }
@@ -444,7 +441,9 @@ export class ExecutionReportService {
     for (const run of runs) {
       run.alerts = correlation?.alerts.get(run.key) ?? [];
       run.alertsChecked = correlation?.checked.has(run.key) ?? false;
-      run.startedAt = run.taskId ? startTimes?.get(run.taskId) ?? null : null;
+      // The start the run's docs record wins; else the agent database's, for the run strip only
+      // (correlation, already done, made no run window from it).
+      run.startedAt ??= run.taskId ? startTimes?.get(run.taskId) ?? null : null;
     }
     // "Never searched" must not read as "no alerts": with EDR configured and no run checked, the section is unavailable.
     if (meta.edrVendors.length > 0 && runs.length > 0 && !runs.some((r) => r.alertsChecked)) unavailable.add('alerts');
@@ -594,6 +593,8 @@ export class ExecutionReportService {
       testKey: r.testKey,
       hostname: r.hostname,
       completedAt: r.completedAt,
+      // Only the start the run's docs record (routing.run_started_at) makes a run window.
+      ...(r.startedAt ? { startedAt: r.startedAt } : {}),
       bundleName: r.key.startsWith('bundle::') ? r.testName : undefined,
       techniques: [...new Set(r.stages.flatMap((s) => s.techniques ?? []))],
     }));

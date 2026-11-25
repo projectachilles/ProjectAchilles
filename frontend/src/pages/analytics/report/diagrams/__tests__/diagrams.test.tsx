@@ -15,7 +15,7 @@ const minutesFromCompletion = (m: number) => new Date(COMPLETED + m * 60_000).to
 
 const alertAt = (m: number, over: Partial<ReportAlert> = {}): ReportAlert => ({
   vendor: 'defender', title: 'Alert', severity: 'high', status: 'new', createdAt: minutesFromCompletion(m),
-  stageControlId: null, preventionAction: null, portalUrl: null, autoResolvedAt: null, ...over,
+  stageControlId: null, stageControlIds: [], preventionAction: null, portalUrl: null, autoResolvedAt: null, ...over,
 });
 
 const stage = (order: number, outcome: ReportRunStage['outcome']): ReportRunStage => ({

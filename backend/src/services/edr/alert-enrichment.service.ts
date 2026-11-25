@@ -13,6 +13,7 @@ import {
 import type { EnrichmentPassOptions, EnrichmentPassResult } from '../../types/edr.js';
 import { isAchillesMitigated, ACHILLES_MITIGATION_FIELDS, ACHILLES_MITIGATED_QUERY } from '../shared/achillesMitigation.js';
 import { alertCredit, isStageFile, isTestFile, MULTI_TEST_EVIDENCE_FIELDS } from './multiTestEvidence.js';
+import { alertCreditForRun, EVIDENCE_ITEMS_FIELD, runWindow, type RunWindow } from './runEvidence.js';
 import { enrichmentEligibleClauses } from '../analytics/enrichment-eligibility.js';
 import type { EdrVendorKey } from '../outcomes/vendors.js';
 
@@ -69,6 +70,16 @@ export const EVIDENCE_RULE = 'file_verdict';
 export const PREVENTION_RULE = 'in_run';
 
 /**
+ * Marks a result evaluated under the run-evidence rule (runScopedEvidence:
+ * an alert credits a result only through its evidence items of that run,
+ * edr/runEvidence.ts). A result with a run window flagged before it is
+ * re-checked once: the rule re-arms the three one-time checks above for it,
+ * so a flag that only an earlier run's evidence supported goes when the
+ * alerts are still in the index and none counts for this run.
+ */
+export const RUN_RULE = 'run_evidence';
+
+/**
  * Prevention actions that count as vendor-confirmed PREVENTION (vs.
  * detection-only). Derived from pattern_disposition_details at sync time —
  * see docs/edr-prevention-action-detection.md. 'kill_failed' is deliberately
@@ -85,6 +96,9 @@ const PREVENTION_ACTIONS = new Set(['quarantined', 'process_killed', 'blocked'])
  */
 export const DEFAULT_RECHECK_UNPREVENTED_HOURS = 72;
 
+/** Result ids a pass lists in `removedFlagDocs`; past this it only counts them (`removedFlagDocsOmitted`). */
+export const REMOVED_FLAG_DOCS_LISTED = 20;
+
 /** Distinct prevention actions per alert sub-query (aggregated over every matching alert). */
 const PREVENTION_ACTION_BUCKETS = 10;
 
@@ -92,6 +106,12 @@ const PREVENTION_ACTION_BUCKETS = 10;
 export interface EvidenceQueryBuilders {
   wide: typeof buildCrowdStrikeEvidenceQuery;
   stage: typeof buildStageCrowdStrikeEvidenceQuery;
+  /**
+   * The paths the wide query matches as naming the test (runScopedEvidence:
+   * a run view keeps a test-level match made by path only when an in-run
+   * path still names the test).
+   */
+  pathNamesTest?: (input: { test_uuid: string; bundle_name?: string }) => (path: string) => boolean;
 }
 
 /**
@@ -124,6 +144,15 @@ export interface EnrichmentVendorTarget {
    * aggregation and re-fires (defender/evidence-correlation.ts).
    */
   evidenceQueries?: EvidenceQueryBuilders;
+  /**
+   * Credit each matched alert only from its evidence items of the result's
+   * own run (edr/runEvidence.ts): the alert sub-queries also fetch
+   * `evidence_items`, and the run window is the scanned result's
+   * `routing.run_started_at` .. `routing.event_time`. A result without a run
+   * start, or an alert without items, keeps the rule as it was. Defender sets
+   * it once its v9 re-sync has completed; off (default), nothing changes.
+   */
+  runScopedEvidence?: boolean;
 }
 
 export class EdrAlertEnrichmentService {
@@ -148,6 +177,10 @@ export class EdrAlertEnrichmentService {
       skipped: 0,
       batches: 0,
       alertsMarkedCorrelated: 0,
+      stageDetectionsRemoved: 0,
+      detectionsRemoved: 0,
+      preventionsRemoved: 0,
+      removedFlagDocs: [],
       errors: [],
       durationMs: 0,
     };
@@ -185,8 +218,14 @@ export class EdrAlertEnrichmentService {
       //    narrow query requires the SPECIFIC stage binary
       //    (`<uuid>-<control_id>[-<variant>].exe`) to appear in evidence_filenames.
       //    Building both in the same msearch keeps round-trips at 1 per batch.
-      type SubQuery = { kind: 'wide' | 'stage'; hit: any; body: Record<string, unknown>; bundleUuid: string; controlId: string };
+      type SubQuery = {
+        kind: 'wide' | 'stage'; hit: any; body: Record<string, unknown>; bundleUuid: string; controlId: string;
+        /** runScopedEvidence only: the result's run window (null = no run view) and the wide query's path rule. */
+        window: RunWindow | null; pathNamesTest?: (path: string) => boolean;
+      };
       const queries: SubQuery[] = [];
+      /** Sub-queries queued per result doc (the run marker needs every one answered). */
+      const queuedByHitId = new Map<string, number>();
       for (const hit of hits) {
         const src = hit._source?.f0rtika ?? {};
         const routing = hit._source?.routing ?? {};
@@ -210,21 +249,30 @@ export class EdrAlertEnrichmentService {
         }
         const bundleUuid = extractBundleUuid(testUuid);
         const controlId = String(src.control_id ?? '');
-        if (wideQuery)  queries.push({ kind: 'wide',  hit, body: wideQuery,  bundleUuid, controlId });
-        if (stageQuery) queries.push({ kind: 'stage', hit, body: stageQuery, bundleUuid, controlId });
+        const window = this.runWindowOf(hit);
+        const pathNamesTest = this.target.runScopedEvidence
+          ? this.evidenceQueries.pathNamesTest?.({ test_uuid: testUuid, bundle_name: src.bundle_name })
+          : undefined;
+        if (wideQuery)  queries.push({ kind: 'wide',  hit, body: wideQuery,  bundleUuid, controlId, window, pathNamesTest });
+        if (stageQuery) queries.push({ kind: 'stage', hit, body: stageQuery, bundleUuid, controlId, window });
+        queuedByHitId.set(hit._id, (wideQuery ? 1 : 0) + (stageQuery ? 1 : 0));
       }
 
       // 3. Execute msearch. size=EVIDENCE_HITS_PER_SUBQUERY so we get back the
       //    matched alert _ids (needed for the alert-side correlation update)
       //    and can classify each alert. _source carries only what the flags
-      //    need (prevention_action + the multi-test evidence fields).
-      if (queries.length > 0) {
+      //    need (prevention_action + the multi-test evidence fields, and the
+      //    evidence items when crediting by run). Crediting by run, a batch
+      //    with no usable query still reaches the update step, so a result the
+      //    run clause selected can get its marker (step 5).
+      if (queries.length > 0 || this.target.runScopedEvidence) {
         const searches: unknown[] = [];
+        const runFields = this.target.runScopedEvidence ? [EVIDENCE_ITEMS_FIELD] : [];
         for (const q of queries) {
           searches.push({ index: this.target.alertIndex });
           const source = this.target.ignoreAchillesMitigated
-            ? ['prevention_action', ...ACHILLES_MITIGATION_FIELDS, 'f0rtika.achilles_correlated', ...MULTI_TEST_EVIDENCE_FIELDS]
-            : ['prevention_action', 'f0rtika.achilles_correlated', ...MULTI_TEST_EVIDENCE_FIELDS];
+            ? ['prevention_action', ...ACHILLES_MITIGATION_FIELDS, 'f0rtika.achilles_correlated', ...MULTI_TEST_EVIDENCE_FIELDS, ...runFields]
+            : ['prevention_action', 'f0rtika.achilles_correlated', ...MULTI_TEST_EVIDENCE_FIELDS, ...runFields];
           const preventionFilter = this.target.ignoreAchillesMitigated
             ? { bool: { must_not: [ACHILLES_MITIGATED_QUERY] } }
             : { match_all: {} };
@@ -246,7 +294,7 @@ export class EdrAlertEnrichmentService {
 
         let msearchResponse;
         try {
-          msearchResponse = await this.client.msearch({ searches } as any);
+          msearchResponse = queries.length > 0 ? await this.client.msearch({ searches } as any) : { responses: [] };
         } catch (err) {
           result.errors.push(`msearch: ${this.errMsg(err)}`);
           searchAfter = hits[hits.length - 1].sort;
@@ -282,11 +330,13 @@ export class EdrAlertEnrichmentService {
           /** Alerts the wide query matched, and how many of them count for this test. */
           wideHitsAll: number;
           wideHitsCounting: number;
+          /** Sub-queries that answered this pass. */
+          answered: number;
         }
         const emptyUpdate = (hit: any, bundleUuid: string): PerHitUpdate => ({
           hit, bundleUuid, wideMatched: false, stageMatched: false, alertIds: new Set(), stageActions: [], wideActions: [],
           correlatedAlertIds: new Set(), stageQueried: false, stageHitsAll: 0, stageHitsSingle: 0,
-          wideQueried: false, wideHitsAll: 0, wideHitsCounting: 0,
+          wideQueried: false, wideHitsAll: 0, wideHitsCounting: 0, answered: 0,
         });
         const updatesByHitId = new Map<string, PerHitUpdate>();
         const responses = (msearchResponse as any).responses ?? [];
@@ -309,6 +359,7 @@ export class EdrAlertEnrichmentService {
           }
           if (q.kind === 'stage') entry.stageQueried = true;
           else entry.wideQueried = true;
+          entry.answered += 1;
           if (total === 0) continue;
 
           const allHits = (resp.hits?.hits ?? []) as any[];
@@ -320,8 +371,17 @@ export class EdrAlertEnrichmentService {
             : (f: string) => isTestFile(f, q.bundleUuid);
           // A stage takes only its own file's actions (and its child
           // processes') where the alert records them per evidence item.
+          // Crediting by run, only the alert's evidence of this result's run
+          // counts (edr/runEvidence.ts); the wide query also keeps a match by
+          // a path naming the test.
+          const ownActionsOnly = q.kind === 'stage';
           const credited = allHits
-            .map((h) => ({ h, credit: alertCredit(h._source ?? {}, mine, { ownActionsOnly: q.kind === 'stage' }) }))
+            .map((h) => ({
+              h,
+              credit: this.target.runScopedEvidence
+                ? alertCreditForRun(h._source ?? {}, q.window, mine, { ownActionsOnly, pathNamesTest: q.pathNamesTest })
+                : alertCredit(h._source ?? {}, mine, { ownActionsOnly }),
+            }))
             .filter((c) => c.credit.counts);
           const alertHits = credited.map((c) => c.h);
           // Alerts beyond the hits read can't be classified: they count, as
@@ -396,7 +456,11 @@ export class EdrAlertEnrichmentService {
         //      no-op; subsequent passes self-heal if the first failed.
         if (updatesByHitId.size > 0) {
           const operations: unknown[] = [];
-          const testOpMeta: Array<{ kind: 'test' | 'alert'; alertId?: string; wide: boolean; stage: boolean }> = [];
+          const testOpMeta: Array<{
+            kind: 'test' | 'alert'; alertId?: string; docId?: string; wide: boolean; stage: boolean;
+            /** Run view only: the flags this update turns from true to false. */
+            removed?: { stage: boolean; wide: boolean; prevention: boolean };
+          }> = [];
           const alertIdsEmitted = new Set<string>();
           const matchedAt = new Date().toISOString();
 
@@ -410,6 +474,10 @@ export class EdrAlertEnrichmentService {
             const recheck = existing[`${v}_detected`] === true;
             const wide = u.wideMatched && existing[`${v}_detected`] !== true;
             const stage = u.stageMatched && existing[`${v}_stage_detected`] !== true;
+            // Run-evidence rule (RUN_RULE): a result with a run window that was
+            // not evaluated under it re-runs the one-time checks below once.
+            const runView = this.runWindowOf(u.hit) !== null;
+            const runRecheck = runView && existing[`${v}_run_rule`] !== RUN_RULE;
             if (wide)  f0rtika[`${v}_detected`]       = true;
             if (stage) f0rtika[`${v}_stage_detected`] = true;
             // Vendor-confirmed prevention — rides alongside the detected flags.
@@ -467,8 +535,9 @@ export class EdrAlertEnrichmentService {
             // only ever credited by alerts listing leftover binaries, so its
             // stage flags go (and, on a conclusive exit, its prevention, which
             // there can only have come from the stage match). No visible
-            // stage alerts (aged out): nothing is downgraded.
-            if (u.stageQueried && existing[`${v}_stage_rule`] !== STAGE_RULE) {
+            // stage alerts (aged out): nothing is downgraded. The run rule
+            // re-arms it (then "counts" means: from this run's evidence).
+            if (u.stageQueried && (existing[`${v}_stage_rule`] !== STAGE_RULE || runRecheck)) {
               const wasStage = existing[`${v}_stage_detected`] === true;
               if (wasStage && u.stageHitsAll > 0 && u.stageHitsSingle === 0) {
                 f0rtika[`${v}_stage_detected`] = false;
@@ -479,15 +548,15 @@ export class EdrAlertEnrichmentService {
                   f0rtika[`${v}_prevention_action`] = null;
                 }
               }
-              if (wasStage || u.stageMatched) f0rtika[`${v}_stage_rule`] = STAGE_RULE;
+              if ((wasStage || u.stageMatched) && existing[`${v}_stage_rule`] !== STAGE_RULE) f0rtika[`${v}_stage_rule`] = STAGE_RULE;
             }
             // Per-file verdict rule at test level (multiTestEvidence.ts). A doc
             // detected under the older rule is checked once: when its alerts are
             // still in the index and none counts for this test (each one a
             // multi-test listing), it loses `_detected`, and its prevention
             // too unless the stage itself stays detected. No visible alerts
-            // (aged out): nothing is downgraded.
-            if (u.wideQueried && existing[`${v}_evidence_rule`] !== EVIDENCE_RULE) {
+            // (aged out): nothing is downgraded. The run rule re-arms it.
+            if (u.wideQueried && (existing[`${v}_evidence_rule`] !== EVIDENCE_RULE || runRecheck)) {
               const wasWide = existing[`${v}_detected`] === true;
               if (wasWide && u.wideHitsAll > 0 && u.wideHitsCounting === 0) {
                 f0rtika[`${v}_detected`] = false;
@@ -497,14 +566,15 @@ export class EdrAlertEnrichmentService {
                   f0rtika[`${v}_prevention_action`] = null;
                 }
               }
-              if (wasWide || u.wideMatched) f0rtika[`${v}_evidence_rule`] = EVIDENCE_RULE;
+              if ((wasWide || u.wideMatched) && existing[`${v}_evidence_rule`] !== EVIDENCE_RULE) f0rtika[`${v}_evidence_rule`] = EVIDENCE_RULE;
             }
             // Prevention rules (PREVENTION_RULE). A doc prevented under the
             // older rules is checked once: when its alerts are still in the
             // index and no action now qualifies (the result exited 101, or the
             // action was on another file), the prevention flags go; detection
-            // stays. No visible alerts (aged out): nothing is downgraded.
-            if ((u.stageQueried || u.wideQueried) && existing[`${v}_prevention_rule`] !== PREVENTION_RULE) {
+            // stays. No visible alerts (aged out): nothing is downgraded. The
+            // run rule re-arms it.
+            if ((u.stageQueried || u.wideQueried) && (existing[`${v}_prevention_rule`] !== PREVENTION_RULE || runRecheck)) {
               const now = (k: string) => (k in f0rtika ? f0rtika[k] : existing[k]);
               const wasPrevented = now(`${v}_prevented`) === true;
               const wasStagePrevented = now(`${v}_stage_prevented`) === true;
@@ -528,12 +598,59 @@ export class EdrAlertEnrichmentService {
                   }
                 }
               }
-              if (recheckable || qualifying.length > 0) f0rtika[`${v}_prevention_rule`] = PREVENTION_RULE;
+              if ((recheckable || qualifying.length > 0) && existing[`${v}_prevention_rule`] !== PREVENTION_RULE) {
+                f0rtika[`${v}_prevention_rule`] = PREVENTION_RULE;
+              }
+            }
+            // The run marker, in the same update as the flag changes above: on
+            // a result that was or now is flagged, once every sub-query it
+            // queued answered (else the next pass re-checks it). A result no
+            // alert flags has nothing to re-check and stays unmarked.
+            const queued = queuedByHitId.get(u.hit._id) ?? 0;
+            const flagged = (k: string) => existing[k] === true || f0rtika[k] === true;
+            if (runRecheck && queued > 0) {
+              if (u.answered === queued && (flagged(`${v}_detected`) || flagged(`${v}_stage_detected`))) {
+                f0rtika[`${v}_run_rule`] = RUN_RULE;
+              }
+            } else if (
+              this.target.runScopedEvidence
+              && u.hit._source?.routing?.run_started_at != null
+              && existing[`${v}_run_rule`] !== RUN_RULE
+              && (existing[`${v}_detected`] === true || existing[`${v}_stage_detected`] === true)
+              && u.answered === queued
+            ) {
+              // Selected by the run clause but never evaluable by run: its
+              // stored times give no run window, or no alert query can be
+              // built for it. Today's rule decides it on every pass alike, so
+              // it gets the marker alone instead of being selected forever.
+              f0rtika[`${v}_run_rule`] = RUN_RULE;
+            }
+            // A pass without a run view that sets a detection or prevention
+            // flag on a marked result (the late-prevention clause can bring an
+            // earlier run's action): the marker no longer vouches for that
+            // flag, so it is cleared and the run rule re-checks the result
+            // once it is back.
+            if (
+              !runView
+              && existing[`${v}_run_rule`] === RUN_RULE
+              && [`${v}_detected`, `${v}_stage_detected`, `${v}_prevented`, `${v}_stage_prevented`].some((k) => f0rtika[k] === true)
+            ) {
+              f0rtika[`${v}_run_rule`] = null;
             }
             if (Object.keys(f0rtika).length > 0) {
               operations.push({ update: { _index: u.hit._index, _id: u.hit._id } });
               operations.push({ doc: { f0rtika } });
-              testOpMeta.push({ kind: 'test', wide, stage });
+              // With a run view every true -> false counts, whichever one-time
+              // check armed the downgrade.
+              const gone = (k: string) => existing[k] === true && f0rtika[k] === false;
+              const removed = runView
+                ? {
+                  stage: gone(`${v}_stage_detected`),
+                  wide: gone(`${v}_detected`),
+                  prevention: gone(`${v}_prevented`) || gone(`${v}_stage_prevented`),
+                }
+                : undefined;
+              testOpMeta.push({ kind: 'test', docId: u.hit._id, wide, stage, removed });
             }
 
             // Alert-doc updates (dedup per batch)
@@ -571,6 +688,16 @@ export class EdrAlertEnrichmentService {
                 if (meta?.kind === 'test') {
                   if (meta.wide)  result.detected += 1;
                   if (meta.stage) result.stageDetected += 1;
+                  // A removal counts only when the update changed the doc ('noop' did not).
+                  if (meta.removed && item?.result === 'updated') {
+                    if (meta.removed.stage) result.stageDetectionsRemoved += 1;
+                    if (meta.removed.wide) result.detectionsRemoved += 1;
+                    if (meta.removed.prevention) result.preventionsRemoved += 1;
+                    if (meta.removed.stage || meta.removed.wide || meta.removed.prevention) {
+                      if (result.removedFlagDocs.length < REMOVED_FLAG_DOCS_LISTED) result.removedFlagDocs.push(String(meta.docId));
+                      else result.removedFlagDocsOmitted = (result.removedFlagDocsOmitted ?? 0) + 1;
+                    }
+                  }
                 } else if (meta?.kind === 'alert') {
                   result.alertsMarkedCorrelated += 1;
                 }
@@ -648,6 +775,27 @@ export class EdrAlertEnrichmentService {
         must_not: [{ term: { [`f0rtika.${v}_stage_rule`]: STAGE_RULE } }],
       },
     });
+    // Run-evidence rule (RUN_RULE): a flagged result with a run start is
+    // checked once. Without a run start there is no run window: today's rule.
+    if (this.target.runScopedEvidence) {
+      eligible.push({
+        bool: {
+          filter: [
+            {
+              bool: {
+                should: [
+                  { term: { [`f0rtika.${v}_detected`]: true } },
+                  { term: { [`f0rtika.${v}_stage_detected`]: true } },
+                ],
+                minimum_should_match: 1,
+              },
+            },
+            { exists: { field: 'routing.run_started_at' } },
+          ],
+          must_not: [{ term: { [`f0rtika.${v}_run_rule`]: RUN_RULE } }],
+        },
+      });
+    }
     // Provenance backfill: a stage flagged before `_stage_prevented` existed
     // is evaluated once (it also picks up actions that arrived late).
     eligible.push({
@@ -679,6 +827,13 @@ export class EdrAlertEnrichmentService {
    */
   private ranToCompletion(hit: any): boolean {
     return Number(hit._source?.event?.ERROR) === 101;
+  }
+
+  /** The result's run window when crediting by run; null = no run view (today's rule). */
+  private runWindowOf(hit: any): RunWindow | null {
+    if (!this.target.runScopedEvidence) return null;
+    const routing = hit._source?.routing ?? {};
+    return runWindow(routing.run_started_at, routing.event_time);
   }
 
   private get recheckHours(): number {

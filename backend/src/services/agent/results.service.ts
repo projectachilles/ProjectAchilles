@@ -164,12 +164,24 @@ export function testVersionField(
   return version ? { test_version: version } : {};
 }
 
+/**
+ * `routing.run_started_at` fragment: the start in UTC ISO form, or nothing when
+ * it is not a date. One stored form, because an index that maps the field as
+ * `date` rejects the whole document over a value it cannot parse.
+ */
+function runStartedAtField(startedAt: unknown): { run_started_at: string } | Record<string, never> {
+  return typeof startedAt === 'string' && startedAt !== '' && !Number.isNaN(new Date(startedAt).getTime())
+    ? { run_started_at: new Date(startedAt).toISOString() }
+    : {};
+}
+
 /** Standard whole-test document; shared by `ingestResult` and `ingestEdrTerminatedResult`. */
-function buildStandardDoc(task: Task, eventTime: string | undefined, hostname: string | undefined, rawExitCode: number) {
+function buildStandardDoc(task: Task, eventTime: string | undefined, hostname: string | undefined, rawExitCode: number, runStartedAt?: string) {
   const exitCode = sanitizeExitCode(rawExitCode);
   return {
     routing: {
       event_time: eventTime,
+      ...runStartedAtField(runStartedAt),
       oid: task.org_id,
       hostname,
     },
@@ -223,7 +235,7 @@ export async function ingestResult(task: Task, result: TaskResult): Promise<void
   }
 
   // Standard single-document path (unchanged)
-  const doc = buildStandardDoc(task, result.completed_at, result.hostname, result.exit_code);
+  const doc = buildStandardDoc(task, result.completed_at, result.hostname, result.exit_code, result.started_at);
 
   await ensureTestVersionMapping(client, index, 'test_version' in doc.f0rtika);
   await client.index({ index, id: task.id, document: doc });
@@ -354,6 +366,7 @@ async function ingestBundleControls(
       {
         routing: {
           event_time: result.completed_at,
+          ...runStartedAtField(result.started_at),
           oid: task.org_id,
           hostname: result.hostname,
         },

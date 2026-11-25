@@ -8,15 +8,21 @@
 
 import type { Client } from '@elastic/elasticsearch';
 import { EdrAlertEnrichmentService } from '../edr/alert-enrichment.service.js';
-import { buildDefenderEvidenceQuery, buildStageDefenderEvidenceQuery } from './evidence-correlation.js';
+import { buildDefenderEvidenceQuery, buildStageDefenderEvidenceQuery, defenderPathNamesTest } from './evidence-correlation.js';
 import { DEFENDER_INDEX } from './index-management.js';
 
 export class DefenderEnrichmentService extends EdrAlertEnrichmentService {
-  constructor(client: Client, resultsIndexPattern: string) {
+  /**
+   * `runScopedEvidence`: credit a result only from its own run's evidence
+   * items (EnrichmentVendorTarget.runScopedEvidence). The sync passes
+   * `evidenceItemsReady()`; off, the pass runs exactly as before.
+   */
+  constructor(client: Client, resultsIndexPattern: string, options: { runScopedEvidence?: boolean } = {}) {
     super(client, resultsIndexPattern, {
       alertIndex: DEFENDER_INDEX,
       flagPrefix: 'defender',
-      evidenceQueries: { wide: buildDefenderEvidenceQuery, stage: buildStageDefenderEvidenceQuery },
+      evidenceQueries: { wide: buildDefenderEvidenceQuery, stage: buildStageDefenderEvidenceQuery, pathNamesTest: defenderPathNamesTest },
+      runScopedEvidence: options.runScopedEvidence === true,
     });
   }
 }

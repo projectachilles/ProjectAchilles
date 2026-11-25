@@ -44,6 +44,7 @@ import { prepareConfiguredEdrEs } from './services/edr/es-readiness.js';
 import { crowdstrikeSyncService } from './api/integrations.routes.js';
 import { runAgentKillReconciliation } from './services/edr/agent-kill-reconcile.service.js';
 import { runCompletedStageCleanup } from './services/edr/completedStageCleanup.js';
+import { runRunStartBackfill } from './services/agent/runStartBackfill.js';
 import { runLaunchBlockReconciliation } from './services/edr/launch-block-reconcile.service.js';
 import defenderRoutes from './api/defender.routes.js';
 import crowdstrikeRoutes from './api/crowdstrike.routes.js';
@@ -607,6 +608,9 @@ function startBackgroundJobs(httpServer?: http.Server) {
   const completedStageCleanupInterval: ReturnType<typeof setInterval> = setInterval(() => {
     void runCompletedStageCleanup();
   }, 5 * 60 * 1000); // 5 minutes
+
+  // --- Run-start backfill: one pass at start-up, no interval ---
+  void runRunStartBackfill();
 
   // --- CrowdStrike sync: ZTA scores every 6h, alerts every 5min ---
   let crowdstrikeZtaInterval: ReturnType<typeof setInterval> | undefined;

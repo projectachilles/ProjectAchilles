@@ -61,6 +61,9 @@ const DEPLOYMENT_WIDE_S1 = 'SentinelOne is configured for the whole deployment, 
 /** An org caller asked to change the deployment-wide (legacy) Sophos settings. */
 const DEPLOYMENT_WIDE_SOPHOS = 'Sophos is configured for the whole deployment, not for this organization. Change or disconnect it from an account without an active organization.';
 
+/** Persisted Defender sync state (defender section, or `defender_sync` for env-var credentials). */
+type DefenderSyncTimestamps = Pick<DefenderIntegrationSettings, 'last_alert_sync' | 'last_score_sync' | 'sync_version' | 'evidence_items_version'>;
+
 const AUTO_RESOLVE_MODES: ReadonlyArray<AutoResolveMode> = ['disabled', 'dry_run', 'enabled'] as const;
 const DEFAULT_AUTO_RESOLVE_MODE: AutoResolveMode = 'disabled';
 
@@ -521,6 +524,7 @@ export class IntegrationsSettingsService {
       last_alert_sync: settings.last_alert_sync !== undefined ? settings.last_alert_sync : current.last_alert_sync,
       last_score_sync: settings.last_score_sync !== undefined ? settings.last_score_sync : current.last_score_sync,
       sync_version: settings.sync_version !== undefined ? settings.sync_version : current.sync_version,
+      evidence_items_version: settings.evidence_items_version !== undefined ? settings.evidence_items_version : current.evidence_items_version,
       auto_resolve_mode: settings.auto_resolve_mode !== undefined ? settings.auto_resolve_mode : current.auto_resolve_mode,
     };
 
@@ -554,7 +558,7 @@ export class IntegrationsSettingsService {
    * Read persisted Defender sync timestamps from either the defender settings
    * section (file-based credentials) or the standalone defender_sync key (env var credentials).
    */
-  getDefenderSyncTimestamps(): { last_alert_sync?: string; last_score_sync?: string; sync_version?: number } {
+  getDefenderSyncTimestamps(): DefenderSyncTimestamps {
     // Check file-based defender settings first
     const settings = this.getDefenderSettings() as Record<string, any> | null;
     if (settings?.last_alert_sync || settings?.last_score_sync) {
@@ -562,6 +566,7 @@ export class IntegrationsSettingsService {
         last_alert_sync: settings.last_alert_sync,
         last_score_sync: settings.last_score_sync,
         sync_version: settings.sync_version,
+        evidence_items_version: settings.evidence_items_version,
       };
     }
     // Fallback: standalone key (used when credentials come from env vars)
@@ -572,6 +577,7 @@ export class IntegrationsSettingsService {
         last_alert_sync: syncSection.last_alert_sync,
         last_score_sync: syncSection.last_score_sync,
         sync_version: syncSection.sync_version,
+        evidence_items_version: syncSection.evidence_items_version,
       };
     }
     return {};
@@ -582,7 +588,7 @@ export class IntegrationsSettingsService {
    * Writes directly to the raw file to avoid the read-decrypt-merge-encrypt
    * cycle that would clobber env-var-based credentials with empty file entries.
    */
-  saveDefenderSyncTimestamps(timestamps: { last_alert_sync?: string; last_score_sync?: string; sync_version?: number }): void {
+  saveDefenderSyncTimestamps(timestamps: DefenderSyncTimestamps): void {
     this.ensureSettingsDir();
     const existing = this.getRawFileSettingsForWrite();
 
@@ -594,10 +600,12 @@ export class IntegrationsSettingsService {
       if (timestamps.last_alert_sync !== undefined) orgDefender.last_alert_sync = timestamps.last_alert_sync;
       if (timestamps.last_score_sync !== undefined) orgDefender.last_score_sync = timestamps.last_score_sync;
       if (timestamps.sync_version !== undefined) orgDefender.sync_version = timestamps.sync_version;
+      if (timestamps.evidence_items_version !== undefined) orgDefender.evidence_items_version = timestamps.evidence_items_version;
     } else if (existing.defender) {
       if (timestamps.last_alert_sync !== undefined) existing.defender.last_alert_sync = timestamps.last_alert_sync;
       if (timestamps.last_score_sync !== undefined) existing.defender.last_score_sync = timestamps.last_score_sync;
       if (timestamps.sync_version !== undefined) existing.defender.sync_version = timestamps.sync_version;
+      if (timestamps.evidence_items_version !== undefined) existing.defender.evidence_items_version = timestamps.evidence_items_version;
     } else {
       // No existing defender section in file — credentials come from env vars.
       // Store timestamps in a lightweight top-level key that won't shadow env vars.

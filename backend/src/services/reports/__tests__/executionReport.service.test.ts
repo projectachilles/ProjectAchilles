@@ -338,6 +338,73 @@ describe('ExecutionReportService.generate', () => {
     expect(report.tests[0].stages[0].alerts).toEqual({ defender: 0, crowdstrike: 0, sentinelone: 0, sophos: 0 });
   });
 
+  it('credits an alert to every stage it names', async () => {
+    const deps = makeDeps();
+    deps.client.msearch.mockImplementation(async ({ searches }: { searches: unknown[] }) => ({
+      responses: Array.from({ length: searches.length / 2 }, () => ({ hits: { hits: [{ _source: {
+        alert_title: 'Two stages', severity: 'high', status: 'new', created_at: '2026-10-12T12:48:51Z',
+        evidence_filenames: [`${BUNDLE}-T1567.002.exe`, `${BUNDLE}.exe`, `${BUNDLE}-T1486.exe`],
+      } }] } })),
+    }));
+    const report = await new ExecutionReportService(settings, deps).generate(params(), NOW);
+    expect(report.runs[0].alerts[0]).toMatchObject({ stageControlId: 't1567.002', stageControlIds: ['t1567.002', 't1486'] });
+    expect(report.tests[0].stages.map((s) => [s.controlId, s.alerts.defender])).toEqual([['T1567.002', 1], ['T1486', 1]]);
+  });
+
+  describe('when the run\'s docs record its start (routing.run_started_at)', () => {
+    const STARTED = '2026-10-12T12:41:00.000Z';
+    const withStart = () => {
+      const res = runsResponse() as any;
+      res.aggregations.runs.buckets[0].started = { value: Date.parse(STARTED) };
+      return res;
+    };
+    const evidence = (file: string, startedAt: string) => ({
+      file, path: 'c:\\f0', parent: `${BUNDLE}.exe`, parent_path: 'c:\\f0', kind: 'process',
+      verdict: 'malicious', action: null, started_at: startedAt, added_at: startedAt,
+    });
+    // Open since an earlier run of T1486; this run adds T1567.002.
+    const spanning = { _source: {
+      alert_title: 'Spans two runs', severity: 'high', status: 'new', created_at: '2026-10-10T08:01:00Z',
+      evidence_filenames: [`${BUNDLE}-T1486.exe`, `${BUNDLE}.exe`, `${BUNDLE}-T1567.002.exe`],
+      evidence_items: [
+        evidence(`${BUNDLE}-t1486.exe`, '2026-10-10T08:00:00Z'),
+        evidence(`${BUNDLE}-t1567.002.exe`, '2026-10-12T12:45:00Z'),
+      ],
+    } };
+
+    it('reads each alert through the run window: only this run\'s stages are credited', async () => {
+      const deps = makeDeps();
+      deps.client.search.mockImplementation(async (req: { aggs: Record<string, any> }) =>
+        (req.aggs.runs?.terms ? withStart() : routeSearch()(req)));
+      deps.client.msearch.mockImplementation(async ({ searches }: { searches: unknown[] }) => ({
+        responses: Array.from({ length: searches.length / 2 }, () => ({ hits: { hits: [spanning] } })),
+      }));
+      const report = await new ExecutionReportService(settings, deps).generate(params(), NOW);
+      expect(report.runs[0].alerts[0]).toMatchObject({ title: 'Spans two runs', stageControlIds: ['t1567.002'] });
+      expect(report.tests[0].stages.map((s) => [s.controlId, s.alerts.defender])).toEqual([['T1567.002', 1], ['T1486', 0]]);
+    });
+
+    it('keeps the recorded start over the agent database\'s', async () => {
+      const deps = makeDeps();
+      deps.client.search.mockImplementation(async (req: { aggs: Record<string, any> }) =>
+        (req.aggs.runs?.terms ? withStart() : routeSearch()(req)));
+      const report = await new ExecutionReportService(settings, deps).generate(params(), NOW);
+      expect(report.runs[0].startedAt).toBe(STARTED);
+    });
+
+    it('without it: no run window, every stage the alert names, as before', async () => {
+      const deps = makeDeps();
+      deps.client.msearch.mockImplementation(async ({ searches }: { searches: unknown[] }) => ({
+        responses: Array.from({ length: searches.length / 2 }, () => ({ hits: { hits: [spanning] } })),
+      }));
+      const report = await new ExecutionReportService(settings, deps).generate(params(), NOW);
+      // The agent database's start fills the run strip, but never makes a run window.
+      expect(report.runs[0].startedAt).toBe('2026-10-12T12:41:06.000Z');
+      expect(report.runs[0].alerts[0].stageControlIds).toEqual(['t1486', 't1567.002']);
+      expect(report.tests[0].stages.map((s) => [s.controlId, s.alerts.defender])).toEqual([['T1567.002', 1], ['T1486', 1]]);
+    });
+  });
+
   it('echoes filters and flags outcome filtering', async () => {
     const report = await new ExecutionReportService(settings, makeDeps())
       .generate(params({ result: 'unprotected', errorCodes: '101', tags: 'lockbit' }), NOW);

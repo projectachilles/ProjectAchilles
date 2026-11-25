@@ -152,6 +152,20 @@ describe('alertStageText', () => {
     const run = makeRun({ stages: [{ ...makeRun().stages[0], name: long }] });
     expect(alertStageText([], run, 't1059.001')).toBe(`S1 ${'A'.repeat(33)}…`);
   });
+
+  // An alert is listed under every stage its run evidence names (stageControlIds).
+  it('names every stage of a list of tokens, joined by ", "', () => {
+    expect(alertStageText(tests, makeRun(), ['t1003.001', 't1486']))
+      .toBe('S2 Privileged credential access, S5 Encryption & recovery inhibition');
+  });
+
+  it('a list of one token reads as that token', () => {
+    expect(alertStageText(tests, makeRun(), ['t1486'])).toBe(alertStageText(tests, makeRun(), 't1486'));
+  });
+
+  it('says "bundle" for an empty list', () => {
+    expect(alertStageText(tests, makeRun(), [])).toBe('bundle');
+  });
 });
 
 describe('alertActionText', () => {

@@ -60,16 +60,22 @@ vi.mock('../../analytics/client.js', () => ({
   }),
 }));
 
-// Mock enrichment service
+// Mock enrichment service (records its constructor arguments; a test can set the pass result)
+const mockEnrichmentCtor = vi.fn();
+let mockEnrichmentResult: Record<string, unknown> | undefined;
 vi.mock('../enrichment.service.js', () => ({
   DefenderEnrichmentService: class {
+    constructor(...args: unknown[]) {
+      mockEnrichmentCtor(...args);
+    }
     async runEnrichmentPass() {
-      return {
+      return mockEnrichmentResult ?? {
         scanned: 0,
         detected: 0,
         skipped: 0,
         batches: 0,
         alertsMarkedCorrelated: 0,
+        removedFlagDocs: [],
         errors: [],
         durationMs: 0,
       };
@@ -341,16 +347,25 @@ describe('DefenderSyncService', () => {
 
       // First sync — 90-day lookback filter (no persisted lastAlertSync)
       await service.syncAlerts();
-      expect(mockGetAlerts).toHaveBeenCalledWith(
-        expect.stringContaining('createdDateTime ge'),
-      );
+      const lookback = Date.parse(mockGetAlerts.mock.calls[0][0].replace('lastUpdateDateTime ge ', ''));
+      expect(Math.abs(lookback - (Date.now() - 90 * 86400_000))).toBeLessThan(60_000);
 
-      // Second sync — should include lastUpdateDateTime filter (incremental)
+      // Second sync — from the checkpoint the first one recorded (incremental)
+      const checkpoint = service.getSyncStatus().lastAlertSync;
       mockGetAlerts.mockClear();
       await service.syncAlerts();
-      expect(mockGetAlerts).toHaveBeenCalledWith(
-        expect.stringContaining('lastUpdateDateTime ge'),
-      );
+      expect(mockGetAlerts).toHaveBeenCalledWith(`lastUpdateDateTime ge ${checkpoint}`);
+    });
+
+    // An alert opened more than 90 days ago that Defender still adds evidence
+    // to is in the window by its update time, not by its creation time.
+    it('the full re-sync selects alerts by update time over the look-back', async () => {
+      mockGetAlerts.mockResolvedValue([]);
+
+      await service.syncAlerts();
+
+      expect(mockGetAlerts.mock.calls[0][0]).toMatch(/^lastUpdateDateTime ge /);
+      expect(mockGetAlerts.mock.calls[0][0]).not.toContain('createdDateTime');
     });
 
     it('sync_version 3 (pre-prevention fields) forces a full re-sync', async () => {
@@ -369,9 +384,358 @@ describe('DefenderSyncService', () => {
       // lastAlertSync must NOT have been adopted — the filter is the 90-day
       // lookback, not the stale checkpoint.
       expect(mockGetAlerts).toHaveBeenCalledWith(
-        expect.stringContaining('createdDateTime ge'),
+        expect.stringMatching(/^lastUpdateDateTime ge /),
       );
+      expect(mockGetAlerts).not.toHaveBeenCalledWith('lastUpdateDateTime ge 2026-09-01T00:00:00Z');
     });
+  });
+
+  // ── Evidence items with their times (sync v9) ──────────────────
+
+  describe('evidence items (sync v9)', () => {
+    const alertWithEvidence = (evidence: Array<Record<string, unknown>>) => ({
+      id: 'alert-items',
+      title: 'Items test',
+      description: '',
+      severity: 'high',
+      status: 'new',
+      category: 'Execution',
+      serviceSource: 'microsoftDefenderForEndpoint',
+      createdDateTime: '2026-11-25T00:49:14Z',
+      lastUpdateDateTime: '2026-11-25T01:00:30Z',
+      mitreTechniques: [],
+      recommendedActions: '',
+      evidence,
+    });
+
+    const syncOneAndGetDoc = async (alert: Record<string, unknown>) => {
+      mockGetAlerts.mockResolvedValue([alert]);
+      await service.syncAlerts();
+      return mockBulk.mock.calls[0][0].operations[1].doc;
+    };
+
+    const processEv = {
+      '@odata.type': '#microsoft.graph.security.processEvidence',
+      verdict: 'malicious',
+      remediationStatus: 'blocked',
+      imageFile: { fileName: 'A1B2-T1059.exe', filePath: 'C:\\F0\\A1B2-T1059.exe' },
+      parentProcessImageFile: { fileName: 'A1B2.exe', filePath: 'C:\\F0\\A1B2.exe' },
+      processCreationDateTime: '2026-11-25T00:47:49.830Z',
+      createdDateTime: '2026-11-25T00:49:14.250Z',
+    };
+    const fileEv = {
+      '@odata.type': '#microsoft.graph.security.fileEvidence',
+      verdict: 'malicious',
+      remediationStatus: 'prevented',
+      fileDetails: { fileName: 'A1B2-T1204.exe', filePath: 'C:\\F0' },
+      createdDateTime: '2026-11-25T01:00:18.570Z',
+    };
+    const fileItem = (n: number) => ({
+      '@odata.type': '#microsoft.graph.security.fileEvidence',
+      verdict: 'suspicious',
+      remediationStatus: 'active',
+      fileDetails: { fileName: `file-${n}.exe`, filePath: 'C:\\F0' },
+      createdDateTime: '2026-11-25T01:00:00Z',
+    });
+
+    it('keeps each file-naming evidence item with its times', async () => {
+      const doc = await syncOneAndGetDoc(alertWithEvidence([
+        processEv,
+        fileEv,
+        { '@odata.type': '#microsoft.graph.security.deviceEvidence', verdict: 'malicious', remediationStatus: 'blocked', deviceDnsName: 'win-host-01', createdDateTime: '2026-11-25T00:49:14.250Z' },
+      ]));
+
+      expect(doc.evidence_items).toEqual([
+        {
+          file: 'a1b2-t1059.exe',
+          path: 'c:\\f0\\a1b2-t1059.exe',
+          parent: 'a1b2.exe',
+          parent_path: 'c:\\f0\\a1b2.exe',
+          kind: 'process',
+          verdict: 'malicious',
+          action: 'process_killed',
+          started_at: '2026-11-25T00:47:49.830Z',
+          added_at: '2026-11-25T00:49:14.250Z',
+        },
+        {
+          file: 'a1b2-t1204.exe',
+          path: 'c:\\f0',
+          parent: null,
+          parent_path: null,
+          kind: 'file',
+          verdict: 'malicious',
+          action: 'blocked',
+          started_at: null,
+          added_at: '2026-11-25T01:00:18.570Z',
+        },
+      ]);
+      // The alert-wide fields are what they were before v9.
+      expect(doc.evidence_filenames).toEqual(['a1b2-t1059.exe', 'a1b2.exe', 'a1b2-t1204.exe']);
+      expect(doc.evidence_filepaths).toEqual(['c:\\f0\\a1b2-t1059.exe', 'c:\\f0\\a1b2.exe', 'c:\\f0']);
+      expect(doc.evidence_file_verdicts).toEqual([
+        { file: 'a1b2-t1059.exe', verdict: 'malicious', action: 'process_killed' },
+        { file: 'a1b2-t1204.exe', verdict: 'malicious', action: 'blocked' },
+      ]);
+      expect(doc.evidence_child_actions).toEqual([{ parent: 'a1b2.exe', action: 'process_killed' }]);
+    });
+
+    it('an item without a verdict or a prevention status stores null for both', async () => {
+      const doc = await syncOneAndGetDoc(alertWithEvidence([
+        { '@odata.type': '#microsoft.graph.security.processEvidence', remediationStatus: 'active', imageFile: { fileName: 'cmd.exe' }, createdDateTime: '2026-11-25T00:49:14.250Z' },
+      ]));
+      expect(doc.evidence_items).toEqual([{
+        file: 'cmd.exe', path: null, parent: null, parent_path: null, kind: 'process',
+        verdict: null, action: null, started_at: null, added_at: '2026-11-25T00:49:14.250Z',
+      }]);
+    });
+
+    it('evidence without a file name (device, ip, azureResource) adds no item', async () => {
+      const doc = await syncOneAndGetDoc(alertWithEvidence([
+        { '@odata.type': '#microsoft.graph.security.deviceEvidence', verdict: 'malicious', remediationStatus: 'active', deviceDnsName: 'win-host-01', createdDateTime: '2026-11-25T00:49:14Z' },
+        { '@odata.type': '#microsoft.graph.security.ipEvidence', verdict: 'unknown', remediationStatus: 'none', ipAddress: '192.0.2.10', createdDateTime: '2026-11-25T00:49:14Z' },
+        { '@odata.type': '#microsoft.graph.security.azureResourceEvidence', verdict: 'unknown', remediationStatus: 'none', resourceName: 'vm-01', createdDateTime: '2026-11-25T00:49:14Z' },
+        fileEv,
+      ]));
+      expect(doc.evidence_items.map((i: { file: string }) => i.file)).toEqual(['a1b2-t1204.exe']);
+    });
+
+    // The write is a partial update: an absent key would keep the value an
+    // earlier sync stored.
+    it('an alert with no file-naming evidence writes evidence_items: [] (not an absent field)', async () => {
+      const doc = await syncOneAndGetDoc(alertWithEvidence([
+        { '@odata.type': '#microsoft.graph.security.deviceEvidence', verdict: 'malicious', remediationStatus: 'active', deviceDnsName: 'win-host-01', createdDateTime: '2026-11-25T00:49:14Z' },
+      ]));
+      expect(doc).toHaveProperty('evidence_items');
+      expect(doc.evidence_items).toEqual([]);
+
+      mockBulk.mockClear();
+      const empty = await syncOneAndGetDoc(alertWithEvidence([]));
+      expect(empty.evidence_items).toEqual([]);
+    });
+
+    it('1,000 file-naming items are kept', async () => {
+      const doc = await syncOneAndGetDoc(alertWithEvidence(Array.from({ length: 1000 }, (_, n) => fileItem(n))));
+      expect(doc.evidence_items).toHaveLength(1000);
+    });
+
+    it('1,001 file-naming items store evidence_items: null with one warning', async () => {
+      const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+      try {
+        const doc = await syncOneAndGetDoc(alertWithEvidence(Array.from({ length: 1001 }, (_, n) => fileItem(n))));
+        expect(doc).toHaveProperty('evidence_items', null);
+        expect(warn).toHaveBeenCalledTimes(1);
+        expect(String(warn.mock.calls[0][0])).toContain('alert-items');
+        // The alert-wide fields are still written.
+        expect(doc.evidence_filenames).toHaveLength(1001);
+      } finally {
+        warn.mockRestore();
+      }
+    });
+
+    it('a file-naming item without createdDateTime stores evidence_items: null', async () => {
+      const { createdDateTime: _omit, ...noTime } = fileEv;
+      const doc = await syncOneAndGetDoc(alertWithEvidence([processEv, noTime]));
+      expect(doc).toHaveProperty('evidence_items', null);
+      expect(doc.evidence_file_verdicts).toHaveLength(2);
+    });
+
+    it('a file-naming item whose createdDateTime does not parse stores evidence_items: null, as one with none', async () => {
+      const doc = await syncOneAndGetDoc(alertWithEvidence([processEv, { ...fileEv, createdDateTime: 'not-a-date' }]));
+      expect(doc).toHaveProperty('evidence_items', null);
+      // The alert-wide fields are still written.
+      expect(doc.evidence_file_verdicts).toHaveLength(2);
+    });
+
+    // A process item with no usable start is judged by when Defender added it
+    // (edr/runEvidence.ts), so it is kept with started_at: null.
+    it.each([
+      ['empty', ''],
+      ['not a date', 'not-a-date'],
+      ['Defender\'s placeholder', '0001-01-01T00:00:00Z'],
+      ['before 2000-01-01', '1999-12-31T23:59:59Z'],
+    ])('a process item whose processCreationDateTime is %s is kept with started_at: null', async (_label, started) => {
+      const doc = await syncOneAndGetDoc(alertWithEvidence([{ ...processEv, processCreationDateTime: started }]));
+      expect(doc.evidence_items).toHaveLength(1);
+      expect(doc.evidence_items[0]).toMatchObject({ file: 'a1b2-t1059.exe', kind: 'process', started_at: null, added_at: '2026-11-25T00:49:14.250Z' });
+    });
+
+    it('a process item started at 2000-01-01T00:00:00Z keeps its start', async () => {
+      const doc = await syncOneAndGetDoc(alertWithEvidence([{ ...processEv, processCreationDateTime: '2000-01-01T00:00:00Z' }]));
+      expect(doc.evidence_items[0].started_at).toBe('2000-01-01T00:00:00Z');
+    });
+
+    it('evidence without a file name needs no createdDateTime', async () => {
+      const doc = await syncOneAndGetDoc(alertWithEvidence([
+        processEv,
+        { '@odata.type': '#microsoft.graph.security.deviceEvidence', verdict: 'malicious', remediationStatus: 'active', deviceDnsName: 'win-host-01' },
+      ]));
+      expect(doc.evidence_items).toHaveLength(1);
+    });
+  });
+
+  // ── evidenceItemsReady (the v9 re-sync has completed) ──────────
+
+  describe('evidenceItemsReady', () => {
+    const lastSaved = () => mockSaveDefenderSyncTimestamps.mock.calls.at(-1)?.[0];
+    const restartWith = (persisted: Record<string, unknown>) => {
+      mockGetDefenderSyncTimestamps.mockReturnValue(persisted);
+      return new DefenderSyncService();
+    };
+
+    it('false after a version mismatch (state from before v9)', () => {
+      const svc = restartWith({ last_alert_sync: '2026-11-20T00:00:00Z', last_score_sync: '2026-11-20T00:00:00Z', sync_version: 8 });
+      expect(svc.evidenceItemsReady()).toBe(false);
+    });
+
+    it('false when a score sync persisted sync_version 9 before any alert sync, and a restart still re-syncs', async () => {
+      mockGetSecureScores.mockResolvedValue([]);
+      await service.syncSecureScores();
+
+      expect(lastSaved()).toMatchObject({ sync_version: 9 });
+      expect(lastSaved()).not.toHaveProperty('evidence_items_version');
+      expect(service.evidenceItemsReady()).toBe(false);
+
+      const restarted = restartWith({ ...lastSaved(), last_alert_sync: '2026-11-24T00:00:00Z' });
+      expect(restarted.evidenceItemsReady()).toBe(false);
+      mockGetAlerts.mockResolvedValue([]);
+      await restarted.syncAlerts();
+      expect(mockGetAlerts.mock.calls[0][0]).not.toBe('lastUpdateDateTime ge 2026-11-24T00:00:00Z');
+    });
+
+    it('true after a full look-back alert sync completes without error, and persisted as evidence_items_version 9', async () => {
+      mockGetAlerts.mockResolvedValue([]);
+      await service.syncAlerts();
+
+      expect(service.evidenceItemsReady()).toBe(true);
+      expect(lastSaved()).toMatchObject({ sync_version: 9, evidence_items_version: 9 });
+    });
+
+    it('kept on later saves (a score sync after the alert sync)', async () => {
+      mockGetAlerts.mockResolvedValue([]);
+      mockGetSecureScores.mockResolvedValue([]);
+      await service.syncAlerts();
+      await service.syncSecureScores();
+
+      expect(lastSaved()).toMatchObject({ evidence_items_version: 9 });
+      expect(service.evidenceItemsReady()).toBe(true);
+    });
+
+    const writeError = () => ({ errors: true, items: [{ update: { _id: 'alert-a-1', error: { reason: 'mapper_parsing_exception' } } }] });
+    const fullFilter = /^lastUpdateDateTime ge /;
+
+    it('a full look-back with a write error holds the checkpoint, so the next sync is a full look-back again; clean, it makes it true', async () => {
+      mockGetAlerts.mockResolvedValue([alertWithId('a-1')]);
+      mockBulk.mockResolvedValueOnce(writeError());
+      const first = await service.syncAlerts();
+      expect(first.errors).toHaveLength(1);
+      expect(service.evidenceItemsReady()).toBe(false);
+      expect(service.getSyncStatus().lastAlertSync).toBeNull();
+      expect(mockSaveDefenderSyncTimestamps).not.toHaveBeenCalled();
+
+      mockBulk.mockResolvedValueOnce({ errors: false, items: [{ update: { result: 'updated' } }] });
+      const second = await service.syncAlerts();
+      expect(second.errors).toHaveLength(0);
+      expect(mockGetAlerts).toHaveBeenCalledTimes(2);
+      const lookback = Date.parse(mockGetAlerts.mock.calls[1][0].replace('lastUpdateDateTime ge ', ''));
+      expect(Math.abs(lookback - (Date.now() - 90 * 86400_000))).toBeLessThan(60_000);
+      expect(service.evidenceItemsReady()).toBe(true);
+      expect(service.getSyncStatus().lastAlertSync).not.toBeNull();
+      expect(lastSaved()).toMatchObject({ evidence_items_version: 9 });
+    });
+
+    it('three full look-backs in a row with write errors: the checkpoint moves, one warning, the fourth sync is incremental and it stays false', async () => {
+      const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+      try {
+        mockGetAlerts.mockResolvedValue([alertWithId('a-1')]);
+        mockBulk.mockResolvedValue(writeError());
+        for (let i = 0; i < 3; i++) await service.syncAlerts();
+        for (let i = 0; i < 3; i++) {
+          const lookback = Date.parse(mockGetAlerts.mock.calls[i][0].replace('lastUpdateDateTime ge ', ''));
+          expect(Math.abs(lookback - (Date.now() - 90 * 86400_000))).toBeLessThan(60_000);
+        }
+        const checkpoint = service.getSyncStatus().lastAlertSync;
+        expect(checkpoint).not.toBeNull();
+        expect(lastSaved()).toMatchObject({ last_alert_sync: checkpoint });
+        expect(lastSaved()).not.toHaveProperty('evidence_items_version');
+
+        mockBulk.mockResolvedValue({ errors: false, items: [{ update: { result: 'updated' } }] });
+        await service.syncAlerts();
+        expect(mockGetAlerts.mock.calls[3][0]).toBe(`lastUpdateDateTime ge ${checkpoint}`);
+        expect(service.evidenceItemsReady()).toBe(false);
+
+        const resync = warn.mock.calls.filter((c) => String(c[0]).includes('Full alert re-sync ended with errors'));
+        expect(resync).toHaveLength(1);
+        expect(String(resync[0][0])).toContain('3 times');
+        expect(String(resync[0][0])).toContain('per-run crediting stays off until the next restart');
+      } finally {
+        warn.mockRestore();
+      }
+    });
+
+    it('a clean full look-back resets the count of failed ones', async () => {
+      mockGetAlerts.mockResolvedValue([alertWithId('a-1')]);
+      mockBulk.mockResolvedValueOnce(writeError()).mockResolvedValueOnce(writeError());
+      await service.syncAlerts();
+      await service.syncAlerts();
+      expect(service.getSyncStatus().lastAlertSync).toBeNull();
+      await service.syncAlerts(); // clean
+      expect(service.evidenceItemsReady()).toBe(true);
+      expect(mockGetAlerts.mock.calls.map((c) => c[0])).toEqual([
+        expect.stringMatching(fullFilter), expect.stringMatching(fullFilter), expect.stringMatching(fullFilter),
+      ]);
+    });
+
+    it('an incremental sync with a write error still moves its checkpoint (unchanged)', async () => {
+      const svc = restartWith({ last_alert_sync: '2026-11-24T00:00:00Z', sync_version: 9, evidence_items_version: 9 });
+      mockGetAlerts.mockResolvedValue([alertWithId('a-1')]);
+      mockBulk.mockResolvedValueOnce(writeError());
+      const result = await svc.syncAlerts();
+
+      expect(result.errors).toHaveLength(1);
+      expect(mockGetAlerts).toHaveBeenCalledWith('lastUpdateDateTime ge 2026-11-24T00:00:00Z');
+      const checkpoint = svc.getSyncStatus().lastAlertSync;
+      expect(checkpoint).not.toBe('2026-11-24T00:00:00Z');
+      expect(lastSaved()).toMatchObject({ last_alert_sync: checkpoint, evidence_items_version: 9 });
+      expect(svc.evidenceItemsReady()).toBe(true);
+
+      await svc.syncAlerts();
+      expect(mockGetAlerts.mock.calls[1][0]).toBe(`lastUpdateDateTime ge ${checkpoint}`);
+    });
+
+    it('false when the full look-back alert fetch fails', async () => {
+      mockGetAlerts.mockRejectedValueOnce(new Error('Graph API down'));
+      await service.syncAlerts();
+      expect(service.evidenceItemsReady()).toBe(false);
+    });
+
+    it('still true after a restart that loads evidence_items_version 9, which keeps the incremental checkpoint', async () => {
+      const svc = restartWith({ last_alert_sync: '2026-11-24T00:00:00Z', sync_version: 9, evidence_items_version: 9 });
+      expect(svc.evidenceItemsReady()).toBe(true);
+
+      mockGetAlerts.mockResolvedValue([]);
+      await svc.syncAlerts();
+      expect(mockGetAlerts).toHaveBeenCalledWith('lastUpdateDateTime ge 2026-11-24T00:00:00Z');
+      expect(svc.evidenceItemsReady()).toBe(true);
+      expect(lastSaved()).toMatchObject({ evidence_items_version: 9 });
+    });
+
+    it('a mismatched evidence_items_version forces the full re-sync (an interrupted first re-sync is repeated)', async () => {
+      const svc = restartWith({ last_alert_sync: '2026-11-24T00:00:00Z', sync_version: 9 });
+      mockGetAlerts.mockResolvedValue([]);
+      await svc.syncAlerts();
+
+      expect(mockGetAlerts.mock.calls[0][0]).toMatch(/^lastUpdateDateTime ge /);
+      expect(mockGetAlerts).not.toHaveBeenCalledWith('lastUpdateDateTime ge 2026-11-24T00:00:00Z');
+      expect(svc.evidenceItemsReady()).toBe(true);
+    });
+
+    function alertWithId(id: string) {
+      return {
+        id, title: 't', description: '', severity: 'low', status: 'new', category: '',
+        serviceSource: '', createdDateTime: '2026-11-01T00:00:00Z', lastUpdateDateTime: '2026-11-01T00:00:00Z',
+        mitreTechniques: [], recommendedActions: '', evidence: [],
+      };
+    }
   });
 
   // ── Prevention disposition (remediationStatus → prevention_action) ──
@@ -622,6 +986,75 @@ describe('DefenderSyncService', () => {
         errors: expect.any(Array),
         durationMs: expect.any(Number),
       });
+    });
+
+    it('logs how many flags the run-evidence re-check removed', async () => {
+      mockEnrichmentResult = {
+        scanned: 9, detected: 1, stageDetected: 1, skipped: 0, batches: 1, alertsMarkedCorrelated: 0,
+        stageDetectionsRemoved: 2, detectionsRemoved: 3, preventionsRemoved: 4, removedFlagDocs: [], errors: [], durationMs: 5,
+      };
+      const log = vi.spyOn(console, 'log').mockImplementation(() => {});
+      try {
+        await service.runEnrichmentPass();
+        const line = log.mock.calls.map((c) => String(c[0])).find((l) => l.startsWith('[Defender-Enrichment]'));
+        expect(line).toContain('stageDetectionsRemoved=2');
+        expect(line).toContain('detectionsRemoved=3');
+        expect(line).toContain('preventionsRemoved=4');
+      } finally {
+        log.mockRestore();
+        mockEnrichmentResult = undefined;
+      }
+    });
+
+    describe('the results the run-evidence re-check removed flags on', () => {
+      const pass = (over: Record<string, unknown>) => ({
+        scanned: 9, detected: 0, stageDetected: 0, skipped: 0, batches: 1, alertsMarkedCorrelated: 0,
+        stageDetectionsRemoved: 0, detectionsRemoved: 0, preventionsRemoved: 0, removedFlagDocs: [], errors: [], durationMs: 5,
+        ...over,
+      });
+      const linesOf = async () => {
+        const log = vi.spyOn(console, 'log').mockImplementation(() => {});
+        try {
+          await service.runEnrichmentPass();
+          return log.mock.calls.map((c) => String(c[0])).filter((l) => l.startsWith('[Defender]') || l.startsWith('[Defender-Enrichment]'));
+        } finally {
+          log.mockRestore();
+          mockEnrichmentResult = undefined;
+        }
+      };
+
+      it('logs one line naming them', async () => {
+        mockEnrichmentResult = pass({ detectionsRemoved: 2, removedFlagDocs: ['t1::T1003', 't2'] });
+        const lines = await linesOf();
+        expect(lines).toContain('[Defender] Run-evidence re-check removed flags on: t1::T1003, t2');
+      });
+
+      it('says how many more were removed past the 20 listed', async () => {
+        const ids = Array.from({ length: 20 }, (_, n) => `t${n + 1}`);
+        mockEnrichmentResult = pass({ detectionsRemoved: 23, removedFlagDocs: ids, removedFlagDocsOmitted: 3 });
+        const lines = await linesOf();
+        expect(lines).toContain(`[Defender] Run-evidence re-check removed flags on: ${ids.join(', ')} (+3 more)`);
+      });
+
+      it('logs no such line when none were removed', async () => {
+        mockEnrichmentResult = pass({});
+        const lines = await linesOf();
+        expect(lines.some((l) => l.includes('Run-evidence re-check'))).toBe(false);
+        expect(lines.some((l) => l.startsWith('[Defender-Enrichment]'))).toBe(true);
+      });
+    });
+
+    it('credits by run only once the v9 evidence-items re-sync has completed', async () => {
+      mockEnrichmentCtor.mockClear();
+      expect(service.evidenceItemsReady()).toBe(false);
+      await service.runEnrichmentPass();
+      expect(mockEnrichmentCtor.mock.calls.at(-1)?.[2]).toEqual({ runScopedEvidence: false });
+
+      mockGetAlerts.mockResolvedValue([]);
+      await service.syncAlerts();
+      expect(service.evidenceItemsReady()).toBe(true);
+      await service.runEnrichmentPass();
+      expect(mockEnrichmentCtor.mock.calls.at(-1)?.[2]).toEqual({ runScopedEvidence: true });
     });
   });
 

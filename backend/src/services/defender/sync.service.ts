@@ -12,6 +12,7 @@ import { runAgentKillReconciliation, failedAgentKillPass } from '../edr/agent-ki
 import { runLaunchBlockReconciliation, failedLaunchBlockPass } from '../edr/launch-block-reconcile.service.js';
 import type { Client } from '@elastic/elasticsearch';
 import type { EvidenceChildAction, EvidenceFileVerdict } from '../edr/multiTestEvidence.js';
+import { EVIDENCE_ITEMS_FIELD, VERDICT_RANK, ACTION_RANK, type EvidenceItem } from '../edr/runEvidence.js';
 import type {
   GraphSecureScore,
   GraphControlProfile,
@@ -33,12 +34,41 @@ const ALERT_BULK_BATCH = 500;
 /** Days of alert history to fetch on first sync (no persisted lastAlertSync). */
 const INITIAL_ALERT_LOOKBACK_DAYS = 90;
 
+/** More file-naming evidence items than this on one alert: `evidence_items: null`. */
+const MAX_EVIDENCE_ITEMS = 1000;
+
+/**
+ * A process start before this is no start: Defender sends
+ * `0001-01-01T00:00:00Z` as a placeholder. Such an item is judged by when
+ * Defender added it (edr/runEvidence.ts).
+ */
+const EARLIEST_PROCESS_START_MS = Date.parse('2000-01-01T00:00:00Z');
+
+/** A string that parses as a date, or null. */
+const parsedTime = (v: unknown): number | null => {
+  if (typeof v !== 'string' || v === '') return null;
+  const ms = Date.parse(v);
+  return Number.isFinite(ms) ? ms : null;
+};
+
+/** The process start as received, or null when it is empty, not a date or a placeholder. */
+const processStart = (v: unknown): string | null => {
+  const ms = parsedTime(v);
+  return ms !== null && ms >= EARLIEST_PROCESS_START_MS ? (v as string) : null;
+};
+
+/**
+ * Consecutive full look-back alert syncs that may end with write errors and
+ * be repeated (checkpoint held) before the checkpoint moves on anyway.
+ */
+const MAX_FULL_RESYNC_ATTEMPTS = 3;
+
 /**
  * Bump this when the alert schema changes (e.g. new extracted fields) to
  * force a full re-sync on all deployments. The persisted sync_version is
  * compared against this; a mismatch clears lastAlertSync.
  */
-const ALERT_SYNC_VERSION = 8; // v8: parent process files in evidence_filenames / evidence_filepaths (alerts_v2 parentProcessImageFile); v7: + evidence_child_actions (blocked child processes by parent file), first/last_activity_at; v6: full 90 days (the re-sync used to stop at the 500 newest alerts); v5: + evidence_file_verdicts (edr/multiTestEvidence.ts); v4: + prevention_action / remediation_status / portal_url
+const ALERT_SYNC_VERSION = 9; // v9: + evidence_items (each file-naming evidence item with its times, edr/runEvidence.ts), full re-sync selects by lastUpdateDateTime; v8: parent process files in evidence_filenames / evidence_filepaths (alerts_v2 parentProcessImageFile); v7: + evidence_child_actions (blocked child processes by parent file), first/last_activity_at; v6: full 90 days (the re-sync used to stop at the 500 newest alerts); v5: + evidence_file_verdicts (edr/multiTestEvidence.ts); v4: + prevention_action / remediation_status / portal_url
 
 export class DefenderSyncService {
   private graphClient: MicrosoftGraphClient | null = null;
@@ -51,6 +81,14 @@ export class DefenderSyncService {
     lastError: null,
   };
   private syncStatusLoaded = false;
+  /**
+   * An alert sync of this version with the full look-back filter completed
+   * without error (in this process, or before a restart: persisted
+   * `evidence_items_version`). See evidenceItemsReady().
+   */
+  private evidenceItemsComplete = false;
+  /** Full look-back alert syncs in a row that ended with write errors (this process only). */
+  private failedFullResyncs = 0;
 
   // ---------------------------------------------------------------------------
   // Client initialization
@@ -92,13 +130,21 @@ export class DefenderSyncService {
       this.cleanupBogusDefenderEntry(integrationsService);
 
       const timestamps = integrationsService.getDefenderSyncTimestamps();
-      console.log(`[Defender] Loaded sync timestamps: version=${timestamps.sync_version ?? 'none'}, lastAlert=${timestamps.last_alert_sync ?? 'none'}`);
+      console.log(`[Defender] Loaded sync timestamps: version=${timestamps.sync_version ?? 'none'}, evidenceItems=${timestamps.evidence_items_version ?? 'none'}, lastAlert=${timestamps.last_alert_sync ?? 'none'}`);
 
       // If sync version changed (schema upgrade), force a full re-sync
       if (timestamps.sync_version !== ALERT_SYNC_VERSION) {
         console.log(`[Defender] Sync version mismatch (${timestamps.sync_version ?? 'none'} → ${ALERT_SYNC_VERSION}) — forcing full re-sync`);
         return; // Leave lastAlertSync as null to trigger 90-day lookback
       }
+      // sync_version is also written after a score sync, so it can be current
+      // before the alert re-sync finished: evidence_items_version is written
+      // only when it did. A mismatch repeats the full re-sync.
+      if (timestamps.evidence_items_version !== ALERT_SYNC_VERSION) {
+        console.log(`[Defender] Evidence items version mismatch (${timestamps.evidence_items_version ?? 'none'} → ${ALERT_SYNC_VERSION}) — forcing full re-sync`);
+        return;
+      }
+      this.evidenceItemsComplete = true;
 
       if (timestamps.last_alert_sync) {
         this.syncStatus.lastAlertSync = timestamps.last_alert_sync;
@@ -141,6 +187,8 @@ export class DefenderSyncService {
         last_alert_sync: this.syncStatus.lastAlertSync ?? undefined,
         last_score_sync: this.syncStatus.lastScoreSync ?? undefined,
         sync_version: ALERT_SYNC_VERSION,
+        // Left out until it is true, so a save never clears it.
+        ...(this.evidenceItemsComplete ? { evidence_items_version: ALERT_SYNC_VERSION } : {}),
       });
     } catch (err) {
       console.warn('[Defender] Failed to persist sync timestamps:', err instanceof Error ? err.message : String(err));
@@ -220,12 +268,15 @@ export class DefenderSyncService {
     const otherStatuses: string[] = [];
     // Defender's own verdict per evidence file (file + process evidence; a
     // parent process carries no verdict of its own). One file can appear as
-    // both file and process evidence: malicious wins, then the strongest action.
-    const VERDICT_RANK: Record<string, number> = { malicious: 3, suspicious: 2 };
-    const ACTION_RANK: Record<string, number> = { quarantined: 3, process_killed: 2, blocked: 1 };
+    // both file and process evidence: malicious wins, then the strongest action
+    // (VERDICT_RANK / ACTION_RANK, shared with edr/runEvidence.ts).
     const fileVerdicts = new Map<string, EvidenceFileVerdict>();
     const childActions: EvidenceChildAction[] = [];
     const childActionKeys = new Set<string>();
+    // Each evidence item that names a file, with its times (edr/runEvidence.ts).
+    // Null when one has no time Defender added it (or one that does not parse), or past the cap.
+    let items: EvidenceItem[] | null = [];
+    let fileItemCount = 0;
 
     for (const ev of alert.evidence ?? []) {
       // Device evidence → hostname
@@ -263,16 +314,37 @@ export class DefenderSyncService {
 
       const evFile = ev.fileDetails ?? ev.imageFile;
       const evName = (evFile?.fileName || evFile?.filePath?.split(/[\\/]/).pop() || '').toLowerCase();
+      const evStatus = ev.remediationStatus;
+      const evAction = typeof evStatus === 'string' && evStatus in PREVENTIONISH_RANK ? NORMALIZE[evStatus] : null;
+      if (evName) {
+        fileItemCount++;
+        const isProcess = !!ev.imageFile;
+        // An item whose added time is missing or does not parse can never be
+        // placed in a run: the alert keeps the older rule (items null).
+        if (items && parsedTime(ev.createdDateTime) !== null) {
+          items.push({
+            file: evName,
+            path: evFile?.filePath ? evFile.filePath.toLowerCase() : null,
+            parent: isProcess && parentName ? parentName : null,
+            parent_path: isProcess && parentFile?.filePath ? parentFile.filePath.toLowerCase() : null,
+            kind: isProcess ? 'process' : 'file',
+            verdict: typeof ev.verdict === 'string' ? ev.verdict : null,
+            action: evAction,
+            started_at: isProcess ? processStart(ev.processCreationDateTime) : null,
+            added_at: ev.createdDateTime as string,
+          });
+        } else {
+          items = null;
+        }
+      }
       if (evName && typeof ev.verdict === 'string') {
-        const status = ev.remediationStatus;
-        const action = typeof status === 'string' && status in PREVENTIONISH_RANK ? NORMALIZE[status] : null;
         const prev = fileVerdicts.get(evName);
         const rank = (v: string) => VERDICT_RANK[v] ?? 0;
         const actionRank = (x: string | null) => (x ? ACTION_RANK[x] ?? 0 : 0);
         fileVerdicts.set(evName, {
           file: evName,
           verdict: prev && rank(prev.verdict) >= rank(ev.verdict) ? prev.verdict : ev.verdict,
-          action: prev && actionRank(prev.action) >= actionRank(action) ? prev.action : action,
+          action: prev && actionRank(prev.action) >= actionRank(evAction) ? prev.action : evAction,
         });
       }
 
@@ -293,6 +365,11 @@ export class DefenderSyncService {
         || ev.fileDetails?.fileName || ev.fileDetails?.filePath
       );
       (hasFile ? fileEvidenceStatuses : otherStatuses).push(status);
+    }
+
+    if (fileItemCount > MAX_EVIDENCE_ITEMS) {
+      console.warn(`[Defender] Alert ${alert.id}: ${fileItemCount} file evidence items (over ${MAX_EVIDENCE_ITEMS}) — ${EVIDENCE_ITEMS_FIELD} not stored`);
+      items = null;
     }
 
     const statusPool = fileEvidenceStatuses.length > 0 ? fileEvidenceStatuses : otherStatuses;
@@ -319,6 +396,9 @@ export class DefenderSyncService {
       evidence_filepaths: Array.from(filepaths),
       evidence_file_verdicts: Array.from(fileVerdicts.values()),
       evidence_child_actions: childActions,
+      // Always written (the sync is a partial update: an absent key would keep
+      // the value an earlier sync stored).
+      [EVIDENCE_ITEMS_FIELD]: items,
       first_activity_at: alert.firstActivityDateTime ?? null,
       last_activity_at: alert.lastActivityDateTime ?? null,
       ...(winningStatus ? {
@@ -452,13 +532,16 @@ export class DefenderSyncService {
       const es = this.getEsClient();
       await ensureDefenderIndex();
 
-      // Build filter: incremental if we have a checkpoint, otherwise 90-day lookback
+      // Build filter: incremental if we have a checkpoint, otherwise 90-day
+      // lookback. The look-back selects by update time: an alert opened
+      // earlier that Defender still adds evidence to is in the window.
       let filter: string;
+      const fullLookback = !this.syncStatus.lastAlertSync;
       if (this.syncStatus.lastAlertSync) {
         filter = `lastUpdateDateTime ge ${this.syncStatus.lastAlertSync}`;
       } else {
         const lookback = new Date(Date.now() - INITIAL_ALERT_LOOKBACK_DAYS * 86400_000);
-        filter = `createdDateTime ge ${lookback.toISOString()}`;
+        filter = `lastUpdateDateTime ge ${lookback.toISOString()}`;
         console.log(`[Defender] Initial alert sync — fetching last ${INITIAL_ALERT_LOOKBACK_DAYS} days`);
       }
 
@@ -503,9 +586,28 @@ export class DefenderSyncService {
         synced = alerts.length - errors.length;
       }
 
-      // Only update checkpoint on successful fetch (not on error)
-      this.syncStatus.lastAlertSync = new Date().toISOString();
-      this.persistSyncTimestamps();
+      // Only update checkpoint on successful fetch (not on error). A full
+      // look-back with write errors is repeated (checkpoint held) up to
+      // MAX_FULL_RESYNC_ATTEMPTS times in a row, so a transient error doesn't
+      // leave evidence items not ready until the next restart.
+      let holdCheckpoint = false;
+      if (fullLookback && errors.length === 0) {
+        this.evidenceItemsComplete = true;
+        this.failedFullResyncs = 0;
+      } else if (fullLookback) {
+        this.failedFullResyncs++;
+        holdCheckpoint = this.failedFullResyncs < MAX_FULL_RESYNC_ATTEMPTS;
+        if (!holdCheckpoint) {
+          console.warn(
+            `[Defender] Full alert re-sync ended with errors ${this.failedFullResyncs} times — ` +
+            'evidence items are not ready; per-run crediting stays off until the next restart',
+          );
+        }
+      }
+      if (!holdCheckpoint) {
+        this.syncStatus.lastAlertSync = new Date().toISOString();
+        this.persistSyncTimestamps();
+      }
     } catch (err) {
       errors.push(err instanceof Error ? err.message : String(err));
     }
@@ -534,18 +636,25 @@ export class DefenderSyncService {
     try {
       const integrationsService = new IntegrationsSettingsService();
       if (!integrationsService.isDefenderConfigured()) {
-        return { scanned: 0, detected: 0, stageDetected: 0, skipped: 0, batches: 0, alertsMarkedCorrelated: 0, errors: [], durationMs: 0 };
+        return { scanned: 0, detected: 0, stageDetected: 0, skipped: 0, batches: 0, alertsMarkedCorrelated: 0, stageDetectionsRemoved: 0, detectionsRemoved: 0, preventionsRemoved: 0, removedFlagDocs: [], errors: [], durationMs: 0 };
       }
       const es = this.getEsClient();
       const settingsService = new SettingsService();
       const settings = settingsService.getSettings();
-      const service = new DefenderEnrichmentService(es, settings.indexPattern);
+      // Credit by run only once every alert in the look-back carries its evidence items.
+      const service = new DefenderEnrichmentService(es, settings.indexPattern, { runScopedEvidence: this.evidenceItemsReady() });
       const result = await service.runEnrichmentPass({ lookbackDays: 90 });
       console.log(
         `[Defender-Enrichment] scanned=${result.scanned} detected=${result.detected} ` +
         `stageDetected=${result.stageDetected} skipped=${result.skipped} ` +
-        `batches=${result.batches} durationMs=${result.durationMs} errors=${result.errors.length}`,
+        `batches=${result.batches} stageDetectionsRemoved=${result.stageDetectionsRemoved} ` +
+        `detectionsRemoved=${result.detectionsRemoved} preventionsRemoved=${result.preventionsRemoved} ` +
+        `durationMs=${result.durationMs} errors=${result.errors.length}`,
       );
+      if (result.removedFlagDocs.length > 0) {
+        const more = result.removedFlagDocsOmitted ? ` (+${result.removedFlagDocsOmitted} more)` : '';
+        console.log(`[Defender] Run-evidence re-check removed flags on: ${result.removedFlagDocs.join(', ')}${more}`);
+      }
       for (const e of result.errors) {
         console.warn(`[Defender-Enrichment-ERROR] ${e}`);
       }
@@ -553,7 +662,7 @@ export class DefenderSyncService {
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
       console.error(`[Defender-Enrichment] pass threw: ${msg}`);
-      return { scanned: 0, detected: 0, stageDetected: 0, skipped: 0, batches: 0, alertsMarkedCorrelated: 0, errors: [msg], durationMs: 0 };
+      return { scanned: 0, detected: 0, stageDetected: 0, skipped: 0, batches: 0, alertsMarkedCorrelated: 0, stageDetectionsRemoved: 0, detectionsRemoved: 0, preventionsRemoved: 0, removedFlagDocs: [], errors: [msg], durationMs: 0 };
     }
   }
 
@@ -665,6 +774,15 @@ export class DefenderSyncService {
     } else if (this.syncStatus.lastError?.stage === stage) {
       this.syncStatus.lastError = null;
     }
+  }
+
+  /**
+   * The full alert re-sync of this sync version completed without error, so
+   * every alert in the look-back was written with `evidence_items`.
+   */
+  evidenceItemsReady(): boolean {
+    this.loadPersistedSyncStatus();
+    return this.evidenceItemsComplete;
   }
 
   /** Get the current sync status for the UI. */

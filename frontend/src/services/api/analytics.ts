@@ -161,6 +161,8 @@ export type CategoryType = 'intel-driven' | 'mitre-top10' | 'cyber-hygiene' | 'p
  * (the action came from an alert naming THIS stage; absent on older rows).
  */
 export interface EnrichedTestExecution extends TestExecution, EdrResultFlags {
+  /** When the run started (`routing.run_started_at`); absent on older results. */
+  run_started_at?: string;
   category?: CategoryType;
   subcategory?: string;
   techniques?: string[];

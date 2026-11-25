@@ -19,6 +19,7 @@ import type { Client } from '@elastic/elasticsearch';
 import {
   buildAlertTimeWindowQuery as defenderTimeWindow,
   buildDefenderEvidenceQuery,
+  defenderPathNamesTest,
   type TestEvidenceInput,
 } from '../defender/evidence-correlation.js';
 import {
@@ -30,7 +31,8 @@ import { CROWDSTRIKE_INDEX } from '../crowdstrike/index-management.js';
 import { SENTINELONE_INDEX } from '../sentinelone/index-management.js';
 import { SOPHOS_INDEX } from '../sophos/index-management.js';
 import type { EdrVendorKey } from '../outcomes/vendors.js';
-import { projectAlertHit } from '../alerts/alertHit.js';
+import { leftOutOfRun, projectAlertHit } from '../alerts/alertHit.js';
+import { EVIDENCE_ITEMS_FIELD, runWindow } from '../edr/runEvidence.js';
 import { isAchillesMitigated, ACHILLES_MITIGATION_FIELDS } from '../shared/achillesMitigation.js';
 import type { ReportAlert } from '../../types/reports.js';
 import { expandTechniqueAliases } from '../../data/techniqueAliases.js';
@@ -44,6 +46,8 @@ const ALERT_SOURCE_FIELDS = [
   'alert_id', 'alert_title', 'description', 'severity', 'status', 'category', 'service_source',
   'mitre_techniques', 'created_at', 'updated_at', 'resolved_at', 'recommended_actions',
   'evidence_filenames', 'evidence_filepaths', 'evidence_file_verdicts', 'evidence_child_actions',
+  // Per-item evidence with its times: the run view reads it (edr/runEvidence.ts).
+  EVIDENCE_ITEMS_FIELD,
   'prevention_action', 'portal_url', 'f0rtika.auto_resolved_at',
   'f0rtika.auto_resolve_mode', 'f0rtika.auto_resolve_error', ...ACHILLES_MITIGATION_FIELDS,
 ];
@@ -53,6 +57,11 @@ export interface VendorAdapter {
   index: string;
   buildEvidenceQuery: (input: TestEvidenceInput) => Record<string, unknown> | null;
   buildTimeWindowQuery: (fromIso: string, toIso: string) => Record<string, unknown>;
+  /**
+   * The vendor's rule for a path that names the test, the one its enrichment
+   * pass uses; without it, a path names the test when it contains the uuid.
+   */
+  pathNamesTest?: (input: { test_uuid: string; bundle_name?: string }) => (path: string) => boolean;
 }
 
 export const DEFENDER_ADAPTER: VendorAdapter = {
@@ -60,6 +69,7 @@ export const DEFENDER_ADAPTER: VendorAdapter = {
   index: DEFENDER_INDEX,
   buildEvidenceQuery: buildDefenderEvidenceQuery,
   buildTimeWindowQuery: defenderTimeWindow,
+  pathNamesTest: defenderPathNamesTest,
 };
 
 export const CROWDSTRIKE_ADAPTER: VendorAdapter = {
@@ -99,6 +109,11 @@ export interface CorrelationRun {
   testKey: string;
   hostname: string;
   completedAt: string;
+  /**
+   * When the run started (`routing.run_started_at`), for its run window with `completedAt`.
+   * Absent on results stored before it was recorded: no run window, the alert as it is.
+   */
+  startedAt?: string;
   bundleName?: string;
   techniques: string[];
 }
@@ -149,17 +164,27 @@ export function buildHostTechniqueQuery(adapter: VendorAdapter, run: Correlation
   };
 }
 
-/** null for an alert naming several tests that singles out none of this run's files (edr/multiTestEvidence.ts). */
+/**
+ * null for an alert naming several tests that singles out none of this run's files
+ * (edr/multiTestEvidence.ts), and for one that names the test only in another run's evidence
+ * (edr/runEvidence.ts): neither is evidence for this run. With a run window the alert is read
+ * through it, as the console does; a run without a start keeps the alert as it is.
+ */
 function toReportAlert(adapter: VendorAdapter, source: Record<string, unknown>, run: CorrelationRun): ReportAlert | null {
-  const p = projectAlertHit(source, run.testKey);
+  const window = runWindow(run.startedAt, run.completedAt);
+  const pathRule = adapter.pathNamesTest?.({ test_uuid: run.testKey, bundle_name: run.bundleName });
+  if (leftOutOfRun(source, run.testKey, window, pathRule)) return null;
+  const p = projectAlertHit(source, run.testKey, window);
   if (p.attribution === 'multi_test') return null;
+  const stageControlIds = p.attribution === 'stage' ? p.attributed_control_ids ?? [] : [];
   return {
     vendor: adapter.vendor,
     title: p.alert_title,
     severity: p.severity,
     status: p.status,
     createdAt: p.created_at,
-    stageControlId: p.attribution === 'stage' ? p.attributed_control_id ?? null : null,
+    stageControlId: stageControlIds[0] ?? null,
+    stageControlIds,
     // Achilles' own automatic mitigation is not the EDR's prevention (same rule as Analytics).
     preventionAction: isAchillesMitigated(source) ? null : p.prevention_action ?? null,
     portalUrl: p.portal_url ?? null,

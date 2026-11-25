@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { classifyAttribution, projectAlertHit } from '../alertHit.js';
+import { classifyAttribution, projectAlertHit, stageControlIds } from '../alertHit.js';
 
 const UUID = '298cc137-ea39-4cf0-9b2d-b1c59a3cbacb';
 
@@ -123,5 +123,28 @@ describe('projectAlertHit', () => {
         'f0rtika.auto_resolve_error': 'boom',
       }, UUID)).not.toHaveProperty('auto_resolved_at');
     });
+  });
+});
+
+describe('attributed_control_ids', () => {
+  const src = (files: string[]) => ({ alert_id: 'a1', evidence_filenames: files });
+
+  it('lists every stage binary the alert names, in order, each once; the first is attributed_control_id', () => {
+    const p = projectAlertHit(src([`${UUID}.exe`, `${UUID}-T1486.exe`, `${UUID}-T1003.001.exe`, `${UUID.toUpperCase()}-T1486.EXE`]), UUID);
+    expect(p.attributed_control_ids).toEqual(['t1486', 't1003.001']);
+    expect(p.attributed_control_id).toBe('t1486');
+    expect(p.attributed_control_ids?.[0]).toBe(p.attributed_control_id);
+  });
+
+  it('is absent (not empty) when the alert names no stage binary', () => {
+    for (const files of [[`${UUID}.exe`], ['powershell.exe'], []]) {
+      const p = projectAlertHit(src(files), UUID);
+      expect('attributed_control_ids' in p).toBe(false);
+      expect(p.attribution).toBe('bundle');
+    }
+  });
+
+  it('ignores another bundle\'s stage binaries', () => {
+    expect(stageControlIds(['aaaaaaaa-0000-0000-0000-000000000000-T1486.exe', `${UUID}-T1059.exe`], UUID)).toEqual(['t1059']);
   });
 });
