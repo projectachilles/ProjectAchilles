@@ -9,7 +9,12 @@ import {
   type AlertsForTestDeps,
   type AlertsForTestRequest,
 } from '../alertsForTest.js';
-import { defenderPathNamesTest } from '../../defender/evidence-correlation.js';
+import {
+  buildAlertTimeWindowQuery,
+  buildDefenderEvidenceQuery,
+  defenderPathNamesTest,
+} from '../../defender/evidence-correlation.js';
+import { buildCrowdStrikeEvidenceQuery } from '../../edr/evidence-correlation.js';
 
 const deps: AlertsForTestDeps = {
   index: 'alerts-idx',
@@ -315,5 +320,106 @@ describe('alerts from another run', () => {
     const bodies = msearch.mock.calls.flatMap(([params]) => params.searches.filter((_: unknown, k: number) => k % 2 === 1));
     expect(bodies).toHaveLength(2);
     for (const body of bodies) expect(keepsItems(body)).toBe(true);
+  });
+});
+
+// Found by activity span (Nov 2026): the first tier names its two ways in, and
+// a hit found only by its span counts only through its in-run items.
+describe('alerts found by activity span', () => {
+  const U = 'a1b2c3d4-0000-4000-8000-00000000f001';
+  const defender: AlertsForTestDeps = {
+    index: 'alerts-idx',
+    buildEvidenceQuery: buildDefenderEvidenceQuery,
+    buildTimeWindow: buildAlertTimeWindowQuery,
+  };
+  const crowdstrike: AlertsForTestDeps = { ...defender, buildEvidenceQuery: buildCrowdStrikeEvidenceQuery };
+  const RUN: AlertsForTestRequest = {
+    techniques: ['T1087'],
+    timestamp: '2026-11-25T00:47:56Z',
+    runStartedAt: '2026-11-25T00:46:47Z',
+    windowMinutes: 30,
+    hostname: 'host-a',
+    binaryName: `${U}.exe`,
+  };
+  const NOW = '2026-11-25T00:47:20Z';
+  const NOV_19 = '2026-11-19T09:06:46Z';
+  const ev = (file: string, at: string, parent: string | null = null) => ({
+    file, path: 'c:\\f0', parent, parent_path: null, kind: 'process', verdict: 'suspicious', action: null,
+    started_at: at, added_at: at,
+  });
+  const alertHit = (id: string, items: unknown[] | undefined, matched?: unknown) => ({
+    ...(matched !== undefined ? { matched_queries: matched } : {}),
+    _source: {
+      alert_id: id, mitre_techniques: ['T1087'], created_at: '2026-11-25T00:49:00Z',
+      evidence_filenames: ((items ?? [ev(`${U}-t1518.001.exe`, NOW)]) as Array<{ file: string }>).map((i) => i.file),
+      ...(items ? { evidence_items: items } : {}),
+    },
+  });
+  const inRun = [ev('net.exe', NOW, `${U}-t1518.001.exe`)];
+  const otherRunOnly = [ev(`${U}-t1047.exe`, NOV_19, `${U}.exe`), ev('net.exe', NOW, 'svchost.exe')];
+
+  it('the evidence tier passes the run start; the technique tier stays on alert time', () => {
+    const tiers = alertsForTestTiers(RUN, defender);
+    expect(JSON.stringify(tiers[0].query)).toContain('activity_span');
+    expect(JSON.stringify(tiers[1].query)).not.toContain('activity_span');
+    const { runStartedAt: _drop, ...today } = RUN;
+    expect(tiers[1]).toEqual(alertsForTestTiers(today, defender)[1]);
+  });
+
+  it('without runStartedAt both tiers are today\'s', () => {
+    const { runStartedAt: _drop, ...today } = RUN;
+    const tiers = alertsForTestTiers(today, defender);
+    expect(JSON.stringify(tiers)).not.toContain('_name');
+    expect(tiers).toEqual(alertsForTestTiers({ ...today, runStartedAt: undefined }, defender));
+    expect(tiers[0].query).toEqual(
+      buildDefenderEvidenceQuery({
+        test_uuid: U, routing_event_time: RUN.timestamp, routing_hostname: 'host-a', bundle_name: undefined,
+      }),
+    );
+  });
+
+  it('a span-only alert with an in-run item is listed, under its stage', async () => {
+    const search = vi.fn().mockResolvedValueOnce(page(1, [alertHit('span', inRun, ['activity_span'])]));
+    const res = await findAlertsForTest({ search } as never, RUN, defender);
+    expect(res.alerts).toHaveLength(1);
+    expect(res.alerts[0].attributed_control_ids).toEqual(['t1518.001']);
+  });
+
+  it('a span-only alert with only other-run items is left out', () => {
+    const res = toAlertsForTestResult(RUN, page(1, [alertHit('span', otherRunOnly, ['activity_span'])]) as never);
+    expect(res).toEqual({ alerts: [], matchedTechniques: [], total: 0 });
+  });
+
+  it('a span-only alert without an item list is left out', () => {
+    const res = toAlertsForTestResult(RUN, page(1, [alertHit('span', undefined, ['activity_span'])]) as never);
+    expect(res).toEqual({ alerts: [], matchedTechniques: [], total: 0 });
+  });
+
+  it('an alert-time alert without an item list is listed as today', () => {
+    const res = toAlertsForTestResult(RUN, page(1, [alertHit('time', undefined, ['alert_time'])]) as never);
+    expect(res.alerts.map((a) => a.alert_id)).toEqual(['time']);
+  });
+
+  it('a hit with no matched_queries is treated as today (the CrowdStrike deps)', async () => {
+    const search = vi.fn().mockResolvedValueOnce(page(1, [alertHit('cs', undefined)]));
+    const res = await findAlertsForTest({ search } as never, RUN, crowdstrike);
+    expect(res.alerts.map((a) => a.alert_id)).toEqual(['cs']);
+    expect(JSON.stringify(search.mock.calls[0][0].query)).not.toContain('activity_span');
+  });
+
+  it('a first tier whose hits are all left out falls through to the technique tier', async () => {
+    const spanOnly = () => page(1, [alertHit('span', otherRunOnly, ['activity_span'])]);
+    const tech = () => page(1, [alertHit('tech', [ev('lsass.exe', NOW, 'svchost.exe')])]);
+    const search = vi.fn().mockResolvedValueOnce(spanOnly()).mockResolvedValueOnce(tech());
+    const single = await findAlertsForTest({ search } as never, RUN, defender);
+    expect(search).toHaveBeenCalledTimes(2);
+    expect(single.alerts.map((a) => a.alert_id)).toEqual(['tech']);
+
+    const msearch = vi.fn()
+      .mockResolvedValueOnce({ responses: [spanOnly()] })
+      .mockResolvedValueOnce({ responses: [tech()] });
+    const [batched] = await findAlertsForTests({ msearch } as never, [RUN], defender);
+    expect(msearch).toHaveBeenCalledTimes(2);
+    expect(batched?.alerts.map((a) => a.alert_id)).toEqual(['tech']);
   });
 });
