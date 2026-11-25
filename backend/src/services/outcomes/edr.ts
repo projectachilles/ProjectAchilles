@@ -6,7 +6,7 @@
 import type { Client } from '@elastic/elasticsearch';
 import { getSharedEsClient } from '../analytics/sharedClient.js';
 import { SettingsService } from '../analytics/settings.js';
-import { EDR_VENDORS } from './vendors.js';
+import { edrFlagSourceFields } from './vendors.js';
 
 export type EdrStatus = 'ok' | 'unavailable' | 'not_configured';
 
@@ -26,12 +26,8 @@ export const SOURCE_FIELDS = [
   // An EDR launch block (exit 260 the EDR's own alert proved): names the EDR in the verdict.
   'f0rtika.edr_launch_blocked',
   'f0rtika.launch_block.vendors',
-  ...EDR_VENDORS.flatMap(({ key }) => [
-    `f0rtika.${key}_detected`,
-    `f0rtika.${key}_stage_detected`,
-    `f0rtika.${key}_prevented`,
-    `f0rtika.${key}_prevention_action`,
-  ]),
+  // Every vendor flag, `_stage_prevented` included (stagePreventedBy reads it).
+  ...edrFlagSourceFields(),
 ];
 
 function clientFor(settings: ReturnType<SettingsService['getSettings']>): Client {

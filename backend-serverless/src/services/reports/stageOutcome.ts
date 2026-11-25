@@ -58,10 +58,45 @@ function stageDetected(source: Record<string, unknown>): boolean {
   return flag(source, 'defender_stage_detected') || flag(source, 'crowdstrike_stage_detected');
 }
 
-/** This stage was detected AND the EDR took a confirmed prevention action on it. */
+/** This vendor's own stage alert carried a confirmed prevention action. */
+function vendorStagePrevented(source: Record<string, unknown>, vendor: 'defender' | 'crowdstrike'): boolean {
+  return flag(source, `${vendor}_stage_detected`) && confirmedAction(source, `${vendor}_prevention_action`);
+}
+
+/**
+ * True when the exit code allows Prevented (present and not 0, 101, 105, 126 or
+ * 127: a stage that ran to completion or was protected is never Prevented) and
+ * this vendor's own stage alert carried a confirmed action.
+ */
+export function stagePreventedBy(source: Record<string, unknown>, vendor: 'defender' | 'crowdstrike'): boolean {
+  const code = exitCodeOf(source);
+  if (code === undefined || code === 0 || CONCLUSIVE_EXIT_CODES.includes(code)) return false;
+  return vendorStagePrevented(source, vendor);
+}
+
 function stagePrevented(source: Record<string, unknown>): boolean {
-  return (flag(source, 'crowdstrike_stage_detected') && confirmedAction(source, 'crowdstrike_prevention_action'))
-    || (flag(source, 'defender_stage_detected') && confirmedAction(source, 'defender_prevention_action'));
+  return stagePreventedBy(source, 'crowdstrike') || stagePreventedBy(source, 'defender');
+}
+
+/**
+ * A run's (bundle group's) per-vendor flags from its member docs. Detected when
+ * any member carries that vendor's test-level `<v>_detected`; Prevented only
+ * when a member stage is itself Prevented on that vendor's own evidence
+ * (stagePreventedBy), never from a test-level `<v>_prevented` that a skipped or
+ * completed stage, or an errored sibling without its own action, can carry.
+ */
+export function rollupEdrFlags(memberSources: Array<Record<string, unknown>>): {
+  defenderDetected: boolean;
+  crowdstrikeDetected: boolean;
+  defenderPrevented: boolean;
+  crowdstrikePrevented: boolean;
+} {
+  return {
+    defenderDetected: memberSources.some((src) => flag(src, 'defender_detected')),
+    crowdstrikeDetected: memberSources.some((src) => flag(src, 'crowdstrike_detected')),
+    defenderPrevented: memberSources.some((src) => stagePreventedBy(src, 'defender')),
+    crowdstrikePrevented: memberSources.some((src) => stagePreventedBy(src, 'crowdstrike')),
+  };
 }
 
 /** Classify one stage or standalone-test result exactly like the console's ExecResultLabel. */
@@ -84,10 +119,8 @@ export function classifyStage(source: Record<string, unknown>): StageOutcome {
     return 'inconclusive';
   }
 
-  const prevented = stagePrevented(source)
-    || flag(source, 'crowdstrike_prevented')
-    || flag(source, 'defender_prevented');
-  if (prevented) return 'prevented';
+  // Exit 101: the stage ran to completion, so it is never Prevented, whatever
+  // an EDR alert says afterwards.
   if (stageDetected(source)) return 'detected';
   return 'unprotected';
 }
@@ -109,18 +142,6 @@ export const SKIPPED: Clause = {
     should: [
       term('f0rtika.skipped', true),
       { bool: { must_not: [term('f0rtika.category', 'cyber-hygiene')] } },
-    ],
-    minimum_should_match: 1,
-  },
-};
-
-const PREVENTION_SIGNAL: Clause = {
-  bool: {
-    should: [
-      term('f0rtika.crowdstrike_prevented', true),
-      term('f0rtika.defender_prevented', true),
-      { bool: { filter: [term('f0rtika.crowdstrike_stage_detected', true), { terms: { 'f0rtika.crowdstrike_prevention_action': CONFIRMED_PREVENTION_ACTIONS } }] } },
-      { bool: { filter: [term('f0rtika.defender_stage_detected', true), { terms: { 'f0rtika.defender_prevention_action': CONFIRMED_PREVENTION_ACTIONS } }] } },
     ],
     minimum_should_match: 1,
   },
@@ -153,26 +174,18 @@ const ERROR_CODED: Clause = {
 };
 
 const UNPROTECTED: Clause = {
-  bool: { filter: [term('event.ERROR', UNPROTECTED_EXIT_CODE)], must_not: [PREVENTION_SIGNAL, STAGE_DETECTED] },
+  bool: { filter: [term('event.ERROR', UNPROTECTED_EXIT_CODE)], must_not: [STAGE_DETECTED] },
 };
 
 /** Named filters for an ES `filters` aggregation. Every doc matches exactly one. */
 export const OUTCOME_FILTERS: Record<StageOutcome, Clause> = {
   skipped: SKIPPED,
   protected: { terms: { 'event.ERROR': PROTECTED_EXIT_CODES } },
-  prevented: {
-    bool: {
-      should: [
-        { bool: { filter: [term('event.ERROR', UNPROTECTED_EXIT_CODE), PREVENTION_SIGNAL] } },
-        { bool: { filter: [ERROR_CODED, STAGE_PREVENTION_SIGNAL] } },
-      ],
-      minimum_should_match: 1,
-    },
-  },
+  prevented: { bool: { filter: [ERROR_CODED, STAGE_PREVENTION_SIGNAL] } },
   detected: {
     bool: {
       should: [
-        { bool: { filter: [term('event.ERROR', UNPROTECTED_EXIT_CODE), STAGE_DETECTED], must_not: [PREVENTION_SIGNAL] } },
+        { bool: { filter: [term('event.ERROR', UNPROTECTED_EXIT_CODE), STAGE_DETECTED] } },
         { bool: { filter: [ERROR_CODED, STAGE_DETECTED], must_not: [STAGE_PREVENTION_SIGNAL] } },
       ],
       minimum_should_match: 1,

@@ -8,6 +8,7 @@ import { IntegrationsSettingsService } from '../integrations/settings.js';
 import { SettingsService } from '../analytics/settings.js';
 import { createEsClient } from '../analytics/client.js';
 import { DefenderEnrichmentService } from './enrichment.service.js';
+import { clearPreventionOnCompletedResults } from '../edr/completedStageCleanup.js';
 import { DefenderAutoResolveService } from './auto-resolve.service.js';
 import type { Client } from '@elastic/elasticsearch';
 import type {
@@ -420,6 +421,11 @@ export class DefenderSyncService {
       const es = await this.getEsClient();
       const settingsService = new SettingsService();
       const settings = await settingsService.getSettings();
+      const cleanup = await clearPreventionOnCompletedResults(es, settings.indexPattern);
+      if (cleanup.matched > 0) {
+        console.log(`[Completed-Stage-Cleanup] matched=${cleanup.matched} sent=${cleanup.sent} cleared=${cleanup.cleared}`);
+      }
+      for (const e of cleanup.errors.slice(0, 5)) console.warn(`[Completed-Stage-Cleanup-ERROR] ${e}`);
       const service = new DefenderEnrichmentService(es, settings.indexPattern);
       const result = await service.runEnrichmentPass({ lookbackDays: 90 });
       console.log(

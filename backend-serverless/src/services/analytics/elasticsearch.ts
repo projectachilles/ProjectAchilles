@@ -4,7 +4,7 @@ import { Client } from '@elastic/elasticsearch';
 import { createEsClient } from './client.js';
 import { RiskAcceptanceService } from '../risk-acceptance/risk-acceptance.service.js';
 import { attackSimulationExclusions } from './attack-simulation-filter.js';
-import { SKIPPED as SKIPPED_FILTER } from '../reports/stageOutcome.js';
+import { SKIPPED as SKIPPED_FILTER, rollupEdrFlags } from '../reports/stageOutcome.js';
 import { AppError } from '../../middleware/error.middleware.js';
 import {
   MAX_FRESHNESS_DAYS,
@@ -2560,19 +2560,12 @@ export class ElasticsearchService {
         protectedCount,
         unprotectedCount,
         totalCount: members.length,
+        // Per-vendor badges from the raw member docs: Detected when any member
+        // carries the vendor's flag, Prevented only when a member stage is
+        // itself Prevented on that vendor's own evidence (rollupEdrFlags).
+        ...rollupEdrFlags(memberHits.map((h: any) => h._source ?? {})),
       };
     });
-
-    // Roll up defender_detected / crowdstrike_detected / crowdstrike_prevented
-    // from member docs. The enrichment passes populate f0rtika.* flags on
-    // each eligible doc; the badges show if any stage of a bundle group is
-    // detected/prevented.
-    for (const group of groups) {
-      group.defenderDetected = group.members.some((m) => m.defender_detected === true);
-      group.crowdstrikeDetected = group.members.some((m) => m.crowdstrike_detected === true);
-      group.defenderPrevented = group.members.some((m) => m.defender_prevented === true);
-      group.crowdstrikePrevented = group.members.some((m) => m.crowdstrike_prevented === true);
-    }
 
     return {
       groups,

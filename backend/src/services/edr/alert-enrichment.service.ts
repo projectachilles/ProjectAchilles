@@ -13,7 +13,6 @@ import {
 import type { EnrichmentPassOptions, EnrichmentPassResult } from '../../types/edr.js';
 import { isAchillesMitigated, ACHILLES_MITIGATION_FIELDS, ACHILLES_MITIGATED_QUERY } from '../shared/achillesMitigation.js';
 import { alertCredit, isStageFile, isTestFile, MULTI_TEST_EVIDENCE_FIELDS } from './multiTestEvidence.js';
-import { ACTION_TIME_FIELDS, actedInRun, actedInRunClause, inRunCutoff } from './preventionTiming.js';
 import { enrichmentEligibleClauses } from '../analytics/enrichment-eligibility.js';
 import type { EdrVendorKey } from '../outcomes/vendors.js';
 
@@ -59,14 +58,13 @@ export const STAGE_RULE = 'single_test';
 export const EVIDENCE_RULE = 'file_verdict';
 
 /**
- * Marks a doc evaluated under the in-run prevention rules: on a stage that
- * exited 101, an action counts only when it happened before the run ended
- * (preventionTiming.ts), and a
- * stage's own prevention comes only from actions on its own file or on a
- * process it started, when the alert records actions per evidence item
- * (multiTestEvidence.ts ownActions). Docs prevented before it are re-checked
- * once and lose the prevention flags when their alerts are still in the
- * index and no action qualifies.
+ * Marks a doc evaluated under the current prevention rules: on a result that
+ * exited 101 (the stage ran to completion) no action counts, so it is never
+ * prevented; and a stage's own prevention comes only from actions on its own
+ * file or on a process it started, when the alert records actions per
+ * evidence item (multiTestEvidence.ts ownActions). Docs prevented before it
+ * are re-checked once and lose the prevention flags when their alerts are
+ * still in the index and no action qualifies.
  */
 export const PREVENTION_RULE = 'in_run';
 
@@ -225,14 +223,11 @@ export class EdrAlertEnrichmentService {
         for (const q of queries) {
           searches.push({ index: this.target.alertIndex });
           const source = this.target.ignoreAchillesMitigated
-            ? ['prevention_action', ...ACHILLES_MITIGATION_FIELDS, 'f0rtika.achilles_correlated', ...MULTI_TEST_EVIDENCE_FIELDS, ...ACTION_TIME_FIELDS]
-            : ['prevention_action', 'f0rtika.achilles_correlated', ...MULTI_TEST_EVIDENCE_FIELDS, ...ACTION_TIME_FIELDS];
-          // On a stage that exited 101, only actions taken before the run
-          // ended count (preventionTiming.ts).
-          const cutoff = this.inRunCutoffFor(q.hit);
+            ? ['prevention_action', ...ACHILLES_MITIGATION_FIELDS, 'f0rtika.achilles_correlated', ...MULTI_TEST_EVIDENCE_FIELDS]
+            : ['prevention_action', 'f0rtika.achilles_correlated', ...MULTI_TEST_EVIDENCE_FIELDS];
           const preventionFilter = this.target.ignoreAchillesMitigated
-            ? { bool: { must_not: [ACHILLES_MITIGATED_QUERY], filter: [actedInRunClause(cutoff)] } }
-            : actedInRunClause(cutoff);
+            ? { bool: { must_not: [ACHILLES_MITIGATED_QUERY] } }
+            : { match_all: {} };
           searches.push({
             size: EVIDENCE_HITS_PER_SUBQUERY,
             _source: source,
@@ -328,7 +323,6 @@ export class EdrAlertEnrichmentService {
           const credited = allHits
             .map((h) => ({ h, credit: alertCredit(h._source ?? {}, mine, { ownActionsOnly: q.kind === 'stage' }) }))
             .filter((c) => c.credit.counts);
-          const cutoff = this.inRunCutoffFor(q.hit);
           const alertHits = credited.map((c) => c.h);
           // Alerts beyond the hits read can't be classified: they count, as
           // every match did before the multi-test rules.
@@ -345,7 +339,8 @@ export class EdrAlertEnrichmentService {
             .map((h) => h._id)
             .filter((id): id is string => typeof id === 'string');
           // Prevention-flag qualification rule (docs/edr-prevention-action-detection.md):
-          //   - stage matches always qualify — the alert names this stage's own binary;
+          //   - stage matches qualify — the alert names this stage's own binary —
+          //     except on a result that exited 101 (no action counts there, below);
           //   - wide/bundle matches qualify only when this stage did NOT reach a
           //     conclusive outcome (101 executed; 105/126/127 policy-prevented) —
           //     a sibling stage that ran to completion was not prevented by the
@@ -353,17 +348,20 @@ export class EdrAlertEnrichmentService {
           //     stages 1–4 had already exited 101).
           // A multi-test alert brings its credited files' own actions, never
           // the alert-wide one (one file blocked, another only detected).
-          // On an exit-101 stage, an action after the run ended is cleanup, not prevention.
           const hitActions = credited
             .filter((c) => !(this.target.ignoreAchillesMitigated && isAchillesMitigated(c.h._source)))
-            .filter((c) => actedInRun(c.h._source ?? {}, cutoff))
             .flatMap((c) => c.credit.actions ?? [c.h._source?.prevention_action]);
           // The aggregation can't tell multi-test alerts apart: it is used
           // only when more alerts matched than the query could read.
           const aggUsable = total > allHits.length;
           const aggActions = aggUsable ? ((resp.aggregations?.prevention?.actions?.buckets ?? []) as any[]).map((b) => b.key) : [];
-          const preventionActions = [...new Set([...hitActions, ...aggActions])]
-            .filter((a): a is string => typeof a === 'string' && PREVENTION_ACTIONS.has(a));
+          // A result that exited 101 ran to completion: whatever the EDR did
+          // (often after the stage had finished) is detection, not prevention,
+          // at stage and test level alike.
+          const preventionActions = this.ranToCompletion(q.hit)
+            ? []
+            : [...new Set([...hitActions, ...aggActions])]
+              .filter((a): a is string => typeof a === 'string' && PREVENTION_ACTIONS.has(a));
 
           const docErrorCode = q.hit._source?.event?.ERROR as number | undefined;
           const preventionQualifies = q.kind === 'stage'
@@ -415,9 +413,10 @@ export class EdrAlertEnrichmentService {
             if (wide)  f0rtika[`${v}_detected`]       = true;
             if (stage) f0rtika[`${v}_stage_detected`] = true;
             // Vendor-confirmed prevention — rides alongside the detected flags.
-            // The actions are already qualification-filtered above (stage
-            // matches always; wide matches only for non-conclusive docs), and
-            // the stage's own action is preferred over a wide one.
+            // The actions are already qualification-filtered above (none on a
+            // result that exited 101; otherwise stage matches always, wide
+            // matches only for non-conclusive docs), and the stage's own action
+            // is preferred over a wide one.
             // Prevention ⊆ detection: a prevention flag implies a matched alert.
             const actions = [...u.stageActions, ...u.wideActions];
             if (actions.length > 0 && existing[`${v}_prevented`] !== true) {
@@ -500,11 +499,11 @@ export class EdrAlertEnrichmentService {
               }
               if (wasWide || u.wideMatched) f0rtika[`${v}_evidence_rule`] = EVIDENCE_RULE;
             }
-            // In-run prevention rules (PREVENTION_RULE). A doc prevented under
-            // the older rules is checked once: when its alerts are still in the
-            // index and no action now qualifies (taken after the run, or on
-            // another file), the prevention flags go; detection stays. No
-            // visible alerts (aged out): nothing is downgraded.
+            // Prevention rules (PREVENTION_RULE). A doc prevented under the
+            // older rules is checked once: when its alerts are still in the
+            // index and no action now qualifies (the result exited 101, or the
+            // action was on another file), the prevention flags go; detection
+            // stays. No visible alerts (aged out): nothing is downgraded.
             if ((u.stageQueried || u.wideQueried) && existing[`${v}_prevention_rule`] !== PREVENTION_RULE) {
               const now = (k: string) => (k in f0rtika ? f0rtika[k] : existing[k]);
               const wasPrevented = now(`${v}_prevented`) === true;
@@ -630,7 +629,8 @@ export class EdrAlertEnrichmentService {
         must_not: [{ term: { [`f0rtika.${v}_evidence_rule`]: EVIDENCE_RULE } }],
       },
     });
-    // In-run prevention rules: a doc prevented before them is checked once.
+    // Prevention rules (PREVENTION_RULE; its value 'in_run' is historical):
+    // a doc prevented before them is checked once.
     eligible.push({
       bool: {
         should: [
@@ -673,14 +673,12 @@ export class EdrAlertEnrichmentService {
   }
 
   /**
-   * The in-run cut-off for a result that exited 101 (it ran to completion, so
-   * calling it Prevented needs an action taken during the run), else null (no
-   * gate). An error-coded stage keeps every action: the error itself fits the
-   * EDR having stopped it, and Defender keeps adding later activity to an
-   * alert for hours, so its last activity is no bound there.
+   * The result exited 101: its stage ran to completion, so no EDR action on
+   * it is prevention. `event.ERROR` can be stored as a string (mixed types
+   * across `achilles-*` indices), hence the Number().
    */
-  private inRunCutoffFor(hit: any): number | null {
-    return hit._source?.event?.ERROR === 101 ? inRunCutoff(hit._source?.routing?.event_time) : null;
+  private ranToCompletion(hit: any): boolean {
+    return Number(hit._source?.event?.ERROR) === 101;
   }
 
   private get recheckHours(): number {

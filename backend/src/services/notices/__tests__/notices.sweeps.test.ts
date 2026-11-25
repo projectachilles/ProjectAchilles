@@ -593,11 +593,14 @@ describe('pre-execution notice sweeps', () => {
     it('counts with the same verdict as Analytics: EDR prevention and detection on the result docs', async () => {
       insertSentNotice('n-fin', -MIN);
       terminalRun('n-fin');
+      // This run errored (999) and Defender killed the process: the task result and its doc agree.
+      testDb.prepare(`UPDATE tasks SET result = ? WHERE id = 't-unprot'`)
+        .run(JSON.stringify({ task_id: 't-unprot', test_uuid: 'test-uuid-001', exit_code: 999, stdout: '', stderr: '' }));
       mockFetchEdrDocs.mockImplementationOnce(async () => ({
         status: 'ok',
         docs: new Map<string, Record<string, unknown>>([
-          // The 101 single-binary result: Defender killed the process.
-          ['t-unprot', { event: { ERROR: 101 }, f0rtika: { defender_prevented: true, defender_prevention_action: 'process_killed' } }],
+          // The exit-999 single-binary result: Defender killed the process.
+          ['t-unprot', { event: { ERROR: 999 }, f0rtika: { defender_prevented: true, defender_prevention_action: 'process_killed' } }],
           // The exit-1 result: Defender raised an alert.
           ['t-err', { event: { ERROR: 1 }, f0rtika: { defender_detected: true, defender_stage_detected: true } }],
         ]),

@@ -1,5 +1,5 @@
-import { Clock, ShieldAlert, ShieldCheck } from 'lucide-react';
-import { formatPreventionAction } from '../utils/prevention';
+import { ShieldAlert, ShieldCheck } from 'lucide-react';
+import { formatPreventionAction, isConfirmedPrevention } from '../utils/prevention';
 
 interface PreventionBadgeProps {
   /** Normalized prevention action (shared vendor vocabulary). */
@@ -8,11 +8,11 @@ interface PreventionBadgeProps {
       pattern_disposition_description or Defender remediation_status. */
   rawStatus?: string;
   /**
-   * The action came after the run ended, on a stage that ran to completion
-   * (exit 101): cleanup, not prevention, so the stage reads Detected. Shown
-   * muted, as "<action> after the run".
+   * The stage ran to completion (exit 101), so the action did not stop it and
+   * the stage reads Detected. A confirmed action (quarantined, process killed,
+   * blocked) is shown muted, as "<action>, stage still completed".
    */
-  afterRun?: boolean;
+  stageCompleted?: boolean;
 }
 
 /**
@@ -23,17 +23,17 @@ interface PreventionBadgeProps {
  * vendor attempted prevention and failed, which is a detection signal, not
  * prevention.
  */
-export default function PreventionBadge({ action, rawStatus, afterRun }: PreventionBadgeProps) {
+export default function PreventionBadge({ action, rawStatus, stageCompleted }: PreventionBadgeProps) {
   const label = formatPreventionAction(action);
   if (!label) return null;
-  if (afterRun) {
+  if (stageCompleted && isConfirmedPrevention(action)) {
     return (
       <span
         className="inline-flex items-center gap-1 rounded border border-border px-1.5 py-0.5 text-[10px] font-medium text-muted"
-        title={`The EDR acted after the run ended: cleanup, not prevention.${rawStatus ? ` (${rawStatus})` : ''}`}
+        title={`The stage ran to completion (exit 101), so this action did not stop it.${rawStatus ? ` (${rawStatus})` : ''}`}
       >
-        <Clock className="w-3 h-3" />
-        {label} after the run
+        <ShieldAlert className="w-3 h-3" />
+        {`${label}, stage still completed`}
       </span>
     );
   }

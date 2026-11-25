@@ -324,7 +324,7 @@ describe('campaign run matrix', () => {
       mockFetchEdrDocs.mockImplementation(async () => ({
         status: 'ok',
         docs: new Map<string, Record<string, unknown>>([
-          [`${k}::T1105`, { event: { ERROR: 101 }, f0rtika: { is_bundle_control: true, defender_prevented: true, defender_prevention_action: 'process_killed' } }],
+          [`${k}::T1572`, { event: { ERROR: 999 }, f0rtika: { is_bundle_control: true, defender_detected: true, defender_stage_detected: true, defender_prevented: true, defender_stage_prevented: true, defender_prevention_action: 'process_killed' } }],
           [single, { event: { ERROR: 101 }, f0rtika: { defender_detected: true, defender_stage_detected: true } }],
         ]),
       }));

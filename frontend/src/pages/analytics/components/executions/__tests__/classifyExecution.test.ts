@@ -34,27 +34,27 @@ const GOLDEN: GoldenCase[] = [
   { name: 'standalone exit 101 + Defender alert → detected', exit: 101, flags: { defender_detected: true }, expected: 'detected' },
   { name: 'standalone exit 101 + Falcon alert → detected', exit: 101, flags: { crowdstrike_detected: true }, expected: 'detected' },
   { name: 'standalone exit 999 + Defender alert only stays inconclusive', exit: 999, flags: { defender_detected: true }, expected: 'inconclusive' },
-  { name: 'exit 101 + Falcon prevented → prevented', exit: 101, flags: { crowdstrike_prevented: true }, expected: 'prevented' },
-  { name: 'exit 101 + Defender prevented → prevented', exit: 101, flags: { defender_prevented: true }, expected: 'prevented' },
+  { name: 'exit 101 + Falcon prevented → unprotected', exit: 101, flags: { crowdstrike_prevented: true }, expected: 'unprotected' },
+  { name: 'exit 101 + Defender prevented → unprotected', exit: 101, flags: { defender_prevented: true }, expected: 'unprotected' },
   {
-    name: 'exit 101 + Falcon stage alert + quarantined → prevented', exit: 101,
-    flags: { crowdstrike_stage_detected: true }, actions: { crowdstrike_prevention_action: 'quarantined' }, expected: 'prevented',
+    name: 'exit 101 + Falcon stage alert + quarantined → detected', exit: 101,
+    flags: { crowdstrike_stage_detected: true }, actions: { crowdstrike_prevention_action: 'quarantined' }, expected: 'detected',
   },
   {
     name: 'exit 101 + Defender stage alert + kill_failed → detected', exit: 101,
     flags: { defender_stage_detected: true }, actions: { defender_prevention_action: 'kill_failed' }, expected: 'detected',
   },
   {
-    name: 'exit 101 + Defender stage alert + quarantined → prevented', exit: 101,
-    flags: { defender_stage_detected: true }, actions: { defender_prevention_action: 'quarantined' }, expected: 'prevented',
+    name: 'exit 101 + Defender stage alert + quarantined → detected', exit: 101,
+    flags: { defender_stage_detected: true }, actions: { defender_prevention_action: 'quarantined' }, expected: 'detected',
   },
   {
-    name: 'exit 101 + Defender stage alert + process_killed → prevented', exit: 101,
-    flags: { defender_stage_detected: true }, actions: { defender_prevention_action: 'process_killed' }, expected: 'prevented',
+    name: 'exit 101 + Defender stage alert + process_killed → detected', exit: 101,
+    flags: { defender_stage_detected: true }, actions: { defender_prevention_action: 'process_killed' }, expected: 'detected',
   },
   {
-    name: 'exit 101 + Falcon stage alert + blocked → prevented', exit: 101,
-    flags: { crowdstrike_stage_detected: true }, actions: { crowdstrike_prevention_action: 'blocked' }, expected: 'prevented',
+    name: 'exit 101 + Falcon stage alert + blocked → detected', exit: 101,
+    flags: { crowdstrike_stage_detected: true }, actions: { crowdstrike_prevention_action: 'blocked' }, expected: 'detected',
   },
   {
     name: 'exit 101 + Falcon stage alert + kill_failed → detected', exit: 101,
@@ -64,6 +64,16 @@ const GOLDEN: GoldenCase[] = [
     name: 'exit 101 + bundle-level flag + blocked action → unprotected', exit: 101, bundle: true,
     flags: { defender_detected: true }, actions: { defender_prevention_action: 'blocked' }, expected: 'unprotected',
   },
+  {
+    name: 'exit 101 + Defender stage alert + stage_prevented → detected (it ran to completion)', exit: 101,
+    flags: { defender_stage_detected: true, defender_prevented: true, defender_stage_prevented: true },
+    actions: { defender_prevention_action: 'process_killed' }, expected: 'detected',
+  },
+  { name: 'bundle stage exit 101 + test-level prevented only → unprotected', exit: 101, bundle: true, flags: { defender_detected: true, defender_prevented: true }, expected: 'unprotected' },
+  // The converter mirrors the API (stage flags default to false, never undefined), so the helper's
+  // `stage ?? test-level` fallback does not fire on either row; the explicit-false row pins that.
+  { name: 'bundle stage exit 101 + test-level prevented only, stage_detected false → unprotected', exit: 101, bundle: true, flags: { defender_detected: true, defender_stage_detected: false, defender_prevented: true }, expected: 'unprotected' },
+  { name: 'standalone exit 101 + Falcon alert + prevented → detected', exit: 101, flags: { crowdstrike_detected: true, crowdstrike_prevented: true }, expected: 'detected' },
   { name: 'bundle stage exit 0 (intel-driven) → skipped', exit: 0, bundle: true, category: 'intel-driven', expected: 'skipped' },
   { name: 'bundle control exit 0 (cyber-hygiene) → inconclusive', exit: 0, bundle: true, category: 'cyber-hygiene', expected: 'inconclusive' },
   { name: 'explicitly skipped cyber-hygiene control exit 0 → skipped', exit: 0, bundle: true, category: 'cyber-hygiene', skipped: true, expected: 'skipped' },

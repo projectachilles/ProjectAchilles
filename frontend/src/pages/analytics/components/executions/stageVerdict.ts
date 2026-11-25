@@ -164,7 +164,7 @@ export function stageVerdict(exec: EnrichedTestExecution, siblings: EnrichedTest
       return {
         kind,
         title: 'Ran to completion. An EDR alerted but did not stop it.',
-        body: `${vendorLabel(stageEdr(exec)) ?? 'An EDR'} raised an alert naming this stage's binary; nothing was blocked.`,
+        body: `${vendorLabel(stageEdr(exec)) ?? 'An EDR'} raised an alert naming this stage's binary; it did not stop the stage.`,
       };
     }
     case 'unprotected':

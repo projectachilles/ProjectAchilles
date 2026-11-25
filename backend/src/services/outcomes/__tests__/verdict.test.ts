@@ -12,22 +12,37 @@ const edr = (docs: Record<string, Record<string, unknown>> = {}, status: EdrDocs
 
 const doc = (exit: number, f: Record<string, unknown> = {}) => ({ event: { ERROR: exit }, f0rtika: { is_bundle_control: true, category: 'intel-driven', ...f } });
 
+/** A document as `fetchEdrDocs` returns it: only the dotted paths in SOURCE_FIELDS. */
+const fetched = (src: Record<string, unknown>): Record<string, unknown> => {
+  const out: Record<string, unknown> = {};
+  for (const path of SOURCE_FIELDS) {
+    const parts = path.split('.');
+    let from: unknown = src;
+    for (const part of parts) from = from && typeof from === 'object' ? (from as Record<string, unknown>)[part] : undefined;
+    if (from === undefined) continue;
+    let to = out;
+    for (const part of parts.slice(0, -1)) to = (to[part] ??= {}) as Record<string, unknown>;
+    to[parts[parts.length - 1]] = from;
+  }
+  return out;
+};
+
 const base = (o: Partial<VerdictInput>): VerdictInput => ({
   taskId: 't1', exitCode: 101, error: null, stderrTail: null, category: 'intel-driven', controls: null, edr: edr(), ...o,
 });
 
 describe('cellVerdict: real customer runs', () => {
-  it('CPC-Cesar × Kothamine: 101, 999, skipped + Defender prevented → Prevented, not Error', () => {
+  it('CPC-Cesar × Kothamine: 101 with a Defender action, 999, skipped → Detected', () => {
     const v = cellVerdict(base({
       exitCode: 999,
       controls: [stage('T1105', 101), stage('T1572', 999), stage('T1005', 0, true)],
       edr: edr({ 't1::T1105': doc(101, { defender_detected: true, defender_stage_detected: true, defender_prevented: true, defender_prevention_action: 'process_killed' }) }),
     }));
-    expect(v.state).toBe('prevented');
-    expect(v.reason).toBe('Defender prevented it (process killed) during stage 1 (T1105). Stage 2 (T1572) reported a test error (999, prerequisites not met). Stage 3 (T1005) skipped.');
-    expect(v.edr).toBe('Defender: prevented (process killed)');
+    expect(v.state).toBe('detected');
+    expect(v.reason).toBe('Defender raised an alert; it did not stop the test. Stage 2 (T1572) reported a test error (999, prerequisites not met). Stage 3 (T1005) skipped.');
+    expect(v.edr).toBe('Defender: alert raised');
     expect(v.stages.map((s) => `${s.label}:${s.exit_code}:${s.outcome}`)).toEqual([
-      'Stage 1 (T1105):101:prevented', 'Stage 2 (T1572):999:inconclusive', 'Stage 3 (T1005):0:skipped',
+      'Stage 1 (T1105):101:detected', 'Stage 2 (T1572):999:inconclusive', 'Stage 3 (T1005):0:skipped',
     ]);
   });
 
@@ -38,7 +53,7 @@ describe('cellVerdict: real customer runs', () => {
       edr: edr({ 't1::T1211': doc(101, { defender_detected: true, defender_stage_detected: true }) }),
     }));
     expect(v.state).toBe('detected');
-    expect(v.reason).toBe('Defender raised an alert; nothing was blocked. Stage 3 (T1574) reported a test error (999, prerequisites not met). Stage 4 (T1559.001) skipped.');
+    expect(v.reason).toBe('Defender raised an alert; it did not stop the test. Stage 3 (T1574) reported a test error (999, prerequisites not met). Stage 4 (T1559.001) skipped.');
     expect(v.edr).toBe('Defender: alert raised');
   });
 
@@ -65,11 +80,43 @@ describe('cellVerdict: rules', () => {
 
   it('single-binary test: doc keyed by task id', () => {
     expect(cellVerdict(base({ exitCode: 126 })).reason).toBe('Blocked, exit 126.');
-    const p = cellVerdict(base({ edr: edr({ t1: { event: { ERROR: 101 }, f0rtika: { crowdstrike_detected: true, crowdstrike_stage_detected: true, crowdstrike_prevention_action: 'quarantined' } } }) }));
+    const p = cellVerdict(base({ exitCode: 999, edr: edr({ t1: { event: { ERROR: 999 }, f0rtika: { crowdstrike_detected: true, crowdstrike_stage_detected: true, crowdstrike_prevention_action: 'quarantined' } } }) }));
     expect(p.state).toBe('prevented');
     expect(p.reason).toBe('CrowdStrike prevented it (quarantined).');
     const u = cellVerdict(base({}));
     expect(u.reason).toBe('Ran without being blocked (exit 101). No EDR alert matched.');
+  });
+
+  it('a single-binary test that exited 101 is Detected, whatever action the alert carries', () => {
+    const v = cellVerdict(base({ edr: edr({ t1: { event: { ERROR: 101 }, f0rtika: { crowdstrike_detected: true, crowdstrike_stage_detected: true, crowdstrike_prevented: true, crowdstrike_prevention_action: 'quarantined' } } }) }));
+    expect(v.state).toBe('detected');
+    expect(v.reason).toContain('CrowdStrike raised an alert; it did not stop the test.');
+    expect(v.edr).toBe('CrowdStrike: alert raised');
+  });
+
+  it('a prevention flag on an errored or skipped sibling does not make the run Prevented', () => {
+    const v = cellVerdict(base({
+      controls: [stage('T1105', 101), stage('T1572', 999), stage('T1005', 0, true)],
+      edr: edr({
+        't1::T1105': doc(101, { defender_detected: true, defender_stage_detected: true }),
+        't1::T1572': doc(999, { defender_detected: true, defender_prevented: true, defender_stage_prevented: false, defender_prevention_action: 'process_killed' }),
+        't1::T1005': doc(0, { defender_prevented: true, defender_prevention_action: 'process_killed' }),
+      }),
+    }));
+    expect(v.state).toBe('detected');
+    expect(v.edr).toBe('Defender: alert raised');
+  });
+
+  it('an errored stage stopped by its own alert makes the run Prevented and is the stage named', () => {
+    const v = cellVerdict(base({
+      controls: [stage('T1105', 101), stage('T1572', 999)],
+      edr: edr({
+        't1::T1105': doc(101, { defender_detected: true, defender_stage_detected: true }),
+        't1::T1572': doc(999, { defender_detected: true, defender_stage_detected: true, defender_prevented: true, defender_stage_prevented: true, defender_prevention_action: 'process_killed' }),
+      }),
+    }));
+    expect(v.state).toBe('prevented');
+    expect(v.reason).toContain('Defender prevented it (process killed) during stage 2 (T1572).');
   });
 
   it('single-binary error: names the exit code and adds the agent error or the last stderr line', () => {
@@ -102,7 +149,7 @@ describe('cellVerdict: rules', () => {
   });
 
   it('both vendors prevent: both named', () => {
-    const v = cellVerdict(base({ edr: edr({ t1: { event: { ERROR: 101 }, f0rtika: { defender_prevented: true, defender_prevention_action: 'blocked', crowdstrike_prevented: true } } }) }));
+    const v = cellVerdict(base({ exitCode: 999, edr: edr({ t1: { event: { ERROR: 999 }, f0rtika: { defender_prevented: true, defender_prevention_action: 'blocked', crowdstrike_prevented: true } } }) }));
     expect(v.reason).toBe('Defender and CrowdStrike prevented it (blocked).');
     expect(v.edr).toBe('Defender: prevented (blocked); CrowdStrike: prevented');
   });
@@ -137,7 +184,7 @@ describe('cellVerdict: rules', () => {
 
 describe('cellVerdict: every EDR vendor counts, like Analytics', () => {
   it('SentinelOne prevention and detection are named', () => {
-    const p = cellVerdict(base({ edr: edr({ t1: { event: { ERROR: 101 }, f0rtika: { sentinelone_detected: true, sentinelone_stage_detected: true, sentinelone_prevented: true, sentinelone_prevention_action: 'process_killed' } } }) }));
+    const p = cellVerdict(base({ exitCode: 999, edr: edr({ t1: { event: { ERROR: 999 }, f0rtika: { sentinelone_detected: true, sentinelone_stage_detected: true, sentinelone_prevented: true, sentinelone_prevention_action: 'process_killed' } } }) }));
     expect(p.state).toBe('prevented');
     expect(p.reason).toBe('SentinelOne prevented it (process killed).');
     const d = cellVerdict(base({ controls: [stage('T1105', 101)], edr: edr({ 't1::T1105': doc(101, { sentinelone_stage_detected: true }) }) }));
@@ -146,10 +193,28 @@ describe('cellVerdict: every EDR vendor counts, like Analytics', () => {
 
   it('the fetched fields cover every vendor the verdict reads', () => {
     for (const { key } of EDR_VENDORS) {
-      for (const f of ['detected', 'stage_detected', 'prevented', 'prevention_action']) {
+      for (const f of ['detected', 'stage_detected', 'prevented', 'prevention_action', 'stage_prevented']) {
         expect(SOURCE_FIELDS).toContain(`f0rtika.${key}_${f}`);
       }
     }
+  });
+
+  it.each(EDR_VENDORS.map((v) => v.key))('%s: an errored stage whose own alert carried no action stays Detected on the fetched fields', (key) => {
+    const errored = doc(999, {
+      [`${key}_detected`]: true,
+      [`${key}_stage_detected`]: true,
+      [`${key}_stage_prevented`]: false,
+      [`${key}_prevented`]: true,
+      [`${key}_prevention_action`]: 'process_killed',
+    });
+    const v = cellVerdict(base({
+      controls: [stage('T1105', 101), stage('T1572', 999)],
+      edr: edr({
+        't1::T1105': fetched(doc(101, { [`${key}_detected`]: true, [`${key}_stage_detected`]: true })),
+        't1::T1572': fetched(errored),
+      }),
+    }));
+    expect(v.state).toBe('detected');
   });
 
   it.each(EDR_VENDORS.map((v) => v.key))('%s: same outcome as classifyStage (Analytics) for prevented and detected stages', (key) => {

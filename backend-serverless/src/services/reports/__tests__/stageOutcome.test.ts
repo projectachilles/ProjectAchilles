@@ -1,6 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import {
   classifyStage,
+  stagePreventedBy,
   OUTCOME_FILTERS,
   HIGH_IMPACT_FILTER,
   isHighImpact,
@@ -10,6 +11,7 @@ import {
   protectionRate,
   countsFromFiltersAgg,
   STAGE_OUTCOMES,
+  rollupEdrFlags,
 } from '../stageOutcome.js';
 import type { StageOutcome } from '../../../types/reports.js';
 
@@ -41,27 +43,35 @@ const GOLDEN: GoldenCase[] = [
   { name: 'exit 101 + Defender stage alert → detected', exit: 101, flags: { defender_stage_detected: true }, expected: 'detected' },
   { name: 'exit 101 + Falcon stage alert → detected', exit: 101, flags: { crowdstrike_stage_detected: true }, expected: 'detected' },
   { name: 'exit 101 + bundle-level Defender flag only → unprotected', exit: 101, flags: { defender_detected: true }, expected: 'unprotected' },
-  { name: 'exit 101 + Falcon prevented → prevented', exit: 101, flags: { crowdstrike_prevented: true }, expected: 'prevented' },
-  { name: 'exit 101 + Defender prevented → prevented', exit: 101, flags: { defender_prevented: true }, expected: 'prevented' },
+  { name: 'exit 101 + Falcon prevented → unprotected (a completed stage is never Prevented)', exit: 101, flags: { crowdstrike_prevented: true }, expected: 'unprotected' },
+  { name: 'exit 101 + Defender prevented → unprotected (a completed stage is never Prevented)', exit: 101, flags: { defender_prevented: true }, expected: 'unprotected' },
   {
-    name: 'exit 101 + Falcon stage alert + quarantined → prevented', exit: 101,
-    flags: { crowdstrike_stage_detected: true }, actions: { crowdstrike_prevention_action: 'quarantined' }, expected: 'prevented',
+    name: 'exit 101 + Defender stage alert + prevented + process_killed → detected', exit: 101,
+    flags: { defender_stage_detected: true, defender_prevented: true }, actions: { defender_prevention_action: 'process_killed' }, expected: 'detected',
+  },
+  {
+    name: 'exit 101 + only bundle-level Defender detected + prevented → unprotected', exit: 101,
+    flags: { defender_detected: true, defender_prevented: true }, expected: 'unprotected',
+  },
+  {
+    name: 'exit 101 + Falcon stage alert + quarantined → detected (the stage still completed)', exit: 101,
+    flags: { crowdstrike_stage_detected: true }, actions: { crowdstrike_prevention_action: 'quarantined' }, expected: 'detected',
   },
   {
     name: 'exit 101 + Defender stage alert + kill_failed → detected', exit: 101,
     flags: { defender_stage_detected: true }, actions: { defender_prevention_action: 'kill_failed' }, expected: 'detected',
   },
   {
-    name: 'exit 101 + Defender stage alert + quarantined → prevented', exit: 101,
-    flags: { defender_stage_detected: true }, actions: { defender_prevention_action: 'quarantined' }, expected: 'prevented',
+    name: 'exit 101 + Defender stage alert + quarantined → detected (the stage still completed)', exit: 101,
+    flags: { defender_stage_detected: true }, actions: { defender_prevention_action: 'quarantined' }, expected: 'detected',
   },
   {
-    name: 'exit 101 + Defender stage alert + process_killed → prevented', exit: 101,
-    flags: { defender_stage_detected: true }, actions: { defender_prevention_action: 'process_killed' }, expected: 'prevented',
+    name: 'exit 101 + Defender stage alert + process_killed → detected (the stage still completed)', exit: 101,
+    flags: { defender_stage_detected: true }, actions: { defender_prevention_action: 'process_killed' }, expected: 'detected',
   },
   {
-    name: 'exit 101 + Falcon stage alert + blocked → prevented', exit: 101,
-    flags: { crowdstrike_stage_detected: true }, actions: { crowdstrike_prevention_action: 'blocked' }, expected: 'prevented',
+    name: 'exit 101 + Falcon stage alert + blocked → detected (the stage still completed)', exit: 101,
+    flags: { crowdstrike_stage_detected: true }, actions: { crowdstrike_prevention_action: 'blocked' }, expected: 'detected',
   },
   {
     name: 'exit 101 + Falcon stage alert + kill_failed → detected', exit: 101,
@@ -161,6 +171,38 @@ describe('OUTCOME_FILTERS agree with classifyStage', () => {
   it.each(GOLDEN)('$name: exactly one filter matches, the classified one', (c) => {
     const doc = toSource(c);
     expect(STAGE_OUTCOMES.filter((k) => matches(OUTCOME_FILTERS[k], doc))).toEqual([c.expected]);
+  });
+});
+
+describe('stagePreventedBy', () => {
+  it.each(GOLDEN)('$name: some vendor prevented it exactly when the stage is Prevented', (c) => {
+    const src = toSource(c);
+    expect((['defender', 'crowdstrike'] as const).some((v) => stagePreventedBy(src, v))).toBe(classifyStage(src) === 'prevented');
+  });
+  it('names only the vendor whose own stage alert carried the action', () => {
+    const src = toSource({ name: '', exit: 999, flags: { defender_stage_detected: true, crowdstrike_prevented: true }, actions: { defender_prevention_action: 'blocked' }, expected: 'prevented' });
+    expect(stagePreventedBy(src, 'defender')).toBe(true);
+    expect(stagePreventedBy(src, 'crowdstrike')).toBe(false);
+  });
+});
+
+describe('rollupEdrFlags', () => {
+  const completed = toSource({ name: '', exit: 101, bundle: true, flags: { defender_detected: true, defender_stage_detected: true }, expected: 'detected' });
+  it('a prevention flag on an errored sibling without its own action does not make the run Prevented', () => {
+    const sibling = toSource({ name: '', exit: 999, bundle: true, flags: { defender_detected: true, defender_prevented: true }, actions: { defender_prevention_action: 'process_killed' }, expected: 'inconclusive' });
+    expect(rollupEdrFlags([completed, sibling])).toMatchObject({ defenderDetected: true, defenderPrevented: false });
+  });
+  it('a prevention flag on a skipped stage does not make the run Prevented', () => {
+    const skipped = toSource({ name: '', exit: 0, bundle: true, category: 'intel-driven', flags: { defender_prevented: true }, expected: 'skipped' });
+    expect(rollupEdrFlags([completed, skipped]).defenderPrevented).toBe(false);
+  });
+  it('an errored stage stopped by its own alert makes the run Prevented, for that vendor only', () => {
+    const stopped = toSource({ name: '', exit: 999, bundle: true, flags: { defender_stage_detected: true, defender_prevented: true }, actions: { defender_prevention_action: 'blocked' }, expected: 'prevented' });
+    expect(rollupEdrFlags([completed, stopped])).toMatchObject({ defenderPrevented: true, crowdstrikePrevented: false });
+  });
+  it('an older errored stage (stage alert + confirmed action, no stage_prevented) still makes the run Prevented', () => {
+    const older = toSource({ name: '', exit: 999, bundle: true, flags: { crowdstrike_stage_detected: true }, actions: { crowdstrike_prevention_action: 'quarantined' }, expected: 'prevented' });
+    expect(rollupEdrFlags([completed, older]).crowdstrikePrevented).toBe(true);
   });
 });
 

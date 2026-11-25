@@ -397,10 +397,10 @@ with `crowdstrike_prevented: true` (plus the action) under these rules
   names the bundle, or a sibling stage, does not mark the stage: a sibling
   that already ran to completion was not prevented by the kill of a later
   stage.
-- **During the run.** For a stage that ran to completion (exit `101`), the
-  action counts only if the alert was raised before the run ended (the
-  result's time plus 2 minutes). A later action leaves the stage **Detected**.
-  Error-coded stages are not time-gated.
+- **Exit code decides.** A stage that ran to completion (exit `101`) is never
+  Prevented; it reads **Detected**. Error-coded stages are Prevented when the
+  alert on their own binary carries a confirmed action (v2.10.0 and v2.10.1
+  judged this by time; since the exit-code rule they no longer do).
 - **Alerts that name several tests' files** count for none of them:
   CrowdStrike gives no per-file verdict to tell which test the alert is about.
 
@@ -437,7 +437,7 @@ analytics.
 | Sync trigger | `setInterval` at server startup | Vercel Cron (`/api/cron/crowdstrike-sync`) |
 | Credentials | Encrypted file or env vars | Env vars or encrypted blob |
 
-Both variants expose the same API endpoints. The evidence rules of v2.10.0 and v2.10.1 (own-alert credit, in-run prevention, multi-test alerts), EDR-killed agent runs, EDR launch blocks and the Elasticsearch readiness check are in `backend/` only.
+Both variants expose the same API endpoints. The evidence rules of v2.10.0 and v2.10.1 (own-alert credit, multi-test alerts), EDR-killed agent runs, EDR launch blocks and the Elasticsearch readiness check are in `backend/` only. The exit-code rule (a stage that exited 101 is never Prevented) and the clean-up of stored results are in both.
 
 ## Troubleshooting
 

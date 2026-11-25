@@ -37,19 +37,23 @@ const CASES: LabelCase[] = [
   { name: 'protected', compact: false, label: 'Protected', color: 'text-accent', exec: makeExec({ error_code: 126 }) },
   {
     name: 'prevented, compact, drops the action', compact: true, label: 'Prevented', color: 'text-accent',
-    exec: makeExec({ crowdstrike_stage_detected: true, crowdstrike_prevention_action: 'quarantined' }),
+    exec: makeExec({ error_code: 999, crowdstrike_stage_detected: true, crowdstrike_prevention_action: 'quarantined' }),
   },
   {
     name: 'prevented names the Falcon action', compact: false, label: 'Prevented (quarantined)', color: 'text-accent',
-    exec: makeExec({ crowdstrike_stage_detected: true, crowdstrike_prevention_action: 'quarantined' }),
+    exec: makeExec({ error_code: 999, crowdstrike_stage_detected: true, crowdstrike_prevention_action: 'quarantined' }),
   },
   {
     name: 'prevented names the Defender action', compact: false, label: 'Prevented (process killed)', color: 'text-accent',
-    exec: makeExec({ defender_stage_detected: true, defender_prevention_action: 'process_killed' }),
+    exec: makeExec({ error_code: 999, defender_stage_detected: true, defender_prevention_action: 'process_killed' }),
   },
   {
     name: 'prevented by flag, with no action to name', compact: false, label: 'Prevented', color: 'text-accent',
-    exec: makeExec({ defender_prevented: true }),
+    exec: makeExec({ error_code: 999, defender_stage_detected: true, defender_stage_prevented: true }),
+  },
+  {
+    name: 'exit 101 with a block action is Detected, never Prevented', compact: false, label: 'Detected', color: 'text-warning',
+    exec: makeExec({ defender_stage_detected: true, defender_stage_prevented: true, defender_prevention_action: 'process_killed' }),
   },
   { name: 'detected', compact: false, label: 'Detected', color: 'text-warning', exec: makeExec({ defender_stage_detected: true }) },
   {

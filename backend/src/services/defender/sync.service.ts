@@ -38,7 +38,7 @@ const INITIAL_ALERT_LOOKBACK_DAYS = 90;
  * force a full re-sync on all deployments. The persisted sync_version is
  * compared against this; a mismatch clears lastAlertSync.
  */
-const ALERT_SYNC_VERSION = 8; // v8: parent process files in evidence_filenames / evidence_filepaths (alerts_v2 parentProcessImageFile); v7: + evidence_child_actions (blocked child processes by parent file), first/last_activity_at (edr/preventionTiming.ts); v6: full 90 days (the re-sync used to stop at the 500 newest alerts); v5: + evidence_file_verdicts (edr/multiTestEvidence.ts); v4: + prevention_action / remediation_status / portal_url
+const ALERT_SYNC_VERSION = 8; // v8: parent process files in evidence_filenames / evidence_filepaths (alerts_v2 parentProcessImageFile); v7: + evidence_child_actions (blocked child processes by parent file), first/last_activity_at; v6: full 90 days (the re-sync used to stop at the 500 newest alerts); v5: + evidence_file_verdicts (edr/multiTestEvidence.ts); v4: + prevention_action / remediation_status / portal_url
 
 export class DefenderSyncService {
   private graphClient: MicrosoftGraphClient | null = null;

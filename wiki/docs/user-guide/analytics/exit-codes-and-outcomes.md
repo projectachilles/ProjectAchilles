@@ -40,7 +40,7 @@ them against synced EDR alerts:
 |---|---|---|
 | `defender_detected` / `crowdstrike_detected` / `sentinelone_detected` / `sophos_detected` | Alert evidence matches hostname + bundle UUID in filename/path, within −5/+30 min of the test | — |
 | `*_stage_detected` | Alert evidence names the **stage's own binary** (`<bundle-uuid>-<control>.exe`) | — |
-| `crowdstrike_prevented` / `defender_prevented` / `sentinelone_prevented` / `sophos_prevented` (+ `*_prevention_action`) | Matched alert carries a vendor-confirmed prevention disposition | **Stage-binary matches always qualify. Bundle-wide matches only if the stage never reached a conclusive outcome** (exit ∉ `{101, 105, 126, 127}`). A failed kill (CS `kill_action_failed`) never qualifies. The stage alert's action is preferred over a bundle-wide one |
+| `crowdstrike_prevented` / `defender_prevented` / `sentinelone_prevented` / `sophos_prevented` (+ `*_prevention_action`) | Matched alert carries a vendor-confirmed prevention disposition | **Never written on a result that exited `101`.** Stage-binary matches qualify; bundle-wide matches only if the stage never reached a conclusive outcome (exit ∉ `{101, 105, 126, 127}`). A failed kill (CS `kill_action_failed`) never qualifies. The stage alert's action is preferred over a bundle-wide one |
 | `*_stage_prevented` | `true` when an alert naming the **stage's own binary** carried a confirmed action; `false` when the stage's alerts carried none | Absent on documents enriched before it existed; those fall back to `*_stage_detected` + a confirmed `*_prevention_action` |
 
 **Vendor prevention dispositions**, normalized to a shared vocabulary
@@ -94,17 +94,24 @@ that is detected but not yet `*_stage_prevented` is re-checked for 72 hours,
 and only gains the flags it lacks. Every alert matching a document counts,
 not only the first few returned.
 
-**Prevented means stopped during the run.** Late *reporting* is fine; a late
-*action* is not. A stage that exited `101` ran to completion, so an EDR action
-counts as its prevention only when it happened before the run ended (the
-result's time plus 2 minutes for clock differences). EDRs also clean up after
-the fact: Defender can block or quarantine a stage's file minutes after the
-stage finished, which is detection, not prevention. The latest moment an
-alert's action can have happened is its last activity (Defender
-`lastActivityDateTime`, stored as `last_activity_at`); for the other EDRs it is
-the alert's own time. Error-coded stages (e.g. `999`) are not held to this: the
-error fits the EDR having stopped the stage, and Defender keeps adding later
-activity to one alert for hours or days, so last activity bounds nothing there.
+**Prevented is decided by the exit code.** A stage that exited `101` ran to
+completion, so it is never **Prevented**, whatever the EDR's alert says: it
+reads **Detected** when an EDR alert names it, and **Unprotected** otherwise. An EDR can mark a process as
+blocked after the process has already exited (Defender has added *blocked* to
+an alert minutes after the stage finished), and that is detection, not
+prevention. No prevention flag (`*_prevented`, `*_stage_prevented`,
+`*_prevention_action`) is written on an exit-`101` result, and any that were
+stored earlier are cleared (see below). Error-coded stages (e.g. `999`) are
+unchanged: the error fits the EDR having stopped the stage, so the EDR's own
+alert on that stage with a confirmed action (quarantined, process killed,
+blocked) makes it **Prevented**.
+
+A run (a group of stage results) reads **Prevented** only when one of its
+stages is Prevented on that EDR's own evidence. A prevention flag on a skipped
+stage, or on an errored stage with no action on its own file, does not make
+the run Prevented. The campaign verdict and the Finished email follow the same
+rule for tests made of stages; a single-binary test that exited `101` is never
+Prevented either.
 
 **A stage's own prevention is an action on its own file.** Defender records
 an action per evidence item, so for a stage only the action on that stage's
@@ -117,15 +124,21 @@ record actions per evidence item (CrowdStrike, SentinelOne, Sophos), and
 Defender alerts synced before this rule, keep the alert-wide action.
 
 In **All executions** and the execution report, an alert shown under a stage
-carries that stage's own action, and on a stage that exited `101` a late one
-reads **`<action> after the run`** (e.g. *process killed after the run*): the
-alert is real and the SOC will see it, but it is not the prevention.
+carries that stage's own action, and on a stage that exited `101` a confirmed
+action reads **`<action>, stage still completed`** (e.g. *process killed, stage
+still completed*): the alert is real and the SOC will see it, but it is not the
+prevention. A failed kill (*kill failed*) is never qualified.
 
-Results prevented before these two rules are checked once
-(`*_prevention_rule: in_run`). A result loses `*_stage_prevented`, and
-`*_prevented` when nothing else backs it, only when the alerts it came from
-are still in the index and no action on them qualifies. Detection never
-changes.
+**Clean-up of stored results.** A result that exited `101` can still carry
+`*_prevented: true`, `*_stage_prevented: true` or a `*_prevention_action` from
+before this rule. At start-up and every 5 minutes the backend finds these, of
+any age and for every EDR whether it is connected or not, and sets them to
+`false`, `false` and empty (`edr/completedStageCleanup.ts`; it logs
+`[Completed-Stage-Cleanup] matched=<m> sent=<s> cleared=<c>` whenever it found
+such results). Detection flags and results with another exit code are never
+touched. `backend-serverless` clears the Defender and CrowdStrike flags only,
+and only when one of those two integrations is configured: its clean-up runs
+just before each of their enrichment passes.
 
 **Which documents are scanned:** exit codes `[0, 1, 101, 105, 126, 127, 259, 999]`
 — so EDR-killed stages (999) are eligible. Deliberately **not scanned**:
@@ -160,9 +173,9 @@ precedence (top wins):
 | Label | Condition | Meaning |
 |---|---|---|
 | **Protected** | exit ∈ `{105, 126, 127}` | Endpoint blocked/quarantined at the OS level |
-| **Prevented** | `crowdstrike_prevented`, `defender_prevented`, `sentinelone_prevented` or `sophos_prevented` (or the stage's own `*_stage_prevented`) on exit 101; on an error code (e.g. 999), only the stage's own `*_stage_prevented` | Vendor-confirmed kill/quarantine/block — shows the action, e.g. "Prevented (process killed)". On exit 101 the action happened during the run (§2, *Prevented means stopped during the run*) |
-| **Detected** | `*_stage_detected` | The EDR saw this stage and alerted, but didn't stop it. The run-wide `*_detected` flag, which every stage of a run carries once any alert names the run, doesn't count here |
-| **Unprotected** | exit 101 | Attack ran to completion, nothing reacted |
+| **Prevented** | an error code (e.g. 999) and the stage's own `*_stage_prevented` (`crowdstrike`, `defender`, `sentinelone` or `sophos`). Never on exit 101 | Vendor-confirmed kill/quarantine/block — shows the action, e.g. "Prevented (process killed)". A stage that exited 101 ran to completion and is never Prevented (§2, *Prevented is decided by the exit code*) |
+| **Detected** | `*_stage_detected` (on a single-binary test, `*_detected`) | The EDR saw this stage and alerted, but didn't stop it; this includes every exit-101 stage with an EDR alert. The run-wide `*_detected` flag, which every stage of a run carries once any alert names the run, doesn't count here |
+| **Unprotected** | exit 101 | Attack ran to completion, nothing alerted |
 | **Inconclusive** | everything else (0, 1, 259, 260, 999, missing) | Can't judge — error, timeout, policy block, or unconfirmed kill |
 
 Bundle rows roll up with the same precedence:

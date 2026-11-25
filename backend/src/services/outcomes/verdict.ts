@@ -6,7 +6,7 @@
 // Error. Per-stage outcomes use the report's classifyStage, which is pinned to
 // the console's rule by a shared golden table.
 
-import { CONFIRMED_PREVENTION_ACTIONS, classifyStage, getSourceField } from '../reports/stageOutcome.js';
+import { CONFIRMED_PREVENTION_ACTIONS, classifyStage, getSourceField, stagePreventedBy } from '../reports/stageOutcome.js';
 import { classifyOutcome } from '../notices/render.js';
 import type { StageOutcome } from '../../types/reports.js';
 import type { TaskResult } from '../../types/agent.js';
@@ -110,7 +110,11 @@ function edrSignals(docs: Array<Record<string, unknown> | undefined>, isBundle: 
       if (!src) return;
       const action = String(getSourceField(src, `f0rtika.${v.key}_prevention_action`) ?? '') || null;
       const alerted = flag(src, `${v.key}_detected`) || flag(src, `${v.key}_stage_detected`);
-      const prev = flag(src, `${v.key}_prevented`) || (alerted && !!action && CONFIRMED_PREVENTION_ACTIONS.includes(action));
+      // A stage that exited 101 ran to completion, so an action recorded on it is never prevention.
+      const prev = isBundle
+        ? stagePreventedBy(src, v.key)
+        : Number(getSourceField(src, 'event.ERROR')) !== 101
+          && (flag(src, `${v.key}_prevented`) || (alerted && !!action && CONFIRMED_PREVENTION_ACTIONS.includes(action)));
       const stage = isBundle ? i + 1 : null;
       if (prev && !prevented.some((s) => s.vendor === v.name)) prevented.push({ vendor: v.name, action, stage });
       if (alerted && !detected.some((s) => s.vendor === v.name)) detected.push({ vendor: v.name, action: null, stage });
@@ -184,7 +188,7 @@ export function cellVerdict(input: VerdictInput): Verdict {
     lead = `${joinNames(prevented.map((p) => p.vendor))} prevented it${act ? ` (${act})` : ''}${at}.`;
   } else if (detected.length > 0) {
     state = 'detected';
-    lead = `${joinNames(detected.map((d) => d.vendor))} raised an alert; nothing was blocked.`;
+    lead = `${joinNames(detected.map((d) => d.vendor))} raised an alert; it did not stop the test.`;
   } else if (stages.some((s) => s.outcome === 'unprotected')) {
     state = 'unprotected';
     if (isBundle) {

@@ -13,7 +13,7 @@
 
 import type { OutcomeCounts, StageOutcome } from '../../types/reports.js';
 import { EDR_VENDOR_KEYS, edrFlagField, edrOwnDetectedClause, hasOwnEdrDetection } from '../outcomes/vendors.js';
-import type { EdrVendorKey } from '../outcomes/vendors.js';
+import type { EdrGroupRollup, EdrVendorKey } from '../outcomes/vendors.js';
 
 export const STAGE_OUTCOMES: readonly StageOutcome[] = [
   'protected', 'prevented', 'detected', 'unprotected', 'inconclusive', 'skipped',
@@ -70,17 +70,46 @@ function ownDetected(source: Record<string, unknown>): boolean {
 }
 
 /**
- * The EDR's own alert on THIS stage carried a confirmed prevention action.
+ * This vendor's own alert on THIS stage carried a confirmed prevention action.
  * `<v>_stage_prevented` (written by the enrichment pass) decides when present;
  * docs enriched before it existed fall back to stage detection + a confirmed
  * action, which can't tell a stage alert's action from a bundle-wide one.
  */
+function vendorStagePrevented(source: Record<string, unknown>, v: EdrVendorKey): boolean {
+  const own = getSourceField(source, `f0rtika.${v}_stage_prevented`);
+  if (own !== undefined && own !== null) return own === true;
+  return flag(source, `${v}_stage_detected`) && confirmedAction(source, `${v}_prevention_action`);
+}
+
 function stagePrevented(source: Record<string, unknown>): boolean {
-  return EDR_VENDOR_KEYS.some((v) => {
-    const own = getSourceField(source, `f0rtika.${v}_stage_prevented`);
-    if (own !== undefined && own !== null) return own === true;
-    return flag(source, `${v}_stage_detected`) && confirmedAction(source, `${v}_prevention_action`);
-  });
+  return EDR_VENDOR_KEYS.some((v) => vendorStagePrevented(source, v));
+}
+
+/**
+ * True when `vendor` prevented this stage: the exit code is set and is not
+ * 0, 101, 105, 126 or 127 (a stage that ran to completion or was protected is
+ * never Prevented), and that vendor's own stage alert carried a confirmed action.
+ */
+export function stagePreventedBy(source: Record<string, unknown>, vendor: EdrVendorKey): boolean {
+  const code = exitCodeOf(source);
+  if (code === undefined || code === 0 || CONCLUSIVE_EXIT_CODES.includes(code)) return false;
+  return vendorStagePrevented(source, vendor);
+}
+
+/**
+ * A run's (bundle group's) per-vendor flags from its member docs. Detected when
+ * any member carries that vendor's test-level `<v>_detected`; Prevented only
+ * when a member stage is itself Prevented on that vendor's own evidence
+ * (stagePreventedBy), never from a test-level `<v>_prevented` that a skipped or
+ * completed stage, or an errored sibling without its own action, can carry.
+ */
+export function rollupEdrFlags(memberSources: Array<Record<string, unknown>>): EdrGroupRollup {
+  const rollup: EdrGroupRollup = {};
+  for (const v of EDR_VENDOR_KEYS) {
+    rollup[`${v}Detected`] = memberSources.some((src) => flag(src, `${v}_detected`));
+    rollup[`${v}Prevented`] = memberSources.some((src) => stagePreventedBy(src, v));
+  }
+  return rollup;
 }
 
 /** Classify one stage or standalone-test result exactly like the console's ExecResultLabel. */
@@ -103,9 +132,9 @@ export function classifyStage(source: Record<string, unknown>): StageOutcome {
     return 'inconclusive';
   }
 
-  const prevented = stagePrevented(source)
-    || EDR_VENDOR_KEYS.some((v) => flag(source, `${v}_prevented`));
-  if (prevented) return 'prevented';
+  // Exit 101: the stage ran to completion. An EDR action recorded on it (a
+  // block flag, a quarantine) landed after the fact, so it is never Prevented:
+  // Detected when this doc's own detection flag is set, else Unprotected.
   if (ownDetected(source)) return 'detected';
   return 'unprotected';
 }
@@ -151,16 +180,6 @@ export const stagePreventionClause = (v: EdrVendorKey): Clause => ({
   },
 });
 
-const PREVENTION_SIGNAL: Clause = {
-  bool: {
-    should: [
-      ...EDR_VENDOR_KEYS.map((v) => term(edrFlagField(v, 'prevented'), true)),
-      ...EDR_VENDOR_KEYS.map(stagePreventionClause),
-    ],
-    minimum_should_match: 1,
-  },
-};
-
 const STAGE_DETECTED: Clause = {
   bool: {
     should: EDR_VENDOR_KEYS.map((v) => term(edrFlagField(v, 'stage_detected'), true)),
@@ -199,26 +218,18 @@ export const EDR_PREVENTED_ERROR_STAGE: Clause = {
 const OWN_DETECTED: Clause = edrOwnDetectedClause() as Clause;
 
 const UNPROTECTED: Clause = {
-  bool: { filter: [term('event.ERROR', UNPROTECTED_EXIT_CODE)], must_not: [PREVENTION_SIGNAL, OWN_DETECTED] },
+  bool: { filter: [term('event.ERROR', UNPROTECTED_EXIT_CODE)], must_not: [OWN_DETECTED] },
 };
 
 /** Named filters for an ES `filters` aggregation. Every doc matches exactly one. */
 export const OUTCOME_FILTERS: Record<StageOutcome, Clause> = {
   skipped: SKIPPED,
   protected: { terms: { 'event.ERROR': PROTECTED_EXIT_CODES } },
-  prevented: {
-    bool: {
-      should: [
-        { bool: { filter: [term('event.ERROR', UNPROTECTED_EXIT_CODE), PREVENTION_SIGNAL] } },
-        EDR_PREVENTED_ERROR_STAGE,
-      ],
-      minimum_should_match: 1,
-    },
-  },
+  prevented: EDR_PREVENTED_ERROR_STAGE,
   detected: {
     bool: {
       should: [
-        { bool: { filter: [term('event.ERROR', UNPROTECTED_EXIT_CODE), OWN_DETECTED], must_not: [PREVENTION_SIGNAL] } },
+        { bool: { filter: [term('event.ERROR', UNPROTECTED_EXIT_CODE), OWN_DETECTED] } },
         { bool: { filter: [ERROR_CODED, STAGE_DETECTED], must_not: [STAGE_PREVENTION_SIGNAL] } },
       ],
       minimum_should_match: 1,

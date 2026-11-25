@@ -97,7 +97,7 @@ Completed cells use **the same labels and order as Analytics → All Executions*
 |-------|---------|
 | **Protected** | A stage (or the test) was blocked: exit code 105, 126 or 127. Also a run the agent could not finish when a connected EDR's alert proves the EDR killed the agent and the test (`Stopped by <EDR>`; stages are not reported) |
 | **Prevented** | Nothing reported a block, but a connected EDR (Microsoft Defender, CrowdStrike Falcon, SentinelOne or Sophos) reported that it prevented the activity (quarantined, process killed, or blocked) |
-| **Detected** | A connected EDR raised an alert for the test, but nothing was blocked or prevented |
+| **Detected** | A connected EDR raised an alert for the test, but it did not stop it |
 | **Unprotected** | At least one stage ran without being blocked (exit code 101), and no EDR alert matched |
 | **Error** | No stage reached a verdict and no EDR alert matched: for example exit code 999 (prerequisites not met), 1, 259 or 260, or the task failed. A 260 that an EDR's own alert proves was the EDR blocking the launch shows **Protected** instead ([Exit Codes & Outcomes](../analytics/exit-codes-and-outcomes#7-test-blocked-at-launch-by-the-edr)) |
 | **Waiting for notice** | The task is queued and the pre-execution notice has not been released yet |

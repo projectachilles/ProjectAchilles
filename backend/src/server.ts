@@ -43,6 +43,7 @@ import { defenderSyncService } from './api/integrations.routes.js';
 import { prepareConfiguredEdrEs } from './services/edr/es-readiness.js';
 import { crowdstrikeSyncService } from './api/integrations.routes.js';
 import { runAgentKillReconciliation } from './services/edr/agent-kill-reconcile.service.js';
+import { runCompletedStageCleanup } from './services/edr/completedStageCleanup.js';
 import { runLaunchBlockReconciliation } from './services/edr/launch-block-reconcile.service.js';
 import defenderRoutes from './api/defender.routes.js';
 import crowdstrikeRoutes from './api/crowdstrike.routes.js';
@@ -599,6 +600,14 @@ function startBackgroundJobs(httpServer?: http.Server) {
     await defenderSyncService.runAutoResolvePass().catch(logDefenderError('auto-resolve'));
   }, 5 * 60 * 1000); // 5 minutes
 
+  // --- Completed-stage clean-up: clear stored prevention flags on exit-101 results ---
+  // Vendor-independent: runs whether or not any EDR is configured (it only
+  // needs Analytics/Elasticsearch, which runCompletedStageCleanup checks).
+  void runCompletedStageCleanup();
+  const completedStageCleanupInterval: ReturnType<typeof setInterval> = setInterval(() => {
+    void runCompletedStageCleanup();
+  }, 5 * 60 * 1000); // 5 minutes
+
   // --- CrowdStrike sync: ZTA scores every 6h, alerts every 5min ---
   let crowdstrikeZtaInterval: ReturnType<typeof setInterval> | undefined;
   let crowdstrikeAlertInterval: ReturnType<typeof setInterval> | undefined;
@@ -707,6 +716,7 @@ function startBackgroundJobs(httpServer?: http.Server) {
     stopIngestionRetryWorker();
     if (defenderScoreInterval) clearInterval(defenderScoreInterval);
     if (defenderAlertInterval) clearInterval(defenderAlertInterval);
+    clearInterval(completedStageCleanupInterval);
     if (crowdstrikeZtaInterval) clearInterval(crowdstrikeZtaInterval);
     if (crowdstrikeAlertInterval) clearInterval(crowdstrikeAlertInterval);
     if (httpServer) httpServer.close();
