@@ -38,7 +38,7 @@ them against synced EDR alerts:
 
 | Flag | Set when | Qualification |
 |---|---|---|
-| `defender_detected` / `crowdstrike_detected` / `sentinelone_detected` / `sophos_detected` | Alert evidence matches hostname + bundle UUID in filename/path, within −5/+30 min of the test | — |
+| `defender_detected` / `crowdstrike_detected` / `sentinelone_detected` / `sophos_detected` | Alert evidence matches hostname + bundle UUID in filename/path, within −5/+30 min of the test (for Defender, only evidence of the result's own run once its run start is known, see "An alert belongs to a run" below) | — |
 | `*_stage_detected` | Alert evidence names the **stage's own binary** (`<bundle-uuid>-<control>.exe`) | — |
 | `crowdstrike_prevented` / `defender_prevented` / `sentinelone_prevented` / `sophos_prevented` (+ `*_prevention_action`) | Matched alert carries a vendor-confirmed prevention disposition | **Never written on a result that exited `101`.** Stage-binary matches qualify; bundle-wide matches only if the stage never reached a conclusive outcome (exit ∉ `{101, 105, 126, 127}`). A failed kill (CS `kill_action_failed`) never qualifies. The stage alert's action is preferred over a bundle-wide one |
 | `*_stage_prevented` | `true` when an alert naming the **stage's own binary** carried a confirmed action; `false` when the stage's alerts carried none | Absent on documents enriched before it existed; those fall back to `*_stage_detected` + a confirmed `*_prevention_action` |
@@ -86,6 +86,43 @@ instead of a row per alert.
 Results flagged before this rule are checked once. A result loses
 `*_detected` (and its prevention, unless the stage itself stays detected) only
 when alerts are still in the index and none of them counts for the test.
+
+**An alert belongs to a run, not to a host.** Defender keeps one alert open
+for days and adds evidence to it from every later run of the same binary on
+the host, so a file name alone says nothing about which run it came from.
+Achilles stores each result's run start (`routing.run_started_at`, taken from
+the agent task) and keeps each Defender evidence item with its times
+(`evidence_items`). A stage is credited from an alert only through evidence of
+its own run:
+
+- a process item counts when the process started inside the run, from 60
+  seconds before the run started to 60 seconds after the result's event time;
+- a file item (or a process item with no start time) counts when Defender added
+  it to the alert between the start of that window and 30 minutes after the
+  event time.
+
+Evidence from an earlier or later run does not count, so a stage no longer
+reads **Detected** because an older run's alert names the same binary, and an
+alert that names the test only in an earlier run's evidence is left out of the
+run's alert list. The action on a stage comes only from its in-run items, not
+from the alert-wide action. The same rule applies in the execution report. One
+alert can carry in-run evidence for several stages; it is then listed under
+each of them, with each stage's own action.
+
+The run rule needs both values. A result without a run start (older results
+the start-up backfill could not fill, because the task is gone), an alert
+stored without `evidence_items` (more than 1,000 file items, or an item with no
+time), CrowdStrike, SentinelOne and Sophos keep the rules above unchanged.
+When more than 100 alerts match one stage or test query, the alerts past the
+first 100 still count the old way. A block by a Defender attack-surface-
+reduction rule raises no alert, so a **Protected** stage (exit `126`) can have
+no alert listed.
+
+Results flagged before this rule are checked once more, under the run rule: a
+result with a detection flag and a run start loses the flag only when alerts
+for it are still in the index and none counts for its run. The result carries
+`f0rtika.defender_run_rule: 'run_evidence'` once checked. Stored labels, and past
+Defense Scores that include them, can change once when this check runs.
 
 **Late actions.** EDRs often add the action after the alert was first
 matched: Defender updates the alert's remediation status, SentinelOne adds

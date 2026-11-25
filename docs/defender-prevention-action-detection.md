@@ -75,6 +75,33 @@ status; the next enrichment pass backfills `defender_prevented` on eligible docs
 detected flags set are not re-scanned — same one-time `update_by_query` pattern used for the
 CrowdStrike backfill may be applied operationally where needed).
 
+## Per-run evidence (sync v9)
+
+A Defender alert stays open for days and collects evidence from later runs, so
+matching a stage by file name alone can credit a run with another run's
+evidence. `ALERT_SYNC_VERSION = 9` adds `evidence_items` to each alert doc (un-indexed):
+one entry per file-naming evidence item with `file`, `path`, `parent`,
+`parent_path`, `kind`, `verdict`, `action`, `started_at` and `added_at`. It is
+`null` when an alert has more than 1,000 such items or an item has no time
+Defender added it. The forced full re-sync selects by `lastUpdateDateTime` over
+the 90-day look-back, and `evidence_items_version` records that a full
+look-back finished without a write error; per-run crediting stays off until it
+does. A full look-back that ends with write errors is repeated on the next
+cycle, at most 3 times in a row.
+
+Each result stores `routing.run_started_at` (from the agent task; filled on
+stored results at start-up by `runStartBackfill.ts`). `edr/runEvidence.ts`
+turns it into a run window, `[run_started_at - 60 s, event_time + 60 s]`. A
+process item is in the run when it started inside the window; a file item (or a
+process item without a start time) when Defender added it from the window start
+up to 30 minutes after `event_time`. With a run view, the prevention action of
+a stage, and of a single-test alert at test level, comes from the in-run items
+only, not from the alert-wide `prevention_action`.
+
+A result without `routing.run_started_at`, and an alert without
+`evidence_items`, keep the rules above. Stored results are re-checked once;
+`f0rtika.defender_run_rule: 'run_evidence'` marks the ones that were.
+
 ## Tests
 
 - transformAlert: normalization table (each status → action), precedence across multiple evidence
