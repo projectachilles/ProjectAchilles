@@ -360,13 +360,20 @@ export class EdrAlertEnrichmentService {
           /** Alerts the wide query matched, and how many of them count for this test. */
           wideHitsAll: number;
           wideHitsCounting: number;
+          /**
+           * Span form: the sub-query left matches found only by span unread.
+           * Nobody judged them (one may hold this run's evidence), so no stored
+           * flag is removed on the strength of that kind.
+           */
+          stageUnjudged: boolean;
+          wideUnjudged: boolean;
           /** Sub-queries that answered this pass. */
           answered: number;
         }
         const emptyUpdate = (hit: any, bundleUuid: string): PerHitUpdate => ({
           hit, bundleUuid, wideMatched: false, stageMatched: false, alertIds: new Set(), stageActions: [], wideActions: [],
           correlatedAlertIds: new Set(), stageQueried: false, stageHitsAll: 0, stageHitsSingle: 0,
-          wideQueried: false, wideHitsAll: 0, wideHitsCounting: 0, answered: 0,
+          wideQueried: false, wideHitsAll: 0, wideHitsCounting: 0, stageUnjudged: false, wideUnjudged: false, answered: 0,
         });
         const updatesByHitId = new Map<string, PerHitUpdate>();
         const responses = (msearchResponse as any).responses ?? [];
@@ -432,14 +439,21 @@ export class EdrAlertEnrichmentService {
             ? Math.max(0, byAlertTime - allHits.filter((h) => !foundBySpanOnly(h)).length)
             : Math.max(0, total - allHits.length);
           const counting = alertHits.length + unread;
+          // Span form: the matches left unread beyond the alert-time ones were
+          // found only by span. Not crediting, but judged by nobody.
+          const unreadSpanOnly = q.spanForm ? Math.max(0, (total - allHits.length) - unread) : 0;
           if (q.kind === 'stage') {
             entry.stageHitsAll += usableHits.length + unread;
             entry.stageHitsSingle += counting;
+            if (unreadSpanOnly > 0) entry.stageUnjudged = true;
           } else {
             entry.wideHitsAll += usableHits.length + unread;
             entry.wideHitsCounting += counting;
+            if (unreadSpanOnly > 0) entry.wideUnjudged = true;
           }
-          const alertIds = usableHits
+          // Span form: an alert found only by span is stamped (and so can be
+          // auto-resolved) by this result only when it counts for the run.
+          const alertIds = (q.spanForm ? usableHits.filter((h) => !foundBySpanOnly(h) || alertHits.includes(h)) : usableHits)
             .map((h) => h._id)
             .filter((id): id is string => typeof id === 'string');
           // Prevention-flag qualification rule (docs/edr-prevention-action-detection.md):
@@ -585,7 +599,7 @@ export class EdrAlertEnrichmentService {
             // re-arms it (then "counts" means: from this run's evidence).
             if (u.stageQueried && (existing[`${v}_stage_rule`] !== STAGE_RULE || runRecheck)) {
               const wasStage = existing[`${v}_stage_detected`] === true;
-              if (wasStage && u.stageHitsAll > 0 && u.stageHitsSingle === 0) {
+              if (wasStage && !u.stageUnjudged && u.stageHitsAll > 0 && u.stageHitsSingle === 0) {
                 f0rtika[`${v}_stage_detected`] = false;
                 f0rtika[`${v}_stage_prevented`] = false;
                 const code = u.hit._source?.event?.ERROR as number | undefined;
@@ -604,7 +618,7 @@ export class EdrAlertEnrichmentService {
             // (aged out): nothing is downgraded. The run rule re-arms it.
             if (u.wideQueried && (existing[`${v}_evidence_rule`] !== EVIDENCE_RULE || runRecheck)) {
               const wasWide = existing[`${v}_detected`] === true;
-              if (wasWide && u.wideHitsAll > 0 && u.wideHitsCounting === 0) {
+              if (wasWide && !u.wideUnjudged && u.wideHitsAll > 0 && u.wideHitsCounting === 0) {
                 f0rtika[`${v}_detected`] = false;
                 const stageAfter = (f0rtika[`${v}_stage_detected`] ?? existing[`${v}_stage_detected`]) === true;
                 if (!stageAfter) {
@@ -627,14 +641,15 @@ export class EdrAlertEnrichmentService {
               const qualifying = [...u.stageActions, ...u.wideActions];
               const recheckable = existing[`${v}_prevented`] === true || existing[`${v}_stage_prevented`] === true;
               if (recheckable) {
-                if (wasStagePrevented && u.stageQueried && u.stageHitsAll > 0 && u.stageActions.length === 0) {
+                if (wasStagePrevented && u.stageQueried && !u.stageUnjudged && u.stageHitsAll > 0 && u.stageActions.length === 0) {
                   f0rtika[`${v}_stage_prevented`] = false;
                 }
                 // `_prevented` comes from the stage's alerts on a conclusive
-                // exit, else from the test-level ones too: those must be visible.
+                // exit, else from the test-level ones too: those must be visible
+                // (and none left unjudged).
                 const code = u.hit._source?.event?.ERROR as number | undefined;
                 const conclusive = code !== undefined && CONCLUSIVE_OUTCOME_CODES.has(code);
-                const sourceVisible = conclusive ? u.stageHitsAll > 0 : u.wideHitsAll > 0;
+                const sourceVisible = conclusive ? u.stageHitsAll > 0 && !u.stageUnjudged : u.wideHitsAll > 0 && !u.wideUnjudged;
                 if (wasPrevented && sourceVisible) {
                   if (qualifying.length === 0) {
                     f0rtika[`${v}_prevented`] = false;

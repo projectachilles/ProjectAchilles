@@ -8,7 +8,11 @@
 //
 // No run view (no run window, or the alert has no per-item data: other
 // vendors, alerts synced before v9, `evidence_items: null`) = today's rule,
-// the alert as it is.
+// the alert as it is, for an alert found by its own created / updated time.
+// An alert found only by its activity span (`foundBySpanOnly`) that the run
+// rule cannot judge (`spanHitUnusable`) is treated as not returned; in the
+// alert list and the report a span-only alert must name the test in one of its
+// in-run items.
 
 import {
   alertCredit,

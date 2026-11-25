@@ -17,8 +17,11 @@
 // With `runStartedAt` the lookup has a run window (edr/runEvidence.ts): an
 // alert that names this test only in another run's evidence is left out of
 // every tier, and a tier whose hits are all left out counts as empty, so the
-// lookup falls through to the next one. The searches request whole documents
-// (no `_source` filter) because the run view reads `evidence_items`.
+// lookup falls through to the next one. An alert found by its own created /
+// updated time that has no items keeps the older rule; one found only by its
+// activity span must name the test in one of its in-run items, so without
+// items it is left out (treated as not returned). The searches request whole
+// documents (no `_source` filter) because the run view reads `evidence_items`.
 
 import { AppError } from '../../middleware/error.middleware.js';
 import { leftOutOfRun, projectAlertHit } from './alertHit.js';
