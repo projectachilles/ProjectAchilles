@@ -1045,16 +1045,15 @@ export class EdrAlertEnrichmentService {
 
   /**
    * The result's stage started and did not finish, or was blocked: an exit
-   * code other than 101 (ran to completion) and 0. Exit 0 on a stage of a
-   * multi-stage test is a skipped stage that never executed, and no exit code
-   * says nothing; neither is ever an EDR block (reports/stageOutcome.ts reads
-   * them the same way). Only such a result can keep its flags, and get the
-   * note, when its alerts hold nothing of its run.
+   * code other than 101 (ran to completion) and 0. Exit 0 is a normal exit,
+   * and on a stage of a multi-stage test a skipped stage that never executed;
+   * neither is ever an EDR block (reports/stageOutcome.ts reads it the same
+   * way). Only such a result can keep its flags, and get the note, when its
+   * alerts hold nothing of its run. A missing code is NaN here, null and ''
+   * are 0: all false (the scan only selects results that have a code anyway).
    */
   private mayHaveBeenStopped(hit: any): boolean {
-    const raw = hit._source?.event?.ERROR;
-    if (raw === undefined || raw === null || raw === '') return false;
-    const code = Number(raw);
+    const code = Number(hit._source?.event?.ERROR);
     return Number.isFinite(code) && code !== 0 && code !== 101;
   }
 

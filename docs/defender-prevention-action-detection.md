@@ -227,8 +227,9 @@ stage's own prevention (`defender_stage_prevented`, or on older documents the
 stage detection with a confirmed action) keeps it **Prevented**, which the
 Defense Score counts (`EDR_PREVENTED_ERROR_STAGE`) and the reports show, and a
 kept stage detection alone keeps it **Detected**. A stage with exit code 0 or no
-exit code is not covered by the rule and is judged as before: on a stage of a
-multi-stage test exit 0 means the stage was skipped and never executed, so
+exit code is not covered by the rule and is judged as before: exit 0 is a
+normal exit, and on a stage of a multi-stage test it means the stage was
+skipped and never executed, so
 having no evidence of its run says nothing, and `classifyStage` never treats
 either as blocked by an EDR.
 

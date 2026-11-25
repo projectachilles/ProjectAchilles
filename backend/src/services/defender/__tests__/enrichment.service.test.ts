@@ -1189,7 +1189,8 @@ describe('DefenderEnrichmentService — credit by run (runScopedEvidence)', () =
     it('exit 999 prevented by an earlier run\'s kill: the prevention flags go too', async () => {
       // The alert also holds an in-run item of another program: it has items
       // of this run, none for this test (an alert holding nothing of the run
-      // keeps the flags of a stage that did not run to completion).
+      // keeps the flags of a stage that may have been stopped: an exit code
+      // other than 0 and 101).
       const old = alertSource([
         item(EARLIER, { verdict: 'malicious', action: 'process_killed' }),
         item(IN_RUN, { file: 'net.exe', path: 'c:\\windows\\system32', parent: 'explorer.exe', parent_path: 'c:\\windows' }),
@@ -1780,7 +1781,7 @@ describe('DefenderEnrichmentService — credit by run (runScopedEvidence)', () =
        * `total` matched, none by alert time. Each also holds an in-run item of
        * another program, so the hits read are judged whatever the exit code
        * (an alert holding nothing of the run keeps the flags of a stage that
-       * did not run to completion) and only the unread matches decide.
+       * may have been stopped) and only the unread matches decide.
        */
       const otherProgramInRun = item(IN_RUN, { file: 'net.exe', path: 'c:\\windows\\system32', parent: 'explorer.exe', parent_path: 'c:\\windows' });
       const earlierRunOnly = (total: number) => answer(
@@ -1906,8 +1907,9 @@ describe('DefenderEnrichmentService — credit by run (runScopedEvidence)', () =
 
     // Defender can stop a file it already knows and update the alert without
     // adding an evidence item: every alert found then holds nothing of the
-    // run. On a result that did not run to completion that kind is unjudged,
-    // so no flag is removed; a result that exited 101 is judged as today.
+    // run. On a result that may have been stopped (an exit code other than 0
+    // and 101) that kind is unjudged, so no flag is removed; a result that
+    // exited 101 or 0 is judged as today.
     describe('a stopped stage with no evidence of its run', () => {
       const OTHER_STAGE = `${B}-t1059.exe`;
       /**

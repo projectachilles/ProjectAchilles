@@ -188,8 +188,9 @@ What a kept flag does to the verdicts: on a stage that ended with an error code
 (1, 259, 999, …), a kept flag that carries the stage's own prevention keeps it
 **Prevented**, which the Defense Score and the reports count, and a kept stage
 detection alone keeps it **Detected**. A stage with exit code 0 or no exit code
-is not covered and is judged as before: on a multi-stage test, exit 0 means the
-stage was skipped and never ran, so having no evidence of its run says nothing.
+is not covered and is judged as before: exit 0 is a normal exit, and on a
+multi-stage test it means the stage was skipped and never ran, so having no
+evidence of its run says nothing.
 
 On a recent result (ended within 72 hours) in that situation the backend also
 stores a small note once, `f0rtika.defender_no_run_evidence` (not shown in the
