@@ -246,7 +246,7 @@ Each group carries:
 
 | Field | Notes |
 |-------|-------|
-| `run_id` | `b:<batch id>` for a batch, `n:<notice id>\|<type>\|<test uuid>` for an announced run. Treat it as an opaque id |
+| `run_id` | `b:<batch id>` for a batch, `n:…` for an announced run. Treat it as an opaque id |
 | `batch_id` | The run's batch; for a run of several batches, the newest one |
 | `batch_ids` | Every batch with a task in the run, newest first |
 | `created_at` | The batch's time; for a run of several batches, its newest task's |

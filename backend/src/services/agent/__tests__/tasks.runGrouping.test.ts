@@ -193,6 +193,23 @@ describe('listTasksGrouped groups by announced run', () => {
     expect(new Set(out.groups.map((g) => g.run_id)).size).toBe(2);
   });
 
+  it('never puts two organizations in one run, even under one notice', () => {
+    // A notice written before notices were per-organization could announce tasks of several organizations.
+    insertNotice('n1');
+    seed({ id: 'mine', batch: 'b1', agentNo: 1, notice: 'n1' });
+    seed({ id: 'theirs', batch: 'b2', agentNo: 2, notice: 'n1' });
+    testDb.prepare("UPDATE tasks SET org_id = 'org-002' WHERE id = 'theirs'").run();
+
+    const mine = listTasksGrouped({ org_id: 'org-001' }, { kind: 'org', orgId: 'org-001' });
+    expect(mine.total).toBe(1);
+    expect(mine.groups.map(ids)).toEqual([['mine']]);
+    expect(mine.groups[0].agent_count).toBe(1);
+
+    const everyone = listTasksGrouped({}, ALL);
+    expect(everyone.total).toBe(2);
+    expect(everyone.groups.map(ids)).toEqual(expect.arrayContaining([['mine'], ['theirs']]));
+  });
+
   it('keeps a multi-agent batch with a notice as one group', () => {
     insertNotice('n1');
     seed({ id: 't1', batch: 'b1', agentNo: 1, notice: 'n1' });

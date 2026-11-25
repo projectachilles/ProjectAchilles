@@ -966,12 +966,15 @@ export function listTasks(
  * or scheduled run makes one single-task batch per agent, hours apart, and
  * they are one run to the person who started it. The test is part of the key
  * because one notice can cover several tests (a campaign, a scheduler tick).
+ * The organization is part of the key too: a notice written before notices
+ * were per-organization can cover several, and a run must never show one
+ * organization another's tasks (the page's tasks are matched by this key).
  * Tasks without a notice keep the batch as their run: nothing is merged by
  * guessing from names or times. The alias must be `t`.
  */
 const RUN_KEY_SQL = `CASE
   WHEN t.notice_id IS NOT NULL
-    THEN 'n:' || t.notice_id || '|' || t.type || '|' || COALESCE(NULLIF(t.test_uuid, ''), json_extract(t.payload, '$.test_uuid'), '')
+    THEN 'n:' || t.notice_id || '|' || COALESCE(t.org_id, '') || '|' || t.type || '|' || COALESCE(NULLIF(t.test_uuid, ''), json_extract(t.payload, '$.test_uuid'), '')
   ELSE 'b:' || t.batch_id
 END`;
 

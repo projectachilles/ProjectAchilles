@@ -247,7 +247,7 @@ export interface Task {
 export interface TaskGroup {
   /**
    * The run this group is: `b:<batch id>` for a batch, or
-   * `n:<notice id>|<type>|<test uuid>` for the batches of one announced run of one test.
+   * `n:<notice id>|<org id>|<type>|<test uuid>` for the batches of one announced run of one test.
    */
   run_id: string;
   /** The run's batch, or its newest batch when the run spans several. */
