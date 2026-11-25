@@ -42,7 +42,7 @@ export interface EnrichmentPassResult {
   /**
    * Results the keep rule held back in this pass (Defender, crediting by
    * run: a kind whose alerts all hold nothing of the run, on a result that
-   * did not run to completion): once per result, in the pass that re-checks
+   * may have been stopped, i.e. an exit code other than 0 and 101): once per result, in the pass that re-checks
    * it and writes its run marker, on an `updated` bulk item. 0 for every
    * other vendor.
    */

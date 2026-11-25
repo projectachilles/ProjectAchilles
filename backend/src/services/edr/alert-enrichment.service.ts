@@ -114,7 +114,7 @@ const NOTE_ALERT_TIME_FIELDS = ['timestamp', 'first_activity_at', 'last_activity
 
 /**
  * One alert as `<vendor>_no_run_evidence` describes it: the moment a stage
- * that did not run to completion found only alerts holding nothing of its run.
+ * that may have been stopped (`mayHaveBeenStopped`) found only alerts holding nothing of its run.
  */
 interface NoRunEvidenceAlert {
   id: string;
@@ -416,7 +416,7 @@ export class EdrAlertEnrichmentService {
            * found while reading the answers:
            * span form, the sub-query left matches found only by span unread
            * (nobody judged them; one may hold this run's evidence); or the
-           * result did not run to completion and every alert found holds
+           * result may have been stopped (`mayHaveBeenStopped`) and every alert found holds
            * nothing of its run, one of them an item from before it
            * (`<kind>NoRunItems`: Defender can stop a file it already knows
            * and update the alert without adding an item).
@@ -517,7 +517,7 @@ export class EdrAlertEnrichmentService {
           // Every alert found holds nothing of the run (none unread), and at
           // least one holds an item from before the run began (the vendor
           // knew the file already; an alert created after the run cannot
-          // be that). On a result that did not run to completion that kind
+          // be that). On a result that may have been stopped that kind
           // is unjudged: the vendor may have stopped the stage without
           // adding an item.
           const nothingOfRun = usableHits.length > 0 && unread === 0 && unreadSpanOnly === 0
@@ -536,7 +536,7 @@ export class EdrAlertEnrichmentService {
             // (which a non-conclusive exit reads from it) beside a kept stage
             // flag. The Unjudged flags are only ever set, never cleared, and
             // are read when the update is built, so the sub-query order is moot.
-            if (nothingOfRun && !this.ranToCompletion(q.hit)) {
+            if (nothingOfRun && this.mayHaveBeenStopped(q.hit)) {
               entry.stageUnjudged = true;
               entry.wideUnjudged = true;
             }
@@ -546,7 +546,7 @@ export class EdrAlertEnrichmentService {
             if (unreadSpanOnly > 0) entry.wideUnjudged = true;
             entry.wideNoRunItems = nothingOfRun;
             entry.wideNoRunAlerts = noRunAlerts;
-            if (nothingOfRun && !this.ranToCompletion(q.hit)) entry.wideUnjudged = true;
+            if (nothingOfRun && this.mayHaveBeenStopped(q.hit)) entry.wideUnjudged = true;
           }
           // Span form: an alert found only by span is stamped (and so can be
           // auto-resolved) by this result only when it counts for the run.
@@ -785,14 +785,14 @@ export class EdrAlertEnrichmentService {
             // alert flags has nothing to re-check and stays unmarked.
             const flagged = (k: string) => existing[k] === true || f0rtika[k] === true;
             // The keep rule (a kind whose alerts all hold nothing of the run,
-            // on a result that did not run to completion) held back a result
+            // on a result that may have been stopped) held back a result
             // already flagged: counted once, in the update that writes its
             // marker (a later pass no longer re-checks it).
             let kept = false;
             if (runRecheck && queued > 0) {
               if (u.answered === queued && (flagged(`${v}_detected`) || flagged(`${v}_stage_detected`))) {
                 f0rtika[`${v}_run_rule`] = RUN_RULE;
-                kept = (u.stageNoRunItems || u.wideNoRunItems) && !this.ranToCompletion(u.hit)
+                kept = (u.stageNoRunItems || u.wideNoRunItems) && this.mayHaveBeenStopped(u.hit)
                   && (existing[`${v}_detected`] === true || existing[`${v}_stage_detected`] === true);
               }
             } else if (
@@ -820,7 +820,7 @@ export class EdrAlertEnrichmentService {
             ) {
               f0rtika[`${v}_run_rule`] = null;
             }
-            // A stage that did not run to completion whose alerts all hold
+            // A stage that may have been stopped whose alerts all hold
             // nothing of its run (the kinds held back above): on a fresh result
             // that has none yet, note what the alerts looked like, once, so the
             // next real case shows what the vendor writes on them. The stage
@@ -835,7 +835,7 @@ export class EdrAlertEnrichmentService {
             // and the rest of the update is written as usual.
             const note = window !== null
               && noteKind !== null
-              && !this.ranToCompletion(u.hit)
+              && this.mayHaveBeenStopped(u.hit)
               && passTime.getTime() - window.eventTimeMs <= this.recheckHours * 3_600_000
               && !(noteKey in existing)
               && await this.noteMappingReady(u.hit._index, noteKey);
@@ -1041,6 +1041,20 @@ export class EdrAlertEnrichmentService {
    */
   private ranToCompletion(hit: any): boolean {
     return Number(hit._source?.event?.ERROR) === 101;
+  }
+
+  /**
+   * The result's stage started and did not finish, or was blocked: an exit
+   * code other than 101 (ran to completion) and 0. Exit 0 is a normal exit,
+   * and on a stage of a multi-stage test a skipped stage that never executed;
+   * neither is ever an EDR block (reports/stageOutcome.ts reads it the same
+   * way). Only such a result can keep its flags, and get the note, when its
+   * alerts hold nothing of its run. A missing code is NaN here, null and ''
+   * are 0: all false (the scan only selects results that have a code anyway).
+   */
+  private mayHaveBeenStopped(hit: any): boolean {
+    const code = Number(hit._source?.event?.ERROR);
+    return Number.isFinite(code) && code !== 0 && code !== 101;
   }
 
   /** The result's run window when crediting by run; null = no run view (today's rule). */

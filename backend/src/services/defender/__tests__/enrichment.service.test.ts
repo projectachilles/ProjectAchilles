@@ -1189,7 +1189,8 @@ describe('DefenderEnrichmentService — credit by run (runScopedEvidence)', () =
     it('exit 999 prevented by an earlier run\'s kill: the prevention flags go too', async () => {
       // The alert also holds an in-run item of another program: it has items
       // of this run, none for this test (an alert holding nothing of the run
-      // keeps the flags of a stage that did not run to completion).
+      // keeps the flags of a stage that may have been stopped: an exit code
+      // other than 0 and 101).
       const old = alertSource([
         item(EARLIER, { verdict: 'malicious', action: 'process_killed' }),
         item(IN_RUN, { file: 'net.exe', path: 'c:\\windows\\system32', parent: 'explorer.exe', parent_path: 'c:\\windows' }),
@@ -1780,7 +1781,7 @@ describe('DefenderEnrichmentService — credit by run (runScopedEvidence)', () =
        * `total` matched, none by alert time. Each also holds an in-run item of
        * another program, so the hits read are judged whatever the exit code
        * (an alert holding nothing of the run keeps the flags of a stage that
-       * did not run to completion) and only the unread matches decide.
+       * may have been stopped) and only the unread matches decide.
        */
       const otherProgramInRun = item(IN_RUN, { file: 'net.exe', path: 'c:\\windows\\system32', parent: 'explorer.exe', parent_path: 'c:\\windows' });
       const earlierRunOnly = (total: number) => answer(
@@ -1906,8 +1907,9 @@ describe('DefenderEnrichmentService — credit by run (runScopedEvidence)', () =
 
     // Defender can stop a file it already knows and update the alert without
     // adding an evidence item: every alert found then holds nothing of the
-    // run. On a result that did not run to completion that kind is unjudged,
-    // so no flag is removed; a result that exited 101 is judged as today.
+    // run. On a result that may have been stopped (an exit code other than 0
+    // and 101) that kind is unjudged, so no flag is removed; a result that
+    // exited 101 or 0 is judged as today.
     describe('a stopped stage with no evidence of its run', () => {
       const OTHER_STAGE = `${B}-t1059.exe`;
       /**
@@ -1966,11 +1968,25 @@ describe('DefenderEnrichmentService — credit by run (runScopedEvidence)', () =
         expect([result.stageDetectionsRemoved, result.detectionsRemoved]).toEqual([1, 1]);
       });
 
-      it('a result with no exit code is kept', async () => {
-        expectKept(await run(stopped(undefined), [answer([otherRunOnly()]), answer([otherRunOnly()])]));
+      // Only a stage that started and did not finish, or was blocked, may have
+      // been stopped by the EDR. No exit code and exit 0 (on a stage of a
+      // multi-stage test: skipped, never executed) are judged as before.
+      it('a result with no exit code is judged as before: its flags go', async () => {
+        const { f, result } = await run(stopped(undefined), [answer([otherRunOnly()]), answer([otherRunOnly()])]);
+        expect(f).toMatchObject({ defender_detected: false, defender_stage_detected: false, defender_run_rule: RUN_RULE });
+        expect([result.stageDetectionsRemoved, result.detectionsRemoved]).toEqual([1, 1]);
+        expect(result.removedFlagDocs).toEqual(['r1']);
+        expect(result.keptWithoutRunEvidence).toBe(0);
       });
 
-      it('exit 0 is kept', async () => {
+      it.each([0, '0'])('exit %j (a skipped stage) is judged as before: its stage flags go', async (exit) => {
+        const { f, result } = await run(stopped(exit), [answer([otherRunOnly()]), answer([otherRunOnly()])]);
+        expect(f).toMatchObject({ defender_detected: false, defender_stage_detected: false, defender_run_rule: RUN_RULE });
+        expect([result.stageDetectionsRemoved, result.detectionsRemoved]).toEqual([1, 1]);
+        expect(result.keptWithoutRunEvidence).toBe(0);
+      });
+
+      it('exit 0 at test level only is judged as before; the same result with exit 1 is kept', async () => {
         // Test level only: no stage flag, and the alert names the orchestrator, not the stage.
         const testLevel = {
           defender_detected: true, defender_evidence_rule: 'file_verdict',
@@ -1978,7 +1994,12 @@ describe('DefenderEnrichmentService — credit by run (runScopedEvidence)', () =
         };
         const orchestrator = item(EARLIER, { file: `${B}.exe`, parent: 'explorer.exe', parent_path: 'c:\\windows' });
         const wide = hit('alert-1', alertSource([orchestrator]), SPAN);
-        expectKept(await run(stopped(0, testLevel), [answer([wide]), none]));
+        const skipped = await run(stopped(0, testLevel), [answer([wide]), none]);
+        expect(skipped.f).toMatchObject({ defender_detected: false, defender_prevented: false, defender_prevention_action: null });
+        expect([skipped.result.detectionsRemoved, skipped.result.preventionsRemoved]).toEqual([1, 1]);
+
+        again();
+        expectKept(await run(stopped(1, testLevel), [answer([wide]), none]));
       });
 
       it('exit 126 with an alert that holds items of the run for another stage loses its stage flag', async () => {
@@ -2296,11 +2317,24 @@ describe('DefenderEnrichmentService — credit by run (runScopedEvidence)', () =
           expect(asString.f).toBeUndefined();
         });
 
-        it('a result with no exit code gets the note', async () => {
+        it('no note without an exit code, and none on exit 0 (a skipped stage never ran)', async () => {
           const doc = fresh(999);
           delete (doc._source.event as Record<string, unknown>).ERROR;
-          const { f } = await run(doc, [none, answer([silent('alert-1', 1)])]);
-          expect(f?.defender_no_run_evidence).toMatchObject({ kind: 'stage' });
+          const missing = await run(doc, [none, answer([silent('alert-1', 1)])]);
+          expect(missing.f).toBeUndefined();
+          expect(missing.result.noRunEvidenceDocs).toEqual([]);
+
+          for (const exit of [0, '0']) {
+            again();
+            const skipped = await run(fresh(exit), [none, answer([silent('alert-1', 1)])]);
+            expect(skipped.f).toBeUndefined();
+            expect(skipped.result.noRunEvidenceDocs).toEqual([]);
+          }
+
+          // The control: any other code that is not 101 gets it.
+          again();
+          const stoppedStage = await run(fresh(1), [none, answer([silent('alert-1', 1)])]);
+          expect(stoppedStage.f?.defender_no_run_evidence).toMatchObject({ kind: 'stage' });
         });
 
         it('no note when the result is older than the freshness window', async () => {
