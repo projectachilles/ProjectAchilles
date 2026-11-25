@@ -4,6 +4,8 @@ import {
   buildHostTechniqueQuery,
   DEFENDER_ADAPTER,
   CROWDSTRIKE_ADAPTER,
+  SENTINELONE_ADAPTER,
+  SOPHOS_ADAPTER,
   type CorrelationRun,
 } from '../alertCorrelation.js';
 
@@ -320,6 +322,83 @@ describe('correlateRuns with a run window', () => {
     const res = await correlateRuns(client, DEFENDER_ADAPTER, [windowRun()], { deadline: far() });
     expect(res.alerts.get(windowRun().key)?.[0]).toMatchObject({ title: 'Orchestrator', stageControlId: null, stageControlIds: [] });
   });
+
+  // Alerts found by their activity span (Nov 2026): Elasticsearch names how each hit matched.
+  describe('found by activity span', () => {
+    const SPAN = ['activity_span'];
+    /** Like `answer`, but each doc may carry the `matched_queries` of its hit. */
+    const answerNamed = (...tiers: { doc: Record<string, unknown>; matched?: string[] }[][]) => {
+      let call = 0;
+      msearch.mockImplementation(async ({ searches }: { searches: { _source?: unknown }[] }) => {
+        const hits = tiers[call++] ?? [];
+        return {
+          responses: Array.from({ length: searches.length / 2 }, (_, i) => ({
+            hits: {
+              hits: hits.map(({ doc, matched }) => ({
+                _source: sourceFiltered(doc, searches[i * 2 + 1]._source),
+                ...(matched ? { matched_queries: matched } : {}),
+              })),
+            },
+          })),
+        };
+      });
+    };
+
+    it('tier 1 passes the run start to the Defender query', async () => {
+      answer([]);
+      await correlateRuns(client, DEFENDER_ADAPTER, [windowRun()], { deadline: far() });
+      expect(JSON.stringify(msearch.mock.calls[0][0].searches[1].query)).toContain('activity_span');
+      msearch.mockReset();
+      answer([]);
+      await correlateRuns(client, DEFENDER_ADAPTER, [windowRun(null)], { deadline: far() });
+      expect(JSON.stringify(msearch.mock.calls[0][0].searches[1].query)).not.toContain('activity_span');
+    });
+
+    it('the other three adapters produce the same tier-1 query with and without startedAt', async () => {
+      for (const adapter of [CROWDSTRIKE_ADAPTER, SENTINELONE_ADAPTER, SOPHOS_ADAPTER]) {
+        msearch.mockReset();
+        answer([]);
+        await correlateRuns(client, adapter, [windowRun()], { deadline: far() });
+        const withStart = msearch.mock.calls[0][0].searches[1].query;
+        msearch.mockReset();
+        answer([]);
+        await correlateRuns(client, adapter, [windowRun(null)], { deadline: far() });
+        const without = msearch.mock.calls[0][0].searches[1].query;
+        expect(JSON.stringify(withStart)).toBe(JSON.stringify(without));
+      }
+    });
+
+    it('a span-only alert with an in-run item is reported under its stage', async () => {
+      answerNamed([{ doc: spanning(), matched: SPAN }]);
+      const res = await correlateRuns(client, DEFENDER_ADAPTER, [windowRun()], { deadline: far() });
+      expect(res.alerts.get(windowRun().key)?.[0]).toMatchObject({
+        title: 'Anomalous account lookups', stageControlId: 't1518.001', stageControlIds: ['t1518.001', 't1136.001'],
+      });
+    });
+
+    it('a span-only alert with only other-run items is not reported, and the run falls through to tier 2', async () => {
+      answerNamed([{ doc: earlierOnly(), matched: SPAN }], [{ doc: techniqueOnly() }]);
+      const res = await correlateRuns(client, DEFENDER_ADAPTER, [windowRun()], { deadline: far() });
+      expect(msearch).toHaveBeenCalledTimes(2);
+      expect(res.alerts.get(windowRun().key)?.map((a) => a.title)).toEqual(['Technique match']);
+    });
+
+    it('a span-only alert without an item list is not reported', async () => {
+      const { evidence_items: _drop, ...noItems } = spanning();
+      answerNamed([{ doc: noItems, matched: SPAN }]);
+      const res = await correlateRuns(client, DEFENDER_ADAPTER, [windowRun()], { deadline: far() });
+      expect(res.alerts.get(windowRun().key)).toBeUndefined();
+    });
+
+    it('an alert that also matched by alert time is judged as before', async () => {
+      answerNamed([{ doc: earlierOnly(), matched: ['alert_time', 'activity_span'] }]);
+      const res = await correlateRuns(client, DEFENDER_ADAPTER, [windowRun()], { deadline: far() });
+      expect(res.alerts.get(windowRun().key)).toBeUndefined(); // other-run alert: left out by the old rule too
+      answerNamed([{ doc: techniqueOnly(), matched: ['alert_time', 'activity_span'] }]);
+      const res2 = await correlateRuns(client, DEFENDER_ADAPTER, [windowRun()], { deadline: far() });
+      expect(res2.alerts.get(windowRun().key)?.map((a) => a.title)).toEqual(['Technique match']);
+    });
+  });
 });
 
 describe('buildHostTechniqueQuery', () => {
@@ -333,5 +412,13 @@ describe('buildHostTechniqueQuery', () => {
   it('also matches the id ATT&CK renumbered a technique to (T1562.001 -> T1685)', () => {
     const q = buildHostTechniqueQuery(DEFENDER_ADAPTER, run(1, ['T1562.001'])) as { bool: { must: unknown[] } };
     expect(q.bool.must).toContainEqual({ terms: { mitre_techniques: ['T1562.001', 'T1685'] } });
+  });
+});
+
+describe('buildHostTechniqueQuery and the run start', () => {
+  it('is unchanged by startedAt', () => {
+    const base = run(1, ['T1486']);
+    expect(buildHostTechniqueQuery(DEFENDER_ADAPTER, { ...base, startedAt: new Date(1791809269000 - 60_000).toISOString() }))
+      .toEqual(buildHostTechniqueQuery(DEFENDER_ADAPTER, base));
   });
 });
