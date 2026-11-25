@@ -122,6 +122,55 @@ export function testOutcome(task: Pick<AgentTask, 'type' | 'status' | 'result'>)
   return outcome(exitKind(code), describeExit(code));
 }
 
+export type StageTone = TestOutcomeTone | 'hollow';
+
+export interface StageMark {
+  controlId: string;
+  tone: StageTone;
+  /** Lower-case words for the stage's result: "blocked", "not blocked", "skipped", or what its exit code means. */
+  label: string;
+}
+
+/** More stages than this are not drawn one by one. */
+export const MAX_STAGE_MARKS = 12;
+
+/**
+ * One mark per stage of a finished multi-stage test, in order. Null when
+ * there is nothing to draw stage by stage: another task type, a run still in
+ * progress, a test without stages, a cyber-hygiene bundle (its controls are
+ * compliance checks, judged by the run's exit code), or too many stages.
+ */
+export function stageMarks(task: Pick<AgentTask, 'type' | 'status' | 'result'>): StageMark[] | null {
+  if (task.type !== 'execute_test' || task.status !== 'completed') return null;
+  const bundle = stagesOf(task.result);
+  if (!bundle || bundle.category === 'cyber-hygiene') return null;
+  if (bundle.controls.length === 0 || bundle.controls.length > MAX_STAGE_MARKS) return null;
+  return bundle.controls.map((c): StageMark => {
+    if (c.skipped) return { controlId: c.control_id, tone: 'hollow', label: 'skipped' };
+    if (PROTECTED_CODES.has(c.exit_code)) return { controlId: c.control_id, tone: 'accent', label: 'blocked' };
+    if (c.exit_code === 101) return { controlId: c.control_id, tone: 'danger', label: 'not blocked' };
+    return {
+      controlId: c.control_id,
+      tone: KIND[exitKind(c.exit_code)].tone,
+      label: EXIT_MEANING[c.exit_code] ?? `exit ${c.exit_code}`,
+    };
+  });
+}
+
+/** Where a task counts in a run's summary. Tests count by outcome, other task types by lifecycle. */
+export type TaskBucket = 'unprotected' | 'no-verdict' | 'in-progress' | 'protected' | 'completed' | 'failed';
+
+const IN_PROGRESS = new Set<AgentTask['status']>(['pending', 'assigned', 'downloading', 'executing']);
+
+export function taskBucket(task: Pick<AgentTask, 'type' | 'status' | 'result'>): TaskBucket {
+  if (IN_PROGRESS.has(task.status)) return 'in-progress';
+  if (task.type === 'execute_test') {
+    const kind = testOutcome(task)?.kind;
+    return kind === 'protected' || kind === 'unprotected' ? kind : 'no-verdict';
+  }
+  return task.status === 'completed' ? 'completed' : 'failed';
+}
+
 export const TONE_TEXT: Record<TestOutcomeTone, string> = {
   accent: 'text-accent',
   danger: 'text-danger',
