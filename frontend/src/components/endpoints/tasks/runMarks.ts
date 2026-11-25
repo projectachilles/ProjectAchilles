@@ -4,7 +4,7 @@
  * the outcome rule itself stays in utils/testOutcome.ts.
  */
 
-import type { AgentTask } from '@/types/agent';
+import type { AgentTask, TaskGroup } from '@/types/agent';
 import { taskBucket, type TaskBucket } from '@/utils/testOutcome';
 import type { BarSegment } from '../../shared/marks/VerdictBar';
 import type { MarkTone } from '../../shared/marks/markTone';
@@ -23,6 +23,15 @@ export type RunForm = 'named' | 'squares' | 'bar';
 export function runForm(taskCount: number): RunForm {
   if (taskCount <= NAMED_MAX) return 'named';
   return taskCount <= SQUARES_MAX ? 'squares' : 'bar';
+}
+
+/**
+ * "5 agents", or "1 of 5 agents" when a filter (the Tasks page breakdown)
+ * lists only part of the batch; agent_count always describes the whole batch.
+ */
+export function agentCountLabel(group: Pick<TaskGroup, 'tasks' | 'agent_count'>): string {
+  const listed = new Set(group.tasks.map((t) => t.agent_id)).size;
+  return listed < group.agent_count ? `${listed} of ${group.agent_count} agents` : `${group.agent_count} agents`;
 }
 
 export const BUCKET_META: Record<TaskBucket, { label: string; tone: MarkTone }> = {
