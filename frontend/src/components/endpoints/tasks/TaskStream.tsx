@@ -8,18 +8,16 @@
 
 import { Fragment, useMemo, useState } from 'react';
 import type { ReactNode } from 'react';
-import { ChevronDown, ChevronRight, FileText, Maximize2, RotateCcw, Trash2, XCircle } from 'lucide-react';
-import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
+import { ChevronDown, ChevronRight } from 'lucide-react';
 import type { AgentTask, TaskGroup } from '@/types/agent';
 import { resolveTaskStatusDisplay, type TaskStatusVariant } from '@/utils/taskStatusDisplay';
-import { EXIT_MEANING, TONE_DOT, TONE_TEXT, testOutcome, type TestOutcomeTone } from '@/utils/testOutcome';
+import { TONE_DOT, TONE_TEXT, testOutcome, type TestOutcomeTone } from '@/utils/testOutcome';
 import { Checkbox } from '../../shared/ui/Checkbox';
-import { Button } from '../../shared/ui/Button';
 import { Loading } from '../../shared/ui/Spinner';
-import TaskStatusBadge from './TaskStatusBadge';
+import TaskDetailPanel from './TaskDetailPanel';
+import { clockTime, dayKey, dayLabel, formatDuration, taskName } from './taskFormat';
 import { cn } from '@/lib/utils';
 import { StreamRow } from '../../shared/ui/StreamRow';
-import { CopyButton } from '../../shared/ui/CopyButton';
 
 interface TaskStreamProps {
   groups: TaskGroup[];
@@ -48,13 +46,6 @@ function agentCountLabel(group: TaskGroup): string {
   const listed = new Set(group.tasks.map((t) => t.agent_id)).size;
   return listed < group.agent_count ? `${listed} of ${group.agent_count} agents` : `${group.agent_count} agents`;
 }
-const TERMINAL_STATUSES = new Set(['completed', 'failed', 'expired']);
-
-/** Mirror of the backend gate: only terminal execute_test tasks can be retried. */
-function isRetryable(task: AgentTask): boolean {
-  return task.type === 'execute_test' && TERMINAL_STATUSES.has(task.status);
-}
-
 function Glyph({ variant }: { variant: TaskStatusVariant }) {
   switch (variant) {
     case 'success':
@@ -68,78 +59,6 @@ function Glyph({ variant }: { variant: TaskStatusVariant }) {
       return <span className="text-faint">○</span>;
   }
 }
-
-function normalizeUtc(dateStr: string): string {
-  return dateStr.endsWith('Z') || dateStr.includes('+') ? dateStr : dateStr + 'Z';
-}
-
-function clockTime(dateStr: string): string {
-  return new Date(normalizeUtc(dateStr)).toLocaleTimeString('en-GB', { hour12: false });
-}
-
-function dayKey(dateStr: string): string {
-  return new Date(normalizeUtc(dateStr)).toDateString();
-}
-
-function dayLabel(dateStr: string): string {
-  const date = new Date(normalizeUtc(dateStr));
-  const today = new Date();
-  const yesterday = new Date(today.getTime() - 86_400_000);
-  if (date.toDateString() === today.toDateString()) return 'today';
-  if (date.toDateString() === yesterday.toDateString()) return 'yesterday';
-  return date.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
-}
-
-function formatDuration(ms: number | undefined): string {
-  if (ms == null) return '—';
-  if (ms < 1000) return `${ms}ms`;
-  if (ms < 60_000) return `${(ms / 1000).toFixed(1)}s`;
-  const minutes = Math.floor(ms / 60_000);
-  const seconds = Math.round((ms % 60_000) / 1000);
-  return `${minutes}m ${seconds.toString().padStart(2, '0')}s`;
-}
-
-function taskName(task: AgentTask): string {
-  return task.payload?.test_name || task.type.replace(/_/g, ' ');
-}
-
-/** stdout/stderr box — click (or the corner icon) opens the expanded viewer. */
-function OutputBlock({
-  label,
-  text,
-  maxHeightClass,
-  onExpand,
-}: {
-  label: string;
-  text: string | undefined;
-  maxHeightClass: string;
-  onExpand: () => void;
-}) {
-  return (
-    <div className="group">
-      <div className="mb-1 flex items-center justify-between gap-2">
-        <span className="text-[10px] font-medium uppercase tracking-wider text-faint">{label}</span>
-        <span className="flex items-center gap-1">
-          <CopyButton text={text ?? ''} ariaLabel={`Copy ${label}`} disabled={!text} />
-          <Maximize2 className="h-3 w-3 text-faint opacity-0 transition-opacity group-hover:opacity-100" aria-hidden="true" />
-        </span>
-      </div>
-      <pre
-        role="button"
-        tabIndex={0}
-        title="Click to expand"
-        onClick={onExpand}
-        onKeyDown={(e) => {
-          if (e.key === 'Enter') onExpand();
-        }}
-        className={`${maxHeightClass} cursor-zoom-in overflow-auto whitespace-pre-wrap break-words rounded-md border border-border bg-background p-2.5 font-mono text-[11px] leading-relaxed transition-colors group-hover:border-border-strong`}
-      >
-        {text || '(empty)'}
-      </pre>
-    </div>
-  );
-}
-
 export default function TaskStream({
   groups,
   loading,
@@ -156,14 +75,12 @@ export default function TaskStream({
 }: TaskStreamProps) {
   const [selectedTaskId, setSelectedTaskId] = useState<string | null>(null);
   const [collapsedBatches, setCollapsedBatches] = useState<Set<string>>(new Set());
-  const [outputView, setOutputView] = useState<{ label: string; task: string; text: string } | null>(null);
 
   const allTasks = useMemo(() => groups.flatMap((g) => g.tasks), [groups]);
   const selectedTask = useMemo(
     () => allTasks.find((t) => t.id === selectedTaskId) ?? allTasks[0] ?? null,
     [allTasks, selectedTaskId],
   );
-  const selectedOutcome = selectedTask ? testOutcome(selectedTask) : null;
 
   const selectedNotice = useMemo(() => {
     if (!selectedTask?.notice_id) return undefined;
@@ -405,166 +322,20 @@ export default function TaskStream({
 
       {/* Detail panel */}
       {selectedTask ? (
-        <div className={cn('rounded-lg border border-border bg-surface', fill ? 'lg:min-h-0 lg:overflow-auto' : 'overflow-hidden')}>
-          <div className="border-b border-border p-4">
-            <div className="flex items-start justify-between gap-3">
-              <h3 className="text-[15px] font-semibold leading-snug">{taskName(selectedTask)}</h3>
-              <TaskStatusBadge task={selectedTask} notice={selectedNotice} className="shrink-0 font-mono uppercase" />
-            </div>
-            <div className="mt-1 font-mono text-[11px] text-faint">
-              {selectedTask.type} · batch {selectedTask.batch_id.slice(0, 8)}
-              {(selectedTask.retry_count ?? 0) > 0 && (
-                <span className="text-warning"> · retry {selectedTask.retry_count}/{selectedTask.max_retries ?? 2}</span>
-              )}
-            </div>
-            {selectedOutcome && selectedOutcome.basis !== 'exit' && (
-              <p className={cn('mt-2 text-xs', TONE_TEXT[selectedOutcome.tone])}>{selectedOutcome.title}</p>
-            )}
-          </div>
-          <div className="grid grid-cols-2 gap-3 border-b border-border p-4 md:grid-cols-4">
-            <div>
-              <div className="text-[10px] uppercase tracking-wider text-faint">Agent</div>
-              <div className="mt-0.5 font-mono text-xs">{selectedTask.agent_hostname ?? '—'}</div>
-            </div>
-            <div>
-              <div className="text-[10px] uppercase tracking-wider text-faint">Duration</div>
-              <div className="mt-0.5 font-mono text-xs">
-                {formatDuration(selectedTask.result?.execution_duration_ms)}
-              </div>
-            </div>
-            <div>
-              {/* A bundle's exit is its last stage's, not the verdict: label it so, and don't colour it as the outcome. */}
-              <div className="text-[10px] uppercase tracking-wider text-faint">
-                {selectedOutcome?.basis === 'stages' ? 'Final exit' : 'Exit code'}
-              </div>
-              <div
-                className={cn(
-                  'mt-0.5 font-mono text-xs',
-                  selectedOutcome
-                    ? selectedOutcome.basis === 'exit' && TONE_TEXT[selectedOutcome.tone]
-                    : selectedTask.result && selectedTask.result.exit_code !== 0 && 'text-danger',
-                )}
-              >
-                {selectedTask.result?.exit_code ?? '—'}
-                {selectedOutcome && selectedTask.result && EXIT_MEANING[selectedTask.result.exit_code] && (
-                  <span className="text-muted"> · {EXIT_MEANING[selectedTask.result.exit_code]}</span>
-                )}
-              </div>
-            </div>
-            <div>
-              <div className="text-[10px] uppercase tracking-wider text-faint">Created</div>
-              <div className="mt-0.5 font-mono text-xs">
-                {new Date(normalizeUtc(selectedTask.created_at)).toLocaleString()}
-              </div>
-            </div>
-            {selectedTask.created_by_label && (
-              <div className="col-span-2 md:col-span-4">
-                <div className="text-[10px] uppercase tracking-wider text-faint">Requested by</div>
-                <div className="mt-0.5 truncate text-xs" title={selectedTask.created_by_label}>
-                  {selectedTask.created_by_label}
-                </div>
-              </div>
-            )}
-          </div>
-          <div className="flex flex-col gap-3 p-4">
-            {selectedTask.result?.error && (
-              <div className="flex items-center gap-2 rounded-md bg-danger-dim p-2 text-sm text-danger">
-                <XCircle className="h-4 w-4 shrink-0" />
-                <span className="min-w-0 break-words">{selectedTask.result.error}</span>
-              </div>
-            )}
-            {selectedTask.result ? (
-              <>
-                {selectedTask.result.compacted_at && (
-                  <div className="rounded-md bg-info-dim p-2 text-xs text-muted" data-testid="output-compacted-notice">
-                    Full output removed by the retention policy on{' '}
-                    {new Date(normalizeUtc(selectedTask.result.compacted_at)).toLocaleString()}. Exit code and stage
-                    results are kept.
-                  </div>
-                )}
-                <OutputBlock
-                  label="stdout"
-                  text={selectedTask.result.stdout}
-                  maxHeightClass="max-h-44"
-                  onExpand={() =>
-                    setOutputView({ label: 'stdout', task: taskName(selectedTask), text: selectedTask.result?.stdout ?? '' })
-                  }
-                />
-                <OutputBlock
-                  label="stderr"
-                  text={selectedTask.result.stderr}
-                  maxHeightClass="max-h-32"
-                  onExpand={() =>
-                    setOutputView({ label: 'stderr', task: taskName(selectedTask), text: selectedTask.result?.stderr ?? '' })
-                  }
-                />
-              </>
-            ) : (
-              <div className="flex h-20 items-center justify-center text-sm text-faint">
-                No result yet — task is {resolveTaskStatusDisplay(selectedTask).label.toLowerCase()}.
-              </div>
-            )}
-            <div className="flex gap-2">
-              {onRetry && isRetryable(selectedTask) && (
-                <Button variant="secondary" size="sm" onClick={() => onRetry(selectedTask.id)}>
-                  <RotateCcw className="mr-1 h-3.5 w-3.5" />
-                  Retry
-                </Button>
-              )}
-              {onCancel && ACTIVE_STATUSES.has(selectedTask.status) && (
-                <Button variant="secondary" size="sm" onClick={() => onCancel(selectedTask.id)}>
-                  <XCircle className="mr-1 h-3.5 w-3.5" />
-                  Cancel
-                </Button>
-              )}
-              {onOpenNotes && (
-                <Button variant="outline" size="sm" onClick={() => onOpenNotes(selectedTask)}>
-                  <FileText className="mr-1 h-3.5 w-3.5" />
-                  Notes{selectedTask.notes ? ' •' : ''}
-                </Button>
-              )}
-              {/* Only a finished task can be deleted (the backend archives it); cancel an active one. */}
-              {onDelete && TERMINAL_STATUSES.has(selectedTask.status) && (
-                <Button
-                  variant="ghost"
-                  size="sm"
-                  className="text-danger hover:text-danger"
-                  onClick={() => onDelete(selectedTask.id)}
-                >
-                  <Trash2 className="mr-1 h-3.5 w-3.5" />
-                  Delete
-                </Button>
-              )}
-            </div>
-          </div>
-        </div>
+        <TaskDetailPanel
+          task={selectedTask}
+          notice={selectedNotice}
+          onCancel={onCancel}
+          onRetry={onRetry}
+          onDelete={onDelete}
+          onOpenNotes={onOpenNotes}
+          fill={fill}
+        />
       ) : (
         <div className="flex h-40 items-center justify-center rounded-lg border border-border bg-surface text-sm text-faint">
           Select a task to see its detail.
         </div>
       )}
-
-      {/* Expanded output viewer */}
-      <Dialog open={outputView !== null} onOpenChange={(open) => !open && setOutputView(null)}>
-        <DialogContent className="sm:max-w-4xl">
-          <DialogHeader className="flex-row items-center justify-between gap-3 pr-8">
-            <DialogTitle className="min-w-0 truncate font-mono text-sm">
-              <span className="uppercase text-faint">{outputView?.label}</span>
-              <span className="ml-2 font-sans text-foreground">{outputView?.task}</span>
-            </DialogTitle>
-            <CopyButton
-              text={outputView?.text ?? ''}
-              label="Copy all"
-              variant="accent"
-              ariaLabel={`Copy all ${outputView?.label ?? 'output'}`}
-              disabled={!outputView?.text}
-            />
-          </DialogHeader>
-          <pre className="max-h-[70vh] overflow-auto whitespace-pre-wrap break-words rounded-md border border-border bg-background p-4 font-mono text-xs leading-relaxed">
-            {outputView?.text || '(empty)'}
-          </pre>
-        </DialogContent>
-      </Dialog>
     </div>
   );
 }
