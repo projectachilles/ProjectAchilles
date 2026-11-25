@@ -153,7 +153,8 @@ so can be auto-resolved, only when it counts for the run.
 Known limits of this lookup:
 
 - A later run that Defender re-detects without adding a new evidence item gets
-  no credit for that run.
+  no credit for that run. A flag already stored on such a result is kept when
+  the stage did not run to completion (see below).
 - An alert raised late whose only evidence is a file is still not credited.
 - Activity recorded more than 30 minutes after the run's end, or a process
   starting more than 5 minutes after the alert's last activity, is not found.
@@ -165,6 +166,26 @@ Known limits of this lookup:
 - The technique-only step of the alert list, and CrowdStrike, SentinelOne and
   Sophos, are unchanged.
 - A result older than 90 days is not revisited.
+
+**A stage that did not run to completion keeps its flags.** Defender can stop a
+file it already knows and update the open alert without adding an evidence
+item. So when the check finds alerts for a stage that exited with any code other
+than 101, and none of them holds any evidence of that run, it removes no flag of
+that result. A stage that ran to completion (exit 101) with no evidence of its
+run, and a stage whose alert holds evidence of the run but none for that stage,
+still lose their flags. No flag is ever created this way. On a recent result in
+that situation the backend also stores a small note once,
+`f0rtika.defender_no_run_evidence` (not indexed, not shown in the console), and
+logs `[Defender] Stage stopped with no evidence of its run, note stored on: <id>`.
+The note exists so the case can be studied: it records what Defender wrote on
+the alert. Limits:
+
+- A kept flag can show an alert chip beside an empty alert list, because the
+  list and the report still require evidence of the run.
+- A stage that failed for a reason unrelated to the EDR inside the span of an
+  open alert about its binary also keeps a stale flag.
+- A silent block on a new run is still not credited.
+- Flags already removed by the previous release are not restored.
 
 **Late actions.** EDRs often add the action after the alert was first
 matched: Defender updates the alert's remediation status, SentinelOne adds

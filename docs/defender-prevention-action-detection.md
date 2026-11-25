@@ -163,7 +163,8 @@ the run's start and 30 minutes after its end.
 Known limits:
 
 - A later run that Defender re-detects without adding a new evidence item gets
-  no credit for that run.
+  no credit for that run. A flag already stored on such a result is kept when
+  the stage did not run to completion (see the next section).
 - An alert raised late whose only evidence is a file is still not credited (a
   file item counts by when Defender added it).
 - Activity recorded more than 30 minutes after the run's end, or a process
@@ -177,6 +178,54 @@ Known limits:
 - The technique-only tier of the alert list and the report, and CrowdStrike,
   SentinelOne and Sophos, are unchanged.
 - A result older than 90 days is not revisited.
+
+### A stage that did not run to completion keeps its flags
+
+Defender can stop a file it already knows and update the open alert without
+adding an evidence item, so a run it really stopped can look like a run with no
+evidence. In the re-check, for each of a result's two alert queries (the
+stage's own binary; the whole test) the pass notes whether it has nothing of the
+run: at least one usable alert, none left unread, and every usable alert holds
+nothing of the run (`holdsNothingOfRun`, `runEvidence.ts`: the alert has an item
+list, the run has a window, and no item of any file is inside it). When the
+result did not run to completion (`ranToCompletion` false: any exit code other
+than 101, or none):
+
+- the stage query has nothing of the run: no stored flag of the result is
+  removed (stage detection, `defender_detected`, prevention flags, the stored
+  action, and the "stage not prevented" settling). The pass uses the same
+  unjudged gates as for unread alerts (`stageUnjudged`, `wideUnjudged`; the
+  flag is `stageNoRunItems` / `wideNoRunItems`);
+- only the test-level query has nothing of the run: only what that query
+  decides is held back.
+
+Still removed as before: the flags of a stage that ran to completion (exit 101)
+with no evidence of its run, and the stage flag of a stage whose alert holds
+items of the run but none for that stage. No flag is ever created by this rule.
+
+On a fresh result in that situation the pass also stores a note, once, to learn
+what Defender writes on the alert: `f0rtika.defender_no_run_evidence =
+{ seen_at, kind: 'stage' | 'wide', alerts }`, with at most 5 alerts, each
+`{ id, found_by, updated_at, first_activity_at, last_activity_at, items }`
+(`id` is the alert document id, `found_by` the query clauses that matched it,
+`updated_at` its last update, `items` the number of evidence items the run rule
+reads). It is written only when the result has a run window, did not run to
+completion, ended within the last 72 hours (`recheckHours`) and has no note yet;
+`kind` is `stage` when the stage query has nothing of the run, else `wide`. It is
+mapped with `enabled: false` (not indexed) and no API returns it. The pass
+result lists the ids in `noRunEvidenceDocs` (at most 20) and the Defender sync
+logs `[Defender] Stage stopped with no evidence of its run, note stored on: <id>, <id>`.
+
+Limits of this rule:
+
+- A kept flag can show an alert chip beside an empty alert list: the list and
+  the execution report still require evidence of the run.
+- A stage that failed for a reason unrelated to the EDR (for example an error
+  exit from a broken test) inside the span of an open alert about its binary
+  also keeps a stale flag; the rule cannot tell the two apart.
+- A silent block on a new run is still not credited; only a stored flag is kept.
+- A system whose re-check already ran (the previous release) does not get
+  removed flags back.
 
 ## Tests
 
