@@ -619,7 +619,8 @@ export class DefenderSyncService {
       const es = this.getEsClient();
       const settingsService = new SettingsService();
       const settings = settingsService.getSettings();
-      const service = new DefenderEnrichmentService(es, settings.indexPattern);
+      // Credit by run only once every alert in the look-back carries its evidence items.
+      const service = new DefenderEnrichmentService(es, settings.indexPattern, { runScopedEvidence: this.evidenceItemsReady() });
       const result = await service.runEnrichmentPass({ lookbackDays: 90 });
       console.log(
         `[Defender-Enrichment] scanned=${result.scanned} detected=${result.detected} ` +

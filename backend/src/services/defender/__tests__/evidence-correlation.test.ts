@@ -3,6 +3,7 @@ import {
   buildAlertTimeWindowQuery,
   buildDefenderEvidenceQuery,
   buildStageDefenderEvidenceQuery,
+  defenderPathNamesTest,
   extractBundleUuid,
 } from '../evidence-correlation.js';
 
@@ -587,5 +588,61 @@ describe('buildAlertTimeWindowQuery', () => {
   it('emits minimum_should_match: 1 (so either field is sufficient)', () => {
     const clause = buildAlertTimeWindowQuery(FROM, TO);
     expect(clause.bool).toMatchObject({ minimum_should_match: 1 });
+  });
+});
+
+describe('defenderPathNamesTest', () => {
+  const U = '92b0b4f6-a09b-4c7b-b593-31ce461f804c';
+  const query = (bundle_name?: string) => buildDefenderEvidenceQuery({
+    test_uuid: `${U}::T1204.002`, routing_event_time: '2026-03-27T07:52:54Z', routing_hostname: 'win-host-01', bundle_name,
+  });
+  // The `evidence_filepaths` wildcard values the wide query matches on.
+  const pathGlobs = (q: any): string[] => {
+    const fileOrPath = q.bool.must[3].bool.should as any[];
+    return fileOrPath
+      .filter((c) => 'evidence_filepaths' in c.wildcard)
+      .map((c) => c.wildcard.evidence_filepaths.value as string);
+  };
+  const globMatches = (glob: string, path: string) =>
+    new RegExp(`^${glob.split('*').map((s) => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')).join('.*')}$`).test(path);
+  const paths = [
+    `c:\\f0\\${U}.exe`,
+    `c:\\f0\\${U}-t1204.002.exe`,
+    `c:\\users\\public\\${U}\\payload.bin`,
+    'c:\\users\\public\\bluehammersandbox\\payload.bin',
+    'c:\\users\\public\\dos\\payload.bin',
+    'c:\\windows\\system32\\net.exe',
+    'c:\\f0',
+  ];
+
+  it('the bundle uuid form: true exactly for the paths the wide query matches', () => {
+    const q = query();
+    const named = defenderPathNamesTest({ test_uuid: `${U}::T1204.002` });
+    expect(pathGlobs(q)).toEqual([`*${U}*`]);
+    for (const p of paths) expect(named(p), p).toBe(pathGlobs(q).some((g) => globMatches(g, p)));
+    expect(named(`c:\\f0\\${U}.exe`)).toBe(true);
+    expect(named('c:\\users\\public\\bluehammersandbox\\payload.bin')).toBe(false);
+  });
+
+  it('the bundle-name token form: also true for a path holding the token', () => {
+    const bundle_name = 'BlueHammer Early-Stage Behavioral Pattern';
+    const q = query(bundle_name);
+    const named = defenderPathNamesTest({ test_uuid: `${U}::T1204.002`, bundle_name });
+    expect(pathGlobs(q)).toEqual([`*${U}*`, '*bluehammer*']);
+    for (const p of paths) expect(named(p), p).toBe(pathGlobs(q).some((g) => globMatches(g, p)));
+    expect(named('c:\\users\\public\\bluehammersandbox\\payload.bin')).toBe(true);
+    expect(named('c:\\windows\\system32\\net.exe')).toBe(false);
+  });
+
+  it('a bundle name whose token is too short adds nothing (as in the query)', () => {
+    const bundle_name = 'DoS — Denial of Service';
+    expect(pathGlobs(query(bundle_name))).toEqual([`*${U}*`]);
+    expect(defenderPathNamesTest({ test_uuid: U, bundle_name })('c:\\users\\public\\dos\\payload.bin')).toBe(false);
+  });
+
+  it('no test uuid: no path names the test (the query is not built either)', () => {
+    expect(buildDefenderEvidenceQuery({ test_uuid: '', routing_event_time: '2026-03-27T07:52:54Z', routing_hostname: 'h' })).toBeNull();
+    const named = defenderPathNamesTest({ test_uuid: '', bundle_name: 'BlueHammer Early-Stage' });
+    for (const p of paths) expect(named(p)).toBe(false);
   });
 });

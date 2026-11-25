@@ -13,6 +13,7 @@ import {
 import type { EnrichmentPassOptions, EnrichmentPassResult } from '../../types/edr.js';
 import { isAchillesMitigated, ACHILLES_MITIGATION_FIELDS, ACHILLES_MITIGATED_QUERY } from '../shared/achillesMitigation.js';
 import { alertCredit, isStageFile, isTestFile, MULTI_TEST_EVIDENCE_FIELDS } from './multiTestEvidence.js';
+import { alertCreditForRun, EVIDENCE_ITEMS_FIELD, runWindow, type RunWindow } from './runEvidence.js';
 import { enrichmentEligibleClauses } from '../analytics/enrichment-eligibility.js';
 import type { EdrVendorKey } from '../outcomes/vendors.js';
 
@@ -92,6 +93,12 @@ const PREVENTION_ACTION_BUCKETS = 10;
 export interface EvidenceQueryBuilders {
   wide: typeof buildCrowdStrikeEvidenceQuery;
   stage: typeof buildStageCrowdStrikeEvidenceQuery;
+  /**
+   * The paths the wide query matches as naming the test (runScopedEvidence:
+   * a run view keeps a test-level match made by path only when an in-run
+   * path still names the test).
+   */
+  pathNamesTest?: (input: { test_uuid: string; bundle_name?: string }) => (path: string) => boolean;
 }
 
 /**
@@ -124,6 +131,15 @@ export interface EnrichmentVendorTarget {
    * aggregation and re-fires (defender/evidence-correlation.ts).
    */
   evidenceQueries?: EvidenceQueryBuilders;
+  /**
+   * Credit each matched alert only from its evidence items of the result's
+   * own run (edr/runEvidence.ts): the alert sub-queries also fetch
+   * `evidence_items`, and the run window is the scanned result's
+   * `routing.run_started_at` .. `routing.event_time`. A result without a run
+   * start, or an alert without items, keeps the rule as it was. Defender sets
+   * it once its v9 re-sync has completed; off (default), nothing changes.
+   */
+  runScopedEvidence?: boolean;
 }
 
 export class EdrAlertEnrichmentService {
@@ -185,7 +201,11 @@ export class EdrAlertEnrichmentService {
       //    narrow query requires the SPECIFIC stage binary
       //    (`<uuid>-<control_id>[-<variant>].exe`) to appear in evidence_filenames.
       //    Building both in the same msearch keeps round-trips at 1 per batch.
-      type SubQuery = { kind: 'wide' | 'stage'; hit: any; body: Record<string, unknown>; bundleUuid: string; controlId: string };
+      type SubQuery = {
+        kind: 'wide' | 'stage'; hit: any; body: Record<string, unknown>; bundleUuid: string; controlId: string;
+        /** runScopedEvidence only: the result's run window (null = no run view) and the wide query's path rule. */
+        window: RunWindow | null; pathNamesTest?: (path: string) => boolean;
+      };
       const queries: SubQuery[] = [];
       for (const hit of hits) {
         const src = hit._source?.f0rtika ?? {};
@@ -210,21 +230,27 @@ export class EdrAlertEnrichmentService {
         }
         const bundleUuid = extractBundleUuid(testUuid);
         const controlId = String(src.control_id ?? '');
-        if (wideQuery)  queries.push({ kind: 'wide',  hit, body: wideQuery,  bundleUuid, controlId });
-        if (stageQuery) queries.push({ kind: 'stage', hit, body: stageQuery, bundleUuid, controlId });
+        const window = this.target.runScopedEvidence ? runWindow(routing.run_started_at, routing.event_time) : null;
+        const pathNamesTest = this.target.runScopedEvidence
+          ? this.evidenceQueries.pathNamesTest?.({ test_uuid: testUuid, bundle_name: src.bundle_name })
+          : undefined;
+        if (wideQuery)  queries.push({ kind: 'wide',  hit, body: wideQuery,  bundleUuid, controlId, window, pathNamesTest });
+        if (stageQuery) queries.push({ kind: 'stage', hit, body: stageQuery, bundleUuid, controlId, window });
       }
 
       // 3. Execute msearch. size=EVIDENCE_HITS_PER_SUBQUERY so we get back the
       //    matched alert _ids (needed for the alert-side correlation update)
       //    and can classify each alert. _source carries only what the flags
-      //    need (prevention_action + the multi-test evidence fields).
+      //    need (prevention_action + the multi-test evidence fields, and the
+      //    evidence items when crediting by run).
       if (queries.length > 0) {
         const searches: unknown[] = [];
+        const runFields = this.target.runScopedEvidence ? [EVIDENCE_ITEMS_FIELD] : [];
         for (const q of queries) {
           searches.push({ index: this.target.alertIndex });
           const source = this.target.ignoreAchillesMitigated
-            ? ['prevention_action', ...ACHILLES_MITIGATION_FIELDS, 'f0rtika.achilles_correlated', ...MULTI_TEST_EVIDENCE_FIELDS]
-            : ['prevention_action', 'f0rtika.achilles_correlated', ...MULTI_TEST_EVIDENCE_FIELDS];
+            ? ['prevention_action', ...ACHILLES_MITIGATION_FIELDS, 'f0rtika.achilles_correlated', ...MULTI_TEST_EVIDENCE_FIELDS, ...runFields]
+            : ['prevention_action', 'f0rtika.achilles_correlated', ...MULTI_TEST_EVIDENCE_FIELDS, ...runFields];
           const preventionFilter = this.target.ignoreAchillesMitigated
             ? { bool: { must_not: [ACHILLES_MITIGATED_QUERY] } }
             : { match_all: {} };
@@ -320,8 +346,17 @@ export class EdrAlertEnrichmentService {
             : (f: string) => isTestFile(f, q.bundleUuid);
           // A stage takes only its own file's actions (and its child
           // processes') where the alert records them per evidence item.
+          // Crediting by run, only the alert's evidence of this result's run
+          // counts (edr/runEvidence.ts); the wide query also keeps a match by
+          // a path naming the test.
+          const ownActionsOnly = q.kind === 'stage';
           const credited = allHits
-            .map((h) => ({ h, credit: alertCredit(h._source ?? {}, mine, { ownActionsOnly: q.kind === 'stage' }) }))
+            .map((h) => ({
+              h,
+              credit: this.target.runScopedEvidence
+                ? alertCreditForRun(h._source ?? {}, q.window, mine, { ownActionsOnly, pathNamesTest: q.pathNamesTest })
+                : alertCredit(h._source ?? {}, mine, { ownActionsOnly }),
+            }))
             .filter((c) => c.credit.counts);
           const alertHits = credited.map((c) => c.h);
           // Alerts beyond the hits read can't be classified: they count, as

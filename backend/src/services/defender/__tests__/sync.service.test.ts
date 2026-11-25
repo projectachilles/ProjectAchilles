@@ -60,9 +60,13 @@ vi.mock('../../analytics/client.js', () => ({
   }),
 }));
 
-// Mock enrichment service
+// Mock enrichment service (records its constructor arguments)
+const mockEnrichmentCtor = vi.fn();
 vi.mock('../enrichment.service.js', () => ({
   DefenderEnrichmentService: class {
+    constructor(...args: unknown[]) {
+      mockEnrichmentCtor(...args);
+    }
     async runEnrichmentPass() {
       return {
         scanned: 0,
@@ -955,6 +959,19 @@ describe('DefenderSyncService', () => {
         errors: expect.any(Array),
         durationMs: expect.any(Number),
       });
+    });
+
+    it('credits by run only once the v9 evidence-items re-sync has completed', async () => {
+      mockEnrichmentCtor.mockClear();
+      expect(service.evidenceItemsReady()).toBe(false);
+      await service.runEnrichmentPass();
+      expect(mockEnrichmentCtor.mock.calls.at(-1)?.[2]).toEqual({ runScopedEvidence: false });
+
+      mockGetAlerts.mockResolvedValue([]);
+      await service.syncAlerts();
+      expect(service.evidenceItemsReady()).toBe(true);
+      await service.runEnrichmentPass();
+      expect(mockEnrichmentCtor.mock.calls.at(-1)?.[2]).toEqual({ runScopedEvidence: true });
     });
   });
 

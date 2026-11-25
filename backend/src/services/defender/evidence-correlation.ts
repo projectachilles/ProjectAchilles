@@ -228,6 +228,26 @@ export function buildStageDefenderEvidenceQuery(
   };
 }
 
+/**
+ * True for a path the wide query's `evidence_filepaths` clauses match
+ * (buildDefenderEvidenceQuery): it holds the bundle uuid, or the bundle-name
+ * token when the bundle has one. The run view of an alert uses it to keep a
+ * test-level match made by path (edr/runEvidence.ts `pathNamesTest`).
+ * Compared lower-case, as the query's globs are (the sync stores paths
+ * lower-cased).
+ */
+export function defenderPathNamesTest(
+  input: { test_uuid: string; bundle_name?: string },
+): (path: string) => boolean {
+  const baseUuid = extractBundleUuid(input.test_uuid).toLowerCase();
+  if (!baseUuid) return () => false;
+  const token = extractBundleNameToken(input.bundle_name);
+  return (path: string) => {
+    const p = path.toLowerCase();
+    return p.includes(baseUuid) || (!!token && p.includes(token));
+  };
+}
+
 export function buildDefenderEvidenceQuery(
   input: TestEvidenceInput,
 ): Record<string, unknown> | null {

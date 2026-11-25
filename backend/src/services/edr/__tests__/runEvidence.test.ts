@@ -226,7 +226,49 @@ describe('alertCreditForRun', () => {
     });
     const mine = (f: string) => isTestFile(f, U);
     expect(alertCredit(src, mine).counts).toBe(false);
-    expect(alertCreditForRun(src, W, mine)).toEqual({ counts: true, actions: null });
+    // A run view never falls back to the alert-wide action: no in-run action, none.
+    expect(alertCreditForRun(src, W, mine)).toEqual({ counts: true, actions: [] });
+  });
+
+  describe('a single-test view without ownActionsOnly brings the in-run items\' actions, never null', () => {
+    const mine = (f: string) => isTestFile(f, U);
+    // Alert-wide fields over the whole history, as the sync stores them.
+    const wide = (items: EvidenceItem[]) => alert(items, { prevention_action: 'process_killed' });
+
+    it('a kill on an in-run item', () => {
+      const src = wide([item({ verdict: 'malicious', action: 'process_killed' })]);
+      expect(alertCreditForRun(src, W, mine)).toEqual({ counts: true, actions: ['process_killed'] });
+    });
+
+    it('the kill only on an earlier run\'s item, the in-run item without an action: no actions', () => {
+      const src = wide([
+        item({ verdict: 'malicious', action: 'process_killed', started_at: NOV_19, added_at: '2026-11-19T09:08:00Z' }),
+        item({ verdict: 'suspicious', action: null }),
+      ]);
+      expect(alertCreditForRun(src, W, mine)).toEqual({ counts: true, actions: [] });
+    });
+
+    it('an in-run item with an action but no verdict still brings its action', () => {
+      const src = wide([item({ verdict: null, action: 'blocked' })]);
+      expect(runEvidence(src, W)?.evidence_file_verdicts).toEqual([]);
+      expect(alertCreditForRun(src, W, mine)).toEqual({ counts: true, actions: ['blocked'] });
+    });
+
+    it('takes every in-run item\'s action, not only the ones mine selects, each once', () => {
+      const src = wide([
+        item({ verdict: 'malicious', action: 'process_killed' }),
+        item({ file: 'net.exe', path: 'c:\\windows\\system32', parent: 'cmd.exe', verdict: 'suspicious', action: 'process_killed' }),
+        fileItem({ file: 'payload.bin', verdict: 'malicious', action: 'quarantined' }),
+      ]);
+      expect(alertCreditForRun(src, W, mine)).toEqual({ counts: true, actions: ['process_killed', 'quarantined'] });
+    });
+
+    it('without a run view it is still actions: null (the alert-wide action)', () => {
+      const src = wide([item({ verdict: 'malicious', action: 'process_killed' })]);
+      expect(alertCreditForRun(src, null, mine)).toEqual({ counts: true, actions: null });
+      expect(alertCreditForRun({ ...src, evidence_items: null, evidence_filenames: [`${U}-t1047.exe`] }, W, mine))
+        .toEqual({ counts: true, actions: null });
+    });
   });
 
   it('takes own actions from in-run items only', () => {

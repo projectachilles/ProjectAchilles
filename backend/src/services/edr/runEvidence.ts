@@ -138,12 +138,17 @@ function viewOf(items: EvidenceItem[]): EvidenceFields {
   };
 }
 
-/** The alert's evidence restricted to the run, in EvidenceFields shape; null = no run view. */
-export function runEvidence(src: Record<string, unknown>, window: RunWindow | null): EvidenceFields | null {
+/** The alert's items of the run; null = no run view. */
+function runItems(src: Record<string, unknown>, window: RunWindow | null): EvidenceItem[] | null {
   if (!window) return null;
   const items = evidenceItems(src);
-  if (!items) return null;
-  return viewOf(items.filter((i) => inRun(i, window)));
+  return items ? items.filter((i) => inRun(i, window)) : null;
+}
+
+/** The alert's evidence restricted to the run, in EvidenceFields shape; null = no run view. */
+export function runEvidence(src: Record<string, unknown>, window: RunWindow | null): EvidenceFields | null {
+  const items = runItems(src, window);
+  return items ? viewOf(items) : null;
 }
 
 export interface RunCreditOptions extends AlertCreditOptions {
@@ -158,6 +163,10 @@ const viewStrings = (v: unknown): string[] => (Array.isArray(v) ? v.filter((x): 
  * matches what the query matched on (a name `mine` selects or, with
  * `pathNamesTest`, a path naming the test). Without a run view it is
  * `alertCredit` on the alert as it is.
+ * With a run view the actions are never null (null means "the alert-wide
+ * action", which mixes runs): where `alertCredit` would give null (a
+ * single-test alert without `ownActionsOnly`) they are the distinct actions
+ * of all the alert's in-run items.
  */
 export function alertCreditForRun(
   src: Record<string, unknown>,
@@ -165,13 +174,17 @@ export function alertCreditForRun(
   mine: (file: string) => boolean,
   options: RunCreditOptions = {},
 ): AlertCredit {
-  const view = runEvidence(src, window);
-  if (!view) return alertCredit(src, mine, options);
+  const items = runItems(src, window);
+  if (!items) return alertCredit(src, mine, options);
+  const view = viewOf(items);
   const { pathNamesTest, ...creditOptions } = options;
   const named = viewStrings(view.evidence_filenames).some(mine)
     || (!!pathNamesTest && viewStrings(view.evidence_filepaths).some(pathNamesTest));
   if (!named) return { counts: false, actions: [] };
-  return alertCredit(view, mine, creditOptions);
+  const credit = alertCredit(view, mine, creditOptions);
+  if (credit.actions !== null) return credit;
+  const actions = items.map((i) => str(i.action)).filter((a): a is string => a !== null);
+  return { counts: credit.counts, actions: [...new Set(actions)] };
 }
 
 const namesTest = (items: EvidenceItem[], uuid: string, pathNamesTest?: (path: string) => boolean): boolean => {
