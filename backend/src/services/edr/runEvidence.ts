@@ -228,6 +228,13 @@ export function isOtherRunAlert(
   return namesTest(items, uuid, pathNamesTest) && !namesTest(items.filter((i) => inRun(i, window)), uuid, pathNamesTest);
 }
 
+/** The alert has an item list, the run has a window, and no item of any file is inside the run. */
+export function holdsNothingOfRun(src: Record<string, unknown>, window: RunWindow | null): boolean {
+  if (!window) return false;
+  const items = evidenceItems(src);
+  return !!items && !items.some((i) => inRun(i, window));
+}
+
 /** True when the hit's matched_queries is an array that has 'activity_span' and not 'alert_time'. */
 export function foundBySpanOnly(hit: { matched_queries?: unknown } | null | undefined): boolean {
   const named = hit?.matched_queries;

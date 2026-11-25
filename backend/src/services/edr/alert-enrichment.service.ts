@@ -14,7 +14,7 @@ import type { EnrichmentPassOptions, EnrichmentPassResult } from '../../types/ed
 import { isAchillesMitigated, ACHILLES_MITIGATION_FIELDS, ACHILLES_MITIGATED_QUERY } from '../shared/achillesMitigation.js';
 import { alertCredit, isStageFile, isTestFile, MULTI_TEST_EVIDENCE_FIELDS } from './multiTestEvidence.js';
 import {
-  alertCreditForRun, EVIDENCE_ITEMS_FIELD, foundBySpanOnly, runWindow, spanHitUnusable, type RunWindow,
+  alertCreditForRun, EVIDENCE_ITEMS_FIELD, foundBySpanOnly, holdsNothingOfRun, runWindow, spanHitUnusable, type RunWindow,
 } from './runEvidence.js';
 import { enrichmentEligibleClauses } from '../analytics/enrichment-eligibility.js';
 import type { EdrVendorKey } from '../outcomes/vendors.js';
@@ -361,19 +361,30 @@ export class EdrAlertEnrichmentService {
           wideHitsAll: number;
           wideHitsCounting: number;
           /**
-           * Span form: the sub-query left matches found only by span unread.
-           * Nobody judged them (one may hold this run's evidence), so no stored
-           * flag is removed on the strength of that kind.
+           * No stored flag is removed on the strength of that kind. Two reasons:
+           * span form, the sub-query left matches found only by span unread
+           * (nobody judged them; one may hold this run's evidence); or the
+           * result did not run to completion and every alert found holds
+           * nothing of its run (`<kind>NoRunItems`: Defender can stop a file
+           * it already knows and update the alert without adding an item).
            */
           stageUnjudged: boolean;
           wideUnjudged: boolean;
+          /**
+           * The sub-query found at least one usable alert, left none unread,
+           * and every usable alert holds nothing of the run (runEvidence.ts
+           * holdsNothingOfRun).
+           */
+          stageNoRunItems: boolean;
+          wideNoRunItems: boolean;
           /** Sub-queries that answered this pass. */
           answered: number;
         }
         const emptyUpdate = (hit: any, bundleUuid: string): PerHitUpdate => ({
           hit, bundleUuid, wideMatched: false, stageMatched: false, alertIds: new Set(), stageActions: [], wideActions: [],
           correlatedAlertIds: new Set(), stageQueried: false, stageHitsAll: 0, stageHitsSingle: 0,
-          wideQueried: false, wideHitsAll: 0, wideHitsCounting: 0, stageUnjudged: false, wideUnjudged: false, answered: 0,
+          wideQueried: false, wideHitsAll: 0, wideHitsCounting: 0, stageUnjudged: false, wideUnjudged: false,
+          stageNoRunItems: false, wideNoRunItems: false, answered: 0,
         });
         const updatesByHitId = new Map<string, PerHitUpdate>();
         const responses = (msearchResponse as any).responses ?? [];
@@ -442,14 +453,23 @@ export class EdrAlertEnrichmentService {
           // Span form: the matches left unread beyond the alert-time ones were
           // found only by span. Not crediting, but judged by nobody.
           const unreadSpanOnly = q.spanForm ? Math.max(0, (total - allHits.length) - unread) : 0;
+          // Every alert found holds nothing of the run (none unread). On a
+          // result that did not run to completion that kind is unjudged: the
+          // vendor may have stopped the stage without adding an item.
+          const nothingOfRun = usableHits.length > 0 && unread === 0 && unreadSpanOnly === 0
+            && usableHits.every((h) => holdsNothingOfRun(h._source ?? {}, q.window));
           if (q.kind === 'stage') {
             entry.stageHitsAll += usableHits.length + unread;
             entry.stageHitsSingle += counting;
             if (unreadSpanOnly > 0) entry.stageUnjudged = true;
+            entry.stageNoRunItems = nothingOfRun;
+            if (nothingOfRun && !this.ranToCompletion(q.hit)) entry.stageUnjudged = true;
           } else {
             entry.wideHitsAll += usableHits.length + unread;
             entry.wideHitsCounting += counting;
             if (unreadSpanOnly > 0) entry.wideUnjudged = true;
+            entry.wideNoRunItems = nothingOfRun;
+            if (nothingOfRun && !this.ranToCompletion(q.hit)) entry.wideUnjudged = true;
           }
           // Span form: an alert found only by span is stamped (and so can be
           // auto-resolved) by this result only when it counts for the run.

@@ -9,6 +9,7 @@ import {
   alertCreditForRun,
   evidenceItems,
   foundBySpanOnly,
+  holdsNothingOfRun,
   isOtherRunAlert,
   namesTestInRun,
   runActions,
@@ -367,5 +368,24 @@ describe('how a hit was found', () => {
     expect(namesTestInRun({ evidence_items: null }, win, UUID)).toBe(false);
     expect(namesTestInRun({ evidence_items: [it_({})] }, null, UUID)).toBe(false);
     expect(namesTestInRun({ evidence_items: [it_({})] }, win, '')).toBe(false);
+  });
+});
+
+describe('holdsNothingOfRun', () => {
+  const UUID = 'a1b2c3d4-0000-4000-8000-00000000f001';
+  const win = runWindow('2026-11-25T00:46:47.000Z', '2026-11-25T00:47:56.000Z');
+  const it_ = (over: object) => ({ file: `${UUID}-t1572.exe`, path: null, parent: null, parent_path: null, kind: 'process',
+    verdict: 'malicious', action: 'process_killed', started_at: '2026-11-24T22:40:27.000Z', added_at: '2026-11-24T22:42:19.000Z', ...over });
+
+  it('true when every item is from another run', () => expect(holdsNothingOfRun({ evidence_items: [it_({}), it_({ kind: 'file', started_at: null })] }, win)).toBe(true));
+  it('true for an empty item list', () => expect(holdsNothingOfRun({ evidence_items: [] }, win)).toBe(true));
+  it('false when any item is in the run, whatever file it names', () => {
+    expect(holdsNothingOfRun({ evidence_items: [it_({}), it_({ file: 'net.exe', started_at: '2026-11-25T00:47:10.000Z' })] }, win)).toBe(false);
+    expect(holdsNothingOfRun({ evidence_items: [it_({ kind: 'file', started_at: null, added_at: '2026-11-25T00:50:00.000Z' })] }, win)).toBe(false);
+  });
+  it('false without an item list or without a window', () => {
+    expect(holdsNothingOfRun({ evidence_items: null }, win)).toBe(false);
+    expect(holdsNothingOfRun({}, win)).toBe(false);
+    expect(holdsNothingOfRun({ evidence_items: [it_({})] }, null)).toBe(false);
   });
 });

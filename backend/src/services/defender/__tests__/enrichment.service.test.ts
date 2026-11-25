@@ -1181,7 +1181,13 @@ describe('DefenderEnrichmentService — credit by run (runScopedEvidence)', () =
     });
 
     it('exit 999 prevented by an earlier run\'s kill: the prevention flags go too', async () => {
-      const old = alertSource([item(EARLIER, { verdict: 'malicious', action: 'process_killed' })]);
+      // The alert also holds an in-run item of another program: it has items
+      // of this run, none for this test (an alert holding nothing of the run
+      // keeps the flags of a stage that did not run to completion).
+      const old = alertSource([
+        item(EARLIER, { verdict: 'malicious', action: 'process_killed' }),
+        item(IN_RUN, { file: 'net.exe', path: 'c:\\windows\\system32', parent: 'explorer.exe', parent_path: 'c:\\windows' }),
+      ]);
       const doc = stored(999, {
         defender_stage_prevented: true,
         defender_prevented: true,
@@ -1762,9 +1768,16 @@ describe('DefenderEnrichmentService — credit by run (runScopedEvidence)', () =
     // Unread matches found only by span were judged by nobody: one of them may
     // hold this run's evidence, so no stored flag is removed on their kind.
     describe('span-only matches left unread', () => {
-      /** 100 span-only alerts read, all from an earlier run; `total` matched, none by alert time. */
+      /**
+       * 100 span-only alerts read, this test's items all from an earlier run;
+       * `total` matched, none by alert time. Each also holds an in-run item of
+       * another program, so the hits read are judged whatever the exit code
+       * (an alert holding nothing of the run keeps the flags of a stage that
+       * did not run to completion) and only the unread matches decide.
+       */
+      const otherProgramInRun = item(IN_RUN, { file: 'net.exe', path: 'c:\\windows\\system32', parent: 'explorer.exe', parent_path: 'c:\\windows' });
       const earlierRunOnly = (total: number) => answer(
-        Array.from({ length: 100 }, (_, n) => hit(`alert-${n + 1}`, alertSource([item(EARLIER)]), SPAN)),
+        Array.from({ length: 100 }, (_, n) => hit(`alert-${n + 1}`, alertSource([item(EARLIER), otherProgramInRun]), SPAN)),
         total,
         { alert_time: { doc_count: 0, prevention: { doc_count: 0, actions: { buckets: [] } } } },
       );
@@ -1881,6 +1894,115 @@ describe('DefenderEnrichmentService — credit by run (runScopedEvidence)', () =
         expect(stamped).toHaveLength(1);
         expect(stamped[0]).toMatchObject({ id: 'alert-1', doc: { f0rtika: { achilles_correlated: true } } });
         expect(result.alertsMarkedCorrelated).toBe(1);
+      });
+    });
+
+    // Defender can stop a file it already knows and update the alert without
+    // adding an evidence item: every alert found then holds nothing of the
+    // run. On a result that did not run to completion that kind is unjudged,
+    // so no flag is removed; a result that exited 101 is judged as today.
+    describe('a stopped stage with no evidence of its run', () => {
+      const OTHER_STAGE = `${B}-t1059.exe`;
+      /**
+       * Flags an earlier pass stored, prevention included. No run marker; the
+       * prevention marker is on (the run rule re-arms that check anyway), so a
+       * result that keeps everything gets the run marker alone.
+       */
+      const stored = {
+        ...storedFlags, defender_prevented: true, defender_prevention_action: 'process_killed', defender_prevention_rule: 'in_run',
+      };
+      /** A result whose stored `event.ERROR` is `exit` (undefined = no exit code). */
+      const stopped = (exit: unknown, f0rtika: Record<string, unknown> = stored) => {
+        const doc = resultDoc(0, { f0rtika });
+        const event = doc._source.event as Record<string, unknown>;
+        if (exit === undefined) delete event.ERROR;
+        else event.ERROR = exit;
+        return doc;
+      };
+      /** A span-only alert naming this stage's binary, every item from another run. */
+      const otherRunOnly = (id = 'alert-1') =>
+        hit(id, alertSource([item(EARLIER), item(EARLIER, { kind: 'file', started_at: null, added_at: EARLIER })]), SPAN);
+      /** A span-only alert with an in-run item for another stage and an other-run item for this one. */
+      const otherStageInRun = (id = 'alert-2') =>
+        hit(id, alertSource([item(IN_RUN, { file: OTHER_STAGE }), item(EARLIER)]), SPAN);
+      const counters = (result: { stageDetectionsRemoved: number; detectionsRemoved: number; preventionsRemoved: number }) =>
+        [result.stageDetectionsRemoved, result.detectionsRemoved, result.preventionsRemoved];
+      const expectKept = ({ f, result }: Awaited<ReturnType<typeof run>>) => {
+        expect(f).toEqual({ defender_run_rule: RUN_RULE });
+        expect(counters(result)).toEqual([0, 0, 0]);
+        expect(result.removedFlagDocs).toEqual([]);
+      };
+      const again = () => {
+        vi.clearAllMocks();
+        answerBulk();
+      };
+
+      it('exit 999: detection and prevention are kept', async () => {
+        expectKept(await run(stopped(999), [answer([otherRunOnly()]), answer([otherRunOnly()])]));
+      });
+
+      it('the same result with exit 101 loses its flags', async () => {
+        const { f, result } = await run(stopped(101), [answer([otherRunOnly()]), answer([otherRunOnly()])]);
+        expect(f).toMatchObject({ defender_detected: false, defender_stage_detected: false, defender_run_rule: RUN_RULE });
+        expect(counters(result)).toEqual([1, 1, 1]);
+        expect(result.removedFlagDocs).toEqual(['r1']);
+      });
+
+      it('exit stored as the string "999" is kept; "101" is not', async () => {
+        expectKept(await run(stopped('999'), [answer([otherRunOnly()]), answer([otherRunOnly()])]));
+
+        again();
+        const { f, result } = await run(stopped('101'), [answer([otherRunOnly()]), answer([otherRunOnly()])]);
+        expect(f).toMatchObject({ defender_detected: false, defender_stage_detected: false });
+        expect([result.stageDetectionsRemoved, result.detectionsRemoved]).toEqual([1, 1]);
+      });
+
+      it('a result with no exit code is kept', async () => {
+        expectKept(await run(stopped(undefined), [answer([otherRunOnly()]), answer([otherRunOnly()])]));
+      });
+
+      it('exit 0 is kept', async () => {
+        // Test level only: no stage flag, and the alert names the orchestrator, not the stage.
+        const testLevel = {
+          defender_detected: true, defender_evidence_rule: 'file_verdict',
+          defender_prevented: true, defender_prevention_action: 'process_killed', defender_prevention_rule: 'in_run',
+        };
+        const orchestrator = item(EARLIER, { file: `${B}.exe`, parent: 'explorer.exe', parent_path: 'c:\\windows' });
+        const wide = hit('alert-1', alertSource([orchestrator]), SPAN);
+        expectKept(await run(stopped(0, testLevel), [answer([wide]), none]));
+      });
+
+      it('exit 126 with an alert that holds items of the run for another stage loses its stage flag', async () => {
+        const { f, result } = await run(stopped(126), [answer([otherStageInRun()]), answer([otherStageInRun()])]);
+        expect(f).toMatchObject({ defender_stage_detected: false });
+        expect(result.stageDetectionsRemoved).toBe(1);
+      });
+
+      it('mixed kinds: the stage kind holds nothing of the run, the test-level kind has an alert of the run', async () => {
+        const wide = hit('alert-w', alertSource([item(EARLIER), item(IN_RUN, { file: OTHER_STAGE })]), SPAN);
+        const stage = hit('alert-s', alertSource([item(EARLIER)]), SPAN);
+        const { f, result } = await run(stopped(999, storedFlags), [answer([wide]), answer([stage])]);
+        expect(f?.defender_stage_detected).not.toBe(false);
+        // The wide alert counts: `_detected` stays (already stored, so not re-written).
+        expect(f?.defender_detected).not.toBe(false);
+        expect(f).toEqual({ defender_run_rule: RUN_RULE });
+        expect([result.stageDetectionsRemoved, result.detectionsRemoved]).toEqual([0, 0]);
+      });
+
+      it('two alerts, one with items of the run for another stage: the stage flag is removed', async () => {
+        const both = answer([otherRunOnly('alert-1'), otherStageInRun('alert-2')]);
+        const { f, result } = await run(stopped(999, storedFlags), [both, both]);
+        expect(f).toMatchObject({ defender_stage_detected: false });
+        expect(f?.defender_detected).not.toBe(false);
+        expect([result.stageDetectionsRemoved, result.detectionsRemoved]).toEqual([1, 0]);
+      });
+
+      it('an alert-time alert without an item list still counts the old way', async () => {
+        const a = hit('alert-1', { ...alertSource([item(EARLIER)]), evidence_items: null }, ALERT_TIME);
+        const { f, result } = await run(stopped(999, storedFlags), [answer([a]), answer([a])]);
+        expect(f?.defender_stage_detected).not.toBe(false);
+        expect(Object.values(f ?? {})).not.toContain(false);
+        expect(result.removedFlagDocs).toEqual([]);
       });
     });
   });
