@@ -60,15 +60,16 @@ vi.mock('../../analytics/client.js', () => ({
   }),
 }));
 
-// Mock enrichment service (records its constructor arguments)
+// Mock enrichment service (records its constructor arguments; a test can set the pass result)
 const mockEnrichmentCtor = vi.fn();
+let mockEnrichmentResult: Record<string, unknown> | undefined;
 vi.mock('../enrichment.service.js', () => ({
   DefenderEnrichmentService: class {
     constructor(...args: unknown[]) {
       mockEnrichmentCtor(...args);
     }
     async runEnrichmentPass() {
-      return {
+      return mockEnrichmentResult ?? {
         scanned: 0,
         detected: 0,
         skipped: 0,
@@ -959,6 +960,24 @@ describe('DefenderSyncService', () => {
         errors: expect.any(Array),
         durationMs: expect.any(Number),
       });
+    });
+
+    it('logs how many flags the run-evidence re-check removed', async () => {
+      mockEnrichmentResult = {
+        scanned: 9, detected: 1, stageDetected: 1, skipped: 0, batches: 1, alertsMarkedCorrelated: 0,
+        stageDetectionsRemoved: 2, detectionsRemoved: 3, preventionsRemoved: 4, errors: [], durationMs: 5,
+      };
+      const log = vi.spyOn(console, 'log').mockImplementation(() => {});
+      try {
+        await service.runEnrichmentPass();
+        const line = log.mock.calls.map((c) => String(c[0])).find((l) => l.startsWith('[Defender-Enrichment]'));
+        expect(line).toContain('stageDetectionsRemoved=2');
+        expect(line).toContain('detectionsRemoved=3');
+        expect(line).toContain('preventionsRemoved=4');
+      } finally {
+        log.mockRestore();
+        mockEnrichmentResult = undefined;
+      }
     });
 
     it('credits by run only once the v9 evidence-items re-sync has completed', async () => {

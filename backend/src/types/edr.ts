@@ -29,6 +29,16 @@ export interface EnrichmentPassResult {
   batches: number;
   /** Alerts tagged with f0rtika.achilles_correlated in this pass. */
   alertsMarkedCorrelated: number;
+  /**
+   * Run-evidence re-check (Defender `runScopedEvidence`, marker
+   * `<vendor>_run_rule: 'run_evidence'`): docs whose `<vendor>_stage_detected`
+   * went from true to false in this pass. 0 for every other vendor.
+   */
+  stageDetectionsRemoved: number;
+  /** As `stageDetectionsRemoved`, for `<vendor>_detected`. */
+  detectionsRemoved: number;
+  /** As `stageDetectionsRemoved`: docs whose `<vendor>_prevented` or `<vendor>_stage_prevented` went from true to false. */
+  preventionsRemoved: number;
   /** Per-batch errors collected non-fatally. */
   errors: string[];
   /** Wall-clock duration of the pass. */
