@@ -105,7 +105,16 @@ The sections sit on the title row, so they take no space from the list. The 7-da
 
 ### The run timeline
 
-The list shows one entry per run: a test (or command) sent to one or more agents at the same time. Each entry has the time, the name written once, and one mark per task. Entries are grouped by day, newest first.
+The list shows one entry per run. Each entry has the time, the name written once, and one mark per task. Entries are grouped by day, newest first.
+
+A run is one of two things:
+
+- **A test or command sent to one or more agents in one go.** This is the usual case.
+- **An announced run.** With [pre-execution notices](../integrations/pre-execution-notices) on, every task that one notice announced for one test is a single entry, even when the tasks were created at different times. A randomized or scheduled run reaches its agents one by one over hours; it is still one run, with one run tag. Its entry shows the time of its first and last task, for example `13:10:04 – 15:48:11`, and sits in the list at the time of its newest task. Two tests announced by the same notice stay two entries.
+
+Without notices, tasks created separately are separate entries: nothing is grouped by guessing from names or times.
+
+A command run is named by its command, cut to one line (hover to read all of it). The detail of a command task shows the whole command with a copy button.
 
 How the tasks of a run are drawn depends on how many there are:
 
