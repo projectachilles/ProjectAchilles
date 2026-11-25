@@ -3028,6 +3028,7 @@ export class ElasticsearchService {
       is_protected: getField(source, 'f0rtika.is_protected') || false,
       org: orgShortName(orgUuid) || (orgUuid ? orgUuid.substring(0, 8) : ''),
       timestamp: getField(source, 'routing.event_time') || '',
+      ...(getField(source, 'routing.run_started_at') ? { run_started_at: getField(source, 'routing.run_started_at') } : {}),
       error_code: getField(source, 'event.ERROR'),
       error_name: resolveErrorName(getField(source, 'event.ERROR'), getField(source, 'f0rtika.error_name')),
       category: getField(source, 'f0rtika.category') as CategoryType | undefined,

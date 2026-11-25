@@ -20,6 +20,7 @@ export const RESULTS_INDEX_MAPPING = {
       routing: {
         properties: {
           event_time: { type: 'date' as const },
+          run_started_at: { type: 'date' as const },
           oid: { type: 'keyword' as const },
           hostname: { type: 'keyword' as const },
         },

@@ -211,3 +211,16 @@ describe('execution rows', () => {
     expect(plain.launch_block_vendors).toBeUndefined();
   });
 });
+
+describe('execution rows run_started_at', () => {
+  it('returns run_started_at when the source has it and omits the key otherwise', () => {
+    const svc = createService() as any;
+    const withIt = svc.mapHitToExecution({
+      _id: 'x',
+      _source: { routing: { run_started_at: '2026-03-01T08:00:00Z' }, event: { ERROR: 101 }, f0rtika: { test_uuid: SINGLE } },
+    });
+    expect(withIt.run_started_at).toBe('2026-03-01T08:00:00Z');
+    const without = svc.mapHitToExecution({ _id: 'y', _source: { event: { ERROR: 101 }, f0rtika: { test_uuid: SINGLE } } });
+    expect('run_started_at' in without).toBe(false);
+  });
+});

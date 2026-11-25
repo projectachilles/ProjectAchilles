@@ -112,6 +112,16 @@ describe('index-management.service', () => {
       expect(conflicts).toEqual(['n: integer (wanted long)', 'leaf: text (wanted object)']);
     });
 
+    it('maps routing.run_started_at as a date and reports it missing on an index without it', () => {
+      const routing = RESULTS_INDEX_MAPPING.mappings.properties.routing.properties;
+      expect(routing.run_started_at).toEqual({ type: 'date' });
+      const { missing } = missingMappingProperties(
+        { routing: { properties: { event_time: { type: 'date' } } } },
+        { routing: { properties: { event_time: { type: 'date' }, run_started_at: { type: 'date' } } } },
+      );
+      expect(missing).toEqual({ routing: { properties: { run_started_at: { type: 'date' } } } });
+    });
+
     it('maps test_version as keyword and date fields', () => {
       const tv = RESULTS_INDEX_MAPPING.mappings.properties.f0rtika.properties.test_version.properties;
       expect(tv).toEqual({
@@ -212,7 +222,8 @@ describe('index-management.service', () => {
       expect(sent.f0rtika.properties.control_description).toBeUndefined();
       expect(sent.f0rtika.properties.defender_prevention_action).toBeUndefined();
       expect(sent.f0rtika.properties.compliant).toEqual({ type: 'boolean' });
-      expect(sent.routing).toBeUndefined();
+      // Only the new run-start date is added; the existing routing fields are not re-sent.
+      expect(sent.routing).toEqual({ properties: { run_started_at: { type: 'date' } } });
       // The type conflicts are reported once, not fixed.
       expect(warn.mock.calls.flat().join(' ')).toMatch(/event\.ERROR.*integer.*long/);
       warn.mockRestore();
