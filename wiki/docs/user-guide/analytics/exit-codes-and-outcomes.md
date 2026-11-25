@@ -136,6 +136,8 @@ found counts for its run. The result carries
 `f0rtika.defender_run_rule: 'run_activity'` once checked. Results checked by the
 previous release (marked `run_evidence`) are checked once more. Stored labels,
 and past Defense Scores that include them, can change once when this check runs.
+No flag is removed from a result in a pass in which one of its alert queries
+failed; the next pass decides.
 
 The check, the alert list under a stage and the execution report find a run's
 alerts in two ways. A Defender alert is found when it was created, or last
@@ -170,15 +172,37 @@ Known limits of this lookup:
 **A stage that did not run to completion keeps its flags.** Defender can stop a
 file it already knows and update the open alert without adding an evidence
 item. So when the check finds alerts for a stage that exited with any code other
-than 101, and none of them holds any evidence of that run, it removes no flag of
-that result. A stage that ran to completion (exit 101) with no evidence of its
-run, and a stage whose alert holds evidence of the run but none for that stage,
-still lose their flags. No flag is ever created this way. On a recent result in
-that situation the backend also stores a small note once,
-`f0rtika.defender_no_run_evidence` (not indexed, not shown in the console), and
-logs `[Defender] Stage stopped with no evidence of its run, note stored on: <id>`.
-The note exists so the case can be studied: it records what Defender wrote on
-the alert. Limits:
+than 101, or has no exit code, none of them holds any evidence of that run, and
+at least one of them already held evidence from before the run began, it
+removes no flag of that result. When only the test-level alerts (the ones about
+the whole test) are in that state, only what they decide is kept: the stage's
+own alerts are judged as usual. An alert that only has evidence from after the
+run keeps nothing. A stage that ran to completion (exit 101) with no evidence of
+its run, and a stage whose alert holds evidence of the run but none for that
+stage, still lose their flags. No flag is ever created this way. The backend's
+`[Defender-Enrichment]` log line counts the results kept this way
+(`keptWithoutRunEvidence=<n>`, each result once, in the pass that checks it).
+
+What a kept flag does to the verdicts: on a stage that ended with an error code
+(1, 259, 999, …), a kept flag that carries the stage's own prevention keeps it
+**Prevented**, which the Defense Score and the reports count, and a kept stage
+detection alone keeps it **Detected**. On a stage with exit code 0 or no exit
+code a kept flag changes no stage verdict (the reports treat those as never
+blocked by an EDR); it only keeps the alert chip and the run-level detection.
+
+On a recent result (ended within 72 hours) in that situation the backend also
+stores a small note once, `f0rtika.defender_no_run_evidence` (not shown in the
+console), and logs
+`[Defender] No evidence of the run for a stage that did not complete, note stored on: <id>`
+(with ` (+<n> more)` past 20 results). The note exists so the case can be
+studied: it records what Defender wrote on the alerts. Its `seen_at` and `kind`
+can be searched, its alert list is stored only; to find the recorded cases, run
+an `exists` query on `f0rtika.defender_no_run_evidence.seen_at`, or read the log
+line. The backend adds this field to an index's mapping before it writes the
+first note there; if that fails, it writes no note to that index and logs one
+warning. A note is not proof that Defender stopped the stage: it is written the
+first time any stage that did not complete has alerts holding nothing of its
+run, and it stays even if evidence arrives later. Limits:
 
 - A kept flag can show an alert chip beside an empty alert list, because the
   list and the report still require evidence of the run.

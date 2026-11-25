@@ -122,7 +122,10 @@ A result without `routing.run_started_at`, and an alert without
 `run_evidence`; those results are checked once more). A pass
 without a run view that sets a detection or prevention flag on a marked result
 clears the marker (`null`), so the result is re-checked once the run rule is
-back.
+back. No flag is removed from a result in a pass in which one of the alert
+queries it queued did not answer (an msearch sub-response error): both queries
+are then unjudged for it (`stageUnjudged`, `wideUnjudged`), the marker waits,
+and the next pass decides.
 
 ## Finding a run's alerts: alert time or activity span
 
@@ -185,23 +188,45 @@ Defender can stop a file it already knows and update the open alert without
 adding an evidence item, so a run it really stopped can look like a run with no
 evidence. In the re-check, for each of a result's two alert queries (the
 stage's own binary; the whole test) the pass notes whether it has nothing of the
-run: at least one usable alert, none left unread, and every usable alert holds
-nothing of the run (`holdsNothingOfRun`, `runEvidence.ts`: the alert has an item
-list, the run has a window, and no item of any file is inside it). When the
-result did not run to completion (`ranToCompletion` false: any exit code other
-than 101, or none):
+run (`stageNoRunItems` / `wideNoRunItems`): at least one usable alert, none left
+unread, every usable alert holds nothing of the run (`holdsNothingOfRun`,
+`runEvidence.ts`: the alert has an item list, the run has a window, and no item
+of any file is inside it), and at least one usable alert holds an item from
+before the run (`heldItemBeforeRun`: an item whose time, the one `inRun` judges
+it by, a process item's `started_at` when it has one, else `added_at`, is
+earlier than the window start, run start - 60 s). An alert that only has items
+from after the run (found through the 30-minute file tail or its activity span)
+cannot be a file Defender already knew, so it keeps nothing. When the result
+did not run to completion (`ranToCompletion` false: any exit code other than
+101, or none), the pass sets the unjudged gates it uses for unread alerts,
+`stageUnjudged` and `wideUnjudged`, from those two facts:
 
-- the stage query has nothing of the run: no stored flag of the result is
-  removed (stage detection, `defender_detected`, prevention flags, the stored
-  action, and the "stage not prevented" settling). The pass uses the same
-  unjudged gates as for unread alerts (`stageUnjudged`, `wideUnjudged`; the
-  flag is `stageNoRunItems` / `wideNoRunItems`);
-- only the test-level query has nothing of the run: only what that query
-  decides is held back.
+- the stage query has nothing of the run: both gates are set, so no stored flag
+  of the result is removed (stage detection, `defender_detected`, prevention
+  flags, the stored action, and the "stage not prevented" settling);
+- only the test-level query has nothing of the run: only `wideUnjudged` is set,
+  so only what that query decides is held back.
 
 Still removed as before: the flags of a stage that ran to completion (exit 101)
 with no evidence of its run, and the stage flag of a stage whose alert holds
 items of the run but none for that stage. No flag is ever created by this rule.
+
+The pass result counts the results this rule held back in
+`keptWithoutRunEvidence` (0 for the other EDRs): a result already flagged
+before the pass, counted in the update that writes its run marker (so once per
+result: a later pass no longer re-checks it), when its bulk item comes back
+`updated`. The Defender sync logs it as `keptWithoutRunEvidence=<n>` in the
+`[Defender-Enrichment]` line, after `preventionsRemoved=<n>`.
+
+What a kept flag does to the verdicts (`reports/stageOutcome.ts`): on a stage
+that ended with an error code (1, 259, 999, …) a kept flag that carries the
+stage's own prevention (`defender_stage_prevented`, or on older documents the
+stage detection with a confirmed action) keeps it **Prevented**, which the
+Defense Score counts (`EDR_PREVENTED_ERROR_STAGE`) and the reports show, and a
+kept stage detection alone keeps it **Detected**. On a stage with exit code 0
+or no exit code a kept flag changes no stage verdict (`classifyStage` never
+treats those as blocked); it only keeps the alert chip and the run-level
+detection (`edrDetectedTerms()`).
 
 On a fresh result in that situation the pass also stores a note, once, to learn
 what Defender writes on the alert: `f0rtika.defender_no_run_evidence =
@@ -211,10 +236,30 @@ what Defender writes on the alert: `f0rtika.defender_no_run_evidence =
 `updated_at` its last update, `items` the number of evidence items the run rule
 reads). It is written only when the result has a run window, did not run to
 completion, ended within the last 72 hours (`recheckHours`) and has no note yet;
-`kind` is `stage` when the stage query has nothing of the run, else `wide`. It is
-mapped with `enabled: false` (not indexed) and no API returns it. The pass
-result lists the ids in `noRunEvidenceDocs` (at most 20) and the Defender sync
-logs `[Defender] Stage stopped with no evidence of its run, note stored on: <id>, <id>`.
+`kind` is `stage` when the stage query has nothing of the run, else `wide`. A
+note is not proof that Defender stopped the stage: it is written at first sight
+for any stage that did not complete while its alerts hold nothing of its run,
+and it stays even if evidence arrives later. No API returns it.
+
+The field is mapped `{ type: 'object', dynamic: false, properties: { seen_at:
+date, kind: keyword } }`: `seen_at` and `kind` are searchable, `alerts` is kept
+in `_source` only. Find recorded cases with an `exists` query on
+`f0rtika.defender_no_run_evidence.seen_at` (add a `term` on `.kind` to narrow
+them), or from the log line below. The canonical mapping reaches an existing
+results index only on the first ingest write of a process, so before a pass
+writes its first note to an index it puts this one field's mapping on that
+index (`indices.putMapping`, once per index per service instance; the Defender
+sync builds one per pass). If that call fails, the pass logs one warning for the
+index (`[EDR-Enrichment] putMapping of f0rtika.defender_no_run_evidence failed
+for <index>, …`) and writes no note to it; the flags and the marker in the same
+update are written as usual, and the next pass tries again. Only a pass that
+credits by run reaches that call, so the other EDRs never make it.
+
+The pass result lists the noted ids in `noRunEvidenceDocs` (at most 20, on
+`updated` bulk items) and counts the rest in `noRunEvidenceDocsOmitted` (absent
+when none). The Defender sync logs
+`[Defender] No evidence of the run for a stage that did not complete, note stored on: <id>, <id>`,
+with ` (+<n> more)` from `noRunEvidenceDocsOmitted`.
 
 Limits of this rule:
 
