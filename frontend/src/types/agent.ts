@@ -137,7 +137,15 @@ export interface AgentTask {
 }
 
 export interface TaskGroup {
+  /**
+   * The run this group is: a batch, or the batches of one announced run of
+   * one test. Absent on backend-serverless and older backends; use runIdOf().
+   */
+  run_id?: string;
+  /** The run's batch, or its newest batch when the run spans several. */
   batch_id: string;
+  /** Every batch with a task in this run, newest first. Absent where run_id is. */
+  batch_ids?: string[];
   type: TaskType;
   payload: AgentTask['payload'];
   created_at: string;

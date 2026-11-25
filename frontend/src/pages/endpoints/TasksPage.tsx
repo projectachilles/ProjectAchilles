@@ -7,6 +7,7 @@ import { agentApi } from '@/services/api/agent';
 import type { AgentMetrics, AgentTask, TaskBreakdownRow, TaskGroup, TaskStatus, TaskType, Schedule } from '@/types/agent';
 import { PageContainer, PageHeader } from '@/components/endpoints/Layout';
 import TaskStream from '@/components/endpoints/tasks/TaskStream';
+import { findRun } from '@/components/endpoints/tasks/runMarks';
 import { TaskStatLine } from '@/components/endpoints/tasks/TaskStatLine';
 import ScheduleList from '@/components/endpoints/tasks/ScheduleList';
 import { TASKS_SECTION_PATHS, TasksSectionTabs, tasksSectionFromPath } from '@/components/endpoints/tasks/TasksSectionTabs';
@@ -261,8 +262,8 @@ export default function TasksPage() {
     }
   }
 
-  function handleToggleGroupSelect(batchId: string): void {
-    const group = groups.find((g) => g.batch_id === batchId);
+  function handleToggleGroupSelect(runId: string): void {
+    const group = findRun(groups, runId);
     if (!group) return;
     const groupTaskIds = group.tasks.map((t) => t.id);
     const allGroupSelected = groupTaskIds.every((id) => selectedTasks.includes(id));

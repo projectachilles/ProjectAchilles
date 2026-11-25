@@ -1,6 +1,6 @@
 /**
  * Task Stream — the Tasks page's list and detail. The list is a run timeline:
- * one entry per batch under date markers, each task drawn as a mark (see
+ * one entry per run under date markers, each task drawn as a mark (see
  * RunEntry), and a detail panel for the selected task. The props mirror the
  * old TaskList so TasksPage keeps all of its handlers unchanged.
  */
@@ -12,6 +12,7 @@ import { Checkbox } from '../../shared/ui/Checkbox';
 import { Loading } from '../../shared/ui/Spinner';
 import { cn } from '@/lib/utils';
 import { RunEntry } from './RunEntry';
+import { runIdOf } from './runMarks';
 import TaskDetailPanel from './TaskDetailPanel';
 import { dayKey, dayLabel } from './taskFormat';
 
@@ -21,7 +22,8 @@ interface TaskStreamProps {
   selectedTasks?: string[];
   onToggleSelect?: (taskId: string) => void;
   onToggleSelectAll?: () => void;
-  onToggleGroupSelect?: (batchId: string) => void;
+  /** Called with the run's id (runIdOf): a batch id where the server sends no run id. */
+  onToggleGroupSelect?: (runId: string) => void;
   onCancel?: (taskId: string) => void;
   onRetry?: (taskId: string) => void;
   onDelete?: (taskId: string) => void;
@@ -135,7 +137,7 @@ export default function TaskStream({
               ) : null;
             lastDay = day;
             return (
-              <Fragment key={group.batch_id}>
+              <Fragment key={runIdOf(group)}>
                 {marker}
                 <RunEntry
                   group={group}

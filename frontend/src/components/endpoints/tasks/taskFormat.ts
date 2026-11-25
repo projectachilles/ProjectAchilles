@@ -1,4 +1,4 @@
-import type { AgentTask } from '@/types/agent';
+import type { AgentTask, TaskGroup } from '@/types/agent';
 
 // Date, duration and name formatting shared by the task timeline and the task detail panel.
 
@@ -34,4 +34,16 @@ export function formatDuration(ms: number | undefined): string {
 
 export function taskName(task: Pick<AgentTask, 'type' | 'payload'>): string {
   return task.payload?.test_name || task.type.replace(/_/g, ' ');
+}
+
+/**
+ * What a run is called on the timeline: its test's name, the command text of
+ * a command run (so two command runs can be told apart without opening them),
+ * or the task type.
+ */
+export function runName(group: Pick<TaskGroup, 'type' | 'payload'>): { text: string; command: boolean } {
+  if (group.payload?.test_name) return { text: group.payload.test_name, command: false };
+  const command = group.type === 'execute_command' ? group.payload?.command?.trim() : undefined;
+  if (command) return { text: command, command: true };
+  return { text: group.type.replace(/_/g, ' '), command: false };
 }

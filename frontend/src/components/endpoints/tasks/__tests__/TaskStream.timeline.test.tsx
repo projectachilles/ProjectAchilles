@@ -119,6 +119,18 @@ describe('TaskStream run timeline', () => {
   });
 });
 
+describe('TaskStream with runs that share a batch', () => {
+  it('renders both as separate entries, keyed by run', () => {
+    const errors = vi.spyOn(console, 'error').mockImplementation(() => {});
+    const first = { ...group('A', [task(1, 'A', '2026-10-28 12:00:00')]), run_id: 'n:n1|execute_test|u', batch_ids: ['A'] };
+    const retry = { ...group('A', [task(2, 'A', '2026-10-28 12:30:00')]), run_id: 'n:n2|execute_test|u', batch_ids: ['A'] };
+    render(<TaskStream groups={[retry, first]} loading={false} />);
+    expect(screen.getAllByRole('group', { name: /^Test A, / })).toHaveLength(2);
+    expect(errors).not.toHaveBeenCalled();
+    errors.mockRestore();
+  });
+});
+
 describe('TaskStream during a reload', () => {
   it('keeps the entries, an open host list and the selection on screen, and marks the list busy', async () => {
     const { rerender } = render(<TaskStream groups={[big()]} loading={false} />);

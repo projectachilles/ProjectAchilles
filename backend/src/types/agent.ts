@@ -245,7 +245,15 @@ export interface Task {
 }
 
 export interface TaskGroup {
+  /**
+   * The run this group is: `b:<batch id>` for a batch, or
+   * `n:<notice id>|<org id>|<type>|<test uuid>` for the batches of one announced run of one test.
+   */
+  run_id: string;
+  /** The run's batch, or its newest batch when the run spans several. */
   batch_id: string;
+  /** Every batch with a task in this run, newest first. */
+  batch_ids: string[];
   type: TaskType;
   payload: TaskPayload;
   created_at: string;

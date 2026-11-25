@@ -76,6 +76,8 @@ function OutputBlock({
 export default function TaskDetailPanel({ task, notice, onCancel, onRetry, onDelete, onOpenNotes, fill = false }: TaskDetailPanelProps) {
   const [outputView, setOutputView] = useState<{ label: string; task: string; text: string } | null>(null);
   const outcome = testOutcome(task);
+  // What a command task ran. The list names the run by it; here it is shown whole.
+  const command = task.type === 'execute_command' ? task.payload?.command?.trim() : undefined;
 
   return (
     <>
@@ -141,6 +143,17 @@ export default function TaskDetailPanel({ task, notice, onCancel, onRetry, onDel
           )}
         </div>
         <div className="flex flex-col gap-3 p-4">
+          {command && (
+            <div>
+              <div className="mb-1 flex items-center justify-between gap-2">
+                <span className="text-[10px] font-medium uppercase tracking-wider text-faint">Command</span>
+                <CopyButton text={command} ariaLabel="Copy command" />
+              </div>
+              <pre className="max-h-32 overflow-auto whitespace-pre-wrap break-words rounded-md border border-border bg-background p-2.5 font-mono text-[11px] leading-relaxed">
+                {command}
+              </pre>
+            </div>
+          )}
           {task.result?.error && (
             <div className="flex items-center gap-2 rounded-md bg-danger-dim p-2 text-sm text-danger">
               <XCircle className="h-4 w-4 shrink-0" />

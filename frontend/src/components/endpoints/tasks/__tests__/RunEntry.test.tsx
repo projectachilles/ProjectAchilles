@@ -247,6 +247,72 @@ describe('RunEntry selection', () => {
   });
 });
 
+describe('RunEntry for a run of several batches', () => {
+  const spread = () =>
+    group(
+      [
+        task(1, { batch_id: 'b1', created_at: '2026-10-28 13:10:00' }),
+        task(2, { batch_id: 'b2', created_at: '2026-10-28 14:02:00' }),
+        task(3, { batch_id: 'b3', created_at: '2026-10-28 15:48:00' }),
+      ],
+      { run_id: 'n:n1|execute_test|u', batch_id: 'b3', batch_ids: ['b3', 'b2', 'b1'], created_at: '2026-10-28 15:48:00' },
+    );
+
+  it('is one entry with the name once, a mark per task, and the time it started and ended', () => {
+    const { container } = setup(spread());
+    expect(screen.getAllByText('LockBit Chain')).toHaveLength(1);
+    expect(marks(container)).toHaveLength(3);
+    const entry = screen.getByRole('group', { name: /^LockBit Chain, / });
+    expect(entry).toHaveTextContent(/\d{2}:10:00 – \d{2}:48:00/);
+  });
+
+  it('lets its header wrap in a narrow list, with the name on a line of its own, so nothing is pushed out of view', () => {
+    // A time range is more than twice as wide as one time; with a count and a run tag it does not fit one line of a phone.
+    setup(spread());
+    const name = screen.getByText('LockBit Chain');
+    expect(name.parentElement!.className).toContain('flex-wrap');
+    expect(name.className).toContain('basis-full');
+    expect(name.className).toContain('@lg:basis-0');
+    expect(name.closest('.\\@container')).not.toBeNull();
+  });
+
+  it('reports its run id, not a batch id, when its checkbox is ticked', async () => {
+    const onToggleGroup = vi.fn();
+    setup(spread(), { onToggleGroup });
+    await userEvent.click(screen.getByRole('checkbox', { name: 'Select every task of LockBit Chain' }));
+    expect(onToggleGroup).toHaveBeenCalledWith('n:n1|execute_test|u');
+  });
+});
+
+describe('RunEntry for a command run', () => {
+  const long = `Get-ChildItem -Path C:\\Windows\\System32 -Recurse -Filter *.dll | Where-Object { $_.Length -gt 1MB } | Select-Object -First 50 | Format-Table Name, Length`;
+  const cmdGroup = (command: string | undefined) => {
+    const payload = { test_uuid: '', test_name: '', binary_name: '', execution_timeout: 60, command } as AgentTask['payload'];
+    return group([task(1, { type: 'execute_command', payload, result: { ...baseResult, exit_code: 0 } })], { type: 'execute_command', payload });
+  };
+
+  it('names the run by its command, on one line, with the whole command on hover', () => {
+    setup(cmdGroup(long));
+    const name = screen.getByText(long);
+    expect(name).toHaveAttribute('title', long);
+    expect(name.className).toContain('truncate');
+    expect(name.className).toContain('font-mono');
+    expect(screen.queryByText('execute command')).toBeNull();
+  });
+
+  it('keeps the entry label short for a long command', () => {
+    setup(cmdGroup(long));
+    const entry = screen.getByRole('group');
+    expect(entry.getAttribute('aria-label')).toMatch(new RegExp(`^${long.slice(0, 20).replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}`));
+    expect(entry.getAttribute('aria-label')!.length).toBeLessThan(110);
+  });
+
+  it('falls back to the task type when the command is missing or blank', () => {
+    setup(cmdGroup('   '));
+    expect(screen.getByText('execute command')).toBeInTheDocument();
+  });
+});
+
 describe('RunEntry edge cases', () => {
   it('says "1 of 5 agents" for a batch listed in part, and keeps the named form', () => {
     const { container } = setup(group([task(1)], { agent_count: 5 }));

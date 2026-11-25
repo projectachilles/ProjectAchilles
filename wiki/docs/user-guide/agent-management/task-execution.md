@@ -105,7 +105,16 @@ The sections sit on the title row, so they take no space from the list. The 7-da
 
 ### The run timeline
 
-The list shows one entry per run: a test (or command) sent to one or more agents at the same time. Each entry has the time, the name written once, and one mark per task. Entries are grouped by day, newest first.
+The list shows one entry per run. Each entry has the time, the name written once, and one mark per task. Entries are grouped by day, newest first.
+
+A run is one of two things:
+
+- **A test or command sent to one or more agents in one go.** This is the usual case.
+- **An announced run.** With [pre-execution notices](../integrations/pre-execution-notices) on, every task that one notice announced for one test is a single entry, even when the tasks were created at different times. A run with a randomized start per machine reaches its agents one by one over hours; it is still one run, with one run tag. Its entry shows the time of its first and last task, for example `13:10:04 – 15:48:11`, and sits in the list at the time of its newest task (with a filter on, its newest matching task). Two tests announced by the same notice stay two entries.
+
+Without notices, tasks created separately are separate entries: nothing is grouped by guessing from names or times.
+
+A command run is named by its command, cut to one line (hover to read all of it). The detail of a command task shows the whole command with a copy button.
 
 How the tasks of a run are drawn depends on how many there are:
 
@@ -128,7 +137,7 @@ Other tasks show one square in the colour of their result, the status while they
 
 Every run with more than one task has an arrow at the right of its header that opens its **host list**: the same tasks as rows, worst results first, with the hostname, result and duration in words and a checkbox on each row. On a run drawn as a bar, clicking a count under the bar (or a segment of the bar) opens the list on that result. The list shows 8 rows first; **Show n more** adds up to 100 more each time.
 
-Clicking any task (a pill, a square or a row) shows its detail on the right. The left and right arrow keys move between tasks. A retry of a task appears in the same run as a second mark for the same host.
+Clicking any task (a pill, a square or a row) shows its detail on the right. The left and right arrow keys move between tasks. A retry appears in its run as a second mark for the same host. The exception is a retry you start by hand where pre-execution notices are on: it is announced by a notice of its own, so it is a new entry at the top of the list with its own run tag, and the original run keeps its earlier mark. Automatic retries always stay in their run.
 
 To act on several tasks at once, tick the checkbox of a run (all of its tasks), rows in a host list, or **select all on page**.
 
@@ -360,7 +369,7 @@ alert later proves it stopped the test.
 
 ### Pagination
 
-Choose 25, 50 or 100 rows per page at the bottom of the list, and move with **Newest**, **Newer**, **Older** and **Oldest**. A batch counts as one row.
+Choose 25, 50 or 100 rows per page at the bottom of the list, and move with **Newest**, **Newer**, **Older** and **Oldest**. A run counts as one row, however many tasks or batches it holds.
 
 ### Real-Time Updates
 

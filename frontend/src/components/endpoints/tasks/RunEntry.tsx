@@ -8,8 +8,8 @@ import { VerdictBar } from '../../shared/marks/VerdictBar';
 import { MARK_BG } from '../../shared/marks/markTone';
 import { RunHostList, type HostListFilter } from './RunHostList';
 import { TaskMark } from './TaskMark';
-import { agentCountLabel, bucketSegments, railTone, runForm } from './runMarks';
-import { clockTime } from './taskFormat';
+import { agentCountLabel, bucketSegments, railTone, runForm, runIdOf, runTimeLabel } from './runMarks';
+import { runName } from './taskFormat';
 
 export interface RunEntryProps {
   group: TaskGroup;
@@ -19,7 +19,8 @@ export interface RunEntryProps {
   /** Tasks ticked for a bulk action. */
   checkedTaskIds: string[];
   onToggleTask?: (taskId: string) => void;
-  onToggleGroup?: (batchId: string) => void;
+  /** Called with the run's id (runIdOf). */
+  onToggleGroup?: (runId: string) => void;
 }
 
 /**
@@ -28,13 +29,15 @@ export interface RunEntryProps {
  * list (open from "Show hosts" or a bar segment) is the same tasks as rows.
  */
 export function RunEntry({ group, selectedTaskId, onSelectTask, checkedTaskIds, onToggleTask, onToggleGroup }: RunEntryProps) {
-  // Which host list is open. Kept here: the parent keys entries by batch id, so a refresh does not close it.
+  // Which host list is open. Kept here: the parent keys entries by run id, so a refresh does not close it.
   const [opened, setOpen] = useState<HostListFilter | null>(null);
 
   const { tasks, notices } = group;
   const form = runForm(tasks.length);
-  const name = group.payload?.test_name || group.type.replace(/_/g, ' ');
-  const time = clockTime(group.created_at);
+  const { text: name, command: isCommand } = runName(group);
+  // A command can be hundreds of characters; labels read aloud stay short.
+  const shortName = name.length > 80 ? `${name.slice(0, 80)}…` : name;
+  const time = runTimeLabel(group);
   const segments = bucketSegments(tasks);
   // A refresh can empty the open segment (the last task in progress finishes):
   // show every task then, not an empty box.
@@ -44,23 +47,34 @@ export function RunEntry({ group, selectedTaskId, onSelectTask, checkedTaskIds, 
   const noticeOf = (noticeId?: string | null) => (noticeId ? notices?.[noticeId] : undefined);
 
   return (
-    <section role="group" aria-label={`${name}, ${time}`} className="flex gap-2.5 px-4">
+    <section role="group" aria-label={`${shortName}, ${time}`} className="flex gap-2.5 px-4">
       <div aria-hidden="true" className="relative w-3.5 shrink-0">
         <span className="absolute bottom-0 left-1.5 top-0 w-px bg-border-strong" />
         <span className={cn('absolute left-0.5 top-3 h-[9px] w-[9px] rounded-full ring-[3px] ring-surface', MARK_BG[railTone(tasks)])} />
       </div>
 
-      <div className="min-w-0 flex-1 py-2">
-        <div className="flex items-center gap-2">
+      {/* A container, so the header adapts to the width of the list, not of the window. */}
+      <div className="@container min-w-0 flex-1 py-2">
+        {/* In a narrow list the name takes a line of its own: a time range, a count and a run tag fill one line of a phone. */}
+        <div className="flex flex-wrap items-center gap-x-2 gap-y-0.5">
           {onToggleGroup && (
             <Checkbox
-              aria-label={`Select every task of ${name}`}
+              aria-label={`Select every task of ${shortName}`}
               checked={tasks.length > 0 && tasks.every((t) => checkedTaskIds.includes(t.id))}
-              onChange={() => onToggleGroup(group.batch_id)}
+              onChange={() => onToggleGroup(runIdOf(group))}
             />
           )}
           <span className="shrink-0 font-mono text-xs text-muted">{time}</span>
-          <span className="min-w-0 flex-1 truncate text-[13px] font-medium" title={name}>{name}</span>
+          <span aria-hidden="true" className="flex-1 @lg:hidden" />
+          <span
+            className={cn(
+              'order-last min-w-0 basis-full truncate @lg:order-none @lg:flex-1 @lg:basis-0',
+              isCommand ? 'font-mono text-xs' : 'text-[13px] font-medium',
+            )}
+            title={name}
+          >
+            {name}
+          </span>
           {(form !== 'named' || partial) && (
             <span className="shrink-0 font-mono text-[11px] text-faint">{agentCountLabel(group)}</span>
           )}
