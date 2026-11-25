@@ -20,7 +20,7 @@ vi.mock('../database.js', () => ({ getDatabase: () => ({ prepare: mockPrepare })
 import { backfillRunStart, runRunStartBackfill } from '../runStartBackfill.js';
 
 const client = esClient as unknown as Client;
-const hit = (id: string, sort: unknown[] = [1]) => ({ _id: id, _index: 'achilles-results-x', sort });
+const hit = (id: string, sort: unknown[] = [1764031669000]) => ({ _id: id, _index: 'achilles-results-x', sort });
 const page = (...hits: unknown[]) => ({ hits: { hits } });
 const UPDATED = { update: { status: 200, result: 'updated' } };
 const START = '2026-11-01T10:00:00.000Z';
@@ -64,7 +64,6 @@ describe('backfillRunStart', () => {
 
   it('looks up the task ids once per page and fills with a bulk update', async () => {
     mockSearch.mockResolvedValueOnce(page(hit('t1::T1047'), hit('t2')));
-    mockSearch.mockResolvedValueOnce(page());
     mockBulk.mockResolvedValue({ items: [UPDATED, UPDATED] });
     const lookup = vi.fn(() => new Map([['t1', START], ['t2', START]]));
 
@@ -83,7 +82,6 @@ describe('backfillRunStart', () => {
 
   it('does not count a noop item as filled', async () => {
     mockSearch.mockResolvedValueOnce(page(hit('t1'), hit('t2', [2])));
-    mockSearch.mockResolvedValueOnce(page());
     mockBulk.mockResolvedValue({ items: [UPDATED, { update: { status: 200, result: 'noop' } }] });
     const res = await backfillRunStart(client, 'i', () => new Map([['t1', START], ['t2', START]]));
     expect(res.filled).toBe(1);
@@ -96,7 +94,6 @@ describe('backfillRunStart', () => {
     ['non-string', new Map([['t1', 12345 as unknown as string]])],
   ])('counts %s as unfillable and sends nothing', async (_name, found) => {
     mockSearch.mockResolvedValueOnce(page(hit('t1')));
-    mockSearch.mockResolvedValueOnce(page());
     const res = await backfillRunStart(client, 'i', () => found);
     expect(res).toEqual({ scanned: 1, filled: 0, unfillable: 1, errors: [] });
     expect(mockBulk).not.toHaveBeenCalled();
@@ -104,32 +101,84 @@ describe('backfillRunStart', () => {
 
   it('writes the start as received', async () => {
     mockSearch.mockResolvedValueOnce(page(hit('t1')));
-    mockSearch.mockResolvedValueOnce(page());
     mockBulk.mockResolvedValue({ items: [UPDATED] });
     await backfillRunStart(client, 'i', () => new Map([['t1', '2026-11-01 10:00:00']]));
     expect(mockBulk.mock.calls[0][0].operations[1]).toEqual({ doc: { routing: { run_started_at: '2026-11-01 10:00:00' } } });
   });
 
-  it('pages with search_after, even past a page of unfillable results', async () => {
-    const first = Array.from({ length: 500 }, (_, i) => hit(`u${i}`, [i, `u${i}`]));
+  it('pages past a full page of unfillable results, overlapping the boundary by one millisecond', async () => {
+    const X = 1764031669000;
+    const first = Array.from({ length: 500 }, (_, i) => hit(`u${i}`, [X + i]));
     mockSearch.mockResolvedValueOnce(page(...first));
-    mockSearch.mockResolvedValueOnce(page(hit('t1', [900])));
-    mockSearch.mockResolvedValueOnce(page());
+    mockSearch.mockResolvedValueOnce(page(hit('u499', [X + 499]), hit('t1', [X + 900])));
     mockBulk.mockResolvedValue({ items: [UPDATED] });
     const res = await backfillRunStart(client, 'i', (ids) => new Map(ids.filter((x) => x === 't1').map((x) => [x, START])));
 
+    expect(mockSearch).toHaveBeenCalledTimes(2);
     expect(mockSearch.mock.calls[0][0].search_after).toBeUndefined();
-    expect(mockSearch.mock.calls[1][0].search_after).toEqual([499, 'u499']);
-    expect(mockSearch.mock.calls[2][0].search_after).toEqual([900]);
+    expect(mockSearch.mock.calls[1][0].search_after).toEqual([X + 499 - 1]);
     expect(res).toEqual({ scanned: 501, filled: 1, unfillable: 500, errors: [] });
+  });
+
+  it('does not lose a bundle split across a page boundary', async () => {
+    const X = 1764031669000;
+    mockSearch.mockResolvedValueOnce(page(hit('a', [X - 5]), hit('b', [X - 4]), hit('t9::T1', [X])));
+    mockSearch.mockResolvedValueOnce(page(hit('t9::T1', [X]), hit('t9::T2', [X])));
+    mockBulk.mockResolvedValue({ items: [UPDATED, UPDATED, UPDATED] });
+    mockBulk.mockResolvedValueOnce({ items: [UPDATED, UPDATED, UPDATED] });
+    mockBulk.mockResolvedValueOnce({ items: [UPDATED] });
+    const lookup = vi.fn((ids: string[]) => new Map(ids.map((id) => [id, START])));
+    const res = await backfillRunStart(client, 'i', lookup, { pageSize: 3 });
+
+    expect(mockSearch).toHaveBeenCalledTimes(2);
+    expect(mockSearch.mock.calls[1][0].search_after).toEqual([X - 1]);
+    expect(lookup).toHaveBeenNthCalledWith(2, ['t9']);
+    const sentIds = mockBulk.mock.calls.flatMap((c) => c[0].operations).filter((o: any) => o.update).map((o: any) => o.update._id);
+    expect(sentIds).toEqual(['a', 'b', 't9::T1', 't9::T2']);
+    expect(res).toEqual({ scanned: 4, filled: 4, unfillable: 0, errors: [] });
+  });
+
+  it('ends after a short page following a full page, with no third search', async () => {
+    mockSearch.mockResolvedValueOnce(page(hit('u1', [10]), hit('u2', [20])));
+    mockSearch.mockResolvedValueOnce(page(hit('u2', [20])));
+    await backfillRunStart(client, 'i', () => new Map(), { pageSize: 2 });
+    expect(mockSearch).toHaveBeenCalledTimes(2);
+  });
+
+  it('ends on a short last page holding only already-seen unfillable documents', async () => {
+    mockSearch.mockResolvedValueOnce(page(hit('u1', [10]), hit('u2', [20])));
+    mockSearch.mockResolvedValueOnce(page(hit('u2', [20])));
+    const res = await backfillRunStart(client, 'i', () => new Map(), { pageSize: 2 });
+    expect(mockSearch).toHaveBeenCalledTimes(2);
+    expect(res).toEqual({ scanned: 2, filled: 0, unfillable: 2, errors: [] });
+  });
+
+  it('stall guard: full pages of seen documents at one time move strictly past it, one error line', async () => {
+    const X = 1764031669000;
+    mockSearch.mockResolvedValueOnce(page(hit('u1', [X]), hit('u2', [X])));
+    mockSearch.mockResolvedValueOnce(page(hit('u1', [X]), hit('u2', [X])));
+    mockSearch.mockResolvedValueOnce(page());
+    const res = await backfillRunStart(client, 'i', () => new Map(), { pageSize: 2 });
+
+    expect(mockSearch).toHaveBeenCalledTimes(3);
+    expect(mockSearch.mock.calls[1][0].search_after).toEqual([X - 1]);
+    expect(mockSearch.mock.calls[2][0].search_after).toEqual([X]);
+    expect(res.errors).toEqual(['paging: more than 2 results share one event time; some were not read']);
+    expect(res.scanned).toBe(2);
+  });
+
+  it('ends when the last hit has no numeric sort value', async () => {
+    mockSearch.mockResolvedValueOnce(page(hit('u1', ['x'])));
+    await backfillRunStart(client, 'i', () => new Map(), { pageSize: 1 });
+    expect(mockSearch).toHaveBeenCalledTimes(1);
   });
 
   it('never re-sends a document seen again on a later page', async () => {
     mockSearch.mockResolvedValueOnce(page(hit('t1', [1])));
-    mockSearch.mockResolvedValueOnce(page(hit('t1', [2])));
+    mockSearch.mockResolvedValueOnce(page(hit('t1', [1])));
     mockSearch.mockResolvedValueOnce(page());
     mockBulk.mockResolvedValue({ items: [UPDATED] });
-    await backfillRunStart(client, 'i', () => new Map([['t1', START]]));
+    await backfillRunStart(client, 'i', () => new Map([['t1', START]]), { pageSize: 1 });
     expect(mockBulk).toHaveBeenCalledTimes(1);
   });
 
@@ -140,7 +189,6 @@ describe('backfillRunStart', () => {
 
   it('reports a bulk item error', async () => {
     mockSearch.mockResolvedValueOnce(page(hit('t1'), hit('t2', [2])));
-    mockSearch.mockResolvedValueOnce(page());
     mockBulk.mockResolvedValue({ items: [UPDATED, { update: { status: 400, error: { reason: 'bad mapping' } } }] });
     const res = await backfillRunStart(client, 'i', () => new Map([['t1', START], ['t2', START]]));
     expect(res.filled).toBe(1);

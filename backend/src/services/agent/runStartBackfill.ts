@@ -52,6 +52,7 @@ export async function backfillRunStart(
   const seen = new Set<string>();
   const result: RunStartBackfillResult = { scanned: 0, filled: 0, unfillable: 0, errors: [] };
   let searchAfter: unknown[] | undefined;
+  let stalled = false;
 
   try {
     while (Date.now() < deadline) {
@@ -73,16 +74,17 @@ export async function backfillRunStart(
         break;
       }
       if (hits.length === 0) break;
-      result.scanned += hits.length;
 
+      // The next page overlaps this one's boundary, so skip what was handled.
       const fresh = hits.filter((h) => {
         const key = `${h._index}\u0000${h._id}`;
         if (seen.has(key)) return false;
         seen.add(key);
         return true;
       });
+      result.scanned += fresh.length;
 
-      let starts: Map<string, string>;
+      let starts: Map<string, string> = new Map();
       try {
         const ids = [...new Set(fresh.map((h) => taskIdOf(h._id ?? '')))];
         starts = ids.length > 0 ? startedAtOf(ids) : new Map();
@@ -121,9 +123,21 @@ export async function backfillRunStart(
         }
       }
 
-      const last = hits[hits.length - 1].sort;
-      if (!last) break;
-      searchAfter = last;
+      if (hits.length < pageSize) break;
+      const last = hits[hits.length - 1].sort?.[0];
+      if (typeof last !== 'number' || !Number.isFinite(last)) break;
+      if (fresh.length === 0) {
+        // A full page of documents all seen already: move strictly past this time.
+        if (!stalled) {
+          result.errors.push(`paging: more than ${pageSize} results share one event time; some were not read`);
+          stalled = true;
+        }
+        searchAfter = [last];
+      } else {
+        // search_after is strictly greater-than and documents of one run share
+        // an event time: step back one millisecond to re-read the boundary time.
+        searchAfter = [last - 1];
+      }
     }
   } catch (err) {
     result.errors.push(errMsg(err));
