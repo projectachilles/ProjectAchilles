@@ -46,6 +46,12 @@ export interface DefenderIntegrationSettings {
   /** Alert sync schema version; a mismatch forces a full re-sync at startup. */
   sync_version?: number;
   /**
+   * Alert sync version whose full re-sync completed without error (every
+   * alert has its `evidence_items`). sync_version is also written by the score
+   * sync, so it can't say this; a mismatch forces a full re-sync at startup.
+   */
+  evidence_items_version?: number;
+  /**
    * Auto-resolve pillar mode. Missing/undefined = 'disabled' (default).
    * Operationally opt-in — requires SecurityAlert.ReadWrite.All granted to
    * the Azure AD app registration for modes other than 'disabled'.

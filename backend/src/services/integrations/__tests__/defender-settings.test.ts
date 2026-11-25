@@ -436,6 +436,30 @@ describe('IntegrationsSettingsService — Defender', () => {
       expect(service.getDefenderSyncTimestamps().sync_version).toBe(4);
     });
 
+    it('persists evidence_items_version and keeps it when a later save leaves it out (file-based credentials)', () => {
+      const file = saveCredsAndReadBack();
+      service.saveDefenderSyncTimestamps({ last_alert_sync: '2026-11-25T00:00:00Z', sync_version: 9, evidence_items_version: 9 });
+
+      service.saveDefenderSyncTimestamps({ last_score_sync: '2026-11-25T01:00:00Z', sync_version: 9 });
+      service.saveDefenderSettings({ auto_resolve_mode: 'dry_run' });
+
+      expect(JSON.parse(file.read()).defender.evidence_items_version).toBe(9);
+      expect(service.getDefenderSyncTimestamps()).toMatchObject({ sync_version: 9, evidence_items_version: 9 });
+    });
+
+    it('persists evidence_items_version in the standalone defender_sync key and keeps it on a later save', () => {
+      let writtenData = '';
+      mockWriteFileSync.mockImplementation((_p: string, data: string) => { writtenData = data; });
+      mockReadFileSync.mockImplementation(() => writtenData);
+
+      service.saveDefenderSyncTimestamps({ last_alert_sync: '2026-11-25T00:00:00Z', sync_version: 9, evidence_items_version: 9 });
+      mockExistsSync.mockImplementation((p: string) => p === SETTINGS_FILE || p === SETTINGS_DIR);
+      service.saveDefenderSyncTimestamps({ last_score_sync: '2026-11-25T01:00:00Z', sync_version: 9 });
+
+      expect(JSON.parse(writtenData).defender_sync.evidence_items_version).toBe(9);
+      expect(service.getDefenderSyncTimestamps()).toMatchObject({ sync_version: 9, evidence_items_version: 9 });
+    });
+
     it('uses the standalone defender_sync key when credentials come from env vars', () => {
       let writtenData = '';
       mockWriteFileSync.mockImplementation((_p: string, data: string) => { writtenData = data; });

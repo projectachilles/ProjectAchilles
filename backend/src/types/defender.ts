@@ -2,6 +2,7 @@
 
 import type { AgentKillPassResult } from './agent-kill.js';
 import type { LaunchBlockPassResult } from './launch-block.js';
+import type { EvidenceItem } from '../services/edr/runEvidence.js';
 
 // ---------------------------------------------------------------------------
 // Microsoft Graph API response shapes (only fields we consume)
@@ -66,6 +67,8 @@ export interface GraphAlertEvidence {
   processCreationDateTime?: string;
   // fileEvidence fields
   fileDetails?: { fileName: string; filePath: string; sha256?: string };
+  /** When Defender added this evidence item to the alert (base alertEvidence). */
+  createdDateTime?: string;
 }
 
 export interface GraphAlert {
@@ -209,6 +212,13 @@ export interface DefenderAlertDoc {
    * Always present (possibly empty) since sync v7, absent before.
    */
   evidence_child_actions?: Array<{ parent: string; action: string }>;
+  /**
+   * Each evidence item that names a file, with its times (edr/runEvidence.ts),
+   * so an alert's evidence can be restricted to one run. Always written since
+   * sync v9 (possibly empty); null when an item has no createdDateTime or the
+   * alert has more than 1,000 such items. Absent on alerts synced before v9.
+   */
+  evidence_items: EvidenceItem[] | null;
   /** Oldest / newest activity the alert covers (Graph first/lastActivityDateTime; sync v7). */
   first_activity_at?: string | null;
   last_activity_at?: string | null;

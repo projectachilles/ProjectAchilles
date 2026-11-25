@@ -87,6 +87,9 @@ export const DEFENDER_INDEX_MAPPING = {
       evidence_file_verdicts: { type: 'object' as const, enabled: false },
       // Child-process actions keyed by the parent file (same module).
       evidence_child_actions: { type: 'object' as const, enabled: false },
+      // Each file-naming evidence item with its times (edr/runEvidence.ts,
+      // sync v9). Read from _source only.
+      evidence_items: { type: 'object' as const, enabled: false },
       // Activity the alert covers (first and last activity Defender recorded).
       first_activity_at: { type: 'date' as const },
       last_activity_at: { type: 'date' as const },
