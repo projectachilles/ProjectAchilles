@@ -274,6 +274,35 @@ describe('RunEntry for a run of several batches', () => {
   });
 });
 
+describe('RunEntry for a command run', () => {
+  const long = `Get-ChildItem -Path C:\\Windows\\System32 -Recurse -Filter *.dll | Where-Object { $_.Length -gt 1MB } | Select-Object -First 50 | Format-Table Name, Length`;
+  const cmdGroup = (command: string | undefined) => {
+    const payload = { test_uuid: '', test_name: '', binary_name: '', execution_timeout: 60, command } as AgentTask['payload'];
+    return group([task(1, { type: 'execute_command', payload, result: { ...baseResult, exit_code: 0 } })], { type: 'execute_command', payload });
+  };
+
+  it('names the run by its command, on one line, with the whole command on hover', () => {
+    setup(cmdGroup(long));
+    const name = screen.getByText(long);
+    expect(name).toHaveAttribute('title', long);
+    expect(name.className).toContain('truncate');
+    expect(name.className).toContain('font-mono');
+    expect(screen.queryByText('execute command')).toBeNull();
+  });
+
+  it('keeps the entry label short for a long command', () => {
+    setup(cmdGroup(long));
+    const entry = screen.getByRole('group');
+    expect(entry.getAttribute('aria-label')).toMatch(new RegExp(`^${long.slice(0, 20).replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}`));
+    expect(entry.getAttribute('aria-label')!.length).toBeLessThan(110);
+  });
+
+  it('falls back to the task type when the command is missing or blank', () => {
+    setup(cmdGroup('   '));
+    expect(screen.getByText('execute command')).toBeInTheDocument();
+  });
+});
+
 describe('RunEntry edge cases', () => {
   it('says "1 of 5 agents" for a batch listed in part, and keeps the named form', () => {
     const { container } = setup(group([task(1)], { agent_count: 5 }));

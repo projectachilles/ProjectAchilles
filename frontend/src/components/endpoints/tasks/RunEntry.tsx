@@ -9,6 +9,7 @@ import { MARK_BG } from '../../shared/marks/markTone';
 import { RunHostList, type HostListFilter } from './RunHostList';
 import { TaskMark } from './TaskMark';
 import { agentCountLabel, bucketSegments, railTone, runForm, runIdOf, runTimeLabel } from './runMarks';
+import { runName } from './taskFormat';
 
 export interface RunEntryProps {
   group: TaskGroup;
@@ -33,7 +34,9 @@ export function RunEntry({ group, selectedTaskId, onSelectTask, checkedTaskIds, 
 
   const { tasks, notices } = group;
   const form = runForm(tasks.length);
-  const name = group.payload?.test_name || group.type.replace(/_/g, ' ');
+  const { text: name, command: isCommand } = runName(group);
+  // A command can be hundreds of characters; labels read aloud stay short.
+  const shortName = name.length > 80 ? `${name.slice(0, 80)}…` : name;
   const time = runTimeLabel(group);
   const segments = bucketSegments(tasks);
   // A refresh can empty the open segment (the last task in progress finishes):
@@ -44,7 +47,7 @@ export function RunEntry({ group, selectedTaskId, onSelectTask, checkedTaskIds, 
   const noticeOf = (noticeId?: string | null) => (noticeId ? notices?.[noticeId] : undefined);
 
   return (
-    <section role="group" aria-label={`${name}, ${time}`} className="flex gap-2.5 px-4">
+    <section role="group" aria-label={`${shortName}, ${time}`} className="flex gap-2.5 px-4">
       <div aria-hidden="true" className="relative w-3.5 shrink-0">
         <span className="absolute bottom-0 left-1.5 top-0 w-px bg-border-strong" />
         <span className={cn('absolute left-0.5 top-3 h-[9px] w-[9px] rounded-full ring-[3px] ring-surface', MARK_BG[railTone(tasks)])} />
@@ -54,13 +57,18 @@ export function RunEntry({ group, selectedTaskId, onSelectTask, checkedTaskIds, 
         <div className="flex items-center gap-2">
           {onToggleGroup && (
             <Checkbox
-              aria-label={`Select every task of ${name}`}
+              aria-label={`Select every task of ${shortName}`}
               checked={tasks.length > 0 && tasks.every((t) => checkedTaskIds.includes(t.id))}
               onChange={() => onToggleGroup(runIdOf(group))}
             />
           )}
           <span className="shrink-0 font-mono text-xs text-muted">{time}</span>
-          <span className="min-w-0 flex-1 truncate text-[13px] font-medium" title={name}>{name}</span>
+          <span
+            className={cn('min-w-0 flex-1 truncate', isCommand ? 'font-mono text-xs' : 'text-[13px] font-medium')}
+            title={name}
+          >
+            {name}
+          </span>
           {(form !== 'named' || partial) && (
             <span className="shrink-0 font-mono text-[11px] text-faint">{agentCountLabel(group)}</span>
           )}
