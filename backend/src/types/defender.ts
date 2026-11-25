@@ -352,9 +352,26 @@ export interface RelatedAlertsResponse {
      * (e.g. `'t1211-cfapi'`). Frontend matches this case-insensitively
      * against `f0rtika.control_id` to render the alert under the correct
      * stage's drill-down. Undefined when `attribution === 'bundle'`.
+     * The first of `attributed_control_ids` (kept for older clients).
      */
     attributed_control_id?: string;
-    /** Vendor-confirmed prevention disposition (quarantined | process_killed | blocked | kill_failed). */
+    /**
+     * Every stage of the bundle the evidence names, in evidence order: with
+     * the request's `runStartedAt` and per-item evidence (Defender sync v9),
+     * only the run's evidence; else by name over the alert's whole evidence.
+     * The frontend lists the alert under each. Absent when it names none.
+     */
+    attributed_control_ids?: string[];
+    /**
+     * Per listed stage, the strongest action on that stage's own file or a
+     * process it started; a stage without one has no entry. Absent when the
+     * alert records no per-item actions, or no listed stage has one.
+     */
+    stage_actions?: Record<string, string>;
+    /**
+     * Vendor-confirmed prevention disposition (quarantined | process_killed | blocked | kill_failed).
+     * With a run view it comes from the run's evidence only, never the alert-wide field.
+     */
     prevention_action?: string;
     /** Deep link to the alert in the vendor console. */
     portal_url?: string;

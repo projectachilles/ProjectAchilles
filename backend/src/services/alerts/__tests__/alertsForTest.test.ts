@@ -164,3 +164,113 @@ describe('answerAlertsForTests', () => {
     expect(out).toEqual({ results: [null], errors: ['techniques and timestamp are required'] });
   });
 });
+
+// Alert evidence belongs to a run (Nov 2026): an alert that names this test
+// only in an earlier run's evidence is left out of every tier.
+describe('alerts from another run', () => {
+  const U = '7cc45d21-9a6e-4128-9f75-06e5167a4b80';
+  const RUN: AlertsForTestRequest = {
+    techniques: ['T1087'],
+    timestamp: '2026-11-25T00:47:56Z',
+    runStartedAt: '2026-11-25T00:46:47Z',
+    windowMinutes: 30,
+    hostname: 'win-host-01',
+    binaryName: `${U}.exe`,
+  };
+  const ev = (file: string, startedAt: string, parent: string | null = null) => ({
+    file, path: 'c:\\f0', parent, parent_path: null, kind: 'process', verdict: 'suspicious', action: null,
+    started_at: startedAt, added_at: startedAt,
+  });
+  const NOW = '2026-11-25T00:47:20Z';
+  const NOV_19 = '2026-11-19T09:06:46Z';
+  const alertHitOf = (id: string, items: unknown[], created = '2026-11-25T00:49:00Z') => ({
+    _source: {
+      alert_id: id, mitre_techniques: ['T1087'], created_at: created,
+      evidence_filenames: (items as Array<{ file: string }>).map((i) => i.file),
+      evidence_items: items,
+    },
+  });
+  // Names stage 3 only on Nov 19; in this run only a net.exe of svchost.
+  const otherRun = (id = 'old') => alertHitOf(id, [ev(`${U}-t1047.exe`, NOV_19, `${U}.exe`), ev('net.exe', NOW, 'svchost.exe')]);
+  const thisRun = (id = 'mine') => alertHitOf(id, [ev('net.exe', NOW, `${U}-t1518.001.exe`)]);
+  // A technique match that never names the test.
+  const pureTechnique = (id = 'tech') => alertHitOf(id, [ev('lsass.exe', NOW, 'svchost.exe')]);
+
+  it('parseItem accepts runStartedAt and rejects a non-date', () => {
+    const [ok] = parseAlertsForTestsBody({ items: [{ techniques: ['T1'], timestamp: RUN.timestamp, runStartedAt: RUN.runStartedAt }] });
+    expect(ok).toMatchObject({ runStartedAt: RUN.runStartedAt });
+    const [none] = parseAlertsForTestsBody({ items: [{ techniques: ['T1'], timestamp: RUN.timestamp }] });
+    expect(none).not.toHaveProperty('runStartedAt', expect.anything());
+    for (const bad of ['not-a-date', 5, { at: 1 }]) {
+      const [first] = parseAlertsForTestsBody({ items: [{ techniques: ['T1'], timestamp: RUN.timestamp, runStartedAt: bad }] });
+      expect(first).toEqual({ error: 'Invalid runStartedAt' });
+    }
+  });
+
+  it('tier 1 with two alerts, one left out of the run: one alert', async () => {
+    const search = vi.fn().mockResolvedValueOnce(page(2, [otherRun(), thisRun()]));
+    const res = await findAlertsForTest({ search } as never, RUN, deps);
+    expect(search).toHaveBeenCalledTimes(1);
+    expect(res.alerts.map((a) => a.alert_id)).toEqual(['mine']);
+    expect(res.total).toBe(1);
+    expect(res.alerts[0]).toMatchObject({ attributed_control_ids: ['t1518.001'] });
+  });
+
+  it('tier 1 with only alerts left out of the run falls through to the technique tier (single lookup)', async () => {
+    const search = vi.fn()
+      .mockResolvedValueOnce(page(1, [otherRun()]))
+      .mockResolvedValueOnce(page(2, [otherRun('old-2'), pureTechnique()]));
+    const res = await findAlertsForTest({ search } as never, RUN, deps);
+    expect(search).toHaveBeenCalledTimes(2);
+    expect(JSON.stringify(search.mock.calls[1][0].query)).toContain('mitre_techniques');
+    // The technique tier's alert naming the test only on Nov 19 is left out too.
+    expect(res).toEqual(expect.objectContaining({ total: 1, matchedTechniques: ['T1087'] }));
+    expect(res.alerts.map((a) => a.alert_id)).toEqual(['tech']);
+  });
+
+  it('tier 1 with only alerts left out of the run falls through to the technique tier (batch lookup)', async () => {
+    const msearch = vi.fn()
+      .mockResolvedValueOnce({ responses: [page(1, [otherRun()])] })
+      .mockResolvedValueOnce({ responses: [page(2, [otherRun('old-2'), pureTechnique()])] });
+    const [res] = await findAlertsForTests({ msearch } as never, [RUN], deps);
+    expect(msearch).toHaveBeenCalledTimes(2);
+    expect(res?.alerts.map((a) => a.alert_id)).toEqual(['tech']);
+    expect(res?.total).toBe(1);
+  });
+
+  it('every hit left out on the last tier: an empty answer', async () => {
+    const msearch = vi.fn()
+      .mockResolvedValueOnce({ responses: [page(1, [otherRun()])] })
+      .mockResolvedValueOnce({ responses: [page(1, [otherRun('old-2')])] });
+    const [res] = await findAlertsForTests({ msearch } as never, [RUN], deps);
+    expect(res).toEqual({ alerts: [], matchedTechniques: [], total: 0 });
+  });
+
+  it('without runStartedAt the results are as today', async () => {
+    const { runStartedAt: _drop, ...today } = RUN;
+    const search = vi.fn().mockResolvedValueOnce(page(2, [otherRun(), thisRun()]));
+    const res = await findAlertsForTest({ search } as never, today, deps);
+    expect(search).toHaveBeenCalledTimes(1);
+    expect(res.total).toBe(2);
+    expect(res.alerts.map((a) => a.alert_id).sort()).toEqual(['mine', 'old']);
+    // By name, as today: the alert-wide list names stage 3.
+    expect(res.alerts.find((a) => a.alert_id === 'old')).toMatchObject({ attributed_control_id: 't1047' });
+  });
+
+  it('every search requests whole documents, or at least evidence_items (the run view needs it)', async () => {
+    const keepsItems = (body: object) => {
+      const filter = (body as { _source?: unknown })._source;
+      return filter === undefined || (Array.isArray(filter) && filter.includes('evidence_items'));
+    };
+    for (const tier of alertsForTestTiers(RUN, deps)) expect(keepsItems(tier)).toBe(true);
+    const search = vi.fn().mockResolvedValue(page(0));
+    await findAlertsForTest({ search } as never, RUN, deps);
+    expect(search).toHaveBeenCalledTimes(2);
+    for (const [params] of search.mock.calls) expect(keepsItems(params)).toBe(true);
+    const msearch = vi.fn().mockResolvedValue({ responses: [page(0)] });
+    await findAlertsForTests({ msearch } as never, [RUN], deps);
+    const bodies = msearch.mock.calls.flatMap(([params]) => params.searches.filter((_: unknown, k: number) => k % 2 === 1));
+    expect(bodies).toHaveLength(2);
+    for (const body of bodies) expect(keepsItems(body)).toBe(true);
+  });
+});

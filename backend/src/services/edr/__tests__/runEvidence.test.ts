@@ -9,6 +9,7 @@ import {
   alertCreditForRun,
   evidenceItems,
   isOtherRunAlert,
+  runActions,
   runEvidence,
   runWindow,
   type EvidenceItem,
@@ -278,6 +279,29 @@ describe('alertCreditForRun', () => {
     ]);
     expect(alertCreditForRun(src, W, (f) => isStageFile(f, U, 't1047'), { ownActionsOnly: true }))
       .toEqual({ counts: true, actions: [] });
+  });
+});
+
+describe('runActions', () => {
+  it('is null without a run view', () => {
+    expect(runActions(alert([item({ action: 'blocked' })]), null)).toBeNull();
+    expect(runActions({ prevention_action: 'blocked', evidence_filenames: [`${U}-t1047.exe`] }, W)).toBeNull();
+    expect(runActions(alert(null, { prevention_action: 'blocked' }), W)).toBeNull();
+  });
+
+  it('lists each in-run item\'s action once, in item order, from any item, never the alert-wide one', () => {
+    const src = alert([
+      item({ file: 'cmd.exe', parent: `${U}-t1047.exe`, action: 'process_killed' }),
+      fileItem({ file: 'payload.bin', action: 'quarantined' }),
+      item({ action: 'process_killed' }),
+      item({ action: 'blocked', started_at: NOV_19 }),
+      item({ action: null }),
+    ], { prevention_action: 'blocked' });
+    expect(runActions(src, W)).toEqual(['process_killed', 'quarantined']);
+  });
+
+  it('is empty when no in-run item carries an action', () => {
+    expect(runActions(alert([item({ action: 'quarantined', started_at: NOV_19 }), item()], { prevention_action: 'quarantined' }), W)).toEqual([]);
   });
 });
 

@@ -13,9 +13,16 @@
 // findAlertsForTests() answers many stages (an Executions bundle row) with one
 // msearch per tier instead of one HTTP request and up to three sequential
 // searches per stage.
+//
+// With `runStartedAt` the lookup has a run window (edr/runEvidence.ts): an
+// alert that names this test only in another run's evidence is left out of
+// every tier, and a tier whose hits are all left out counts as empty, so the
+// lookup falls through to the next one. The searches request whole documents
+// (no `_source` filter) because the run view reads `evidence_items`.
 
 import { AppError } from '../../middleware/error.middleware.js';
-import { projectAlertHit } from './alertHit.js';
+import { leftOutOfRun, projectAlertHit } from './alertHit.js';
+import { runWindow } from '../edr/runEvidence.js';
 import { expandTechniqueAliases, techniqueAliases } from '../../data/techniqueAliases.js';
 
 export interface AlertsForTestRequest {
@@ -26,6 +33,8 @@ export interface AlertsForTestRequest {
   /** `<bundle-uuid>.exe` */
   binaryName?: string;
   bundleName?: string;
+  /** When the run started (the result's `routing.run_started_at`); with `timestamp` it gives the run window. */
+  runStartedAt?: string;
 }
 
 export interface EvidenceQueryInput {
@@ -54,6 +63,7 @@ interface MsearchClient {
 export interface AlertsForTestResult {
   alerts: AlertItem[];
   matchedTechniques: string[];
+  /** The number of alerts returned (after leaving out other runs' alerts). */
   total: number;
 }
 
@@ -115,31 +125,32 @@ export function alertsForTestTiers(req: AlertsForTestRequest, deps: AlertsForTes
   return tiers;
 }
 
-function totalOf(page: HitsPage): number {
-  const total = page.hits?.total;
-  return typeof total === 'number' ? total : total?.value ?? 0;
-}
-
-/** Project hits, collect matched techniques, sort by proximity to the run. */
+/**
+ * Project hits, collect matched techniques, sort by proximity to the run.
+ * Alerts left out of the run are dropped first; `total` counts what is kept.
+ */
 export function toAlertsForTestResult(req: AlertsForTestRequest, page: HitsPage): AlertsForTestResult {
   const testTime = new Date(req.timestamp).getTime();
   // Stage attribution: alerts naming `<uuid>-<technique>.exe` vs the bundle.
   const bundleUuid = req.binaryName ? req.binaryName.toLowerCase().replace(/\.exe$/, '') : '';
+  const window = runWindow(req.runStartedAt, req.timestamp);
   const matched = new Set<string>();
-  const alerts = (page.hits?.hits ?? []).map((hit) => {
-    const source = (hit._source ?? {}) as Record<string, unknown>;
-    // Report the test's own id even when the alert used a renumbered one.
-    for (const t of (source.mitre_techniques as string[] | undefined) ?? []) {
-      for (const r of req.techniques) if (techniqueAliases(r).includes(t)) matched.add(r);
-    }
-    return projectAlertHit(source, bundleUuid);
-  });
+  const alerts = (page.hits?.hits ?? [])
+    .map((hit) => (hit._source ?? {}) as Record<string, unknown>)
+    .filter((source) => !leftOutOfRun(source, bundleUuid, window))
+    .map((source) => {
+      // Report the test's own id even when the alert used a renumbered one.
+      for (const t of (source.mitre_techniques as string[] | undefined) ?? []) {
+        for (const r of req.techniques) if (techniqueAliases(r).includes(t)) matched.add(r);
+      }
+      return projectAlertHit(source, bundleUuid, window);
+    });
   alerts.sort(
     (a, b) =>
       Math.abs(new Date(a.created_at).getTime() - testTime) -
       Math.abs(new Date(b.created_at).getTime() - testTime),
   );
-  return { alerts, matchedTechniques: Array.from(matched), total: totalOf(page) };
+  return { alerts, matchedTechniques: Array.from(matched), total: alerts.length };
 }
 
 /** One lookup, tier by tier with client.search. */
@@ -149,12 +160,13 @@ export async function findAlertsForTest(
   deps: AlertsForTestDeps,
 ): Promise<AlertsForTestResult> {
   const tiers = alertsForTestTiers(req, deps);
-  let page: HitsPage = {};
+  let result = toAlertsForTestResult(req, {});
   for (const body of tiers) {
-    page = (await client.search({ index: deps.index, ...body } as never)) as HitsPage;
-    if (totalOf(page) > 0) break;
+    const page = (await client.search({ index: deps.index, ...body } as never)) as HitsPage;
+    result = toAlertsForTestResult(req, page);
+    if (result.alerts.length > 0) break;
   }
-  return toAlertsForTestResult(req, page);
+  return result;
 }
 
 /**
@@ -169,15 +181,15 @@ export async function findAlertsForTests(
 ): Promise<Array<AlertsForTestResult | null>> {
   const plans = reqs.map((req) => alertsForTestTiers(req, deps));
   const results: Array<AlertsForTestResult | null | undefined> = reqs.map(() => undefined);
-  const lastPage: HitsPage[] = reqs.map(() => ({}));
+  const lastResult: AlertsForTestResult[] = reqs.map((req) => toAlertsForTestResult(req, {}));
 
   for (let tier = 0; results.some((r) => r === undefined); tier++) {
     const pending = reqs
       .map((_, i) => i)
       .filter((i) => results[i] === undefined && tier < plans[i].length);
     // Stages that ran out of tiers keep their last (empty) answer.
-    reqs.forEach((req, i) => {
-      if (results[i] === undefined && tier >= plans[i].length) results[i] = toAlertsForTestResult(req, lastPage[i]);
+    reqs.forEach((_, i) => {
+      if (results[i] === undefined && tier >= plans[i].length) results[i] = lastResult[i];
     });
     if (pending.length === 0) break;
 
@@ -191,10 +203,9 @@ export async function findAlertsForTests(
         results[i] = null;
         return;
       }
-      lastPage[i] = page;
-      if (totalOf(page) > 0 || tier === plans[i].length - 1) {
-        results[i] = toAlertsForTestResult(reqs[i], page);
-      }
+      // Decide on the alerts kept, not on the raw hit count.
+      lastResult[i] = toAlertsForTestResult(reqs[i], page);
+      if (lastResult[i].alerts.length > 0 || tier === plans[i].length - 1) results[i] = lastResult[i];
     });
   }
   return results.map((r) => r ?? null);
@@ -232,6 +243,10 @@ function parseItem(raw: unknown): AlertsForTestRequest {
     throw new AppError('Invalid techniques', 400);
   }
   if (Number.isNaN(new Date(item.timestamp).getTime())) throw new AppError('Invalid timestamp', 400);
+  const runStartedAt = optionalText(item.runStartedAt, 'runStartedAt');
+  if (runStartedAt !== undefined && Number.isNaN(new Date(runStartedAt).getTime())) {
+    throw new AppError('Invalid runStartedAt', 400);
+  }
   const windowMinutes = item.windowMinutes === undefined ? 30 : item.windowMinutes;
   if (!Number.isInteger(windowMinutes) || (windowMinutes as number) < 1 || (windowMinutes as number) > 1440) {
     throw new AppError('Invalid windowMinutes', 400);
@@ -243,6 +258,7 @@ function parseItem(raw: unknown): AlertsForTestRequest {
     hostname: optionalText(item.hostname, 'hostname'),
     binaryName: optionalText(item.binaryName, 'binaryName'),
     bundleName: optionalText(item.bundleName, 'bundleName'),
+    ...(runStartedAt !== undefined ? { runStartedAt } : {}),
   };
 }
 

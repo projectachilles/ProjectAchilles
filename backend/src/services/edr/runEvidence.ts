@@ -151,6 +151,20 @@ export function runEvidence(src: Record<string, unknown>, window: RunWindow | nu
   return items ? viewOf(items) : null;
 }
 
+/** The distinct actions of the given items, in item order. */
+const actionsOf = (items: EvidenceItem[]): string[] =>
+  [...new Set(items.map((i) => str(i.action)).filter((a): a is string => a !== null))];
+
+/**
+ * The distinct actions of the alert's in-run items (any file, any kind), in
+ * item order; null = no run view. With a run view this replaces the
+ * alert-wide `prevention_action`, which has no time and mixes runs.
+ */
+export function runActions(src: Record<string, unknown>, window: RunWindow | null): string[] | null {
+  const items = runItems(src, window);
+  return items ? actionsOf(items) : null;
+}
+
 export interface RunCreditOptions extends AlertCreditOptions {
   /** Test-level credit only: a path that names the test also counts. */
   pathNamesTest?: (path: string) => boolean;
@@ -183,8 +197,7 @@ export function alertCreditForRun(
   if (!named) return { counts: false, actions: [] };
   const credit = alertCredit(view, mine, creditOptions);
   if (credit.actions !== null) return credit;
-  const actions = items.map((i) => str(i.action)).filter((a): a is string => a !== null);
-  return { counts: credit.counts, actions: [...new Set(actions)] };
+  return { counts: credit.counts, actions: actionsOf(items) };
 }
 
 const namesTest = (items: EvidenceItem[], uuid: string, pathNamesTest?: (path: string) => boolean): boolean => {

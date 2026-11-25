@@ -4,8 +4,21 @@
 // report read the same fields the same way. Both vendor indices share this
 // doc shape (alert_title, evidence_filenames, prevention_action, portal_url,
 // f0rtika.auto_resolved_at, gated on an enabled, error-free receipt).
+//
+// With a run window the projection reads the alert's evidence of that run
+// only (edr/runEvidence.ts): a Defender alert stays open for days and gathers
+// the evidence of later runs. Without a window, or for an alert without
+// per-item data (other vendors, older Defender alerts), it reads the alert as
+// it is.
 
-import { fileVerdicts, isMultiTestAlert, isTestFile, ownActions } from '../edr/multiTestEvidence.js';
+import {
+  fileVerdicts,
+  isMultiTestAlert,
+  isTestFile,
+  ownActions,
+  type EvidenceFields,
+} from '../edr/multiTestEvidence.js';
+import { ACTION_RANK, isOtherRunAlert, runActions, runEvidence, type RunWindow } from '../edr/runEvidence.js';
 
 /**
  * 'stage': the evidence pins the alert to one stage; 'bundle': to the test
@@ -34,11 +47,26 @@ export interface ProjectedAlert {
   resolved_at: string | null;
   recommended_actions: string;
   attribution: AlertAttributionKind;
+  /** The first of `attributed_control_ids` (kept for older clients). */
   attributed_control_id?: string;
+  /**
+   * Every stage of this test the evidence names (the run's evidence when there
+   * is a run window), in evidence order. Absent when it names none.
+   */
+  attributed_control_ids?: string[];
+  /**
+   * For each of `attributed_control_ids`, the strongest action on that stage's
+   * own file or a process it started; a stage without one has no entry.
+   * Absent when the alert doesn't record actions per evidence item, or no
+   * listed stage has an action.
+   */
+  stage_actions?: Record<string, string>;
   /**
    * The vendor's action: for an alert pinned to one stage, the action on that
    * stage's own file (or a process it started) when the alert records actions
    * per evidence item (edr/multiTestEvidence.ts ownActions), else the alert's.
+   * With a run view it never comes from the alert-wide `prevention_action`
+   * (no time, mixes runs): the strongest action of the alert's in-run items.
    */
   prevention_action?: string;
   portal_url?: string;
@@ -53,14 +81,21 @@ export interface ProjectedAlert {
  * UUID prefix, or another bundle's UUID → bundle-level.
  */
 export function classifyAttribution(filenames: readonly string[], bundleUuid: string): AlertAttribution {
-  if (!bundleUuid) return { attribution: 'bundle' };
+  const [first] = stageControlIds(filenames, bundleUuid);
+  return first ? { attribution: 'stage', attributed_control_id: first } : { attribution: 'bundle' };
+}
+
+/** Every `<bundleUuid>-<token>.exe` evidence binary's token, lower-case, in order, each once. */
+export function stageControlIds(filenames: readonly string[], bundleUuid: string): string[] {
+  if (!bundleUuid) return [];
   const escaped = bundleUuid.toLowerCase().replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
   const stagePattern = new RegExp(`^${escaped}-([a-z0-9._-]+?)\\.exe$`, 'i');
+  const ids: string[] = [];
   for (const fn of filenames) {
     const m = fn.match(stagePattern);
-    if (m) return { attribution: 'stage', attributed_control_id: m[1].toLowerCase() };
+    if (m && !ids.includes(m[1].toLowerCase())) ids.push(m[1].toLowerCase());
   }
-  return { attribution: 'bundle' };
+  return ids;
 }
 
 const text = (v: unknown): string => (v === undefined || v === null ? '' : String(v));
@@ -72,37 +107,69 @@ const optional = (v: unknown): string | undefined => (v === undefined || v === n
  * action (one file blocked, another only detected). None: 'multi_test'.
  */
 function multiTestAttribution(
-  source: Record<string, unknown>,
+  evidence: EvidenceFields,
   bundleUuid: string,
-): AlertAttribution & { prevention_action?: string } {
-  const marked = (fileVerdicts(source) ?? []).filter((v) => v.verdict === 'malicious' && isTestFile(v.file, bundleUuid));
-  if (marked.length === 0) return { attribution: 'multi_test' };
+): AlertAttribution & { prevention_action?: string; stage_ids: string[] } {
+  const marked = (fileVerdicts(evidence) ?? []).filter((v) => v.verdict === 'malicious' && isTestFile(v.file, bundleUuid));
+  if (marked.length === 0) return { attribution: 'multi_test', stage_ids: [] };
+  const stage_ids = stageControlIds(marked.map((v) => v.file), bundleUuid);
   for (const v of marked) {
     const a = classifyAttribution([v.file], bundleUuid);
-    if (a.attribution === 'stage') return { ...a, ...(v.action ? { prevention_action: v.action } : {}) };
+    if (a.attribution === 'stage') return { ...a, stage_ids, ...(v.action ? { prevention_action: v.action } : {}) };
   }
   const action = marked.find((v) => v.action)?.action;
-  return { attribution: 'bundle', ...(action ? { prevention_action: action } : {}) };
+  return { attribution: 'bundle', stage_ids, ...(action ? { prevention_action: action } : {}) };
 }
 
 /** Strongest first: a quarantine outranks a kill, a kill a block (same ranking as the Defender sync). */
-const ACTION_RANK: Record<string, number> = { quarantined: 3, process_killed: 2, blocked: 1 };
 const strongest = (actions: string[]): string | undefined =>
   [...actions].sort((a, b) => (ACTION_RANK[b] ?? 0) - (ACTION_RANK[a] ?? 0))[0];
 
-export function projectAlertHit(source: Record<string, unknown>, bundleUuid: string): ProjectedAlert {
+const strings = (v: unknown): string[] => (Array.isArray(v) ? v.filter((x): x is string => typeof x === 'string') : []);
+
+/**
+ * The alert names test `bundleUuid` (a file name, or a path containing the
+ * uuid) only in another run's evidence, none in this run's: it is not this
+ * run's alert. False without a run view (edr/runEvidence.ts isOtherRunAlert).
+ */
+export function leftOutOfRun(source: Record<string, unknown>, bundleUuid: string, window: RunWindow | null): boolean {
+  const uuid = bundleUuid.toLowerCase();
+  return isOtherRunAlert(source, window, uuid, (path) => path.toLowerCase().includes(uuid));
+}
+
+export function projectAlertHit(
+  source: Record<string, unknown>,
+  bundleUuid: string,
+  window: RunWindow | null = null,
+): ProjectedAlert {
   const f0 = (source.f0rtika ?? {}) as Record<string, unknown>;
-  const multi = isMultiTestAlert(source) ? multiTestAttribution(source, bundleUuid) : null;
+  // The run view of the evidence when there is one, else the alert as it is.
+  const view = runEvidence(source, window);
+  const evidence: EvidenceFields = view ?? source;
+  const multi = isMultiTestAlert(evidence) ? multiTestAttribution(evidence, bundleUuid) : null;
   const { attribution, attributed_control_id } = multi
-    ?? classifyAttribution((source.evidence_filenames as string[] | undefined) ?? [], bundleUuid);
-  // A multi-test alert shows only this test's file's own action.
-  let prevention_action = multi ? multi.prevention_action : optional(source.prevention_action);
-  // An alert pinned to one stage shows that stage's own action (its file, or
-  // a process it started), as the stage verdict uses: another stage's block in
-  // the same alert is not this stage's. Vendors without per-item actions keep
-  // the alert's.
+    ?? classifyAttribution(strings(evidence.evidence_filenames), bundleUuid);
+  const stageIds = multi ? multi.stage_ids : stageControlIds(strings(evidence.evidence_filenames), bundleUuid);
+  // A multi-test alert shows only this test's file's own action. With a run
+  // view, never the alert-wide action: the in-run items' strongest, or none.
+  const inRunActions = view ? runActions(source, window) ?? [] : null;
+  let prevention_action = multi
+    ? multi.prevention_action
+    : inRunActions ? strongest(inRunActions) : optional(source.prevention_action);
+  // Each stage's own action (its file, or a process it started), as the stage
+  // verdict uses: another stage's block in the same alert is not this stage's.
+  // Vendors without per-item actions have none (ownActions null).
+  const stageOwn = (id: string) => ownActions(evidence, (f) => classifyAttribution([f], bundleUuid).attributed_control_id === id);
+  const stage_actions: Record<string, string> = {};
+  for (const id of stageIds) {
+    const own = stageOwn(id);
+    const action = own ? strongest(own) : undefined;
+    if (action) stage_actions[id] = action;
+  }
+  // An alert pinned to one stage shows that stage's own action. Vendors
+  // without per-item actions keep the alert's.
   if (attribution === 'stage' && attributed_control_id) {
-    const own = ownActions(source, (f) => classifyAttribution([f], bundleUuid).attributed_control_id === attributed_control_id);
+    const own = stageOwn(attributed_control_id);
     if (own) prevention_action = strongest(own);
   }
   const portal_url = optional(source.portal_url);
@@ -131,6 +198,8 @@ export function projectAlertHit(source: Record<string, unknown>, bundleUuid: str
     recommended_actions: text(source.recommended_actions),
     attribution,
     ...(attributed_control_id ? { attributed_control_id } : {}),
+    ...(stageIds.length > 0 ? { attributed_control_ids: stageIds } : {}),
+    ...(Object.keys(stage_actions).length > 0 ? { stage_actions } : {}),
     ...(prevention_action ? { prevention_action } : {}),
     ...(portal_url ? { portal_url } : {}),
     ...(auto_resolved_at ? { auto_resolved_at } : {}),
