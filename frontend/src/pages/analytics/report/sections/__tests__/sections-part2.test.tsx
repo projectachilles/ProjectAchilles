@@ -162,7 +162,7 @@ describe('TestDetail', () => {
     const run = makeRun({
       stages: controls.slice(0, 60).map((s) => ({ ...makeRun().stages[1], controlId: s.controlId, name: s.name, order: s.order })),
       moreStages: 10,
-      alerts: [{ ...alert, stageControlId: 'ch-def-069' }],
+      alerts: [{ ...alert, stageControlId: 'ch-def-069', stageControlIds: ['ch-def-069'] }],
     });
     render(<TestDetail report={makeReport({ tests: [test], runs: [run] })} test={test} head={head} />);
     expect(screen.getByText('S69 Control 69')).toBeInTheDocument();
@@ -650,12 +650,12 @@ describe('RunStrips', () => {
     const bundleRun = makeRun({
       stages: controls.slice(0, 60).map((s) => ({ ...makeRun().stages[1], controlId: s.controlId, name: s.name, order: s.order })),
       moreStages: 10,
-      alerts: [{ ...alert, stageControlId: 'ch-def-069' }],
+      alerts: [{ ...alert, stageControlId: 'ch-def-069', stageControlIds: ['ch-def-069'] }],
     });
     const single = makeTest({ testKey: 'single', isBundle: false, category: 'host-hardening', stages: [{ ...makeTest().stages[0], controlId: null }] });
     const singleRun = makeRun({
       testKey: 'single', hostname: 'WS-OPS-022', taskId: '9e1b7c52-3d84-4a6f-b0c9-5f2a8d71e346',
-      stages: [{ ...makeRun().stages[0], controlId: null }], alerts: [{ ...alert, stageControlId: null }],
+      stages: [{ ...makeRun().stages[0], controlId: null }], alerts: [{ ...alert, stageControlId: null, stageControlIds: [] }],
     });
     const { container } = render(<RunStrips report={makeReport({ tests: [bundle, single], runs: [bundleRun, singleRun] })} head={head} />);
     const events = Array.from(container.querySelectorAll('.rp-events li')).map((li) => li.textContent ?? '');

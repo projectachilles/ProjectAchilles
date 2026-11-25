@@ -108,14 +108,21 @@ export function resolveRunStage(tests: ReportTest[], run: ReportRun, stage: Aler
 }
 
 /**
- * "S2 Privileged credential access" for the stage an alert names, or "bundle" when it names none.
+ * "S2 Privileged credential access" for the stage an alert names, "S2 …, S5 …" when it names
+ * several (`tokens`: the alert's stageControlIds, or one token), or "bundle" when it names none.
  * A standalone test has no stages to name, so its alerts get '' (callers drop empty parts).
  */
-export function alertStageText(tests: ReportTest[], run: ReportRun, token: string | null): string {
+export function alertStageText(tests: ReportTest[], run: ReportRun, tokens: string[] | string | null): string {
   const test = testOf(tests, run);
   if (test && !test.isBundle) return '';
-  const stage = stageForAlert(run, token, test?.stages);
-  return stage ? `S${stage.order} ${truncate(resolveRunStage(tests, run, stage).name, STAGE_NAME_MAX)}` : 'bundle';
+  const list = tokens === null ? [] : typeof tokens === 'string' ? [tokens] : tokens;
+  const labels: string[] = [];
+  for (const token of list) {
+    const stage = stageForAlert(run, token, test?.stages);
+    const label = stage && `S${stage.order} ${truncate(resolveRunStage(tests, run, stage).name, STAGE_NAME_MAX)}`;
+    if (label && !labels.includes(label)) labels.push(label);
+  }
+  return labels.length > 0 ? labels.join(', ') : 'bundle';
 }
 
 /**

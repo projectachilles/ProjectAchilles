@@ -74,6 +74,8 @@ describe('runsRequest', () => {
     const runs = (runsRequest(FILTERS) as Any).aggs.runs;
     expect(runs.terms).toEqual({ script: RUN_GROUP_KEY_SCRIPT, size: RUNS_CAP, order: { completed: 'desc' } });
     expect(runs.aggs.completed).toEqual({ max: { field: 'routing.event_time' } });
+    // The run's start, for its run window: absent on results stored before it was recorded.
+    expect(runs.aggs.started).toEqual({ min: { field: 'routing.run_started_at' } });
     expect(runs.aggs.members.top_hits.size).toBe(MEMBERS_CAP);
     expect(runs.aggs.members.top_hits._source).toEqual(['f0rtika.*', 'routing.*', 'event.*']);
   });

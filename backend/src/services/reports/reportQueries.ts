@@ -153,6 +153,8 @@ export function runsRequest(filters: unknown[]): Body {
         terms: { script: RUN_GROUP_KEY_SCRIPT, size: RUNS_CAP, order: { completed: 'desc' } },
         aggs: {
           completed: { max: { field: 'routing.event_time' } },
+          // The run's start, for its run window (alertCorrelation.ts); null on results stored before it was recorded.
+          started: { min: { field: 'routing.run_started_at' } },
           members: {
             top_hits: {
               size: MEMBERS_CAP,

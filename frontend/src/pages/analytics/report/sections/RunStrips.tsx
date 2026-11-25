@@ -38,7 +38,7 @@ function RunBlock({ run, tests, tz, edrVendors }: { run: ReportRun; tests: Repor
         return {
           t,
           text: [
-            vendorName(a.vendor), a.severity, a.title, alertStageText(tests, run, a.stageControlId),
+            vendorName(a.vendor), a.severity, a.title, alertStageText(tests, run, a.stageControlIds),
             timing, a.status, alertActionText(tests, run, a),
           ].filter(Boolean).join(' · '),
         };

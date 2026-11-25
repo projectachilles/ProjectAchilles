@@ -72,8 +72,8 @@ export function makeRun(over: Partial<ReportRun> = {}): ReportRun {
     ],
     moreStages: 0,
     alerts: [
-      { vendor: 'defender', title: 'Suspicious access to LSASS service', severity: 'high', status: 'resolved', createdAt: '2026-10-12T12:44:31.000Z', stageControlId: 't1003.001', preventionAction: 'blocked', portalUrl: null, autoResolvedAt: '2026-10-12T13:02:10.000Z' },
-      { vendor: 'crowdstrike', title: 'ProcRansomware', severity: 'high', status: 'new', createdAt: '2026-10-12T12:48:51.000Z', stageControlId: 't1486', preventionAction: null, portalUrl: null, autoResolvedAt: null },
+      { vendor: 'defender', title: 'Suspicious access to LSASS service', severity: 'high', status: 'resolved', createdAt: '2026-10-12T12:44:31.000Z', stageControlId: 't1003.001', stageControlIds: ['t1003.001'], preventionAction: 'blocked', portalUrl: null, autoResolvedAt: '2026-10-12T13:02:10.000Z' },
+      { vendor: 'crowdstrike', title: 'ProcRansomware', severity: 'high', status: 'new', createdAt: '2026-10-12T12:48:51.000Z', stageControlId: 't1486', stageControlIds: ['t1486'], preventionAction: null, portalUrl: null, autoResolvedAt: null },
     ],
     alertsChecked: true,
     ...over,

@@ -278,7 +278,8 @@ export function parseRuns(response: Agg, current?: Map<string, CurrentTestVersio
       testName,
       hostname,
       completedAt: isoOf(b.completed) ?? new Date(Number(epoch)).toISOString(),
-      startedAt: null,
+      // The smallest recorded start of the run's docs; null when none records one.
+      startedAt: isoOf(b.started),
       taskId: taskIdFromDocId(String(hits[0]?._id ?? ''), testKey),
       stages,
       moreStages: Math.max(0, (b.doc_count ?? hits.length) - hits.length),

@@ -172,7 +172,7 @@ export function TestDetail({ report, test, head }: { report: ExecutionReport; te
                 <tr key={`${r.key}-${i}`}>
                   <td className="rp-mono rp-nowrap">{t === null ? '—' : `${fmtShortDate(a.createdAt, tz)} ${fmtTime(a.createdAt, tz)}`}</td>
                   <td className="rp-mono rp-id">{r.hostname}</td>
-                  {test.isBundle && <td>{alertStageText([test], r, a.stageControlId)}</td>}
+                  {test.isBundle && <td>{alertStageText([test], r, a.stageControlIds)}</td>}
                   <td>{vendorName(a.vendor)}</td>
                   <td><span className="rp-chip">{a.severity}</span> {a.title}</td>
                   <td className="rp-num">{t === null ? '—' : fmtLatency((t - Date.parse(r.completedAt)) / 1000)}</td>

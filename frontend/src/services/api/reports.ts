@@ -283,8 +283,13 @@ export interface ReportAlert {
   severity: string;
   status: string;
   createdAt: string;
-  /** Lowercased control token from the evidence binary; null = bundle-level. */
+  /** Lowercased control token from the evidence binary; null = bundle-level. The first of `stageControlIds`. */
   stageControlId: string | null;
+  /**
+   * Every stage token the evidence names (the run's own evidence when the run records its start),
+   * in evidence order; [] = bundle-level. The alert is listed under each.
+   */
+  stageControlIds: string[];
   preventionAction: string | null;
   portalUrl: string | null;
   autoResolvedAt: string | null;

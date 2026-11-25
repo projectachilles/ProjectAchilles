@@ -49,7 +49,7 @@ describe('correlateRuns', () => {
     expect(res.complete).toBe(true);
     expect(res.alerts.get(run(1).key)?.[0]).toEqual({
       vendor: 'defender', title: 'ProcRansomware', severity: 'high', status: 'new',
-      createdAt: '2026-10-12T12:48:51Z', stageControlId: 't1486', preventionAction: 'blocked',
+      createdAt: '2026-10-12T12:48:51Z', stageControlId: 't1486', stageControlIds: ['t1486'], preventionAction: 'blocked',
       portalUrl: 'https://x/1', autoResolvedAt: '2026-10-12T13:02:10Z',
     });
   });
@@ -85,7 +85,7 @@ describe('correlateRuns', () => {
     const fallbackSearches = msearch.mock.calls[1][0].searches;
     expect(fallbackSearches).toHaveLength(2);
     expect(fallbackSearches[0]).toEqual({ index: 'achilles-crowdstrike' });
-    expect(res.alerts.get(run(1).key)?.[0]).toMatchObject({ vendor: 'crowdstrike', title: 'Fallback', stageControlId: null });
+    expect(res.alerts.get(run(1).key)?.[0]).toMatchObject({ vendor: 'crowdstrike', title: 'Fallback', stageControlId: null, stageControlIds: [] });
     expect(res.alerts.get(run(2).key)?.[0].title).toBe('Matched');
   });
 
@@ -178,6 +178,124 @@ describe('correlateRuns', () => {
       expect(res.failed).toBe(1);
       expect(res.searched).toEqual(new Set([run(1).key]));
     });
+  });
+});
+
+// Alert evidence belongs to a run (Nov 2026): a run that knows its start reads
+// each alert through its run window (edr/runEvidence.ts), as the console does.
+describe('correlateRuns with a run window', () => {
+  const msearch = vi.fn();
+  const client = { msearch } as never;
+  const far = () => Date.now() + 60_000;
+  const STARTED = '2026-11-25T00:46:47.000Z';
+  const COMPLETED = '2026-11-25T00:47:56.000Z';
+  const NOV_19 = '2026-11-19T09:06:46Z';
+  const stage1 = `${BUNDLE}-t1518.001.exe`;
+  const stage3 = `${BUNDLE}-t1047.exe`;
+  const stage5 = `${BUNDLE}-t1136.001.exe`;
+  const windowRun = (startedAt: string | null = STARTED): CorrelationRun => ({
+    key: `bundle::${BUNDLE}::WIN-HOST-01::${Date.parse(COMPLETED)}`,
+    testKey: BUNDLE,
+    hostname: 'WIN-HOST-01',
+    completedAt: COMPLETED,
+    ...(startedAt ? { startedAt } : {}),
+    bundleName: 'Account discovery chain',
+    techniques: ['T1087'],
+  });
+  const item = (file: string, over: Record<string, unknown> = {}) => ({
+    file, path: 'c:\\f0', parent: `${BUNDLE}.exe`, parent_path: 'c:\\f0', kind: 'process',
+    verdict: 'suspicious', action: null, started_at: '2026-11-25T00:47:26Z', added_at: '2026-11-25T00:49:10Z', ...over,
+  });
+  const earlier = (file: string, over: Record<string, unknown> = {}) =>
+    item(file, { started_at: NOV_19, added_at: '2026-11-19T09:08:00Z', ...over });
+  const alertDoc = (title: string, items: Record<string, unknown>[], filenames: string[]) => ({
+    alert_id: title, alert_title: title, severity: 'medium', status: 'new', created_at: '2026-11-19T09:08:00Z',
+    mitre_techniques: ['T1087'], prevention_action: 'quarantined',
+    evidence_filenames: filenames, evidence_items: items,
+  });
+  // Open since Nov 19 (stage 3 then, quarantined); stages 1 (killed) and 5 (its net.exe) in this run.
+  const spanning = () => alertDoc('Anomalous account lookups', [
+    earlier(stage3, { verdict: 'malicious', action: 'quarantined' }),
+    item(stage1, { verdict: 'malicious', action: 'process_killed' }),
+    item('net.exe', { path: 'c:\\windows\\system32', parent: stage5 }),
+  ], [stage3, `${BUNDLE}.exe`, stage1, 'net.exe', stage5]);
+  // Names the test only in the Nov 19 run; this run's item is a system process.
+  const earlierOnly = () => alertDoc('Earlier run only', [
+    earlier(stage3, { verdict: 'malicious', action: 'quarantined' }),
+    item('net.exe', { path: 'c:\\windows\\system32', parent: 'svchost.exe' }),
+  ], [stage3, `${BUNDLE}.exe`, 'net.exe', 'svchost.exe']);
+  const techniqueOnly = () => ({
+    alert_id: 'tech', alert_title: 'Technique match', severity: 'low', status: 'new', created_at: '2026-11-25T00:50:00Z',
+    mitre_techniques: ['T1087'], evidence_filenames: ['net.exe'],
+  });
+
+  /** What Elasticsearch returns for `doc` under a `_source` field list: dotted paths reach into nested objects. */
+  function sourceFiltered(doc: Record<string, unknown>, fields: unknown): Record<string, unknown> {
+    if (!Array.isArray(fields)) return doc;
+    const out: Record<string, unknown> = {};
+    for (const field of fields as string[]) {
+      const parts = field.split('.');
+      let value: unknown = doc;
+      for (const p of parts) value = (value as Record<string, unknown> | undefined)?.[p];
+      if (value === undefined) continue;
+      let target = out;
+      for (const p of parts.slice(0, -1)) target = (target[p] ??= {}) as Record<string, unknown>;
+      target[parts[parts.length - 1]] = value;
+    }
+    return out;
+  }
+
+  /** One list of docs per msearch call (tier 1, then tier 2), each hit filtered by the request's own `_source`. */
+  const answer = (...tiers: Record<string, unknown>[][]) => {
+    let call = 0;
+    msearch.mockImplementation(async ({ searches }: { searches: { _source?: unknown }[] }) => {
+      const docs = tiers[call++] ?? [];
+      return {
+        responses: Array.from({ length: searches.length / 2 }, (_, i) => ({
+          hits: { hits: docs.map((d) => ({ _source: sourceFiltered(d, searches[i * 2 + 1]._source) })) },
+        })),
+      };
+    });
+  };
+
+  beforeEach(() => {
+    msearch.mockReset();
+  });
+
+  it('lists every stage the run evidence names; stageControlId is the first; an earlier run\'s stage is left out', async () => {
+    answer([spanning()]);
+    const res = await correlateRuns(client, DEFENDER_ADAPTER, [windowRun()], { deadline: far() });
+    expect(res.alerts.get(windowRun().key)?.[0]).toMatchObject({
+      title: 'Anomalous account lookups',
+      stageControlId: 't1518.001',
+      stageControlIds: ['t1518.001', 't1136.001'],
+      // The in-run action, never the alert-wide one (which is the Nov 19 quarantine).
+      preventionAction: 'process_killed',
+    });
+  });
+
+  it('an alert naming the test only in an earlier run yields no report alert; the run falls to the technique tier', async () => {
+    answer([earlierOnly()], [techniqueOnly()]);
+    const res = await correlateRuns(client, DEFENDER_ADAPTER, [windowRun()], { deadline: far() });
+    expect(msearch).toHaveBeenCalledTimes(2);
+    expect(res.alerts.get(windowRun().key)?.map((a) => a.title)).toEqual(['Technique match']);
+    expect(res.alerts.get(windowRun().key)?.[0]).toMatchObject({ stageControlId: null, stageControlIds: [] });
+  });
+
+  it('a run without a start has no run window: the alert as it is, by name, as before', async () => {
+    answer([spanning(), earlierOnly()]);
+    const res = await correlateRuns(client, DEFENDER_ADAPTER, [windowRun(null)], { deadline: far() });
+    expect(msearch).toHaveBeenCalledTimes(1);
+    expect(res.alerts.get(windowRun().key)?.map((a) => [a.title, a.stageControlId, a.stageControlIds, a.preventionAction])).toEqual([
+      ['Anomalous account lookups', 't1047', ['t1047', 't1518.001', 't1136.001'], 'quarantined'],
+      ['Earlier run only', 't1047', ['t1047'], 'quarantined'],
+    ]);
+  });
+
+  it('a bundle-level alert has no stages', async () => {
+    answer([alertDoc('Orchestrator', [item(`${BUNDLE}.exe`, { parent: 'explorer.exe' })], [`${BUNDLE}.exe`, 'explorer.exe'])]);
+    const res = await correlateRuns(client, DEFENDER_ADAPTER, [windowRun()], { deadline: far() });
+    expect(res.alerts.get(windowRun().key)?.[0]).toMatchObject({ title: 'Orchestrator', stageControlId: null, stageControlIds: [] });
   });
 });
 
