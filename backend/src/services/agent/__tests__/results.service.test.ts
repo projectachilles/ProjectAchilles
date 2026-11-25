@@ -226,10 +226,21 @@ describe('results.service', () => {
       const indexedDoc = mockEsIndex.mock.calls[0][0].document;
       expect(indexedDoc.routing).toEqual({
         event_time: '2026-02-01T12:00:00Z',
-        run_started_at: '2026-01-01T00:00:00Z',
+        run_started_at: '2026-01-01T00:00:00.000Z',
         oid: 'org-99',
         hostname: 'host-42',
       });
+    });
+
+    // One stored form: an index maps routing.run_started_at as `date` and
+    // rejects a whole document whose value it cannot parse.
+    it.each([
+      ['RFC 3339 with no milliseconds', '2026-11-01T10:00:00Z'],
+      ['an offset (the UTC instant)', '2026-11-01T12:00:00+02:00'],
+      ['a parseable non-ISO string', 'Sun, 01 Nov 2026 10:00:00 GMT'],
+    ])('stores routing.run_started_at in UTC ISO form for %s', async (_label, startedAt) => {
+      await ingestResult(makeTask(), makeResult({ started_at: startedAt }));
+      expect(mockEsIndex.mock.calls[0][0].document.routing.run_started_at).toBe('2026-11-01T10:00:00.000Z');
     });
 
     it('omits routing.run_started_at when started_at is missing or not a date', async () => {
@@ -388,7 +399,17 @@ describe('results.service', () => {
       const ops = mockEsBulk.mock.calls[0][0].operations;
       const docs = ops.filter((_: unknown, i: number) => i % 2 === 1);
       expect(docs.length).toBeGreaterThan(1);
-      for (const d of docs) expect(d.routing.run_started_at).toBe('2026-03-01T08:00:00Z');
+      for (const d of docs) expect(d.routing.run_started_at).toBe('2026-03-01T08:00:00.000Z');
+
+      mockEsBulk.mockClear();
+      await ingestResult(makeTask(), makeResult({ started_at: '2026-03-01T10:00:00+02:00', bundle_results: makeBundle() }));
+      const offset = mockEsBulk.mock.calls[0][0].operations.filter((_: unknown, i: number) => i % 2 === 1);
+      for (const d of offset) expect(d.routing.run_started_at).toBe('2026-03-01T08:00:00.000Z');
+
+      mockEsBulk.mockClear();
+      await ingestResult(makeTask(), makeResult({ started_at: 'Sun, 01 Mar 2026 08:00:00 GMT', bundle_results: makeBundle() }));
+      const rfc2822 = mockEsBulk.mock.calls[0][0].operations.filter((_: unknown, i: number) => i % 2 === 1);
+      for (const d of rfc2822) expect(d.routing.run_started_at).toBe('2026-03-01T08:00:00.000Z');
 
       mockEsBulk.mockClear();
       await ingestResult(makeTask(), makeResult({ started_at: 'garbage', bundle_results: makeBundle() }));

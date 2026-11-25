@@ -39,6 +39,15 @@ export interface EnrichmentPassResult {
   detectionsRemoved: number;
   /** As `stageDetectionsRemoved`: docs whose `<vendor>_prevented` or `<vendor>_stage_prevented` went from true to false. */
   preventionsRemoved: number;
+  /**
+   * The `_id`s of the results on which the run-evidence re-check removed a
+   * flag, counted as the three counters above are (a bulk item answered
+   * `updated`); at most REMOVED_FLAG_DOCS_LISTED per pass. `[]` when none,
+   * and always for every other vendor.
+   */
+  removedFlagDocs: string[];
+  /** Results with a removed flag past the ones `removedFlagDocs` lists; absent when none. */
+  removedFlagDocsOmitted?: number;
   /** Per-batch errors collected non-fatally. */
   errors: string[];
   /** Wall-clock duration of the pass. */

@@ -38,6 +38,26 @@ const INITIAL_ALERT_LOOKBACK_DAYS = 90;
 const MAX_EVIDENCE_ITEMS = 1000;
 
 /**
+ * A process start before this is no start: Defender sends
+ * `0001-01-01T00:00:00Z` as a placeholder. Such an item is judged by when
+ * Defender added it (edr/runEvidence.ts).
+ */
+const EARLIEST_PROCESS_START_MS = Date.parse('2000-01-01T00:00:00Z');
+
+/** A string that parses as a date, or null. */
+const parsedTime = (v: unknown): number | null => {
+  if (typeof v !== 'string' || v === '') return null;
+  const ms = Date.parse(v);
+  return Number.isFinite(ms) ? ms : null;
+};
+
+/** The process start as received, or null when it is empty, not a date or a placeholder. */
+const processStart = (v: unknown): string | null => {
+  const ms = parsedTime(v);
+  return ms !== null && ms >= EARLIEST_PROCESS_START_MS ? (v as string) : null;
+};
+
+/**
  * Consecutive full look-back alert syncs that may end with write errors and
  * be repeated (checkpoint held) before the checkpoint moves on anyway.
  */
@@ -254,7 +274,7 @@ export class DefenderSyncService {
     const childActions: EvidenceChildAction[] = [];
     const childActionKeys = new Set<string>();
     // Each evidence item that names a file, with its times (edr/runEvidence.ts).
-    // Null when one has no time Defender added it, or past the cap.
+    // Null when one has no time Defender added it (or one that does not parse), or past the cap.
     let items: EvidenceItem[] | null = [];
     let fileItemCount = 0;
 
@@ -299,7 +319,9 @@ export class DefenderSyncService {
       if (evName) {
         fileItemCount++;
         const isProcess = !!ev.imageFile;
-        if (items && typeof ev.createdDateTime === 'string' && ev.createdDateTime !== '') {
+        // An item whose added time is missing or does not parse can never be
+        // placed in a run: the alert keeps the older rule (items null).
+        if (items && parsedTime(ev.createdDateTime) !== null) {
           items.push({
             file: evName,
             path: evFile?.filePath ? evFile.filePath.toLowerCase() : null,
@@ -308,8 +330,8 @@ export class DefenderSyncService {
             kind: isProcess ? 'process' : 'file',
             verdict: typeof ev.verdict === 'string' ? ev.verdict : null,
             action: evAction,
-            started_at: isProcess ? ev.processCreationDateTime ?? null : null,
-            added_at: ev.createdDateTime,
+            started_at: isProcess ? processStart(ev.processCreationDateTime) : null,
+            added_at: ev.createdDateTime as string,
           });
         } else {
           items = null;
@@ -614,7 +636,7 @@ export class DefenderSyncService {
     try {
       const integrationsService = new IntegrationsSettingsService();
       if (!integrationsService.isDefenderConfigured()) {
-        return { scanned: 0, detected: 0, stageDetected: 0, skipped: 0, batches: 0, alertsMarkedCorrelated: 0, stageDetectionsRemoved: 0, detectionsRemoved: 0, preventionsRemoved: 0, errors: [], durationMs: 0 };
+        return { scanned: 0, detected: 0, stageDetected: 0, skipped: 0, batches: 0, alertsMarkedCorrelated: 0, stageDetectionsRemoved: 0, detectionsRemoved: 0, preventionsRemoved: 0, removedFlagDocs: [], errors: [], durationMs: 0 };
       }
       const es = this.getEsClient();
       const settingsService = new SettingsService();
@@ -629,6 +651,10 @@ export class DefenderSyncService {
         `detectionsRemoved=${result.detectionsRemoved} preventionsRemoved=${result.preventionsRemoved} ` +
         `durationMs=${result.durationMs} errors=${result.errors.length}`,
       );
+      if (result.removedFlagDocs.length > 0) {
+        const more = result.removedFlagDocsOmitted ? ` (+${result.removedFlagDocsOmitted} more)` : '';
+        console.log(`[Defender] Run-evidence re-check removed flags on: ${result.removedFlagDocs.join(', ')}${more}`);
+      }
       for (const e of result.errors) {
         console.warn(`[Defender-Enrichment-ERROR] ${e}`);
       }
@@ -636,7 +662,7 @@ export class DefenderSyncService {
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
       console.error(`[Defender-Enrichment] pass threw: ${msg}`);
-      return { scanned: 0, detected: 0, stageDetected: 0, skipped: 0, batches: 0, alertsMarkedCorrelated: 0, stageDetectionsRemoved: 0, detectionsRemoved: 0, preventionsRemoved: 0, errors: [msg], durationMs: 0 };
+      return { scanned: 0, detected: 0, stageDetected: 0, skipped: 0, batches: 0, alertsMarkedCorrelated: 0, stageDetectionsRemoved: 0, detectionsRemoved: 0, preventionsRemoved: 0, removedFlagDocs: [], errors: [msg], durationMs: 0 };
     }
   }
 

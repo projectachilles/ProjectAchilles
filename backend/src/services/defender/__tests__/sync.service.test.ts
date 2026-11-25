@@ -75,6 +75,7 @@ vi.mock('../enrichment.service.js', () => ({
         skipped: 0,
         batches: 0,
         alertsMarkedCorrelated: 0,
+        removedFlagDocs: [],
         errors: [],
         durationMs: 0,
       };
@@ -538,6 +539,31 @@ describe('DefenderSyncService', () => {
       expect(doc.evidence_file_verdicts).toHaveLength(2);
     });
 
+    it('a file-naming item whose createdDateTime does not parse stores evidence_items: null, as one with none', async () => {
+      const doc = await syncOneAndGetDoc(alertWithEvidence([processEv, { ...fileEv, createdDateTime: 'not-a-date' }]));
+      expect(doc).toHaveProperty('evidence_items', null);
+      // The alert-wide fields are still written.
+      expect(doc.evidence_file_verdicts).toHaveLength(2);
+    });
+
+    // A process item with no usable start is judged by when Defender added it
+    // (edr/runEvidence.ts), so it is kept with started_at: null.
+    it.each([
+      ['empty', ''],
+      ['not a date', 'not-a-date'],
+      ['Defender\'s placeholder', '0001-01-01T00:00:00Z'],
+      ['before 2000-01-01', '1999-12-31T23:59:59Z'],
+    ])('a process item whose processCreationDateTime is %s is kept with started_at: null', async (_label, started) => {
+      const doc = await syncOneAndGetDoc(alertWithEvidence([{ ...processEv, processCreationDateTime: started }]));
+      expect(doc.evidence_items).toHaveLength(1);
+      expect(doc.evidence_items[0]).toMatchObject({ file: 'a1b2-t1059.exe', kind: 'process', started_at: null, added_at: '2026-11-25T00:49:14.250Z' });
+    });
+
+    it('a process item started at 2000-01-01T00:00:00Z keeps its start', async () => {
+      const doc = await syncOneAndGetDoc(alertWithEvidence([{ ...processEv, processCreationDateTime: '2000-01-01T00:00:00Z' }]));
+      expect(doc.evidence_items[0].started_at).toBe('2000-01-01T00:00:00Z');
+    });
+
     it('evidence without a file name needs no createdDateTime', async () => {
       const doc = await syncOneAndGetDoc(alertWithEvidence([
         processEv,
@@ -965,7 +991,7 @@ describe('DefenderSyncService', () => {
     it('logs how many flags the run-evidence re-check removed', async () => {
       mockEnrichmentResult = {
         scanned: 9, detected: 1, stageDetected: 1, skipped: 0, batches: 1, alertsMarkedCorrelated: 0,
-        stageDetectionsRemoved: 2, detectionsRemoved: 3, preventionsRemoved: 4, errors: [], durationMs: 5,
+        stageDetectionsRemoved: 2, detectionsRemoved: 3, preventionsRemoved: 4, removedFlagDocs: [], errors: [], durationMs: 5,
       };
       const log = vi.spyOn(console, 'log').mockImplementation(() => {});
       try {
@@ -978,6 +1004,44 @@ describe('DefenderSyncService', () => {
         log.mockRestore();
         mockEnrichmentResult = undefined;
       }
+    });
+
+    describe('the results the run-evidence re-check removed flags on', () => {
+      const pass = (over: Record<string, unknown>) => ({
+        scanned: 9, detected: 0, stageDetected: 0, skipped: 0, batches: 1, alertsMarkedCorrelated: 0,
+        stageDetectionsRemoved: 0, detectionsRemoved: 0, preventionsRemoved: 0, removedFlagDocs: [], errors: [], durationMs: 5,
+        ...over,
+      });
+      const linesOf = async () => {
+        const log = vi.spyOn(console, 'log').mockImplementation(() => {});
+        try {
+          await service.runEnrichmentPass();
+          return log.mock.calls.map((c) => String(c[0])).filter((l) => l.startsWith('[Defender]') || l.startsWith('[Defender-Enrichment]'));
+        } finally {
+          log.mockRestore();
+          mockEnrichmentResult = undefined;
+        }
+      };
+
+      it('logs one line naming them', async () => {
+        mockEnrichmentResult = pass({ detectionsRemoved: 2, removedFlagDocs: ['t1::T1003', 't2'] });
+        const lines = await linesOf();
+        expect(lines).toContain('[Defender] Run-evidence re-check removed flags on: t1::T1003, t2');
+      });
+
+      it('says how many more were removed past the 20 listed', async () => {
+        const ids = Array.from({ length: 20 }, (_, n) => `t${n + 1}`);
+        mockEnrichmentResult = pass({ detectionsRemoved: 23, removedFlagDocs: ids, removedFlagDocsOmitted: 3 });
+        const lines = await linesOf();
+        expect(lines).toContain(`[Defender] Run-evidence re-check removed flags on: ${ids.join(', ')} (+3 more)`);
+      });
+
+      it('logs no such line when none were removed', async () => {
+        mockEnrichmentResult = pass({});
+        const lines = await linesOf();
+        expect(lines.some((l) => l.includes('Run-evidence re-check'))).toBe(false);
+        expect(lines.some((l) => l.startsWith('[Defender-Enrichment]'))).toBe(true);
+      });
     });
 
     it('credits by run only once the v9 evidence-items re-sync has completed', async () => {

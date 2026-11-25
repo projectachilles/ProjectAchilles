@@ -19,6 +19,7 @@ import type { Client } from '@elastic/elasticsearch';
 import {
   buildAlertTimeWindowQuery as defenderTimeWindow,
   buildDefenderEvidenceQuery,
+  defenderPathNamesTest,
   type TestEvidenceInput,
 } from '../defender/evidence-correlation.js';
 import {
@@ -56,6 +57,11 @@ export interface VendorAdapter {
   index: string;
   buildEvidenceQuery: (input: TestEvidenceInput) => Record<string, unknown> | null;
   buildTimeWindowQuery: (fromIso: string, toIso: string) => Record<string, unknown>;
+  /**
+   * The vendor's rule for a path that names the test, the one its enrichment
+   * pass uses; without it, a path names the test when it contains the uuid.
+   */
+  pathNamesTest?: (input: { test_uuid: string; bundle_name?: string }) => (path: string) => boolean;
 }
 
 export const DEFENDER_ADAPTER: VendorAdapter = {
@@ -63,6 +69,7 @@ export const DEFENDER_ADAPTER: VendorAdapter = {
   index: DEFENDER_INDEX,
   buildEvidenceQuery: buildDefenderEvidenceQuery,
   buildTimeWindowQuery: defenderTimeWindow,
+  pathNamesTest: defenderPathNamesTest,
 };
 
 export const CROWDSTRIKE_ADAPTER: VendorAdapter = {
@@ -165,7 +172,8 @@ export function buildHostTechniqueQuery(adapter: VendorAdapter, run: Correlation
  */
 function toReportAlert(adapter: VendorAdapter, source: Record<string, unknown>, run: CorrelationRun): ReportAlert | null {
   const window = runWindow(run.startedAt, run.completedAt);
-  if (leftOutOfRun(source, run.testKey, window)) return null;
+  const pathRule = adapter.pathNamesTest?.({ test_uuid: run.testKey, bundle_name: run.bundleName });
+  if (leftOutOfRun(source, run.testKey, window, pathRule)) return null;
   const p = projectAlertHit(source, run.testKey, window);
   if (p.attribution === 'multi_test') return null;
   const stageControlIds = p.attribution === 'stage' ? p.attributed_control_ids ?? [] : [];

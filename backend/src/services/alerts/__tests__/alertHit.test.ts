@@ -230,7 +230,7 @@ describe('projectAlertHit stage action', () => {
 // reads the alert's in-run evidence (edr/runEvidence.ts) and lists every stage
 // it names, each with its own action.
 describe('projectAlertHit with a run window', () => {
-  const U = '7cc45d21-9a6e-4128-9f75-06e5167a4b80';
+  const U = 'a1b2c3d4-0000-4000-8000-00000000f001';
   const W = runWindow('2026-11-25T00:46:47Z', '2026-11-25T00:47:56Z') as RunWindow;
   const NOV_19 = '2026-11-19T09:06:46Z';
   const stage1 = `${U}-t1518.001.exe`;
@@ -367,7 +367,7 @@ describe('projectAlertHit with a run window', () => {
 });
 
 describe('leftOutOfRun', () => {
-  const U = '7cc45d21-9a6e-4128-9f75-06e5167a4b80';
+  const U = 'a1b2c3d4-0000-4000-8000-00000000f001';
   const W = runWindow('2026-11-25T00:46:47Z', '2026-11-25T00:47:56Z') as RunWindow;
   const inRun = { kind: 'process', verdict: null, action: null, started_at: '2026-11-25T00:47:26Z', added_at: '2026-11-25T00:49:10Z' };
   const old = { kind: 'process', verdict: null, action: null, started_at: '2026-11-19T09:06:46Z', added_at: '2026-11-19T09:08:00Z' };
@@ -394,6 +394,33 @@ describe('leftOutOfRun', () => {
     expect(leftOutOfRun(src, U, null)).toBe(false);
     expect(leftOutOfRun({ evidence_filenames: [`${U}-t1047.exe`] }, U, W)).toBe(false);
     expect(leftOutOfRun({ ...src, evidence_items: null }, U, W)).toBe(false);
+  });
+
+  // Final fix wave A4: the caller can pass its own "path names the test"
+  // rule (Defender: the uuid or the bundle-name token), as enrichment uses.
+  describe('with a path rule passed', () => {
+    const bundleFolder = (p: string) => p.toLowerCase().includes(U) || p.toLowerCase().includes('bluehammer');
+    const dropped = (times: Record<string, unknown>) =>
+      it_('payload.bin', 'c:\\users\\public\\bluehammersandbox', { ...times, kind: 'file', started_at: null });
+
+    it('an in-run item under a bundle-named folder keeps the alert in the run', () => {
+      const src = { evidence_items: [it_(`${U}-t1047.exe`, 'c:\\f0', old), dropped(inRun)] };
+      expect(leftOutOfRun(src, U, W, bundleFolder)).toBe(false);
+      // Today's uuid rule does not see the folder.
+      expect(leftOutOfRun(src, U, W)).toBe(true);
+    });
+
+    it('an alert naming the test only by such a folder in an earlier run is left out', () => {
+      const src = { evidence_items: [dropped(old), it_('net.exe', null, inRun, 'svchost.exe')] };
+      expect(leftOutOfRun(src, U, W, bundleFolder)).toBe(true);
+      expect(leftOutOfRun(src, U, W)).toBe(false);
+    });
+
+    it('is used in place of the uuid rule', () => {
+      const src = { evidence_items: [it_('payload.bin', `c:\\f0\\${U}\\payload.bin`, { ...old, kind: 'file', started_at: null }), it_('net.exe', null, inRun, 'svchost.exe')] };
+      expect(leftOutOfRun(src, U, W)).toBe(true);
+      expect(leftOutOfRun(src, U, W, () => false)).toBe(false);
+    });
   });
 
   it('counts a path containing the uuid as naming the test, the same as a file name', () => {

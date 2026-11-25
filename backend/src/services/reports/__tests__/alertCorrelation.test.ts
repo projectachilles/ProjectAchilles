@@ -292,6 +292,29 @@ describe('correlateRuns with a run window', () => {
     ]);
   });
 
+  // Final fix wave A4: the Defender report uses the enrichment pass's path
+  // rule (the uuid or the bundle-name token); other vendors keep the uuid rule.
+  describe('a path under a bundle-named folder', () => {
+    const named = (startedAt: string | null = STARTED): CorrelationRun => ({ ...windowRun(startedAt), bundleName: 'BlueHammer Early-Stage Behavioral Pattern' });
+    const dropped = (over: Record<string, unknown> = {}) => item('payload.bin', {
+      path: 'c:\\users\\public\\bluehammersandbox', parent: null, parent_path: null, kind: 'file', started_at: null, ...over,
+    });
+    const folderInRun = () => alertDoc('Folder in run', [earlier(stage3), dropped()], [stage3, `${BUNDLE}.exe`, 'payload.bin']);
+    const folderEarlier = () => alertDoc('Folder earlier', [dropped({ added_at: '2026-11-19T09:08:00Z' }), item('net.exe', { path: 'c:\\windows\\system32', parent: 'svchost.exe' })], ['payload.bin', 'net.exe', 'svchost.exe']);
+
+    it('Defender: an alert whose only in-run item is under the folder is kept; one with such an item only from an earlier run is left out', async () => {
+      answer([folderInRun(), folderEarlier()]);
+      const res = await correlateRuns(client, DEFENDER_ADAPTER, [named()], { deadline: far() });
+      expect(res.alerts.get(named().key)?.map((a) => a.title)).toEqual(['Folder in run']);
+    });
+
+    it('CrowdStrike keeps the uuid rule', async () => {
+      answer([folderInRun(), folderEarlier()]);
+      const res = await correlateRuns(client, CROWDSTRIKE_ADAPTER, [named()], { deadline: far() });
+      expect(res.alerts.get(named().key)?.map((a) => a.title)).toEqual(['Folder earlier']);
+    });
+  });
+
   it('a bundle-level alert has no stages', async () => {
     answer([alertDoc('Orchestrator', [item(`${BUNDLE}.exe`, { parent: 'explorer.exe' })], [`${BUNDLE}.exe`, 'explorer.exe'])]);
     const res = await correlateRuns(client, DEFENDER_ADAPTER, [windowRun()], { deadline: far() });

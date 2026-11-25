@@ -5,6 +5,7 @@ import { attackSimulationExclusions } from '../../analytics/attack-simulation-fi
 // ── Mock setup ──────────────────────────────────────────────────────
 
 const mockSearch = vi.fn();
+const mockMsearch = vi.fn();
 
 vi.mock('../../analytics/settings.js', () => ({
   SettingsService: class {
@@ -20,6 +21,7 @@ vi.mock('../../analytics/settings.js', () => ({
 vi.mock('../../analytics/client.js', () => ({
   createEsClient: () => ({
     search: mockSearch,
+    msearch: mockMsearch,
   }),
 }));
 
@@ -910,6 +912,38 @@ describe('DefenderAnalyticsService', () => {
       expect(result.overall.detectionRate).toBe(90);
       expect(result.overall.testedTechniques).toBe(2);
       expect(result.overall.detectedTechniques).toBe(1);
+    });
+  });
+
+  // Final fix wave A4: the lookup uses the enrichment pass's path rule, so a
+  // path under a bundle-named folder names the test in the run view too.
+  describe('getAlertsForTests with a run window', () => {
+    const U = 'a1b2c3d4-0000-4000-8000-00000000f001';
+    const dropped = (at: string) => ({
+      file: 'payload.bin', path: 'c:\\users\\public\\bluehammersandbox', parent: null, parent_path: null,
+      kind: 'file', verdict: 'suspicious', action: null, started_at: null, added_at: at,
+    });
+    const stage = (at: string) => ({
+      file: `${U}-t1047.exe`, path: 'c:\\f0', parent: `${U}.exe`, parent_path: 'c:\\f0',
+      kind: 'process', verdict: 'suspicious', action: null, started_at: at, added_at: at,
+    });
+    const alert = (id: string, items: Array<{ file: string }>) => ({
+      _source: {
+        alert_id: id, mitre_techniques: ['T1087'], created_at: '2026-11-25T00:49:00Z',
+        evidence_filenames: items.map((i) => i.file), evidence_items: items,
+      },
+    });
+    const request = {
+      techniques: ['T1087'], timestamp: '2026-11-25T00:47:56Z', runStartedAt: '2026-11-25T00:46:47Z', windowMinutes: 30,
+      hostname: 'win-host-01', binaryName: `${U}.exe`, bundleName: 'BlueHammer Early-Stage Behavioral Pattern',
+    };
+
+    it('keeps an alert whose only in-run item sits under the bundle-named folder', async () => {
+      mockMsearch.mockResolvedValueOnce({
+        responses: [{ hits: { total: { value: 1 }, hits: [alert('folder', [stage('2026-11-19T09:06:46Z'), dropped('2026-11-25T00:48:30Z')])] } }],
+      });
+      const [res] = await service.getAlertsForTests([request]);
+      expect(res?.alerts.map((a) => a.alert_id)).toEqual(['folder']);
     });
   });
 

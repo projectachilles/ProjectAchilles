@@ -99,11 +99,15 @@ describe('backfillRunStart', () => {
     expect(mockBulk).not.toHaveBeenCalled();
   });
 
-  it('writes the start as received', async () => {
+  it.each([
+    ['RFC 3339 with no milliseconds', '2026-11-01T10:00:00Z'],
+    ['an offset (the UTC instant)', '2026-11-01T12:00:00+02:00'],
+    ['a parseable non-ISO string', 'Sun, 01 Nov 2026 10:00:00 GMT'],
+  ])('writes the start in UTC ISO form for %s', async (_label, start) => {
     mockSearch.mockResolvedValueOnce(page(hit('t1')));
     mockBulk.mockResolvedValue({ items: [UPDATED] });
-    await backfillRunStart(client, 'i', () => new Map([['t1', '2026-11-01 10:00:00']]));
-    expect(mockBulk.mock.calls[0][0].operations[1]).toEqual({ doc: { routing: { run_started_at: '2026-11-01 10:00:00' } } });
+    await backfillRunStart(client, 'i', () => new Map([['t1', start]]));
+    expect(mockBulk.mock.calls[0][0].operations[1]).toEqual({ doc: { routing: { run_started_at: '2026-11-01T10:00:00.000Z' } } });
   });
 
   it('pages past a full page of unfillable results, overlapping the boundary by one millisecond', async () => {
@@ -201,11 +205,35 @@ describe('backfillRunStart', () => {
     expect(res.errors).toEqual(['lookup: db gone']);
   });
 
-  it('stops once maxDurationMs has passed', async () => {
+  it('stops once maxDurationMs has passed, and says the pass is incomplete', async () => {
     mockSearch.mockResolvedValueOnce(page(hit('t1')));
     const res = await backfillRunStart(client, 'i', () => new Map(), { maxDurationMs: -1 });
     expect(mockSearch).not.toHaveBeenCalled();
-    expect(res).toEqual({ scanned: 0, filled: 0, unfillable: 0, errors: [] });
+    expect(res).toEqual({ scanned: 0, filled: 0, unfillable: 0, errors: [], incomplete: true });
+  });
+
+  it('the time budget ending after a full page is incomplete', async () => {
+    const now = vi.spyOn(Date, 'now');
+    try {
+      // Deadline at 1,000; the first loop check passes, the second is past it.
+      now.mockReturnValueOnce(0).mockReturnValueOnce(0).mockReturnValue(2_000);
+      mockSearch.mockResolvedValueOnce(page(hit('u1', [10])));
+      const res = await backfillRunStart(client, 'i', () => new Map(), { pageSize: 1, maxDurationMs: 1_000 });
+      expect(mockSearch).toHaveBeenCalledTimes(1);
+      expect(res).toEqual({ scanned: 1, filled: 0, unfillable: 1, errors: [], incomplete: true });
+    } finally {
+      now.mockRestore();
+    }
+  });
+
+  it('a short or empty last page is not incomplete', async () => {
+    mockSearch.mockResolvedValueOnce(page(hit('u1', [10])));
+    const short = await backfillRunStart(client, 'i', () => new Map(), { pageSize: 2 });
+    expect(short).not.toHaveProperty('incomplete');
+
+    mockSearch.mockResolvedValueOnce(page());
+    const empty = await backfillRunStart(client, 'i', () => new Map());
+    expect(empty).not.toHaveProperty('incomplete');
   });
 });
 
@@ -235,6 +263,22 @@ describe('runRunStartBackfill', () => {
       expect(res).toEqual({ scanned: 3, filled: 1, unfillable: 2, errors: [] });
       expect(log).toHaveBeenCalledWith('[Run-Start-Backfill] scanned=3 filled=1 unfillable=2');
     } finally {
+      log.mockRestore();
+    }
+  });
+
+  it('ends the log line with incomplete=true when the time budget ended the pass, even with nothing scanned', async () => {
+    const log = vi.spyOn(console, 'log').mockImplementation(() => {});
+    const now = vi.spyOn(Date, 'now');
+    try {
+      // The deadline is set from the first reading; every later one is past it.
+      now.mockReturnValueOnce(0).mockReturnValue(10 * 60_000);
+      const res = await runRunStartBackfill();
+      expect(mockSearch).not.toHaveBeenCalled();
+      expect(res.incomplete).toBe(true);
+      expect(log).toHaveBeenCalledWith('[Run-Start-Backfill] scanned=0 filled=0 unfillable=0 incomplete=true');
+    } finally {
+      now.mockRestore();
       log.mockRestore();
     }
   });

@@ -9,6 +9,7 @@ import {
   type AlertsForTestDeps,
   type AlertsForTestRequest,
 } from '../alertsForTest.js';
+import { defenderPathNamesTest } from '../../defender/evidence-correlation.js';
 
 const deps: AlertsForTestDeps = {
   index: 'alerts-idx',
@@ -168,7 +169,7 @@ describe('answerAlertsForTests', () => {
 // Alert evidence belongs to a run (Nov 2026): an alert that names this test
 // only in an earlier run's evidence is left out of every tier.
 describe('alerts from another run', () => {
-  const U = '7cc45d21-9a6e-4128-9f75-06e5167a4b80';
+  const U = 'a1b2c3d4-0000-4000-8000-00000000f001';
   const RUN: AlertsForTestRequest = {
     techniques: ['T1087'],
     timestamp: '2026-11-25T00:47:56Z',
@@ -255,6 +256,48 @@ describe('alerts from another run', () => {
     expect(res.alerts.map((a) => a.alert_id).sort()).toEqual(['mine', 'old']);
     // By name, as today: the alert-wide list names stage 3.
     expect(res.alerts.find((a) => a.alert_id === 'old')).toMatchObject({ attributed_control_id: 't1047' });
+  });
+
+  // Final fix wave A4: with the Defender path rule in its deps the lookup
+  // treats a path under a bundle-named folder as naming the test, as the
+  // enrichment pass does.
+  describe('the deps\' path rule', () => {
+    const bundle = { ...RUN, bundleName: 'BlueHammer Early-Stage Behavioral Pattern' };
+    const dropped = (at: string) => ({
+      file: 'payload.bin', path: 'c:\\users\\public\\bluehammersandbox', parent: null, parent_path: null,
+      kind: 'file', verdict: 'suspicious', action: null, started_at: null, added_at: at,
+    });
+    const defenderDeps: AlertsForTestDeps = { ...deps, pathNamesTest: defenderPathNamesTest };
+    // Names stage 3 on Nov 19; this run's only item naming the test is the dropped file.
+    const folderInRun = () => alertHitOf('folder', [ev(`${U}-t1047.exe`, NOV_19, `${U}.exe`), dropped(NOW)]);
+    // Names the test only by the folder, on Nov 19; this run's item is a system process.
+    const folderEarlier = () => alertHitOf('folder-old', [dropped(NOV_19), ev('net.exe', NOW, 'svchost.exe')]);
+
+    it('keeps an alert whose only in-run item sits under a bundle-named folder', async () => {
+      const search = vi.fn().mockResolvedValueOnce(page(1, [folderInRun()]));
+      const res = await findAlertsForTest({ search } as never, bundle, defenderDeps);
+      expect(res.alerts.map((a) => a.alert_id)).toEqual(['folder']);
+
+      const msearch = vi.fn().mockResolvedValueOnce({ responses: [page(1, [folderInRun()])] });
+      const [batched] = await findAlertsForTests({ msearch } as never, [bundle], defenderDeps);
+      expect(batched?.alerts.map((a) => a.alert_id)).toEqual(['folder']);
+    });
+
+    it('leaves out an alert whose only such item is from an earlier run', async () => {
+      const msearch = vi.fn()
+        .mockResolvedValueOnce({ responses: [page(1, [folderEarlier()])] })
+        .mockResolvedValueOnce({ responses: [page(1, [folderEarlier()])] });
+      const [res] = await findAlertsForTests({ msearch } as never, [bundle], defenderDeps);
+      expect(res).toEqual({ alerts: [], matchedTechniques: [], total: 0 });
+    });
+
+    it('without the dep the behaviour is today\'s (the uuid rule)', async () => {
+      const search = vi.fn()
+        .mockResolvedValueOnce(page(2, [folderInRun(), folderEarlier()]))
+        .mockResolvedValueOnce(page(0));
+      const res = await findAlertsForTest({ search } as never, bundle, deps);
+      expect(res.alerts.map((a) => a.alert_id)).toEqual(['folder-old']);
+    });
   });
 
   it('every search requests whole documents, or at least evidence_items (the run view needs it)', async () => {

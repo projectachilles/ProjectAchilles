@@ -1024,6 +1024,15 @@ describe('DefenderEnrichmentService — credit by run (runScopedEvidence)', () =
     bulk.mockResolvedValue({ items: [] });
     const old = await pass(resultDoc(101, bundle), [alertHits(alertSource([item(EARLIER), dropped('2026-10-14T09:10:00Z')])), none]);
     expect(old?.defender_detected).toBeUndefined();
+
+    // The path rule is for the test level only: the stage sub-query answered
+    // with the same path-only alert gives the stage nothing.
+    vi.clearAllMocks();
+    bulk.mockResolvedValue({ items: [] });
+    const pathOnly = alertHits(alertSource([item(EARLIER), dropped('2026-10-20T10:05:00Z')]));
+    const both = await pass(resultDoc(101, bundle), [pathOnly, pathOnly]);
+    expect(both).toMatchObject({ defender_detected: true });
+    expect(both).not.toHaveProperty('defender_stage_detected');
   });
 
   it('a result without routing.run_started_at keeps today\'s rule (credited by an earlier run\'s alert)', async () => {
@@ -1348,6 +1357,71 @@ describe('DefenderEnrichmentService — credit by run (runScopedEvidence)', () =
         expect(f).toMatchObject({ defender_detected: true, defender_stage_detected: true, defender_run_rule: null });
       });
 
+      // Final fix wave A2. The 72-hour late-prevention clause can set a
+      // prevention flag on a marked, detected result in a flag-off pass, from
+      // an earlier run's action: that clears the marker too.
+      it('a flag-off pass that sets a prevention flag on a marked result clears the marker; the next flag-on pass removes it', async () => {
+        const a = alertSource([
+          item(EARLIER, { verdict: 'malicious', action: 'process_killed' }),
+          item(IN_RUN, { verdict: 'suspicious', action: null }),
+        ]);
+        const doc = stored(999, { defender_prevention_rule: 'in_run', defender_run_rule: 'run_evidence' });
+        const off = await recheck(doc, [alertHits(a), alertHits(a)], 'off');
+        expect(off.f).toEqual({
+          defender_prevented: true,
+          defender_prevention_action: 'process_killed',
+          defender_stage_prevented: true,
+          defender_run_rule: null,
+        });
+
+        vi.clearAllMocks();
+        answerBulk('updated');
+        const prevented = merged(doc, off.f!);
+        const on = await recheck(prevented, [alertHits(a), alertHits(a)], 'on');
+        // Selected again: the run clause matches a flagged result whose marker is not 'run_evidence'.
+        expect(JSON.stringify(eligibleClauses())).toContain('defender_run_rule');
+        expect(on.f).toEqual({
+          defender_stage_prevented: false,
+          defender_prevented: false,
+          defender_prevention_action: null,
+          defender_run_rule: 'run_evidence',
+        });
+        expect(removed(on.result)).toEqual([0, 0, 1]);
+      });
+
+      it('a flag-off pass that sets a prevention flag on an unmarked result writes no defender_run_rule key', async () => {
+        const a = alertSource([item(EARLIER, { verdict: 'malicious', action: 'process_killed' })]);
+        const { f } = await recheck(stored(999, { defender_prevention_rule: 'in_run' }), [alertHits(a), alertHits(a)], 'off');
+        expect(f).toMatchObject({ defender_prevented: true, defender_stage_prevented: true });
+        expect(f).not.toHaveProperty('defender_run_rule');
+      });
+
+      it('the other three vendors\' updates never carry a _run_rule key, prevention flags included', async () => {
+        const { CrowdStrikeEnrichmentService } = await import('../../crowdstrike/enrichment.service.js');
+        const { SentinelOneEnrichmentService } = await import('../../sentinelone/enrichment.service.js');
+        const { SophosEnrichmentService } = await import('../../sophos/enrichment.service.js');
+        const vendors = [
+          ['crowdstrike', (c: any) => new CrowdStrikeEnrichmentService(c, 'achilles-results-*')],
+          ['sentinelone', (c: any) => new SentinelOneEnrichmentService(c, 'achilles-results-*')],
+          ['sophos', (c: any) => new SophosEnrichmentService(c, 'achilles-results-*')],
+        ] as const;
+        const kill = { hits: { total: { value: 1 }, hits: [{ _id: 'alert-1', _source: { prevention_action: 'process_killed' } }] } };
+        for (const [prefix, makeVendor] of vendors) {
+          for (const flags of [{}, { [`${prefix}_detected`]: true, [`${prefix}_stage_detected`]: true, [`${prefix}_stage_prevented`]: false }]) {
+            vi.clearAllMocks();
+            answerBulk('updated');
+            search.mockResolvedValueOnce({ hits: { hits: [resultDoc(999, { f0rtika: flags })] } });
+            msearch.mockResolvedValueOnce({ responses: [kill, kill] });
+            await makeVendor(client).runEnrichmentPass({ batchSize: 200 });
+            const ops = (bulk.mock.calls[0]?.[0].operations ?? []) as any[];
+            const at = ops.findIndex((o) => o.update?._id === 'r1');
+            const f = ops[at + 1].doc.f0rtika as Record<string, unknown>;
+            expect(f).toMatchObject({ [`${prefix}_prevented`]: true, [`${prefix}_stage_prevented`]: true });
+            expect(Object.keys(f).filter((k) => k.endsWith('_run_rule'))).toEqual([]);
+          }
+        }
+      });
+
       it('a flag-off pass that flags an unmarked result writes no defender_run_rule key', async () => {
         const old = alertSource([item(EARLIER)]);
         const { f } = await recheck(resultDoc(101), [alertHits(old), alertHits(old)], 'off');
@@ -1396,6 +1470,47 @@ describe('DefenderEnrichmentService — credit by run (runScopedEvidence)', () =
       });
     });
 
+    // Final fix wave A6: which results lost a flag, counted as the removal counters are.
+    describe('removedFlagDocs', () => {
+      it('lists a result the re-check downgraded', async () => {
+        const old = alertSource([item(EARLIER)]);
+        const { result } = await recheck(stored(101), [alertHits(old), alertHits(old)]);
+        expect(result.removedFlagDocs).toEqual(['r1']);
+        expect(result.removedFlagDocsOmitted).toBeUndefined();
+      });
+
+      it('is empty when nothing was removed, and for an update Elasticsearch answers noop', async () => {
+        const a = alertSource([item(EARLIER), item(IN_RUN)]);
+        const kept = await recheck(stored(101), [alertHits(a), alertHits(a)]);
+        expect(kept.result.removedFlagDocs).toEqual([]);
+
+        vi.clearAllMocks();
+        answerBulk('noop');
+        const old = alertSource([item(EARLIER)]);
+        const noop = await recheck(stored(101), [alertHits(old), alertHits(old)]);
+        expect(noop.f).toMatchObject({ defender_detected: false });
+        expect(noop.result.removedFlagDocs).toEqual([]);
+        expect(noop.result.removedFlagDocsOmitted).toBeUndefined();
+      });
+
+      it('keeps at most 20 ids and counts the rest', async () => {
+        const old = alertSource([item(EARLIER)]);
+        const docs = Array.from({ length: 25 }, (_, n) => ({ ...stored(101), _id: `r${n + 1}` }));
+        search.mockResolvedValueOnce({ hits: { hits: docs } });
+        msearch.mockResolvedValueOnce({ responses: docs.flatMap(() => [alertHits(old), alertHits(old)]) });
+        const result = await make('on').runEnrichmentPass({ batchSize: 200 });
+        expect(result.detectionsRemoved).toBe(25);
+        expect(result.removedFlagDocs).toEqual(Array.from({ length: 20 }, (_, n) => `r${n + 1}`));
+        expect(result.removedFlagDocsOmitted).toBe(5);
+      });
+
+      it('is empty with the flag off', async () => {
+        const old = alertSource([item(EARLIER)]);
+        const { result } = await recheck(stored(101), [alertHits(old), alertHits(old)], 'off');
+        expect(result.removedFlagDocs).toEqual([]);
+      });
+    });
+
     it('a failed update is not counted as a removal', async () => {
       bulk.mockImplementation(async ({ operations }: { operations: any[] }) => ({
         items: operations.filter((o) => 'update' in o).map(() => ({ update: { error: { reason: 'version conflict' } } })),
@@ -1403,6 +1518,7 @@ describe('DefenderEnrichmentService — credit by run (runScopedEvidence)', () =
       const old = alertSource([item(EARLIER)]);
       const { result } = await recheck(stored(101), [alertHits(old), alertHits(old)]);
       expect(removed(result)).toEqual([0, 0, 0]);
+      expect(result.removedFlagDocs).toEqual([]);
       expect(result.errors.length).toBeGreaterThan(0);
     });
   });

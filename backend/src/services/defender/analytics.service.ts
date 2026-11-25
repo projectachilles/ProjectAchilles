@@ -4,7 +4,7 @@
 import { SettingsService } from '../analytics/settings.js';
 import { getSharedEsClient } from '../analytics/sharedClient.js';
 import { DEFENDER_INDEX } from './index-management.js';
-import { buildAlertTimeWindowQuery, buildDefenderEvidenceQuery } from './evidence-correlation.js';
+import { buildAlertTimeWindowQuery, buildDefenderEvidenceQuery, defenderPathNamesTest } from './evidence-correlation.js';
 import { attackSimulationExclusions } from '../analytics/attack-simulation-filter.js';
 import { NOT_STAGELESS } from '../analytics/enrichment-eligibility.js';
 import { findAlertsForTest, findAlertsForTests, type AlertsForTestDeps, type AlertsForTestRequest } from '../alerts/alertsForTest.js';
@@ -960,6 +960,8 @@ export class DefenderAnalyticsService {
     index: DEFENDER_INDEX,
     buildEvidenceQuery: buildDefenderEvidenceQuery,
     buildTimeWindow: buildAlertTimeWindowQuery,
+    // The enrichment pass's rule for a path naming the test (uuid or bundle-name token).
+    pathNamesTest: defenderPathNamesTest,
   };
 
   /**

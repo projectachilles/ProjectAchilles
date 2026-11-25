@@ -48,6 +48,13 @@ export interface AlertsForTestDeps {
   index: string;
   buildEvidenceQuery: (input: EvidenceQueryInput) => Record<string, unknown> | null;
   buildTimeWindow: (fromIso: string, toIso: string) => Record<string, unknown>;
+  /**
+   * The vendor's rule for a path that names the test, the one its enrichment
+   * pass uses (Defender: `defenderPathNamesTest`). With a run window it decides
+   * which paths count when an alert is left out of the run; without it, a
+   * path names the test when it contains the uuid.
+   */
+  pathNamesTest?: (input: { test_uuid: string; bundle_name?: string }) => (path: string) => boolean;
 }
 
 type AlertItem = ReturnType<typeof projectAlertHit>;
@@ -129,15 +136,20 @@ export function alertsForTestTiers(req: AlertsForTestRequest, deps: AlertsForTes
  * Project hits, collect matched techniques, sort by proximity to the run.
  * Alerts left out of the run are dropped first; `total` counts what is kept.
  */
-export function toAlertsForTestResult(req: AlertsForTestRequest, page: HitsPage): AlertsForTestResult {
+export function toAlertsForTestResult(
+  req: AlertsForTestRequest,
+  page: HitsPage,
+  pathNamesTest?: AlertsForTestDeps['pathNamesTest'],
+): AlertsForTestResult {
   const testTime = new Date(req.timestamp).getTime();
   // Stage attribution: alerts naming `<uuid>-<technique>.exe` vs the bundle.
   const bundleUuid = req.binaryName ? req.binaryName.toLowerCase().replace(/\.exe$/, '') : '';
   const window = runWindow(req.runStartedAt, req.timestamp);
+  const pathRule = pathNamesTest?.({ test_uuid: bundleUuid, bundle_name: req.bundleName });
   const matched = new Set<string>();
   const alerts = (page.hits?.hits ?? [])
     .map((hit) => (hit._source ?? {}) as Record<string, unknown>)
-    .filter((source) => !leftOutOfRun(source, bundleUuid, window))
+    .filter((source) => !leftOutOfRun(source, bundleUuid, window, pathRule))
     .map((source) => {
       // Report the test's own id even when the alert used a renumbered one.
       for (const t of (source.mitre_techniques as string[] | undefined) ?? []) {
@@ -163,7 +175,7 @@ export async function findAlertsForTest(
   let result = toAlertsForTestResult(req, {});
   for (const body of tiers) {
     const page = (await client.search({ index: deps.index, ...body } as never)) as HitsPage;
-    result = toAlertsForTestResult(req, page);
+    result = toAlertsForTestResult(req, page, deps.pathNamesTest);
     if (result.alerts.length > 0) break;
   }
   return result;
@@ -204,7 +216,7 @@ export async function findAlertsForTests(
         return;
       }
       // Decide on the alerts kept, not on the raw hit count.
-      lastResult[i] = toAlertsForTestResult(reqs[i], page);
+      lastResult[i] = toAlertsForTestResult(reqs[i], page, deps.pathNamesTest);
       if (lastResult[i].alerts.length > 0 || tier === plans[i].length - 1) results[i] = lastResult[i];
     });
   }

@@ -9,7 +9,14 @@ import { SettingsService } from '../analytics/settings.js';
 import { createEsClient } from '../analytics/client.js';
 import { getDatabase } from './database.js';
 
-export interface RunStartBackfillResult { scanned: number; filled: number; unfillable: number; errors: string[] }
+export interface RunStartBackfillResult {
+  scanned: number;
+  filled: number;
+  unfillable: number;
+  errors: string[];
+  /** The time budget ended the pass (not a short or empty page): the next start-up goes on. */
+  incomplete?: true;
+}
 export interface RunStartBackfillOptions { days?: number; pageSize?: number; maxDurationMs?: number }
 
 const DEFAULT_DAYS = 90;
@@ -55,7 +62,11 @@ export async function backfillRunStart(
   let stalled = false;
 
   try {
-    while (Date.now() < deadline) {
+    for (;;) {
+      if (Date.now() >= deadline) {
+        result.incomplete = true;
+        break;
+      }
       let hits: Hit[];
       try {
         const res = await client.search({
@@ -101,7 +112,8 @@ export async function backfillRunStart(
           continue;
         }
         operations.push({ update: { _index: h._index, _id: h._id, retry_on_conflict: 3 } });
-        operations.push({ doc: { routing: { run_started_at: start } } });
+        // One stored form (UTC ISO), as ingestion writes it.
+        operations.push({ doc: { routing: { run_started_at: new Date(start).toISOString() } } });
       }
 
       if (operations.length > 0) {
@@ -171,8 +183,11 @@ export async function runRunStartBackfill(): Promise<RunStartBackfillResult> {
     const settings = new SettingsService().getSettings();
     if (!settings.configured) return { scanned: 0, filled: 0, unfillable: 0, errors: [] };
     const result = await backfillRunStart(createEsClient(settings), settings.indexPattern, lookupStartedAt);
-    if (result.scanned > 0) {
-      console.log(`[Run-Start-Backfill] scanned=${result.scanned} filled=${result.filled} unfillable=${result.unfillable}`);
+    if (result.scanned > 0 || result.incomplete) {
+      console.log(
+        `[Run-Start-Backfill] scanned=${result.scanned} filled=${result.filled} unfillable=${result.unfillable}`
+        + (result.incomplete ? ' incomplete=true' : ''),
+      );
     }
     for (const e of result.errors.slice(0, 5)) console.warn(`[Run-Start-Backfill-ERROR] ${e}`);
     return result;

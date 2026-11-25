@@ -128,13 +128,21 @@ const strongest = (actions: string[]): string | undefined =>
 const strings = (v: unknown): string[] => (Array.isArray(v) ? v.filter((x): x is string => typeof x === 'string') : []);
 
 /**
- * The alert names test `bundleUuid` (a file name, or a path containing the
- * uuid) only in another run's evidence, none in this run's: it is not this
- * run's alert. False without a run view (edr/runEvidence.ts isOtherRunAlert).
+ * The alert names test `bundleUuid` (a file name, or a path naming the test)
+ * only in another run's evidence, none in this run's: it is not this run's
+ * alert. False without a run view (edr/runEvidence.ts isOtherRunAlert).
+ * `pathNamesTest` is the vendor's rule for a path naming the test, the one its
+ * enrichment pass uses (Defender: the uuid or the bundle-name token); without
+ * it, a path names the test when it contains the uuid.
  */
-export function leftOutOfRun(source: Record<string, unknown>, bundleUuid: string, window: RunWindow | null): boolean {
+export function leftOutOfRun(
+  source: Record<string, unknown>,
+  bundleUuid: string,
+  window: RunWindow | null,
+  pathNamesTest?: (path: string) => boolean,
+): boolean {
   const uuid = bundleUuid.toLowerCase();
-  return isOtherRunAlert(source, window, uuid, (path) => path.toLowerCase().includes(uuid));
+  return isOtherRunAlert(source, window, uuid, pathNamesTest ?? ((path) => path.toLowerCase().includes(uuid)));
 }
 
 export function projectAlertHit(

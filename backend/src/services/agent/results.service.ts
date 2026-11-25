@@ -164,10 +164,14 @@ export function testVersionField(
   return version ? { test_version: version } : {};
 }
 
-/** `routing.run_started_at` fragment: the ISO string as received, or nothing when it is not a date. */
+/**
+ * `routing.run_started_at` fragment: the start in UTC ISO form, or nothing when
+ * it is not a date. One stored form, because an index that maps the field as
+ * `date` rejects the whole document over a value it cannot parse.
+ */
 function runStartedAtField(startedAt: unknown): { run_started_at: string } | Record<string, never> {
   return typeof startedAt === 'string' && startedAt !== '' && !Number.isNaN(new Date(startedAt).getTime())
-    ? { run_started_at: startedAt }
+    ? { run_started_at: new Date(startedAt).toISOString() }
     : {};
 }
 

@@ -96,6 +96,9 @@ const PREVENTION_ACTIONS = new Set(['quarantined', 'process_killed', 'blocked'])
  */
 export const DEFAULT_RECHECK_UNPREVENTED_HOURS = 72;
 
+/** Result ids a pass lists in `removedFlagDocs`; past this it only counts them (`removedFlagDocsOmitted`). */
+export const REMOVED_FLAG_DOCS_LISTED = 20;
+
 /** Distinct prevention actions per alert sub-query (aggregated over every matching alert). */
 const PREVENTION_ACTION_BUCKETS = 10;
 
@@ -177,6 +180,7 @@ export class EdrAlertEnrichmentService {
       stageDetectionsRemoved: 0,
       detectionsRemoved: 0,
       preventionsRemoved: 0,
+      removedFlagDocs: [],
       errors: [],
       durationMs: 0,
     };
@@ -453,7 +457,7 @@ export class EdrAlertEnrichmentService {
         if (updatesByHitId.size > 0) {
           const operations: unknown[] = [];
           const testOpMeta: Array<{
-            kind: 'test' | 'alert'; alertId?: string; wide: boolean; stage: boolean;
+            kind: 'test' | 'alert'; alertId?: string; docId?: string; wide: boolean; stage: boolean;
             /** Run view only: the flags this update turns from true to false. */
             removed?: { stage: boolean; wide: boolean; prevention: boolean };
           }> = [];
@@ -621,13 +625,15 @@ export class EdrAlertEnrichmentService {
               // it gets the marker alone instead of being selected forever.
               f0rtika[`${v}_run_rule`] = RUN_RULE;
             }
-            // A pass without a run view that sets a detection flag on a marked
-            // result: the marker no longer vouches for that flag, so it is
-            // cleared and the run rule re-checks the result once it is back.
+            // A pass without a run view that sets a detection or prevention
+            // flag on a marked result (the late-prevention clause can bring an
+            // earlier run's action): the marker no longer vouches for that
+            // flag, so it is cleared and the run rule re-checks the result
+            // once it is back.
             if (
               !runView
               && existing[`${v}_run_rule`] === RUN_RULE
-              && (f0rtika[`${v}_detected`] === true || f0rtika[`${v}_stage_detected`] === true)
+              && [`${v}_detected`, `${v}_stage_detected`, `${v}_prevented`, `${v}_stage_prevented`].some((k) => f0rtika[k] === true)
             ) {
               f0rtika[`${v}_run_rule`] = null;
             }
@@ -644,7 +650,7 @@ export class EdrAlertEnrichmentService {
                   prevention: gone(`${v}_prevented`) || gone(`${v}_stage_prevented`),
                 }
                 : undefined;
-              testOpMeta.push({ kind: 'test', wide, stage, removed });
+              testOpMeta.push({ kind: 'test', docId: u.hit._id, wide, stage, removed });
             }
 
             // Alert-doc updates (dedup per batch)
@@ -687,6 +693,10 @@ export class EdrAlertEnrichmentService {
                     if (meta.removed.stage) result.stageDetectionsRemoved += 1;
                     if (meta.removed.wide) result.detectionsRemoved += 1;
                     if (meta.removed.prevention) result.preventionsRemoved += 1;
+                    if (meta.removed.stage || meta.removed.wide || meta.removed.prevention) {
+                      if (result.removedFlagDocs.length < REMOVED_FLAG_DOCS_LISTED) result.removedFlagDocs.push(String(meta.docId));
+                      else result.removedFlagDocsOmitted = (result.removedFlagDocsOmitted ?? 0) + 1;
+                    }
                   }
                 } else if (meta?.kind === 'alert') {
                   result.alertsMarkedCorrelated += 1;
