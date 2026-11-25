@@ -278,7 +278,11 @@ POST /api/analytics/defender/correlation/alerts-for-tests
   with no start time) that Defender added from 60 s before the start to 30
   minutes after `timestamp`. An alert that names the test (a test binary, or a
   path holding the test's uuid or its bundle-name token) only in an earlier
-  run's evidence is left out. Without it the older name-based rule applies. Each
+  run's evidence is left out. With it the alert lookup also finds an alert
+  whose recorded activity (first to last) overlaps the run, from 5 minutes
+  before the start to 30 minutes after `timestamp`, not only one created or
+  updated near `timestamp`; an alert found only that way is listed only through
+  evidence of that run. Without it the older name-based rule applies. Each
   alert in the response carries `attributed_control_ids` (every stage it has
   evidence for, in this run when a run is given; `attributed_control_id` is the
   first of them) and `stage_actions` (stage to the strongest action on that

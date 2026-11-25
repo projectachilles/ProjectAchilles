@@ -131,20 +131,33 @@ Results flagged before this rule are checked once more, under the run rule: a
 result with a detection flag and a run start loses a flag only when the run's
 own alert lookup still finds at least one alert for it and none of the alerts
 found counts for its run. The result carries
-`f0rtika.defender_run_rule: 'run_evidence'` once checked. Stored labels, and past
-Defense Scores that include them, can change once when this check runs.
+`f0rtika.defender_run_rule: 'run_activity'` once checked. Results checked by the
+previous release (marked `run_evidence`) are checked once more. Stored labels,
+and past Defense Scores that include them, can change once when this check runs.
 
-This check has a known limit. The check, the alert list under a stage and the
-execution report all find a run's alerts through the same time window, which
-matches a Defender alert only when it was created, or last updated, between 5 minutes
-before and 30 minutes after the run's end (the result's event time). A
-long-open alert has one last-update time, which moves each time Defender adds
-evidence to it. For an older run whose alert has since been updated by a later
-run, the lookup no longer finds the alert, unless the alert was created during
-that run. The stored flag then stays as it is, and the stage can show an alert
-chip beside an empty alert list. Of the runs one long-open alert collected,
-only the run it was created in and about the most recent one are checked
-against it.
+The check, the alert list under a stage and the execution report find a run's
+alerts in two ways. A Defender alert is found when it was created, or last
+updated, between 5 minutes before and 30 minutes after the run's end (the
+result's event time), or when the alert's recorded activity (first to last)
+overlaps the run, from 5 minutes before the run's start to 30 minutes after its
+end. The second way needs a known run start; the enrichment pass uses it only
+after the alert re-sync has finished. An alert found only by its activity
+counts, and is listed, only through evidence of that run; without per-item
+evidence it is ignored. So an alert Defender raised long after the activity
+still reaches its run, and every run of a long-open alert is judged.
+
+Known limits of this lookup:
+
+- A later run that Defender re-detects without adding a new evidence item gets
+  no credit for that run.
+- An alert raised late whose only evidence is a file is still not credited.
+- Activity recorded more than 30 minutes after the run's end, or a process
+  starting more than 5 minutes after the alert's last activity, is not found.
+- Past the first 100 alerts of one query, only alerts found by alert time count
+  the older way.
+- The technique-only step of the alert list, and CrowdStrike, SentinelOne and
+  Sophos, are unchanged.
+- A result older than 90 days is not revisited.
 
 **Late actions.** EDRs often add the action after the alert was first
 matched: Defender updates the alert's remediation status, SentinelOne adds
