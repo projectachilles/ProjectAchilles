@@ -34,7 +34,7 @@ An alert is a candidate for auto-resolve only when **all** of these hold:
 
 | Condition | Why |
 |---|---|
-| `f0rtika.achilles_correlated == true` | The enrichment pass tied the alert to an Achilles test execution (bundle-UUID match in evidence within the time window). |
+| `f0rtika.achilles_correlated == true` | The enrichment pass tied the alert to an Achilles test execution (bundle-UUID match in evidence within the time window). An alert found only by its recorded activity is marked, and so can be auto-resolved, only when it counts for the run. |
 | `status == "new"` | Defender hasn't acted on the alert yet, and no human has acknowledged it. |
 | `f0rtika.auto_resolved != true` | The alert hasn't already been processed by a previous pass (idempotency). |
 
