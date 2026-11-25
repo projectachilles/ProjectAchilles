@@ -13,7 +13,9 @@ import {
 import type { EnrichmentPassOptions, EnrichmentPassResult } from '../../types/edr.js';
 import { isAchillesMitigated, ACHILLES_MITIGATION_FIELDS, ACHILLES_MITIGATED_QUERY } from '../shared/achillesMitigation.js';
 import { alertCredit, isStageFile, isTestFile, MULTI_TEST_EVIDENCE_FIELDS } from './multiTestEvidence.js';
-import { alertCreditForRun, EVIDENCE_ITEMS_FIELD, runWindow, type RunWindow } from './runEvidence.js';
+import {
+  alertCreditForRun, EVIDENCE_ITEMS_FIELD, foundBySpanOnly, runWindow, spanHitUnusable, type RunWindow,
+} from './runEvidence.js';
 import { enrichmentEligibleClauses } from '../analytics/enrichment-eligibility.js';
 import type { EdrVendorKey } from '../outcomes/vendors.js';
 
@@ -77,7 +79,7 @@ export const PREVENTION_RULE = 'in_run';
  * so a flag that only an earlier run's evidence supported goes when the
  * alerts are still in the index and none counts for this run.
  */
-export const RUN_RULE = 'run_evidence';
+export const RUN_RULE = 'run_activity';
 
 /**
  * Prevention actions that count as vendor-confirmed PREVENTION (vs.
@@ -112,6 +114,13 @@ export interface EvidenceQueryBuilders {
    * path still names the test).
    */
   pathNamesTest?: (input: { test_uuid: string; bundle_name?: string }) => (path: string) => boolean;
+  /**
+   * The vendor's unnamed alert-time clause for a result's end time (null when
+   * the time is not a date). Present = the builders take `run_started_at`
+   * and add the activity-span way in (runScopedEvidence only). The shared
+   * builders define none, so the other vendors keep today's queries.
+   */
+  alertTime?: (routingEventTime: string) => Record<string, unknown> | null;
 }
 
 /**
@@ -149,7 +158,9 @@ export interface EnrichmentVendorTarget {
    * own run (edr/runEvidence.ts): the alert sub-queries also fetch
    * `evidence_items`, and the run window is the scanned result's
    * `routing.run_started_at` .. `routing.event_time`. A result without a run
-   * start, or an alert without items, keeps the rule as it was. Defender sets
+   * start keeps the rule as it was; so does an alert found by its own
+   * created/updated time that has no items, whereas an alert found only by its
+   * activity span and without items is treated as not returned. Defender sets
    * it once its v9 re-sync has completed; off (default), nothing changes.
    */
   runScopedEvidence?: boolean;
@@ -222,6 +233,12 @@ export class EdrAlertEnrichmentService {
         kind: 'wide' | 'stage'; hit: any; body: Record<string, unknown>; bundleUuid: string; controlId: string;
         /** runScopedEvidence only: the result's run window (null = no run view) and the wide query's path rule. */
         window: RunWindow | null; pathNamesTest?: (path: string) => boolean;
+        /**
+         * Span form: the query also finds alerts by their activity span (named
+         * clauses), and `alertTimeClause` is the unnamed alert-time clause the
+         * aggregation counts by. Decided per result, for both sub-queries.
+         */
+        spanForm: boolean; alertTimeClause: Record<string, unknown> | null;
       };
       const queries: SubQuery[] = [];
       /** Sub-queries queued per result doc (the run marker needs every one answered). */
@@ -230,17 +247,27 @@ export class EdrAlertEnrichmentService {
         const src = hit._source?.f0rtika ?? {};
         const routing = hit._source?.routing ?? {};
         const testUuid = src.test_uuid ?? '';
+        const window = this.runWindowOf(hit);
+        // Span form: crediting by run, a vendor whose builders take the run
+        // start, a run window, and a usable end time.
+        const alertTimeClause = this.target.runScopedEvidence && window !== null
+          ? this.evidenceQueries.alertTime?.(routing.event_time ?? '') ?? null
+          : null;
+        const spanForm = alertTimeClause !== null;
+        const runStart = spanForm ? { run_started_at: routing.run_started_at } : {};
         const wideQuery = this.evidenceQueries.wide({
           test_uuid: testUuid,
           routing_event_time: routing.event_time ?? '',
           routing_hostname: routing.hostname ?? '',
           bundle_name: src.bundle_name,
+          ...runStart,
         });
         const stageQuery = this.evidenceQueries.stage({
           test_uuid: testUuid,
           routing_event_time: routing.event_time ?? '',
           routing_hostname: routing.hostname ?? '',
           control_id: src.control_id ?? '',
+          ...runStart,
         });
         if (!wideQuery && !stageQuery) {
           // No usable query at all (probably malformed input).
@@ -249,12 +276,12 @@ export class EdrAlertEnrichmentService {
         }
         const bundleUuid = extractBundleUuid(testUuid);
         const controlId = String(src.control_id ?? '');
-        const window = this.runWindowOf(hit);
         const pathNamesTest = this.target.runScopedEvidence
           ? this.evidenceQueries.pathNamesTest?.({ test_uuid: testUuid, bundle_name: src.bundle_name })
           : undefined;
-        if (wideQuery)  queries.push({ kind: 'wide',  hit, body: wideQuery,  bundleUuid, controlId, window, pathNamesTest });
-        if (stageQuery) queries.push({ kind: 'stage', hit, body: stageQuery, bundleUuid, controlId, window });
+        const common = { hit, bundleUuid, controlId, window, spanForm, alertTimeClause };
+        if (wideQuery)  queries.push({ kind: 'wide',  body: wideQuery,  pathNamesTest, ...common });
+        if (stageQuery) queries.push({ kind: 'stage', body: stageQuery, ...common });
         queuedByHitId.set(hit._id, (wideQuery ? 1 : 0) + (stageQuery ? 1 : 0));
       }
 
@@ -276,19 +303,22 @@ export class EdrAlertEnrichmentService {
           const preventionFilter = this.target.ignoreAchillesMitigated
             ? { bool: { must_not: [ACHILLES_MITIGATED_QUERY] } }
             : { match_all: {} };
+          // Every matching alert's action, not just the hits returned: a
+          // stage with many alerts (a LOLBin storm) can have its one
+          // kill / quarantine outside the first EVIDENCE_HITS_PER_SUBQUERY.
+          const prevention = {
+            filter: preventionFilter,
+            aggs: { actions: { terms: { field: 'prevention_action', size: PREVENTION_ACTION_BUCKETS } } },
+          };
           searches.push({
             size: EVIDENCE_HITS_PER_SUBQUERY,
             _source: source,
             query: q.body,
-            // Every matching alert's action, not just the hits returned: a
-            // stage with many alerts (a LOLBin storm) can have its one
-            // kill / quarantine outside the first EVIDENCE_HITS_PER_SUBQUERY.
-            aggs: {
-              prevention: {
-                filter: preventionFilter,
-                aggs: { actions: { terms: { field: 'prevention_action', size: PREVENTION_ACTION_BUCKETS } } },
-              },
-            },
+            // Span form: only alerts found by alert time count unread (the
+            // old way), so the count and the actions are taken over them.
+            aggs: q.spanForm && q.alertTimeClause
+              ? { alert_time: { filter: q.alertTimeClause, aggs: { prevention } } }
+              : { prevention },
           });
         }
 
@@ -330,13 +360,20 @@ export class EdrAlertEnrichmentService {
           /** Alerts the wide query matched, and how many of them count for this test. */
           wideHitsAll: number;
           wideHitsCounting: number;
+          /**
+           * Span form: the sub-query left matches found only by span unread.
+           * Nobody judged them (one may hold this run's evidence), so no stored
+           * flag is removed on the strength of that kind.
+           */
+          stageUnjudged: boolean;
+          wideUnjudged: boolean;
           /** Sub-queries that answered this pass. */
           answered: number;
         }
         const emptyUpdate = (hit: any, bundleUuid: string): PerHitUpdate => ({
           hit, bundleUuid, wideMatched: false, stageMatched: false, alertIds: new Set(), stageActions: [], wideActions: [],
           correlatedAlertIds: new Set(), stageQueried: false, stageHitsAll: 0, stageHitsSingle: 0,
-          wideQueried: false, wideHitsAll: 0, wideHitsCounting: 0, answered: 0,
+          wideQueried: false, wideHitsAll: 0, wideHitsCounting: 0, stageUnjudged: false, wideUnjudged: false, answered: 0,
         });
         const updatesByHitId = new Map<string, PerHitUpdate>();
         const responses = (msearchResponse as any).responses ?? [];
@@ -363,6 +400,13 @@ export class EdrAlertEnrichmentService {
           if (total === 0) continue;
 
           const allHits = (resp.hits?.hits ?? []) as any[];
+          // Span form: a hit found by its activity span only that the run rule
+          // cannot judge (no run window, or no item list) is treated as if the
+          // query had not returned it, so the name rule never gets wider: not
+          // found, not crediting, its id not collected, never stamped.
+          const usableHits = q.spanForm
+            ? allHits.filter((h) => !(foundBySpanOnly(h) && spanHitUnusable(h._source ?? {}, q.window)))
+            : allHits;
           // Which alerts count (multiTestEvidence.ts): a single-test alert
           // always; a multi-test one only through the vendor's verdict on this
           // stage's binary (stage query) or on any of this test's files (wide).
@@ -375,7 +419,7 @@ export class EdrAlertEnrichmentService {
           // counts (edr/runEvidence.ts); the wide query also keeps a match by
           // a path naming the test.
           const ownActionsOnly = q.kind === 'stage';
-          const credited = allHits
+          const credited = usableHits
             .map((h) => ({
               h,
               credit: this.target.runScopedEvidence
@@ -385,17 +429,31 @@ export class EdrAlertEnrichmentService {
             .filter((c) => c.credit.counts);
           const alertHits = credited.map((c) => c.h);
           // Alerts beyond the hits read can't be classified: they count, as
-          // every match did before the multi-test rules.
-          const unread = Math.max(0, total - allHits.length);
+          // every match did before the multi-test rules. In the span form only
+          // those found by alert time do (the `alert_time` aggregation counts
+          // them over every match, less the ones read): an unread span-only
+          // match has no items to judge, so it is treated as not returned.
+          const alertTimeAgg = resp.aggregations?.alert_time;
+          const byAlertTime = typeof alertTimeAgg?.doc_count === 'number' ? alertTimeAgg.doc_count : 0;
+          const unread = q.spanForm
+            ? Math.max(0, byAlertTime - allHits.filter((h) => !foundBySpanOnly(h)).length)
+            : Math.max(0, total - allHits.length);
           const counting = alertHits.length + unread;
+          // Span form: the matches left unread beyond the alert-time ones were
+          // found only by span. Not crediting, but judged by nobody.
+          const unreadSpanOnly = q.spanForm ? Math.max(0, (total - allHits.length) - unread) : 0;
           if (q.kind === 'stage') {
-            entry.stageHitsAll += allHits.length + unread;
+            entry.stageHitsAll += usableHits.length + unread;
             entry.stageHitsSingle += counting;
+            if (unreadSpanOnly > 0) entry.stageUnjudged = true;
           } else {
-            entry.wideHitsAll += allHits.length + unread;
+            entry.wideHitsAll += usableHits.length + unread;
             entry.wideHitsCounting += counting;
+            if (unreadSpanOnly > 0) entry.wideUnjudged = true;
           }
-          const alertIds = allHits
+          // Span form: an alert found only by span is stamped (and so can be
+          // auto-resolved) by this result only when it counts for the run.
+          const alertIds = (q.spanForm ? usableHits.filter((h) => !foundBySpanOnly(h) || alertHits.includes(h)) : usableHits)
             .map((h) => h._id)
             .filter((id): id is string => typeof id === 'string');
           // Prevention-flag qualification rule (docs/edr-prevention-action-detection.md):
@@ -412,9 +470,11 @@ export class EdrAlertEnrichmentService {
             .filter((c) => !(this.target.ignoreAchillesMitigated && isAchillesMitigated(c.h._source)))
             .flatMap((c) => c.credit.actions ?? [c.h._source?.prevention_action]);
           // The aggregation can't tell multi-test alerts apart: it is used
-          // only when more alerts matched than the query could read.
-          const aggUsable = total > allHits.length;
-          const aggActions = aggUsable ? ((resp.aggregations?.prevention?.actions?.buckets ?? []) as any[]).map((b) => b.key) : [];
+          // only when more alerts matched than the query could read (span
+          // form: only when some found by alert time were left unread).
+          const aggUsable = q.spanForm ? unread > 0 : total > allHits.length;
+          const aggBuckets = q.spanForm ? alertTimeAgg?.prevention?.actions?.buckets : resp.aggregations?.prevention?.actions?.buckets;
+          const aggActions = aggUsable ? ((aggBuckets ?? []) as any[]).map((b) => b.key) : [];
           // A result that exited 101 ran to completion: whatever the EDR did
           // (often after the stage had finished) is detection, not prevention,
           // at stage and test level alike.
@@ -432,7 +492,7 @@ export class EdrAlertEnrichmentService {
           if (q.kind === 'wide' && counting > 0) entry.wideMatched = true;
           if (q.kind === 'stage' && counting > 0) entry.stageMatched = true;
           for (const id of alertIds) entry.alertIds.add(id);
-          for (const h of allHits) if (typeof h._id === 'string' && h._source?.f0rtika?.achilles_correlated === true) entry.correlatedAlertIds.add(h._id);
+          for (const h of usableHits) if (typeof h._id === 'string' && h._source?.f0rtika?.achilles_correlated === true) entry.correlatedAlertIds.add(h._id);
           if (q.kind === 'stage') entry.stageActions.push(...preventionActions);
           else if (preventionQualifies) entry.wideActions.push(...preventionActions);
         }
@@ -519,14 +579,15 @@ export class EdrAlertEnrichmentService {
             } else if (
               existing[`${v}_stage_detected`] === true
               && existing[`${v}_stage_prevented`] === undefined
-              && u.stageQueried && u.stageHitsAll > 0
+              && u.stageQueried && !u.stageUnjudged && u.stageHitsAll > 0
             ) {
               // An older stage with an action on record whose stage alerts are
               // still in the index but none counts for it any more (a multi-test
               // alert that blocked another test's file): the evidence is there
               // and gives it no action of its own, so settle it. Without this,
               // the verdicts' fallback (stage detected + a confirmed action)
-              // keeps calling it Prevented.
+              // keeps calling it Prevented. Not while span-only matches were
+              // left unread (stageUnjudged): one may hold the stage's action.
               f0rtika[`${v}_stage_prevented`] = false;
             }
             // Single-test stage rule (multiTestEvidence.ts). A stage stored
@@ -539,7 +600,7 @@ export class EdrAlertEnrichmentService {
             // re-arms it (then "counts" means: from this run's evidence).
             if (u.stageQueried && (existing[`${v}_stage_rule`] !== STAGE_RULE || runRecheck)) {
               const wasStage = existing[`${v}_stage_detected`] === true;
-              if (wasStage && u.stageHitsAll > 0 && u.stageHitsSingle === 0) {
+              if (wasStage && !u.stageUnjudged && u.stageHitsAll > 0 && u.stageHitsSingle === 0) {
                 f0rtika[`${v}_stage_detected`] = false;
                 f0rtika[`${v}_stage_prevented`] = false;
                 const code = u.hit._source?.event?.ERROR as number | undefined;
@@ -558,7 +619,7 @@ export class EdrAlertEnrichmentService {
             // (aged out): nothing is downgraded. The run rule re-arms it.
             if (u.wideQueried && (existing[`${v}_evidence_rule`] !== EVIDENCE_RULE || runRecheck)) {
               const wasWide = existing[`${v}_detected`] === true;
-              if (wasWide && u.wideHitsAll > 0 && u.wideHitsCounting === 0) {
+              if (wasWide && !u.wideUnjudged && u.wideHitsAll > 0 && u.wideHitsCounting === 0) {
                 f0rtika[`${v}_detected`] = false;
                 const stageAfter = (f0rtika[`${v}_stage_detected`] ?? existing[`${v}_stage_detected`]) === true;
                 if (!stageAfter) {
@@ -581,14 +642,15 @@ export class EdrAlertEnrichmentService {
               const qualifying = [...u.stageActions, ...u.wideActions];
               const recheckable = existing[`${v}_prevented`] === true || existing[`${v}_stage_prevented`] === true;
               if (recheckable) {
-                if (wasStagePrevented && u.stageQueried && u.stageHitsAll > 0 && u.stageActions.length === 0) {
+                if (wasStagePrevented && u.stageQueried && !u.stageUnjudged && u.stageHitsAll > 0 && u.stageActions.length === 0) {
                   f0rtika[`${v}_stage_prevented`] = false;
                 }
                 // `_prevented` comes from the stage's alerts on a conclusive
-                // exit, else from the test-level ones too: those must be visible.
+                // exit, else from the test-level ones too: those must be visible
+                // (and none left unjudged).
                 const code = u.hit._source?.event?.ERROR as number | undefined;
                 const conclusive = code !== undefined && CONCLUSIVE_OUTCOME_CODES.has(code);
-                const sourceVisible = conclusive ? u.stageHitsAll > 0 : u.wideHitsAll > 0;
+                const sourceVisible = conclusive ? u.stageHitsAll > 0 && !u.stageUnjudged : u.wideHitsAll > 0 && !u.wideUnjudged;
                 if (wasPrevented && sourceVisible) {
                   if (qualifying.length === 0) {
                     f0rtika[`${v}_prevented`] = false;

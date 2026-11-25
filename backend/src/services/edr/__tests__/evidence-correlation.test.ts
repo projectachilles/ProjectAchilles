@@ -508,3 +508,13 @@ describe('buildAlertTimeWindowQuery', () => {
     expect(clause.bool).toMatchObject({ minimum_should_match: 1 });
   });
 });
+
+describe('run_started_at', () => {
+  it('the shared builders ignore run_started_at', () => {
+    const input = { test_uuid: 'a1b2c3d4-0000-4000-8000-00000000f001::T1047', routing_event_time: '2026-11-25T00:47:56.000Z', routing_hostname: 'host-a' };
+    const run_started_at = '2026-11-25T00:46:47.000Z';
+    expect(JSON.stringify(buildCrowdStrikeEvidenceQuery({ ...input, run_started_at }))).toBe(JSON.stringify(buildCrowdStrikeEvidenceQuery(input)));
+    expect(JSON.stringify(buildStageCrowdStrikeEvidenceQuery({ ...input, control_id: 'T1047', run_started_at })))
+      .toBe(JSON.stringify(buildStageCrowdStrikeEvidenceQuery({ ...input, control_id: 'T1047' })));
+  });
+});

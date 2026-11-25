@@ -18,7 +18,7 @@ import {
   ownActions,
   type EvidenceFields,
 } from '../edr/multiTestEvidence.js';
-import { ACTION_RANK, isOtherRunAlert, runActions, runEvidence, type RunWindow } from '../edr/runEvidence.js';
+import { ACTION_RANK, isOtherRunAlert, namesTestInRun, runActions, runEvidence, type RunWindow } from '../edr/runEvidence.js';
 
 /**
  * 'stage': the evidence pins the alert to one stage; 'bundle': to the test
@@ -134,15 +134,20 @@ const strings = (v: unknown): string[] => (Array.isArray(v) ? v.filter((x): x is
  * `pathNamesTest` is the vendor's rule for a path naming the test, the one its
  * enrichment pass uses (Defender: the uuid or the bundle-name token); without
  * it, a path names the test when it contains the uuid.
+ * `spanOnly`: the hit was found only by its activity span, so it is kept only
+ * when one of its in-run items names the test.
  */
 export function leftOutOfRun(
   source: Record<string, unknown>,
   bundleUuid: string,
   window: RunWindow | null,
   pathNamesTest?: (path: string) => boolean,
+  spanOnly = false,
 ): boolean {
   const uuid = bundleUuid.toLowerCase();
-  return isOtherRunAlert(source, window, uuid, pathNamesTest ?? ((path) => path.toLowerCase().includes(uuid)));
+  const pathRule = pathNamesTest ?? ((path: string) => path.toLowerCase().includes(uuid));
+  if (spanOnly) return !namesTestInRun(source, window, uuid, pathRule);
+  return isOtherRunAlert(source, window, uuid, pathRule);
 }
 
 export function projectAlertHit(

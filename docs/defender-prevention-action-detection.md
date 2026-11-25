@@ -118,26 +118,65 @@ leave out an alert that names the test only in an earlier run.
 
 A result without `routing.run_started_at`, and an alert without
 `evidence_items`, keep the rules above. Stored results are re-checked once;
-`f0rtika.defender_run_rule: 'run_evidence'` marks the ones that were. A pass
+`f0rtika.defender_run_rule: 'run_activity'` marks the ones that were (the previous release used
+`run_evidence`; those results are checked once more). A pass
 without a run view that sets a detection or prevention flag on a marked result
 clears the marker (`null`), so the result is re-checked once the run rule is
 back.
 
-## Known limit: older runs of a long-open alert
+## Finding a run's alerts: alert time or activity span
 
-A flag is removed only when the run's own alert lookup still finds at least one
-alert for it and none of the alerts found counts for the run. The re-check, the
-console's alert list and the execution report find a run's alerts through the
-same time window (`buildAlertTimeWindowQuery`, used by
-`buildDefenderEvidenceQuery` and the technique fallback), which matches an
-alert only when it was created, or last updated, between 5 minutes before and
-30 minutes after the result's `event_time`. A long-open alert has one last-update time, which moves
-each time Defender adds evidence to it. For an older run whose alert has since
-been updated by a later run, the lookup no longer finds the alert, unless the
-alert was created during that run. The stored flag then stays as it is, and the
-stage can show an alert chip beside an empty alert list. Of the runs one
-long-open alert collected, only the run it was created in and about the most
-recent one are checked against it.
+A flag is removed only when the run's own alert lookup finds at least one alert
+for it and none of the alerts found counts for the run. The re-check, the
+console's alert list and the execution report find a run's alerts in two ways
+(`buildDefenderEvidenceQuery`, `buildStageDefenderEvidenceQuery`; two named
+query clauses, so Elasticsearch reports which one matched in `matched_queries`):
+
+- `alert_time`: the alert was created, or last updated, between 5 minutes
+  before and 30 minutes after the result's `event_time`
+  (`buildAlertTimeWindowQuery`, unchanged).
+- `activity_span`: `first_activity_at <= event_time + 30 min` and
+  `last_activity_at >= run start - 5 min`. This reaches an alert Defender raised
+  long after the activity, and every run of a long-open alert, because the
+  alert's recorded activity covers all of them.
+
+The span clause needs a usable `routing.run_started_at` (a date not after
+`event_time`); without it the query is the older one exactly. In the enrichment
+pass it is used only with per-run crediting on (`runScopedEvidence`, the alert
+re-sync finished). A hit found only by the span (`foundBySpanOnly`) counts, and
+is listed, only through in-run evidence items; an alert without `evidence_items`
+found only that way is treated as not returned (`spanHitUnusable`). The
+enrichment pass marks an alert found only by the span as an Achilles alert
+(`f0rtika.achilles_correlated`), so that auto-resolve can close it, only when
+it counts for the run; an alert found by alert time is marked as before,
+whether it counts or not. In the
+console list and the report only the first tier (the one that names the test)
+uses the span; the technique-only tier stays on alert time. Credit for a late
+alert needs no one-time pass: the enrichment pass revisits every result of the
+last 90 days that has no detection flag on each cycle.
+
+Measured on production data: 284 process start times of test binaries in 217
+Defender alerts all lay inside the alert's first-to-last activity, or at most 2
+minutes before the first activity. That is why the margins are 5 minutes before
+the run's start and 30 minutes after its end.
+
+Known limits:
+
+- A later run that Defender re-detects without adding a new evidence item gets
+  no credit for that run.
+- An alert raised late whose only evidence is a file is still not credited (a
+  file item counts by when Defender added it).
+- Activity recorded more than 30 minutes after the run's end, or a process
+  starting more than 5 minutes after the alert's last activity, is not found.
+- Past the first 100 alerts of one query, only alerts found by alert time count
+  the older way; alerts found only by span beyond the 100 read are ignored.
+  When alerts found only by span were left unread, nobody judged them, so no
+  stored flag is removed for that result on that query's alerts: not the stage
+  flags (stage query), not `defender_detected` (test-level query), and not a
+  prevention flag read from that query. The result is still marked as checked.
+- The technique-only tier of the alert list and the report, and CrowdStrike,
+  SentinelOne and Sophos, are unchanged.
+- A result older than 90 days is not revisited.
 
 ## Tests
 

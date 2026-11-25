@@ -10,7 +10,10 @@ vi.mock('../index-management.js', () => ({
 }));
 
 const { DefenderEnrichmentService } = await import('../enrichment.service.js');
-const { buildAlertTimeWindowQuery } = await import('../evidence-correlation.js');
+const {
+  buildAlertTimeWindowQuery, defenderAlertTimeQuery, buildDefenderEvidenceQuery, buildStageDefenderEvidenceQuery,
+} = await import('../evidence-correlation.js');
+const { RUN_RULE } = await import('../../edr/alert-enrichment.service.js');
 
 describe('DefenderEnrichmentService', () => {
   const mockSearch = vi.fn();
@@ -1083,7 +1086,7 @@ describe('DefenderEnrichmentService — credit by run (runScopedEvidence)', () =
   });
 
   // Stored results are re-checked once under the run rule (marker
-  // defender_run_rule: 'run_evidence'): a flag only an earlier run's evidence
+  // defender_run_rule: 'run_activity'): a flag only an earlier run's evidence
   // supported is removed, through the existing one-time downgrade blocks.
   describe('re-check of stored results (RUN_RULE)', () => {
     /** Bulk answers every operation with `result` (ES: 'noop' when the update changes nothing). */
@@ -1123,9 +1126,15 @@ describe('DefenderEnrichmentService — credit by run (runScopedEvidence)', () =
       answerBulk('updated');
     });
 
-    it('RUN_RULE is the marker value', async () => {
-      const { RUN_RULE } = await import('../../edr/alert-enrichment.service.js');
-      expect(RUN_RULE).toBe('run_evidence');
+    it("RUN_RULE is 'run_activity'", () => {
+      expect(RUN_RULE).toBe('run_activity');
+    });
+
+    it("the eligibility clause excludes only results marked 'run_activity'", async () => {
+      search.mockResolvedValue({ hits: { hits: [] } });
+      await make('on').runEnrichmentPass();
+      const clause = eligibleClauses().find((c) => JSON.stringify(c).includes('defender_run_rule')) as any;
+      expect(clause.bool.must_not).toEqual([{ term: { 'f0rtika.defender_run_rule': 'run_activity' } }]);
     });
 
     it('the scan selects a flagged result with a run start that lacks the marker; the clause is absent when off', async () => {
@@ -1145,7 +1154,7 @@ describe('DefenderEnrichmentService — credit by run (runScopedEvidence)', () =
             },
             { exists: { field: 'routing.run_started_at' } },
           ],
-          must_not: [{ term: { 'f0rtika.defender_run_rule': 'run_evidence' } }],
+          must_not: [{ term: { 'f0rtika.defender_run_rule': 'run_activity' } }],
         },
       };
       expect(eligibleClauses()).toContainEqual(clause);
@@ -1166,7 +1175,7 @@ describe('DefenderEnrichmentService — credit by run (runScopedEvidence)', () =
         // The existing blocks also clear prevention when the flags go (none was stored here).
         defender_prevented: false,
         defender_prevention_action: null,
-        defender_run_rule: 'run_evidence',
+        defender_run_rule: 'run_activity',
       });
       expect(removed(result)).toEqual([1, 1, 0]);
     });
@@ -1186,7 +1195,7 @@ describe('DefenderEnrichmentService — credit by run (runScopedEvidence)', () =
         defender_detected: false,
         defender_prevented: false,
         defender_prevention_action: null,
-        defender_run_rule: 'run_evidence',
+        defender_run_rule: 'run_activity',
       });
       expect(removed(result)).toEqual([1, 1, 1]);
     });
@@ -1204,7 +1213,7 @@ describe('DefenderEnrichmentService — credit by run (runScopedEvidence)', () =
         defender_prevention_rule: 'in_run',
       });
       const { f, result } = await recheck(doc, [alertHits(a), alertHits(a)]);
-      expect(f).toEqual({ defender_stage_prevented: false, defender_run_rule: 'run_evidence' });
+      expect(f).toEqual({ defender_stage_prevented: false, defender_run_rule: 'run_activity' });
       expect(removed(result)).toEqual([0, 0, 1]);
     });
 
@@ -1217,7 +1226,7 @@ describe('DefenderEnrichmentService — credit by run (runScopedEvidence)', () =
         defender_detected: false,
         defender_stage_rule: 'single_test',
         defender_evidence_rule: 'file_verdict',
-        defender_run_rule: 'run_evidence',
+        defender_run_rule: 'run_activity',
       });
       expect(removed(result)).toEqual([1, 1, 0]);
     });
@@ -1225,21 +1234,21 @@ describe('DefenderEnrichmentService — credit by run (runScopedEvidence)', () =
     it('one in-run item still counts: only the marker is written', async () => {
       const a = alertSource([item(EARLIER), item(IN_RUN)]);
       const { f, result } = await recheck(stored(101), [alertHits(a), alertHits(a)]);
-      expect(f).toEqual({ defender_run_rule: 'run_evidence' });
+      expect(f).toEqual({ defender_run_rule: 'run_activity' });
       expect(removed(result)).toEqual([0, 0, 0]);
     });
 
     it('no alert for it is in the index: only the marker is written', async () => {
       const doc = stored(999, { defender_prevented: true, defender_prevention_action: 'process_killed', defender_prevention_rule: 'in_run' });
       const { f, result } = await recheck(doc, [none, none]);
-      expect(f).toEqual({ defender_run_rule: 'run_evidence' });
+      expect(f).toEqual({ defender_run_rule: 'run_activity' });
       expect(removed(result)).toEqual([0, 0, 0]);
     });
 
     it('the only matching alert has evidence_items: null: today\'s rule counts it, only the marker is written', async () => {
       const a = { ...alertSource([item(EARLIER)]), evidence_items: null };
       const { f, result } = await recheck(stored(101), [alertHits(a), alertHits(a)]);
-      expect(f).toEqual({ defender_run_rule: 'run_evidence' });
+      expect(f).toEqual({ defender_run_rule: 'run_activity' });
       expect(removed(result)).toEqual([0, 0, 0]);
     });
 
@@ -1252,7 +1261,7 @@ describe('DefenderEnrichmentService — credit by run (runScopedEvidence)', () =
 
     it('a result already re-checked (marker on) is not re-checked again', async () => {
       const old = alertSource([item(EARLIER)]);
-      const { f, result } = await recheck(stored(101, { defender_run_rule: 'run_evidence' }), [alertHits(old), alertHits(old)]);
+      const { f, result } = await recheck(stored(101, { defender_run_rule: 'run_activity' }), [alertHits(old), alertHits(old)]);
       expect(f).toBeUndefined();
       expect(removed(result)).toEqual([0, 0, 0]);
     });
@@ -1277,7 +1286,7 @@ describe('DefenderEnrichmentService — credit by run (runScopedEvidence)', () =
         defender_stage_prevented: false,
         defender_stage_rule: 'single_test',
         defender_evidence_rule: 'file_verdict',
-        defender_run_rule: 'run_evidence',
+        defender_run_rule: 'run_activity',
       });
       expect(result).toMatchObject({ detected: 1, stageDetected: 1 });
       expect(removed(result)).toEqual([0, 0, 0]);
@@ -1291,7 +1300,7 @@ describe('DefenderEnrichmentService — credit by run (runScopedEvidence)', () =
     it('exit 101 with an in-run kill: the re-check writes no prevention', async () => {
       const kill = alertSource([item(IN_RUN, { verdict: 'malicious', action: 'process_killed' })]);
       const { f } = await recheck(stored(101), [alertHits(kill), alertHits(kill)]);
-      expect(f).toEqual({ defender_run_rule: 'run_evidence' });
+      expect(f).toEqual({ defender_run_rule: 'run_activity' });
 
       vi.clearAllMocks();
       answerBulk('updated');
@@ -1299,7 +1308,7 @@ describe('DefenderEnrichmentService — credit by run (runScopedEvidence)', () =
       expect(fresh.f?.defender_prevented).toBeUndefined();
       expect(fresh.f?.defender_stage_prevented).toBe(false);
       expect(fresh.f?.defender_prevention_action).toBeUndefined();
-      expect(fresh.f?.defender_run_rule).toBe('run_evidence');
+      expect(fresh.f?.defender_run_rule).toBe('run_activity');
     });
 
     it('an update Elasticsearch answers noop is not counted as a removal', async () => {
@@ -1324,7 +1333,7 @@ describe('DefenderEnrichmentService — credit by run (runScopedEvidence)', () =
     describe('the marker never outlives the flags it vouches for', () => {
       /** A result the run rule already downgraded (marker on, both detection flags false). */
       const downgraded = (routing: Record<string, unknown> = {}) =>
-        stored(101, { defender_detected: false, defender_stage_detected: false, defender_run_rule: 'run_evidence' }, routing);
+        stored(101, { defender_detected: false, defender_stage_detected: false, defender_run_rule: 'run_activity' }, routing);
       /** The stored doc after a partial update (ES merges the fields; null is stored as null). */
       const merged = (doc: ReturnType<typeof stored>, f: Record<string, unknown>) => ({
         ...doc,
@@ -1346,7 +1355,7 @@ describe('DefenderEnrichmentService — credit by run (runScopedEvidence)', () =
         expect(on.f).toMatchObject({
           defender_stage_detected: false,
           defender_detected: false,
-          defender_run_rule: 'run_evidence',
+          defender_run_rule: 'run_activity',
         });
         expect(removed(on.result)).toEqual([1, 1, 0]);
       });
@@ -1365,7 +1374,7 @@ describe('DefenderEnrichmentService — credit by run (runScopedEvidence)', () =
           item(EARLIER, { verdict: 'malicious', action: 'process_killed' }),
           item(IN_RUN, { verdict: 'suspicious', action: null }),
         ]);
-        const doc = stored(999, { defender_prevention_rule: 'in_run', defender_run_rule: 'run_evidence' });
+        const doc = stored(999, { defender_prevention_rule: 'in_run', defender_run_rule: 'run_activity' });
         const off = await recheck(doc, [alertHits(a), alertHits(a)], 'off');
         expect(off.f).toEqual({
           defender_prevented: true,
@@ -1378,13 +1387,13 @@ describe('DefenderEnrichmentService — credit by run (runScopedEvidence)', () =
         answerBulk('updated');
         const prevented = merged(doc, off.f!);
         const on = await recheck(prevented, [alertHits(a), alertHits(a)], 'on');
-        // Selected again: the run clause matches a flagged result whose marker is not 'run_evidence'.
+        // Selected again: the run clause matches a flagged result whose marker is not 'run_activity'.
         expect(JSON.stringify(eligibleClauses())).toContain('defender_run_rule');
         expect(on.f).toEqual({
           defender_stage_prevented: false,
           defender_prevented: false,
           defender_prevention_action: null,
-          defender_run_rule: 'run_evidence',
+          defender_run_rule: 'run_activity',
         });
         expect(removed(on.result)).toEqual([0, 0, 1]);
       });
@@ -1442,14 +1451,14 @@ describe('DefenderEnrichmentService — credit by run (runScopedEvidence)', () =
       ])('no run window (%s): only the marker is written', async (_label, routing) => {
         const old = alertSource([item(EARLIER)]);
         const { f, result } = await recheck(stored(101, {}, routing), [alertHits(old), alertHits(old)]);
-        expect(f).toEqual({ defender_run_rule: 'run_evidence' });
+        expect(f).toEqual({ defender_run_rule: 'run_activity' });
         expect(removed(result)).toEqual([0, 0, 0]);
       });
 
       it('no alert query can be built (no hostname): only the marker is written, no alert search runs', async () => {
         const { f, result } = await recheck(stored(101, {}, { hostname: '' }), []);
         expect(msearch).not.toHaveBeenCalled();
-        expect(f).toEqual({ defender_run_rule: 'run_evidence' });
+        expect(f).toEqual({ defender_run_rule: 'run_activity' });
         expect(removed(result)).toEqual([0, 0, 0]);
       });
 
@@ -1520,6 +1529,359 @@ describe('DefenderEnrichmentService — credit by run (runScopedEvidence)', () =
       expect(removed(result)).toEqual([0, 0, 0]);
       expect(result.removedFlagDocs).toEqual([]);
       expect(result.errors.length).toBeGreaterThan(0);
+    });
+  });
+
+  // Alerts are also found by their activity span overlapping the run (each
+  // way a named clause; Elasticsearch reports `matched_queries` on the hit). A
+  // hit found by span only counts only through its evidence items: without an
+  // item list it is treated as if the query had not returned it.
+  describe('DefenderEnrichmentService — find by activity span', () => {
+    const END = '2026-10-20T10:00:00Z';
+    const RUN_START_MINUS_5 = '2026-10-20T09:53:50.000Z'; // resultDoc's run start 09:58:50 − 5 min
+    const SPAN = ['activity_span'];
+    const ALERT_TIME = ['alert_time'];
+    const BOTH = ['alert_time', 'activity_span'];
+    /** Today's prevention aggregation (unchanged; under `alert_time` in the span form). */
+    const PREVENTION_AGG = {
+      filter: { match_all: {} },
+      aggs: { actions: { terms: { field: 'prevention_action', size: 10 } } },
+    };
+    type Hit = { _id: string; _source: Record<string, unknown>; matched_queries: string[] };
+    const hit = (id: string, src: Record<string, unknown>, matched: string[]): Hit => ({ _id: id, _source: src, matched_queries: matched });
+    const answer = (hs: Hit[], total = hs.length, aggregations?: Record<string, unknown>) => ({
+      hits: { total: { value: total }, hits: hs },
+      ...(aggregations ? { aggregations } : {}),
+    });
+    /** The alert sub-query bodies of the first msearch (wide first, then stage). */
+    const bodies = () => (msearch.mock.calls[0][0].searches as any[]).filter((_, i) => i % 2 === 1);
+    /** The bool clause named `name` anywhere in `node`, or undefined. */
+    const named = (node: unknown, name: string): any => {
+      if (!node || typeof node !== 'object') return undefined;
+      if ((node as any).bool?._name === name) return node;
+      for (const v of Object.values(node)) {
+        const found = named(v, name);
+        if (found) return found;
+      }
+      return undefined;
+    };
+    const answerBulk = () =>
+      bulk.mockImplementation(async ({ operations }: { operations: any[] }) => ({
+        items: operations.filter((o) => 'update' in o).map((o) => ({ update: { _id: o.update._id, result: 'updated' } })),
+      }));
+    /** One pass; the result doc's update, the alert ids stamped, and the pass result. */
+    const run = async (doc: unknown, responses: unknown[], mode: Mode = 'on') => {
+      search.mockResolvedValueOnce({ hits: { hits: [doc] } });
+      msearch.mockResolvedValueOnce({ responses });
+      const result = await make(mode).runEnrichmentPass({ batchSize: 200 });
+      const ops = (bulk.mock.calls[0]?.[0].operations ?? []) as any[];
+      const at = ops.findIndex((o) => o.update?._id === 'r1');
+      const f = at >= 0 ? (ops[at + 1].doc.f0rtika as Record<string, unknown>) : undefined;
+      const stamped = ops
+        .map((o, i) => (o.update?._index === 'achilles-defender' ? { id: o.update._id, doc: ops[i + 1].doc } : null))
+        .filter((x): x is { id: string; doc: any } => x !== null);
+      return { f, result, stamped };
+    };
+    /** Flags an earlier pass stored (no run marker). */
+    const storedFlags = {
+      defender_detected: true,
+      defender_stage_detected: true,
+      defender_stage_prevented: false,
+      defender_stage_rule: 'single_test',
+      defender_evidence_rule: 'file_verdict',
+    };
+    beforeEach(() => {
+      answerBulk();
+    });
+
+    it('passes the run start to both sub-queries when crediting by run', async () => {
+      await run(resultDoc(101), [none, none]);
+      const bs = bodies();
+      expect(bs).toHaveLength(2);
+      for (const b of bs) {
+        const span = named(b.query, 'activity_span');
+        expect(span).toBeDefined();
+        const lastActivity = span.bool.filter.find((c: any) => c.range?.last_activity_at);
+        expect(lastActivity.range.last_activity_at.gte).toBe(RUN_START_MINUS_5);
+        expect(named(b.query, 'alert_time')).toBeDefined();
+        expect(Object.keys(b.aggs)).toEqual(['alert_time']);
+        expect(b.aggs.alert_time.filter).toEqual(defenderAlertTimeQuery(END));
+        expect(b.aggs.alert_time.aggs.prevention).toEqual(PREVENTION_AGG);
+      }
+    });
+
+    it('runScopedEvidence off: no span clause and today\'s aggregations', async () => {
+      for (const mode of ['off', 'default constructor'] as const) {
+        vi.clearAllMocks();
+        await run(resultDoc(101), [none, none], mode);
+        const [wide, stage] = bodies();
+        for (const b of [wide, stage]) {
+          expect(JSON.stringify(b)).not.toContain('activity_span');
+          expect(b.aggs.alert_time).toBeUndefined();
+          expect(b.aggs.prevention).toEqual(PREVENTION_AGG);
+        }
+        // Exactly today's queries: the builders got no run start.
+        expect(wide.query).toEqual(buildDefenderEvidenceQuery({ test_uuid: `${B}::T1003`, routing_event_time: END, routing_hostname: 'win-host-01' }));
+        expect(stage.query).toEqual(buildStageDefenderEvidenceQuery({ test_uuid: `${B}::T1003`, routing_event_time: END, routing_hostname: 'win-host-01', control_id: 'T1003' }));
+      }
+    });
+
+    it('a result without a run start: no span clause', async () => {
+      await run(resultDoc(101, { routing: { run_started_at: undefined } }), [none, none]);
+      const [wide, stage] = bodies();
+      for (const b of [wide, stage]) {
+        expect(JSON.stringify(b)).not.toContain('activity_span');
+        expect(JSON.stringify(b)).not.toContain('_name');
+        expect(b.aggs.alert_time).toBeUndefined();
+        expect(b.aggs.prevention).toEqual(PREVENTION_AGG);
+      }
+      expect(wide.query).toEqual(buildDefenderEvidenceQuery({ test_uuid: `${B}::T1003`, routing_event_time: END, routing_hostname: 'win-host-01' }));
+      expect(stage.query).toEqual(buildStageDefenderEvidenceQuery({ test_uuid: `${B}::T1003`, routing_event_time: END, routing_hostname: 'win-host-01', control_id: 'T1003' }));
+    });
+
+    it('a span-only alert with an in-run item credits the stage', async () => {
+      const a = hit('alert-1', alertSource([item(EARLIER), item(IN_RUN)]), SPAN);
+      const { f, stamped } = await run(resultDoc(101), [answer([a]), answer([a])]);
+      expect(f).toMatchObject({ defender_stage_detected: true, defender_detected: true });
+      expect(stamped.map((s) => s.id)).toEqual(['alert-1']);
+    });
+
+    it('a single-binary test found by span only is credited at test level', async () => {
+      const binary = item(IN_RUN, { file: `${B}.exe`, parent: 'explorer.exe', parent_path: 'c:\\windows' });
+      const { f } = await run(singleDoc(), [answer([hit('alert-1', alertSource([binary]), SPAN)])]);
+      expect(f).toMatchObject({ defender_detected: true });
+    });
+
+    it('a span-only alert with only other-run items is found and removes a stale flag', async () => {
+      const a = hit('alert-1', alertSource([item(EARLIER)]), SPAN);
+      const { f, result } = await run(resultDoc(101, { f0rtika: storedFlags }), [answer([a]), answer([a])]);
+      expect(f).toMatchObject({ defender_stage_detected: false, defender_detected: false });
+      expect(result.stageDetectionsRemoved).toBe(1);
+      expect(result.detectionsRemoved).toBe(1);
+      expect(result.removedFlagDocs).toContain('r1');
+    });
+
+    it('a span-only alert without an item list is treated as not returned', async () => {
+      // Its alert-wide fields name the stage: today's rule would count it.
+      const a = hit('alert-1', { ...alertSource([item(EARLIER)]), evidence_items: null }, SPAN);
+      const { f, result, stamped } = await run(resultDoc(101, { f0rtika: storedFlags }), [answer([a]), answer([a])]);
+      // As for a run with no alert in the index: no flag goes, the marker alone is written.
+      expect(f).toEqual({ defender_run_rule: RUN_RULE });
+      expect([result.stageDetectionsRemoved, result.detectionsRemoved, result.preventionsRemoved]).toEqual([0, 0, 0]);
+      expect(result.removedFlagDocs).toEqual([]);
+      expect(stamped).toEqual([]);
+      expect(result.alertsMarkedCorrelated).toBe(0);
+    });
+
+    it('an alert-time alert without an item list still counts the old way', async () => {
+      const a = hit('alert-1', { ...alertSource([item(EARLIER)]), evidence_items: null }, ALERT_TIME);
+      const { f, stamped } = await run(resultDoc(101), [answer([a]), answer([a])]);
+      expect(f).toMatchObject({ defender_stage_detected: true, defender_detected: true });
+      expect(stamped.map((s) => s.id)).toEqual(['alert-1']);
+    });
+
+    it('mixed hits: the unusable one is dropped, the others decide', async () => {
+      const unusable = hit('alert-1', { ...alertSource([item(EARLIER)]), evidence_items: null }, SPAN);
+      const usable = hit('alert-2', alertSource([item(IN_RUN)]), ALERT_TIME);
+      const { f, result, stamped } = await run(resultDoc(101), [answer([unusable, usable]), answer([unusable, usable])]);
+      expect(f).toMatchObject({ defender_stage_detected: true, defender_detected: true });
+      expect(stamped.map((s) => s.id)).toEqual(['alert-2']);
+      expect(result.alertsMarkedCorrelated).toBe(1);
+    });
+
+    it('more matches than read, all read span-only, none by alert time', async () => {
+      const read = Array.from({ length: 100 }, (_, n) => hit(`alert-${n + 1}`, alertSource([item(EARLIER)]), SPAN));
+      const aggregations = {
+        alert_time: { doc_count: 0, prevention: { doc_count: 0, actions: { buckets: [{ key: 'process_killed', doc_count: 1 }] } } },
+      };
+      const r = answer(read, 150, aggregations);
+      const { f } = await run(resultDoc(999), [r, r]);
+      expect(f?.defender_detected).toBeUndefined();
+      expect(f?.defender_stage_detected).toBeUndefined();
+      expect(f?.defender_prevented).toBeUndefined();
+      expect(f?.defender_stage_prevented).toBeUndefined();
+      expect(f?.defender_prevention_action).toBeUndefined();
+    });
+
+    it("a result marked 'run_evidence' is checked again and ends marked 'run_activity'", async () => {
+      const a = hit('alert-1', alertSource([item(EARLIER)]), SPAN);
+      const { f, result } = await run(resultDoc(101, { f0rtika: { ...storedFlags, defender_run_rule: 'run_evidence' } }), [answer([a]), answer([a])]);
+      expect(f).toMatchObject({ defender_detected: false, defender_stage_detected: false, defender_run_rule: 'run_activity' });
+      expect([result.stageDetectionsRemoved, result.detectionsRemoved]).toEqual([1, 1]);
+    });
+
+    it("a result marked 'run_evidence' with an in-run alert keeps its flags and gets the new mark", async () => {
+      const a = hit('alert-1', alertSource([item(IN_RUN)]), SPAN);
+      const { f } = await run(resultDoc(101, { f0rtika: { ...storedFlags, defender_run_rule: 'run_evidence' } }), [answer([a]), answer([a])]);
+      expect(f).toEqual({ defender_run_rule: 'run_activity' });
+    });
+
+    it("a pass without a run view leaves a 'run_evidence' mark as it is", async () => {
+      const a = alertSource([item(EARLIER)]);
+      const doc = resultDoc(101, {
+        f0rtika: { ...storedFlags, defender_detected: false, defender_stage_detected: false, defender_run_rule: 'run_evidence' },
+      });
+      const { f } = await run(doc, [answer([hit('alert-1', a, ALERT_TIME)]), answer([hit('alert-1', a, ALERT_TIME)])], 'off');
+      expect(f).toMatchObject({ defender_detected: true, defender_stage_detected: true });
+      expect(f).not.toHaveProperty('defender_run_rule');
+    });
+
+    it('more matches than read: unread alerts are the alert-time matches less the ones read', async () => {
+      // 100 read: 40 found by alert time (and span), 60 by span only; none counts for this run.
+      const read = Array.from({ length: 100 }, (_, n) =>
+        hit(`alert-${n + 1}`, alertSource([item(EARLIER)]), n < 40 ? BOTH : SPAN));
+      const aggregations = {
+        alert_time: { doc_count: 40, prevention: { doc_count: 1, actions: { buckets: [{ key: 'process_killed', doc_count: 1 }] } } },
+      };
+      // 40 by alert time − 40 of them read = 0 unread: nothing counts the old way.
+      const r = answer(read, 150, aggregations);
+      const { f } = await run(resultDoc(999), [r, r]);
+      expect(f?.defender_detected).toBeUndefined();
+      expect(f?.defender_stage_detected).toBeUndefined();
+      expect(f?.defender_prevented).toBeUndefined();
+      expect(f?.defender_stage_prevented).toBeUndefined();
+      expect(f?.defender_prevention_action).toBeUndefined();
+    });
+
+    it('more matches than read, some by alert time', async () => {
+      // 100 read: 40 found by alert time (and span), 60 by span only; none counts for this run.
+      const read = Array.from({ length: 100 }, (_, n) =>
+        hit(`alert-${n + 1}`, alertSource([item(EARLIER)]), n < 40 ? BOTH : SPAN));
+      const aggregations = {
+        alert_time: { doc_count: 60, prevention: { doc_count: 1, actions: { buckets: [{ key: 'process_killed', doc_count: 1 }] } } },
+      };
+      // 60 by alert time − 40 of them read = 20 unread, which count the old way.
+      const { f } = await run(resultDoc(999), [answer(read, 150, aggregations), none]);
+      expect(f).toMatchObject({
+        defender_detected: true,
+        defender_prevented: true,
+        defender_prevention_action: 'process_killed',
+      });
+    });
+
+    // Unread matches found only by span were judged by nobody: one of them may
+    // hold this run's evidence, so no stored flag is removed on their kind.
+    describe('span-only matches left unread', () => {
+      /** 100 span-only alerts read, all from an earlier run; `total` matched, none by alert time. */
+      const earlierRunOnly = (total: number) => answer(
+        Array.from({ length: 100 }, (_, n) => hit(`alert-${n + 1}`, alertSource([item(EARLIER)]), SPAN)),
+        total,
+        { alert_time: { doc_count: 0, prevention: { doc_count: 0, actions: { buckets: [] } } } },
+      );
+
+      it('span-only matches left unread: no flag is removed', async () => {
+        const r = earlierRunOnly(150);
+        const { f, result } = await run(resultDoc(101, { f0rtika: storedFlags }), [r, r]);
+        expect(f?.defender_detected).not.toBe(false);
+        expect(f?.defender_stage_detected).not.toBe(false);
+        expect([result.stageDetectionsRemoved, result.detectionsRemoved, result.preventionsRemoved]).toEqual([0, 0, 0]);
+        expect(result.removedFlagDocs).toEqual([]);
+        // The result is still marked as checked.
+        expect(f).toEqual({ defender_run_rule: RUN_RULE });
+      });
+
+      it('everything read: the same hits remove the flag', async () => {
+        const r = earlierRunOnly(100);
+        const { f, result } = await run(resultDoc(101, { f0rtika: storedFlags }), [r, r]);
+        expect(f).toMatchObject({ defender_detected: false, defender_stage_detected: false, defender_run_rule: RUN_RULE });
+        expect([result.stageDetectionsRemoved, result.detectionsRemoved]).toEqual([1, 1]);
+      });
+
+      it('unread span-only on the stage sub-query only: the stage flag stays, the test-level flag is still judged', async () => {
+        const wide = answer([hit('alert-w', alertSource([item(EARLIER)]), SPAN)], 1);
+        const { f, result } = await run(resultDoc(101, { f0rtika: storedFlags }), [wide, earlierRunOnly(150)]);
+        expect(f?.defender_stage_detected).not.toBe(false);
+        expect(f).toMatchObject({ defender_detected: false });
+        expect([result.stageDetectionsRemoved, result.detectionsRemoved]).toEqual([0, 1]);
+      });
+
+      // Only the prevention check is armed here (run marker and the detection
+      // markers on, no prevention marker), so it alone decides.
+      const prevented = (exit: number) => resultDoc(exit, {
+        f0rtika: {
+          ...storedFlags, defender_stage_prevented: true, defender_prevented: true,
+          defender_prevention_action: 'process_killed', defender_run_rule: RUN_RULE,
+        },
+      });
+
+      it('prevention: the test-level kind unjudged (exit 999 reads it): `_prevented` stays, the judged stage kind still removes `_stage_prevented`', async () => {
+        const { f, result } = await run(prevented(999), [earlierRunOnly(150), earlierRunOnly(100)]);
+        expect(f?.defender_prevented).not.toBe(false);
+        expect(f).not.toHaveProperty('defender_prevention_action');
+        expect(f).toMatchObject({ defender_stage_prevented: false });
+        expect(result.preventionsRemoved).toBe(1);
+      });
+
+      // The settle branch: a detected stage with an action on record and no
+      // `_stage_prevented` key, whose stage alerts are visible but none counts,
+      // is settled `_stage_prevented: false` (a stage that read Prevented by the
+      // fallback then reads Detected). Every one-time check is disarmed here
+      // (all markers on), so that branch alone decides.
+      const unsettled = () => {
+        const doc = resultDoc(999, {
+          f0rtika: {
+            ...storedFlags, defender_prevented: true, defender_prevention_action: 'process_killed',
+            defender_prevention_rule: 'in_run', defender_run_rule: RUN_RULE,
+          },
+        });
+        delete (doc._source.f0rtika as Record<string, unknown>).defender_stage_prevented;
+        return doc;
+      };
+
+      it('settle: the stage kind unjudged: `_stage_prevented: false` is not written, no flag is removed', async () => {
+        const { f, result } = await run(unsettled(), [none, earlierRunOnly(150)]);
+        expect(f?.defender_stage_prevented).toBeUndefined();
+        expect(f?.defender_stage_detected).not.toBe(false);
+        expect(f?.defender_detected).not.toBe(false);
+        expect(f?.defender_prevented).not.toBe(false);
+        expect(f?.defender_prevention_action).toBeUndefined();
+        expect([result.stageDetectionsRemoved, result.detectionsRemoved, result.preventionsRemoved]).toEqual([0, 0, 0]);
+        // Nothing else to write: the result is not updated at all.
+        expect(f).toBeUndefined();
+      });
+
+      it('settle: everything read: the same hits settle `_stage_prevented: false` as today', async () => {
+        const { f } = await run(unsettled(), [none, earlierRunOnly(100)]);
+        expect(f).toEqual({ defender_stage_prevented: false });
+      });
+
+      it('prevention: the stage kind unjudged (conclusive exit reads it): no prevention flag is removed', async () => {
+        const { f, result } = await run(prevented(105), [earlierRunOnly(100), earlierRunOnly(150)]);
+        expect(f?.defender_prevented).not.toBe(false);
+        expect(f?.defender_stage_prevented).not.toBe(false);
+        expect(f).not.toHaveProperty('defender_prevention_action');
+        expect(result.preventionsRemoved).toBe(0);
+      });
+    });
+
+    // An alert found only by span is stamped achilles_correlated (and so can
+    // be auto-resolved) by this result only when it counts for the run.
+    describe('which alerts are stamped', () => {
+      it('a span-only alert that counts is stamped', async () => {
+        const a = hit('alert-1', alertSource([item(IN_RUN)]), SPAN);
+        const { stamped, result } = await run(resultDoc(101), [answer([a]), answer([a])]);
+        expect(stamped).toHaveLength(1);
+        expect(stamped[0]).toMatchObject({ id: 'alert-1', doc: { f0rtika: { achilles_correlated: true } } });
+        expect(result.alertsMarkedCorrelated).toBe(1);
+      });
+
+      it('a span-only alert that does not count is not stamped', async () => {
+        const a = hit('alert-1', alertSource([item(EARLIER)]), SPAN);
+        const { f, stamped, result } = await run(resultDoc(101, { f0rtika: storedFlags }), [answer([a]), answer([a])]);
+        expect(stamped).toEqual([]);
+        expect(result.alertsMarkedCorrelated).toBe(0);
+        // It was found and judged: the stale flags still go.
+        expect(f).toMatchObject({ defender_stage_detected: false, defender_detected: false });
+        expect([result.stageDetectionsRemoved, result.detectionsRemoved]).toEqual([1, 1]);
+      });
+
+      it('an alert-time alert that does not count is stamped as today', async () => {
+        const a = hit('alert-1', alertSource([item(EARLIER)]), ALERT_TIME);
+        const { stamped, result } = await run(resultDoc(101), [answer([a]), answer([a])]);
+        expect(stamped).toHaveLength(1);
+        expect(stamped[0]).toMatchObject({ id: 'alert-1', doc: { f0rtika: { achilles_correlated: true } } });
+        expect(result.alertsMarkedCorrelated).toBe(1);
+      });
     });
   });
 });

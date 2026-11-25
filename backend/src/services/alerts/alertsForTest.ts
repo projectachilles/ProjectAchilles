@@ -17,12 +17,15 @@
 // With `runStartedAt` the lookup has a run window (edr/runEvidence.ts): an
 // alert that names this test only in another run's evidence is left out of
 // every tier, and a tier whose hits are all left out counts as empty, so the
-// lookup falls through to the next one. The searches request whole documents
-// (no `_source` filter) because the run view reads `evidence_items`.
+// lookup falls through to the next one. An alert found by its own created /
+// updated time that has no items keeps the older rule; one found only by its
+// activity span must name the test in one of its in-run items, so without
+// items it is left out (treated as not returned). The searches request whole
+// documents (no `_source` filter) because the run view reads `evidence_items`.
 
 import { AppError } from '../../middleware/error.middleware.js';
 import { leftOutOfRun, projectAlertHit } from './alertHit.js';
-import { runWindow } from '../edr/runEvidence.js';
+import { foundBySpanOnly, runWindow } from '../edr/runEvidence.js';
 import { expandTechniqueAliases, techniqueAliases } from '../../data/techniqueAliases.js';
 
 export interface AlertsForTestRequest {
@@ -42,6 +45,8 @@ export interface EvidenceQueryInput {
   routing_event_time: string;
   routing_hostname: string;
   bundle_name?: string;
+  /** When the run started; lets the builder also find alerts by activity span. */
+  run_started_at?: string;
 }
 
 export interface AlertsForTestDeps {
@@ -81,7 +86,7 @@ interface SearchBody {
 }
 
 interface HitsPage {
-  hits?: { total?: number | { value?: number }; hits?: Array<{ _source?: unknown }> };
+  hits?: { total?: number | { value?: number }; hits?: Array<{ _source?: unknown; matched_queries?: unknown }> };
 }
 
 // Alerts can fire during execution, before the result's timestamp.
@@ -116,6 +121,7 @@ export function alertsForTestTiers(req: AlertsForTestRequest, deps: AlertsForTes
       routing_event_time: req.timestamp,
       routing_hostname: req.hostname,
       bundle_name: req.bundleName,
+      run_started_at: req.runStartedAt,
     });
     if (evidence) tiers.push({ size: PAGE_SIZE, query: evidence, sort: SORT });
   }
@@ -148,9 +154,9 @@ export function toAlertsForTestResult(
   const pathRule = pathNamesTest?.({ test_uuid: bundleUuid, bundle_name: req.bundleName });
   const matched = new Set<string>();
   const alerts = (page.hits?.hits ?? [])
-    .map((hit) => (hit._source ?? {}) as Record<string, unknown>)
-    .filter((source) => !leftOutOfRun(source, bundleUuid, window, pathRule))
-    .map((source) => {
+    .map((hit) => ({ source: (hit._source ?? {}) as Record<string, unknown>, spanOnly: foundBySpanOnly(hit) }))
+    .filter(({ source, spanOnly }) => !leftOutOfRun(source, bundleUuid, window, pathRule, spanOnly))
+    .map(({ source }) => {
       // Report the test's own id even when the alert used a renumbered one.
       for (const t of (source.mitre_techniques as string[] | undefined) ?? []) {
         for (const r of req.techniques) if (techniqueAliases(r).includes(t)) matched.add(r);

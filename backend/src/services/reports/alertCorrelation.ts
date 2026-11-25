@@ -32,7 +32,7 @@ import { SENTINELONE_INDEX } from '../sentinelone/index-management.js';
 import { SOPHOS_INDEX } from '../sophos/index-management.js';
 import type { EdrVendorKey } from '../outcomes/vendors.js';
 import { leftOutOfRun, projectAlertHit } from '../alerts/alertHit.js';
-import { EVIDENCE_ITEMS_FIELD, runWindow } from '../edr/runEvidence.js';
+import { EVIDENCE_ITEMS_FIELD, foundBySpanOnly, runWindow } from '../edr/runEvidence.js';
 import { isAchillesMitigated, ACHILLES_MITIGATION_FIELDS } from '../shared/achillesMitigation.js';
 import type { ReportAlert } from '../../types/reports.js';
 import { expandTechniqueAliases } from '../../data/techniqueAliases.js';
@@ -168,12 +168,18 @@ export function buildHostTechniqueQuery(adapter: VendorAdapter, run: Correlation
  * null for an alert naming several tests that singles out none of this run's files
  * (edr/multiTestEvidence.ts), and for one that names the test only in another run's evidence
  * (edr/runEvidence.ts): neither is evidence for this run. With a run window the alert is read
- * through it, as the console does; a run without a start keeps the alert as it is.
+ * through it, as the console does; a run without a start keeps the alert as it is. A hit found only by
+ * its activity span (`spanOnly`) counts only through its in-run items, as in the console and enrichment.
  */
-function toReportAlert(adapter: VendorAdapter, source: Record<string, unknown>, run: CorrelationRun): ReportAlert | null {
+function toReportAlert(
+  adapter: VendorAdapter,
+  source: Record<string, unknown>,
+  run: CorrelationRun,
+  spanOnly: boolean,
+): ReportAlert | null {
   const window = runWindow(run.startedAt, run.completedAt);
   const pathRule = adapter.pathNamesTest?.({ test_uuid: run.testKey, bundle_name: run.bundleName });
-  if (leftOutOfRun(source, run.testKey, window, pathRule)) return null;
+  if (leftOutOfRun(source, run.testKey, window, pathRule, spanOnly)) return null;
   const p = projectAlertHit(source, run.testKey, window);
   if (p.attribution === 'multi_test') return null;
   const stageControlIds = p.attribution === 'stage' ? p.attributed_control_ids ?? [] : [];
@@ -196,7 +202,7 @@ interface Entry { run: CorrelationRun; query: Record<string, unknown> }
 
 /** Outcome of one sub-search. `missing-index` is an expected empty result; `failed` is not. */
 interface SubOutcome {
-  sources: Record<string, unknown>[];
+  sources: Array<{ source: Record<string, unknown>; spanOnly: boolean }>;
   failure: 'missing-index' | 'failed' | null;
 }
 
@@ -217,14 +223,14 @@ async function msearchSources(
   const response = await client.msearch({ searches } as never);
   const responses = (response as { responses?: unknown[] }).responses ?? [];
   return entries.map((_, i): SubOutcome => {
-    const sub = responses[i] as { error?: unknown; hits?: { hits?: { _source?: Record<string, unknown> }[] } } | undefined;
+    const sub = responses[i] as { error?: unknown; hits?: { hits?: { _source?: Record<string, unknown>; matched_queries?: unknown }[] } } | undefined;
     if (!sub) return { sources: [], failure: 'failed' };
     if (sub.error) {
       // An error with no type counts as a failure; only the known missing-index case is expected.
       const type = (sub.error as { type?: string } | undefined)?.type;
       return { sources: [], failure: type === 'index_not_found_exception' ? 'missing-index' : 'failed' };
     }
-    return { sources: (sub.hits?.hits ?? []).map((h) => h._source ?? {}), failure: null };
+    return { sources: (sub.hits?.hits ?? []).map((h) => ({ source: h._source ?? {}, spanOnly: foundBySpanOnly(h) })), failure: null };
   });
 }
 
@@ -248,7 +254,7 @@ export async function correlateRuns(
       if (outcome.failure === 'failed') failed += 1;
       else searched.add(run.key);
       const hits = outcome.sources
-        .map((s) => toReportAlert(adapter, s, run))
+        .map((s) => toReportAlert(adapter, s.source, run, s.spanOnly))
         .filter((a): a is ReportAlert => a !== null);
       if (hits.length > 0) alerts.set(run.key, hits);
       else onEmpty?.(run);
@@ -265,6 +271,7 @@ export async function correlateRuns(
         routing_event_time: run.completedAt,
         routing_hostname: run.hostname,
         bundle_name: run.bundleName,
+        run_started_at: run.startedAt,
       });
       if (query) entries.push({ run, query });
       else unmatched.push(run);

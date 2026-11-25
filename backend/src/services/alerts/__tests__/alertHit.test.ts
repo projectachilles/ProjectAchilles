@@ -430,3 +430,23 @@ describe('leftOutOfRun', () => {
     expect(leftOutOfRun(inRunPath, U, W)).toBe(false);
   });
 });
+
+describe('leftOutOfRun for a span-only hit', () => {
+  const UUID = 'a1b2c3d4-0000-4000-8000-00000000f001';
+  const win = runWindow('2026-11-25T00:46:47.000Z', '2026-11-25T00:47:56.000Z');
+  const item = (over: object) => ({ file: `${UUID}-t1047.exe`, path: null, parent: null, parent_path: null, kind: 'process',
+    verdict: 'suspicious', action: null, started_at: '2026-11-25T00:47:10.000Z', added_at: '2026-11-25T00:49:00.000Z', ...over });
+
+  it('is kept only with an in-run item naming the test', () => {
+    const inRun = { evidence_items: [item({})] };
+    const otherRun = { evidence_items: [item({ started_at: '2026-11-19T09:05:00.000Z' })] };
+    const unrelated = { evidence_items: [item({ file: 'cmd.exe' })] };
+    expect(leftOutOfRun(inRun, UUID, win, undefined, true)).toBe(false);
+    expect(leftOutOfRun(otherRun, UUID, win, undefined, true)).toBe(true);
+    expect(leftOutOfRun(unrelated, UUID, win, undefined, true)).toBe(true);     // today's rule keeps it; a span-only hit must name the test in the run
+    expect(leftOutOfRun({ evidence_items: null }, UUID, win, undefined, true)).toBe(true);
+    expect(leftOutOfRun(inRun, UUID, null, undefined, true)).toBe(true);
+    expect(leftOutOfRun(unrelated, UUID, win)).toBe(false);                     // unchanged without the flag
+    expect(leftOutOfRun({ evidence_items: null }, UUID, win)).toBe(false);      // unchanged without the flag
+  });
+});

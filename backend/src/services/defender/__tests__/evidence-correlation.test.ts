@@ -3,6 +3,7 @@ import {
   buildAlertTimeWindowQuery,
   buildDefenderEvidenceQuery,
   buildStageDefenderEvidenceQuery,
+  defenderAlertTimeQuery,
   defenderPathNamesTest,
   extractBundleUuid,
 } from '../evidence-correlation.js';
@@ -644,5 +645,48 @@ describe('defenderPathNamesTest', () => {
     expect(buildDefenderEvidenceQuery({ test_uuid: '', routing_event_time: '2026-03-27T07:52:54Z', routing_hostname: 'h' })).toBeNull();
     const named = defenderPathNamesTest({ test_uuid: '', bundle_name: 'BlueHammer Early-Stage' });
     for (const p of paths) expect(named(p)).toBe(false);
+  });
+});
+
+describe('activity span', () => {
+  const base = { test_uuid: 'a1b2c3d4-0000-4000-8000-00000000f001::T1047', routing_event_time: '2026-11-25T00:47:56.000Z', routing_hostname: 'host-a' };
+  const timeClause = (q: any) => q.bool.must[1];
+
+  it('without a run start the query is today\'s, with no names', () => {
+    const q = buildDefenderEvidenceQuery(base)!;
+    expect(timeClause(q)).toEqual(buildAlertTimeWindowQuery('2026-11-25T00:42:56.000Z', '2026-11-25T01:17:56.000Z'));
+    expect(JSON.stringify(q)).not.toContain('_name');
+  });
+  it.each(['not-a-date', '', '2026-11-25T00:48:00.000Z' /* after the end */])('an unusable run start (%s) gives today\'s query', (run_started_at) => {
+    expect(buildDefenderEvidenceQuery({ ...base, run_started_at })).toEqual(buildDefenderEvidenceQuery(base));
+    expect(buildStageDefenderEvidenceQuery({ ...base, control_id: 'T1047', run_started_at }))
+      .toEqual(buildStageDefenderEvidenceQuery({ ...base, control_id: 'T1047' }));
+  });
+  it('with a run start the time clause is alert_time OR activity_span', () => {
+    const q = buildDefenderEvidenceQuery({ ...base, run_started_at: '2026-11-25T00:46:47.000Z' })!;
+    expect(timeClause(q)).toEqual({ bool: { minimum_should_match: 1, should: [
+      { bool: { _name: 'alert_time', filter: [buildAlertTimeWindowQuery('2026-11-25T00:42:56.000Z', '2026-11-25T01:17:56.000Z')] } },
+      { bool: { _name: 'activity_span', filter: [
+        { range: { first_activity_at: { lte: '2026-11-25T01:17:56.000Z' } } },
+        { range: { last_activity_at: { gte: '2026-11-25T00:41:47.000Z' } } },
+      ] } },
+    ] } });
+  });
+  it('the stage query gets the same time clause, and the rest of both queries is unchanged', () => {
+    const run_started_at = '2026-11-25T00:46:47.000Z';
+    const wide = buildDefenderEvidenceQuery({ ...base, run_started_at })!, wide0 = buildDefenderEvidenceQuery(base)!;
+    const stage = buildStageDefenderEvidenceQuery({ ...base, control_id: 'T1047', run_started_at })!;
+    const stage0 = buildStageDefenderEvidenceQuery({ ...base, control_id: 'T1047' })!;
+    expect(timeClause(stage)).toEqual(timeClause(wide));
+    for (const [a, b] of [[wide, wide0], [stage, stage0]] as any[]) {
+      expect([a.bool.must[0], a.bool.must[2], a.bool.must[3]]).toEqual([b.bool.must[0], b.bool.must[2], b.bool.must[3]]);
+    }
+  });
+  it('a run start equal to the end is usable', () => {
+    expect(JSON.stringify(buildDefenderEvidenceQuery({ ...base, run_started_at: base.routing_event_time }))).toContain('activity_span');
+  });
+  it('defenderAlertTimeQuery is the unnamed alert-time clause, null for a bad time', () => {
+    expect(defenderAlertTimeQuery(base.routing_event_time)).toEqual(buildAlertTimeWindowQuery('2026-11-25T00:42:56.000Z', '2026-11-25T01:17:56.000Z'));
+    expect(defenderAlertTimeQuery('nope')).toBeNull();
   });
 });

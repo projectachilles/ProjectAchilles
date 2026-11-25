@@ -8,7 +8,11 @@
 //
 // No run view (no run window, or the alert has no per-item data: other
 // vendors, alerts synced before v9, `evidence_items: null`) = today's rule,
-// the alert as it is.
+// the alert as it is, for an alert found by its own created / updated time.
+// An alert found only by its activity span (`foundBySpanOnly`) that the run
+// rule cannot judge (`spanHitUnusable`) is treated as not returned; in the
+// alert list and the report a span-only alert must name the test in one of its
+// in-run items.
 
 import {
   alertCredit,
@@ -19,6 +23,10 @@ import {
   type EvidenceFields,
   type EvidenceFileVerdict,
 } from './multiTestEvidence.js';
+
+/** Names of the two time clauses of the Defender alert queries (matched_queries). */
+export const ALERT_TIME_QUERY_NAME = 'alert_time';
+export const ACTIVITY_SPAN_QUERY_NAME = 'activity_span';
 
 /** Alert doc field holding the per-item evidence with its times (stored, not indexed). */
 export const EVIDENCE_ITEMS_FIELD = 'evidence_items';
@@ -218,4 +226,27 @@ export function isOtherRunAlert(
   const items = evidenceItems(src);
   if (!items) return false;
   return namesTest(items, uuid, pathNamesTest) && !namesTest(items.filter((i) => inRun(i, window)), uuid, pathNamesTest);
+}
+
+/** True when the hit's matched_queries is an array that has 'activity_span' and not 'alert_time'. */
+export function foundBySpanOnly(hit: { matched_queries?: unknown } | null | undefined): boolean {
+  const named = hit?.matched_queries;
+  return Array.isArray(named) && named.includes(ACTIVITY_SPAN_QUERY_NAME) && !named.includes(ALERT_TIME_QUERY_NAME);
+}
+
+/** A span-only hit the run rule cannot judge: no run window, or the alert has no item list. */
+export function spanHitUnusable(src: Record<string, unknown>, window: RunWindow | null): boolean {
+  return !window || evidenceItems(src) === null;
+}
+
+/** One of the alert's in-run items names test `uuid` (by file or parent name, or by path with pathNamesTest). False without a run view. */
+export function namesTestInRun(
+  src: Record<string, unknown>,
+  window: RunWindow | null,
+  uuid: string,
+  pathNamesTest?: (path: string) => boolean,
+): boolean {
+  if (!window || !uuid) return false;
+  const items = evidenceItems(src);
+  return !!items && namesTest(items.filter((i) => inRun(i, window)), uuid, pathNamesTest);
 }

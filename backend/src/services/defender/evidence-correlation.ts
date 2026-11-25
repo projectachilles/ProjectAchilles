@@ -29,6 +29,8 @@
 //     sandbox dirs); the latter is gated on a >= 6 char alphanumeric
 //     token to avoid false-positive matches on generic words.
 
+import { ALERT_TIME_QUERY_NAME, ACTIVITY_SPAN_QUERY_NAME } from '../edr/runEvidence.js';
+
 export interface TestEvidenceInput {
   test_uuid: string;
   routing_event_time: string;
@@ -41,6 +43,8 @@ export interface TestEvidenceInput {
    * inside a bundle-specific sandbox directory (e.g. `\BlueHammerSandbox\`).
    */
   bundle_name?: string;
+  /** The result's `routing.run_started_at`; adds the activity-span way into the time clause. */
+  run_started_at?: string;
 }
 
 const PRE_WINDOW_MS = 5 * 60 * 1000;
@@ -109,6 +113,58 @@ export function buildAlertTimeWindowQuery(
         },
       ],
       minimum_should_match: 1,
+    },
+  };
+}
+
+/** The `from` / `to` alert-time window around a result's end time; null when it is not a date. */
+function alertWindow(routingEventTime: string): { endMs: number; from: string; to: string } | null {
+  const endMs = new Date(routingEventTime).getTime();
+  if (Number.isNaN(endMs)) return null;
+  return {
+    endMs,
+    from: new Date(endMs - PRE_WINDOW_MS).toISOString(),
+    to: new Date(endMs + POST_WINDOW_MS).toISOString(),
+  };
+}
+
+/**
+ * Today's alert-time clause for a result's end time, unnamed:
+ * `buildAlertTimeWindowQuery(end - 5 min, end + 30 min)`. null when the time is not a date.
+ */
+export function defenderAlertTimeQuery(routingEventTime: string): Record<string, unknown> | null {
+  const w = alertWindow(routingEventTime);
+  return w ? buildAlertTimeWindowQuery(w.from, w.to) : null;
+}
+
+/**
+ * Time clause shared by both Defender builders. With a usable run start (a date,
+ * not after the end) it is alert time OR the alert's activity span overlapping the
+ * run, each way named so Elasticsearch reports how a hit was found. Otherwise it
+ * is exactly today's alert-time clause, unnamed.
+ */
+function defenderTimeClause(
+  w: { endMs: number; from: string; to: string },
+  runStartedAt: string | undefined,
+): Record<string, unknown> {
+  const alertTime = buildAlertTimeWindowQuery(w.from, w.to);
+  const startMs = runStartedAt ? new Date(runStartedAt).getTime() : NaN;
+  if (Number.isNaN(startMs) || startMs > w.endMs) return alertTime;
+  return {
+    bool: {
+      minimum_should_match: 1,
+      should: [
+        { bool: { _name: ALERT_TIME_QUERY_NAME, filter: [alertTime] } },
+        {
+          bool: {
+            _name: ACTIVITY_SPAN_QUERY_NAME,
+            filter: [
+              { range: { first_activity_at: { lte: w.to } } },
+              { range: { last_activity_at: { gte: new Date(startMs - PRE_WINDOW_MS).toISOString() } } },
+            ],
+          },
+        },
+      ],
     },
   };
 }
@@ -189,8 +245,8 @@ export function buildStageDefenderEvidenceQuery(
   const { test_uuid, routing_event_time, routing_hostname, control_id } = input;
   if (!test_uuid || !routing_event_time || !routing_hostname || !control_id) return null;
 
-  const testTime = new Date(routing_event_time).getTime();
-  if (Number.isNaN(testTime)) return null;
+  const window = alertWindow(routing_event_time);
+  if (!window) return null;
 
   const baseUuid = extractBundleUuid(test_uuid);
   // Stage-binary prefix: `<uuid>-<control_id>*` — matches `<uuid>-t1083.exe`,
@@ -203,14 +259,11 @@ export function buildStageDefenderEvidenceQuery(
   const stageBinaryVariant = `${baseUuid.toLowerCase()}-${idLower}-*.exe`;
   const hostnamePrefix = `${routing_hostname.toUpperCase()}*`;
 
-  const from = new Date(testTime - PRE_WINDOW_MS).toISOString();
-  const to = new Date(testTime + POST_WINDOW_MS).toISOString();
-
   return {
     bool: {
       must: [
         { term: { doc_type: 'alert' } },
-        buildAlertTimeWindowQuery(from, to),
+        defenderTimeClause(window, input.run_started_at),
         shouldWildcardEither('evidence_hostnames', hostnamePrefix),
         {
           bool: {
@@ -254,16 +307,13 @@ export function buildDefenderEvidenceQuery(
   const { test_uuid, routing_event_time, routing_hostname, bundle_name } = input;
   if (!test_uuid || !routing_event_time || !routing_hostname) return null;
 
-  const testTime = new Date(routing_event_time).getTime();
-  if (Number.isNaN(testTime)) return null;
+  const window = alertWindow(routing_event_time);
+  if (!window) return null;
 
   const baseUuid = extractBundleUuid(test_uuid);
   const binaryPrefix = `${baseUuid.toLowerCase()}*`;
   const filepathUuidGlob = `*${baseUuid.toLowerCase()}*`;
   const hostnamePrefix = `${routing_hostname.toUpperCase()}*`;
-
-  const from = new Date(testTime - PRE_WINDOW_MS).toISOString();
-  const to = new Date(testTime + POST_WINDOW_MS).toISOString();
 
   // Build the "filename OR filepath matches" disjunction. A doc qualifies if
   // ANY of these hits — e.g., the orchestrator binary appears in
@@ -289,7 +339,7 @@ export function buildDefenderEvidenceQuery(
     bool: {
       must: [
         { term: { doc_type: 'alert' } },
-        buildAlertTimeWindowQuery(from, to),
+        defenderTimeClause(window, input.run_started_at),
         shouldWildcardEither('evidence_hostnames', hostnamePrefix),
         {
           bool: {
