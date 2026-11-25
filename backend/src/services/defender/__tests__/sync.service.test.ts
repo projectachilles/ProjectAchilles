@@ -589,19 +589,86 @@ describe('DefenderSyncService', () => {
       expect(service.evidenceItemsReady()).toBe(true);
     });
 
-    it('false when the full look-back alert sync had a write error, and an incremental sync after it does not make it true', async () => {
+    const writeError = () => ({ errors: true, items: [{ update: { _id: 'alert-a-1', error: { reason: 'mapper_parsing_exception' } } }] });
+    const fullFilter = /^lastUpdateDateTime ge /;
+
+    it('a full look-back with a write error holds the checkpoint, so the next sync is a full look-back again; clean, it makes it true', async () => {
       mockGetAlerts.mockResolvedValue([alertWithId('a-1')]);
-      mockBulk.mockResolvedValueOnce({ errors: true, items: [{ update: { _id: 'alert-a-1', error: { reason: 'mapper_parsing_exception' } } }] });
+      mockBulk.mockResolvedValueOnce(writeError());
       const first = await service.syncAlerts();
       expect(first.errors).toHaveLength(1);
       expect(service.evidenceItemsReady()).toBe(false);
-      expect(lastSaved()).not.toHaveProperty('evidence_items_version');
+      expect(service.getSyncStatus().lastAlertSync).toBeNull();
+      expect(mockSaveDefenderSyncTimestamps).not.toHaveBeenCalled();
 
-      // The checkpoint moved, so the next sync is incremental: not a full re-sync.
-      const checkpoint = service.getSyncStatus().lastAlertSync;
+      mockBulk.mockResolvedValueOnce({ errors: false, items: [{ update: { result: 'updated' } }] });
+      const second = await service.syncAlerts();
+      expect(second.errors).toHaveLength(0);
+      expect(mockGetAlerts).toHaveBeenCalledTimes(2);
+      const lookback = Date.parse(mockGetAlerts.mock.calls[1][0].replace('lastUpdateDateTime ge ', ''));
+      expect(Math.abs(lookback - (Date.now() - 90 * 86400_000))).toBeLessThan(60_000);
+      expect(service.evidenceItemsReady()).toBe(true);
+      expect(service.getSyncStatus().lastAlertSync).not.toBeNull();
+      expect(lastSaved()).toMatchObject({ evidence_items_version: 9 });
+    });
+
+    it('three full look-backs in a row with write errors: the checkpoint moves, one warning, the fourth sync is incremental and it stays false', async () => {
+      const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+      try {
+        mockGetAlerts.mockResolvedValue([alertWithId('a-1')]);
+        mockBulk.mockResolvedValue(writeError());
+        for (let i = 0; i < 3; i++) await service.syncAlerts();
+        for (let i = 0; i < 3; i++) {
+          const lookback = Date.parse(mockGetAlerts.mock.calls[i][0].replace('lastUpdateDateTime ge ', ''));
+          expect(Math.abs(lookback - (Date.now() - 90 * 86400_000))).toBeLessThan(60_000);
+        }
+        const checkpoint = service.getSyncStatus().lastAlertSync;
+        expect(checkpoint).not.toBeNull();
+        expect(lastSaved()).toMatchObject({ last_alert_sync: checkpoint });
+        expect(lastSaved()).not.toHaveProperty('evidence_items_version');
+
+        mockBulk.mockResolvedValue({ errors: false, items: [{ update: { result: 'updated' } }] });
+        await service.syncAlerts();
+        expect(mockGetAlerts.mock.calls[3][0]).toBe(`lastUpdateDateTime ge ${checkpoint}`);
+        expect(service.evidenceItemsReady()).toBe(false);
+
+        const resync = warn.mock.calls.filter((c) => String(c[0]).includes('Full alert re-sync ended with errors'));
+        expect(resync).toHaveLength(1);
+        expect(String(resync[0][0])).toContain('3 times');
+        expect(String(resync[0][0])).toContain('per-run crediting stays off until the next restart');
+      } finally {
+        warn.mockRestore();
+      }
+    });
+
+    it('a clean full look-back resets the count of failed ones', async () => {
+      mockGetAlerts.mockResolvedValue([alertWithId('a-1')]);
+      mockBulk.mockResolvedValueOnce(writeError()).mockResolvedValueOnce(writeError());
       await service.syncAlerts();
+      await service.syncAlerts();
+      expect(service.getSyncStatus().lastAlertSync).toBeNull();
+      await service.syncAlerts(); // clean
+      expect(service.evidenceItemsReady()).toBe(true);
+      expect(mockGetAlerts.mock.calls.map((c) => c[0])).toEqual([
+        expect.stringMatching(fullFilter), expect.stringMatching(fullFilter), expect.stringMatching(fullFilter),
+      ]);
+    });
+
+    it('an incremental sync with a write error still moves its checkpoint (unchanged)', async () => {
+      const svc = restartWith({ last_alert_sync: '2026-11-24T00:00:00Z', sync_version: 9, evidence_items_version: 9 });
+      mockGetAlerts.mockResolvedValue([alertWithId('a-1')]);
+      mockBulk.mockResolvedValueOnce(writeError());
+      const result = await svc.syncAlerts();
+
+      expect(result.errors).toHaveLength(1);
+      expect(mockGetAlerts).toHaveBeenCalledWith('lastUpdateDateTime ge 2026-11-24T00:00:00Z');
+      const checkpoint = svc.getSyncStatus().lastAlertSync;
+      expect(checkpoint).not.toBe('2026-11-24T00:00:00Z');
+      expect(lastSaved()).toMatchObject({ last_alert_sync: checkpoint, evidence_items_version: 9 });
+      expect(svc.evidenceItemsReady()).toBe(true);
+
+      await svc.syncAlerts();
       expect(mockGetAlerts.mock.calls[1][0]).toBe(`lastUpdateDateTime ge ${checkpoint}`);
-      expect(service.evidenceItemsReady()).toBe(false);
     });
 
     it('false when the full look-back alert fetch fails', async () => {

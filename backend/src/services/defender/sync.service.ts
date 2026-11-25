@@ -38,6 +38,12 @@ const INITIAL_ALERT_LOOKBACK_DAYS = 90;
 const MAX_EVIDENCE_ITEMS = 1000;
 
 /**
+ * Consecutive full look-back alert syncs that may end with write errors and
+ * be repeated (checkpoint held) before the checkpoint moves on anyway.
+ */
+const MAX_FULL_RESYNC_ATTEMPTS = 3;
+
+/**
  * Bump this when the alert schema changes (e.g. new extracted fields) to
  * force a full re-sync on all deployments. The persisted sync_version is
  * compared against this; a mismatch clears lastAlertSync.
@@ -61,6 +67,8 @@ export class DefenderSyncService {
    * `evidence_items_version`). See evidenceItemsReady().
    */
   private evidenceItemsComplete = false;
+  /** Full look-back alert syncs in a row that ended with write errors (this process only). */
+  private failedFullResyncs = 0;
 
   // ---------------------------------------------------------------------------
   // Client initialization
@@ -556,10 +564,28 @@ export class DefenderSyncService {
         synced = alerts.length - errors.length;
       }
 
-      // Only update checkpoint on successful fetch (not on error)
-      this.syncStatus.lastAlertSync = new Date().toISOString();
-      if (fullLookback && errors.length === 0) this.evidenceItemsComplete = true;
-      this.persistSyncTimestamps();
+      // Only update checkpoint on successful fetch (not on error). A full
+      // look-back with write errors is repeated (checkpoint held) up to
+      // MAX_FULL_RESYNC_ATTEMPTS times in a row, so a transient error doesn't
+      // leave evidence items not ready until the next restart.
+      let holdCheckpoint = false;
+      if (fullLookback && errors.length === 0) {
+        this.evidenceItemsComplete = true;
+        this.failedFullResyncs = 0;
+      } else if (fullLookback) {
+        this.failedFullResyncs++;
+        holdCheckpoint = this.failedFullResyncs < MAX_FULL_RESYNC_ATTEMPTS;
+        if (!holdCheckpoint) {
+          console.warn(
+            `[Defender] Full alert re-sync ended with errors ${this.failedFullResyncs} times — ` +
+            'evidence items are not ready; per-run crediting stays off until the next restart',
+          );
+        }
+      }
+      if (!holdCheckpoint) {
+        this.syncStatus.lastAlertSync = new Date().toISOString();
+        this.persistSyncTimestamps();
+      }
     } catch (err) {
       errors.push(err instanceof Error ? err.message : String(err));
     }
