@@ -199,6 +199,22 @@ describe.each(VENDORS.filter((v) => v.prefix !== 'defender'))('EDR alert enrichm
     expect(bodies).toHaveLength(2);
     for (const b of bodies) expect(b._source).not.toContain('evidence_items');
   });
+
+  it('the other three EDRs never send a span clause or the alert_time aggregation', async () => {
+    const doc = resultDoc(999);
+    const withRunStart = { ...doc, _source: { ...doc._source, routing: { ...doc._source.routing, run_started_at: '2026-10-20T09:58:50Z' } } };
+    search.mockResolvedValueOnce({ hits: { hits: [withRunStart] } });
+    msearch.mockResolvedValueOnce({ responses: [none, none] });
+    await make(client).runEnrichmentPass({ batchSize: 200 });
+    const bodies = (msearch.mock.calls[0][0].searches as any[]).filter((_, i) => i % 2 === 1);
+    expect(bodies).toHaveLength(2);
+    for (const b of bodies) {
+      expect(JSON.stringify(b)).not.toContain('activity_span');
+      expect(JSON.stringify(b)).not.toContain('alert_time');
+      expect(Object.keys(b.aggs)).toEqual(['prevention']);
+      expect(b.aggs.prevention.aggs.actions.terms.field).toBe('prevention_action');
+    }
+  });
 });
 
 // Late prevention: an EDR often attaches its action after the alert was first

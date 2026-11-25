@@ -8,7 +8,9 @@
 
 import type { Client } from '@elastic/elasticsearch';
 import { EdrAlertEnrichmentService } from '../edr/alert-enrichment.service.js';
-import { buildDefenderEvidenceQuery, buildStageDefenderEvidenceQuery, defenderPathNamesTest } from './evidence-correlation.js';
+import {
+  buildDefenderEvidenceQuery, buildStageDefenderEvidenceQuery, defenderAlertTimeQuery, defenderPathNamesTest,
+} from './evidence-correlation.js';
 import { DEFENDER_INDEX } from './index-management.js';
 
 export class DefenderEnrichmentService extends EdrAlertEnrichmentService {
@@ -21,7 +23,13 @@ export class DefenderEnrichmentService extends EdrAlertEnrichmentService {
     super(client, resultsIndexPattern, {
       alertIndex: DEFENDER_INDEX,
       flagPrefix: 'defender',
-      evidenceQueries: { wide: buildDefenderEvidenceQuery, stage: buildStageDefenderEvidenceQuery, pathNamesTest: defenderPathNamesTest },
+      evidenceQueries: {
+        wide: buildDefenderEvidenceQuery,
+        stage: buildStageDefenderEvidenceQuery,
+        pathNamesTest: defenderPathNamesTest,
+        // Crediting by run, alerts are also found by their activity span.
+        alertTime: defenderAlertTimeQuery,
+      },
       runScopedEvidence: options.runScopedEvidence === true,
     });
   }

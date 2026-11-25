@@ -13,7 +13,9 @@ import {
 import type { EnrichmentPassOptions, EnrichmentPassResult } from '../../types/edr.js';
 import { isAchillesMitigated, ACHILLES_MITIGATION_FIELDS, ACHILLES_MITIGATED_QUERY } from '../shared/achillesMitigation.js';
 import { alertCredit, isStageFile, isTestFile, MULTI_TEST_EVIDENCE_FIELDS } from './multiTestEvidence.js';
-import { alertCreditForRun, EVIDENCE_ITEMS_FIELD, runWindow, type RunWindow } from './runEvidence.js';
+import {
+  alertCreditForRun, EVIDENCE_ITEMS_FIELD, foundBySpanOnly, runWindow, spanHitUnusable, type RunWindow,
+} from './runEvidence.js';
 import { enrichmentEligibleClauses } from '../analytics/enrichment-eligibility.js';
 import type { EdrVendorKey } from '../outcomes/vendors.js';
 
@@ -112,6 +114,13 @@ export interface EvidenceQueryBuilders {
    * path still names the test).
    */
   pathNamesTest?: (input: { test_uuid: string; bundle_name?: string }) => (path: string) => boolean;
+  /**
+   * The vendor's unnamed alert-time clause for a result's end time (null when
+   * the time is not a date). Present = the builders take `run_started_at`
+   * and add the activity-span way in (runScopedEvidence only). The shared
+   * builders define none, so the other vendors keep today's queries.
+   */
+  alertTime?: (routingEventTime: string) => Record<string, unknown> | null;
 }
 
 /**
@@ -222,6 +231,12 @@ export class EdrAlertEnrichmentService {
         kind: 'wide' | 'stage'; hit: any; body: Record<string, unknown>; bundleUuid: string; controlId: string;
         /** runScopedEvidence only: the result's run window (null = no run view) and the wide query's path rule. */
         window: RunWindow | null; pathNamesTest?: (path: string) => boolean;
+        /**
+         * Span form: the query also finds alerts by their activity span (named
+         * clauses), and `alertTimeClause` is the unnamed alert-time clause the
+         * aggregation counts by. Decided per result, for both sub-queries.
+         */
+        spanForm: boolean; alertTimeClause: Record<string, unknown> | null;
       };
       const queries: SubQuery[] = [];
       /** Sub-queries queued per result doc (the run marker needs every one answered). */
@@ -230,17 +245,27 @@ export class EdrAlertEnrichmentService {
         const src = hit._source?.f0rtika ?? {};
         const routing = hit._source?.routing ?? {};
         const testUuid = src.test_uuid ?? '';
+        const window = this.runWindowOf(hit);
+        // Span form: crediting by run, a vendor whose builders take the run
+        // start, a run window, and a usable end time.
+        const alertTimeClause = this.target.runScopedEvidence && window !== null
+          ? this.evidenceQueries.alertTime?.(routing.event_time ?? '') ?? null
+          : null;
+        const spanForm = alertTimeClause !== null;
+        const runStart = spanForm ? { run_started_at: routing.run_started_at } : {};
         const wideQuery = this.evidenceQueries.wide({
           test_uuid: testUuid,
           routing_event_time: routing.event_time ?? '',
           routing_hostname: routing.hostname ?? '',
           bundle_name: src.bundle_name,
+          ...runStart,
         });
         const stageQuery = this.evidenceQueries.stage({
           test_uuid: testUuid,
           routing_event_time: routing.event_time ?? '',
           routing_hostname: routing.hostname ?? '',
           control_id: src.control_id ?? '',
+          ...runStart,
         });
         if (!wideQuery && !stageQuery) {
           // No usable query at all (probably malformed input).
@@ -249,12 +274,12 @@ export class EdrAlertEnrichmentService {
         }
         const bundleUuid = extractBundleUuid(testUuid);
         const controlId = String(src.control_id ?? '');
-        const window = this.runWindowOf(hit);
         const pathNamesTest = this.target.runScopedEvidence
           ? this.evidenceQueries.pathNamesTest?.({ test_uuid: testUuid, bundle_name: src.bundle_name })
           : undefined;
-        if (wideQuery)  queries.push({ kind: 'wide',  hit, body: wideQuery,  bundleUuid, controlId, window, pathNamesTest });
-        if (stageQuery) queries.push({ kind: 'stage', hit, body: stageQuery, bundleUuid, controlId, window });
+        const common = { hit, bundleUuid, controlId, window, spanForm, alertTimeClause };
+        if (wideQuery)  queries.push({ kind: 'wide',  body: wideQuery,  pathNamesTest, ...common });
+        if (stageQuery) queries.push({ kind: 'stage', body: stageQuery, ...common });
         queuedByHitId.set(hit._id, (wideQuery ? 1 : 0) + (stageQuery ? 1 : 0));
       }
 
@@ -276,19 +301,22 @@ export class EdrAlertEnrichmentService {
           const preventionFilter = this.target.ignoreAchillesMitigated
             ? { bool: { must_not: [ACHILLES_MITIGATED_QUERY] } }
             : { match_all: {} };
+          // Every matching alert's action, not just the hits returned: a
+          // stage with many alerts (a LOLBin storm) can have its one
+          // kill / quarantine outside the first EVIDENCE_HITS_PER_SUBQUERY.
+          const prevention = {
+            filter: preventionFilter,
+            aggs: { actions: { terms: { field: 'prevention_action', size: PREVENTION_ACTION_BUCKETS } } },
+          };
           searches.push({
             size: EVIDENCE_HITS_PER_SUBQUERY,
             _source: source,
             query: q.body,
-            // Every matching alert's action, not just the hits returned: a
-            // stage with many alerts (a LOLBin storm) can have its one
-            // kill / quarantine outside the first EVIDENCE_HITS_PER_SUBQUERY.
-            aggs: {
-              prevention: {
-                filter: preventionFilter,
-                aggs: { actions: { terms: { field: 'prevention_action', size: PREVENTION_ACTION_BUCKETS } } },
-              },
-            },
+            // Span form: only alerts found by alert time count unread (the
+            // old way), so the count and the actions are taken over them.
+            aggs: q.spanForm && q.alertTimeClause
+              ? { alert_time: { filter: q.alertTimeClause, aggs: { prevention } } }
+              : { prevention },
           });
         }
 
@@ -363,6 +391,13 @@ export class EdrAlertEnrichmentService {
           if (total === 0) continue;
 
           const allHits = (resp.hits?.hits ?? []) as any[];
+          // Span form: a hit found by its activity span only that the run rule
+          // cannot judge (no run window, or no item list) is treated as if the
+          // query had not returned it, so the name rule never gets wider: not
+          // found, not crediting, its id not collected, never stamped.
+          const usableHits = q.spanForm
+            ? allHits.filter((h) => !(foundBySpanOnly(h) && spanHitUnusable(h._source ?? {}, q.window)))
+            : allHits;
           // Which alerts count (multiTestEvidence.ts): a single-test alert
           // always; a multi-test one only through the vendor's verdict on this
           // stage's binary (stage query) or on any of this test's files (wide).
@@ -375,7 +410,7 @@ export class EdrAlertEnrichmentService {
           // counts (edr/runEvidence.ts); the wide query also keeps a match by
           // a path naming the test.
           const ownActionsOnly = q.kind === 'stage';
-          const credited = allHits
+          const credited = usableHits
             .map((h) => ({
               h,
               credit: this.target.runScopedEvidence
@@ -385,17 +420,24 @@ export class EdrAlertEnrichmentService {
             .filter((c) => c.credit.counts);
           const alertHits = credited.map((c) => c.h);
           // Alerts beyond the hits read can't be classified: they count, as
-          // every match did before the multi-test rules.
-          const unread = Math.max(0, total - allHits.length);
+          // every match did before the multi-test rules. In the span form only
+          // those found by alert time do (the `alert_time` aggregation counts
+          // them over every match, less the ones read): an unread span-only
+          // match has no items to judge, so it is treated as not returned.
+          const alertTimeAgg = resp.aggregations?.alert_time;
+          const byAlertTime = typeof alertTimeAgg?.doc_count === 'number' ? alertTimeAgg.doc_count : 0;
+          const unread = q.spanForm
+            ? Math.max(0, byAlertTime - allHits.filter((h) => !foundBySpanOnly(h)).length)
+            : Math.max(0, total - allHits.length);
           const counting = alertHits.length + unread;
           if (q.kind === 'stage') {
-            entry.stageHitsAll += allHits.length + unread;
+            entry.stageHitsAll += usableHits.length + unread;
             entry.stageHitsSingle += counting;
           } else {
-            entry.wideHitsAll += allHits.length + unread;
+            entry.wideHitsAll += usableHits.length + unread;
             entry.wideHitsCounting += counting;
           }
-          const alertIds = allHits
+          const alertIds = usableHits
             .map((h) => h._id)
             .filter((id): id is string => typeof id === 'string');
           // Prevention-flag qualification rule (docs/edr-prevention-action-detection.md):
@@ -412,9 +454,11 @@ export class EdrAlertEnrichmentService {
             .filter((c) => !(this.target.ignoreAchillesMitigated && isAchillesMitigated(c.h._source)))
             .flatMap((c) => c.credit.actions ?? [c.h._source?.prevention_action]);
           // The aggregation can't tell multi-test alerts apart: it is used
-          // only when more alerts matched than the query could read.
-          const aggUsable = total > allHits.length;
-          const aggActions = aggUsable ? ((resp.aggregations?.prevention?.actions?.buckets ?? []) as any[]).map((b) => b.key) : [];
+          // only when more alerts matched than the query could read (span
+          // form: only when some found by alert time were left unread).
+          const aggUsable = q.spanForm ? unread > 0 : total > allHits.length;
+          const aggBuckets = q.spanForm ? alertTimeAgg?.prevention?.actions?.buckets : resp.aggregations?.prevention?.actions?.buckets;
+          const aggActions = aggUsable ? ((aggBuckets ?? []) as any[]).map((b) => b.key) : [];
           // A result that exited 101 ran to completion: whatever the EDR did
           // (often after the stage had finished) is detection, not prevention,
           // at stage and test level alike.
@@ -432,7 +476,7 @@ export class EdrAlertEnrichmentService {
           if (q.kind === 'wide' && counting > 0) entry.wideMatched = true;
           if (q.kind === 'stage' && counting > 0) entry.stageMatched = true;
           for (const id of alertIds) entry.alertIds.add(id);
-          for (const h of allHits) if (typeof h._id === 'string' && h._source?.f0rtika?.achilles_correlated === true) entry.correlatedAlertIds.add(h._id);
+          for (const h of usableHits) if (typeof h._id === 'string' && h._source?.f0rtika?.achilles_correlated === true) entry.correlatedAlertIds.add(h._id);
           if (q.kind === 'stage') entry.stageActions.push(...preventionActions);
           else if (preventionQualifies) entry.wideActions.push(...preventionActions);
         }
