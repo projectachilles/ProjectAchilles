@@ -1925,6 +1925,8 @@ describe('DefenderEnrichmentService — credit by run (runScopedEvidence)', () =
       /** A span-only alert with an in-run item for another stage and an other-run item for this one. */
       const otherStageInRun = (id = 'alert-2') =>
         hit(id, alertSource([item(IN_RUN, { file: OTHER_STAGE }), item(EARLIER)]), SPAN);
+      /** An in-run item of a program that is no Achilles file and no test path: it credits nothing. */
+      const otherProgramInRun = item(IN_RUN, { file: 'net.exe', path: 'c:\\windows\\system32', parent: 'explorer.exe', parent_path: 'c:\\windows' });
       const counters = (result: { stageDetectionsRemoved: number; detectionsRemoved: number; preventionsRemoved: number }) =>
         [result.stageDetectionsRemoved, result.detectionsRemoved, result.preventionsRemoved];
       const expectKept = ({ f, result }: Awaited<ReturnType<typeof run>>) => {
@@ -1978,15 +1980,60 @@ describe('DefenderEnrichmentService — credit by run (runScopedEvidence)', () =
         expect(result.stageDetectionsRemoved).toBe(1);
       });
 
-      it('mixed kinds: the stage kind holds nothing of the run, the test-level kind has an alert of the run', async () => {
-        const wide = hit('alert-w', alertSource([item(EARLIER), item(IN_RUN, { file: OTHER_STAGE })]), SPAN);
+      // The stage kind holding nothing of the run holds back the whole result:
+      // a judged test-level kind would otherwise remove `_detected` or the
+      // prevention flags beside a kept stage flag.
+      it('mixed kinds: the stage kind holds nothing of the run, the test-level alert has items of the run that do not count', async () => {
+        const wide = hit('alert-w', alertSource([item(EARLIER), otherProgramInRun]), SPAN);
         const stage = hit('alert-s', alertSource([item(EARLIER)]), SPAN);
         const { f, result } = await run(stopped(999, storedFlags), [answer([wide]), answer([stage])]);
         expect(f?.defender_stage_detected).not.toBe(false);
-        // The wide alert counts: `_detected` stays (already stored, so not re-written).
         expect(f?.defender_detected).not.toBe(false);
         expect(f).toEqual({ defender_run_rule: RUN_RULE });
-        expect([result.stageDetectionsRemoved, result.detectionsRemoved]).toEqual([0, 0]);
+        expect(counters(result)).toEqual([0, 0, 0]);
+      });
+
+      it('a stopped stage keeps its prevention when a sibling stage\'s alert has items of the run', async () => {
+        const doc = stopped(999, {
+          defender_detected: true, defender_stage_detected: true, defender_stage_prevented: true,
+          defender_prevented: true, defender_prevention_action: 'process_killed',
+        });
+        // This stage's alert: every item from an earlier run, the kill among them.
+        const own = hit('alert-1', alertSource([item(EARLIER, { verdict: 'malicious', action: 'process_killed' }), item(EARLIER)]), SPAN);
+        // A sibling stage's alert: an in-run item of another stage of this test, no action.
+        const sibling = hit('alert-2', alertSource([item(IN_RUN, { file: OTHER_STAGE })]), SPAN);
+        const { f, result } = await run(doc, [answer([own, sibling]), answer([own])]);
+        const flagKeys = [
+          'defender_detected', 'defender_stage_detected', 'defender_stage_prevented', 'defender_prevented', 'defender_prevention_action',
+        ];
+        for (const k of flagKeys) {
+          expect(f?.[k], k).not.toBe(false);
+          expect(f?.[k], k).not.toBeNull();
+        }
+        expect(f).toMatchObject({ defender_run_rule: RUN_RULE });
+        expect(counters(result)).toEqual([0, 0, 0]);
+        expect(result.removedFlagDocs).toEqual([]);
+      });
+
+      it('only the test-level kind holds nothing of the run: the stage kind is judged as today', async () => {
+        const wide = otherRunOnly('alert-w');
+        const { f, result } = await run(stopped(999, storedFlags), [answer([wide]), answer([otherStageInRun('alert-s')])]);
+        expect(f).toMatchObject({ defender_stage_detected: false });
+        expect(f?.defender_detected).not.toBe(false);
+        expect([result.stageDetectionsRemoved, result.detectionsRemoved]).toEqual([1, 0]);
+      });
+
+      it('alert-time matches left unread: the kind is judged as today', async () => {
+        // The test level (which exit 999's prevention reads): 100 span-only
+        // alerts read, all from an earlier run; 120 matched, 20 of them by
+        // alert time and unread (unread 20, unread span-only 0). They count the
+        // old way and bring no action, so the stored prevention goes.
+        const read = Array.from({ length: 100 }, (_, n) => hit(`alert-${n + 1}`, alertSource([item(EARLIER)]), SPAN));
+        const aggregations = { alert_time: { doc_count: 20, prevention: { doc_count: 0, actions: { buckets: [] } } } };
+        const { f, result } = await run(stopped(999), [answer(read, 120, aggregations), none]);
+        expect(f).toMatchObject({ defender_prevented: false, defender_prevention_action: null });
+        expect(f?.defender_detected).not.toBe(false);
+        expect(result.preventionsRemoved).toBe(1);
       });
 
       it('two alerts, one with items of the run for another stage: the stage flag is removed', async () => {
@@ -2000,8 +2047,8 @@ describe('DefenderEnrichmentService — credit by run (runScopedEvidence)', () =
       it('an alert-time alert without an item list still counts the old way', async () => {
         const a = hit('alert-1', { ...alertSource([item(EARLIER)]), evidence_items: null }, ALERT_TIME);
         const { f, result } = await run(stopped(999, storedFlags), [answer([a]), answer([a])]);
-        expect(f?.defender_stage_detected).not.toBe(false);
-        expect(Object.values(f ?? {})).not.toContain(false);
+        // It counts at both levels; the flags are already stored, so the marker alone is written.
+        expect(f).toEqual({ defender_run_rule: RUN_RULE });
         expect(result.removedFlagDocs).toEqual([]);
       });
     });

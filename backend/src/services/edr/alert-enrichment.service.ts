@@ -367,6 +367,8 @@ export class EdrAlertEnrichmentService {
            * result did not run to completion and every alert found holds
            * nothing of its run (`<kind>NoRunItems`: Defender can stop a file
            * it already knows and update the alert without adding an item).
+           * The stage kind in that case holds back both kinds; the test-level
+           * kind only itself.
            */
           stageUnjudged: boolean;
           wideUnjudged: boolean;
@@ -463,7 +465,15 @@ export class EdrAlertEnrichmentService {
             entry.stageHitsSingle += counting;
             if (unreadSpanOnly > 0) entry.stageUnjudged = true;
             entry.stageNoRunItems = nothingOfRun;
-            if (nothingOfRun && !this.ranToCompletion(q.hit)) entry.stageUnjudged = true;
+            // The stage kind holds back the whole result: a judged test-level
+            // kind would otherwise remove `_detected` or the prevention flags
+            // (which a non-conclusive exit reads from it) beside a kept stage
+            // flag. The Unjudged flags are only ever set, never cleared, and
+            // are read when the update is built, so the sub-query order is moot.
+            if (nothingOfRun && !this.ranToCompletion(q.hit)) {
+              entry.stageUnjudged = true;
+              entry.wideUnjudged = true;
+            }
           } else {
             entry.wideHitsAll += usableHits.length + unread;
             entry.wideHitsCounting += counting;
