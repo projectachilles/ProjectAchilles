@@ -37,25 +37,29 @@ function group(tasks: AgentTask[], agentCount: number): TaskGroup {
   };
 }
 
-describe('TaskStream batch header agent count', () => {
+describe('TaskStream run entry agent count', () => {
+  const entry = () => screen.getByRole('group', { name: /LockBit Chain/ });
+
   it('says "1 of 5 agents" when only part of the batch is listed', () => {
     render(<TaskStream groups={[group([task('t1', 'a1')], 5)]} loading={false} />);
-    const header = screen.getByRole('button', { name: /batch · LockBit Chain/ });
-    expect(header.textContent).toContain('1 of 5 agents');
+    expect(entry().textContent).toContain('1 of 5 agents');
   });
 
-  it('keeps "N agents" when the whole batch is listed', () => {
+  it('never says "of" when the whole batch is listed', () => {
     render(<TaskStream groups={[group([task('t1', 'a1'), task('t2', 'a2')], 2)]} loading={false} />);
-    const header = screen.getByRole('button', { name: /batch · LockBit Chain/ });
-    expect(header.textContent).toContain('2 agents');
-    expect(header.textContent).not.toContain(' of ');
+    expect(entry().textContent).not.toContain(' of ');
   });
 
-  it('keeps "N agents" for a whole batch that holds a retry', () => {
+  it('never says "of" for a whole batch that holds a retry', () => {
     const tasks = [task('t1', 'a1'), task('t2', 'a2'), task('t1-retry', 'a1')];
     render(<TaskStream groups={[group(tasks, 2)]} loading={false} />);
-    const header = screen.getByRole('button', { name: /batch · LockBit Chain/ });
-    expect(header.textContent).toContain('2 agents');
-    expect(header.textContent).not.toContain(' of ');
+    expect(entry().textContent).not.toContain(' of ');
+  });
+
+  it('counts agents, not tasks, on a run too large for named pills', () => {
+    const tasks = Array.from({ length: 9 }, (_, i) => task(`t${i}`, `a${i}`)).concat(task('t0-retry', 'a0'));
+    render(<TaskStream groups={[group(tasks, 9)]} loading={false} />);
+    expect(entry().textContent).toContain('9 agents');
+    expect(entry().textContent).not.toContain(' of ');
   });
 });

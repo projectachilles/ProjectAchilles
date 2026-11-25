@@ -541,7 +541,9 @@ export default function TasksPage() {
             onTogglePause={canWriteSchedule ? handleTogglePause : undefined}
             onDelete={canDeleteSchedule ? handleDeleteSchedule : undefined}
           />
-        ) : loading ? (
+        ) : loading && groups.length === 0 ? (
+          // Only the first load swaps the list for a spinner: a reload keeps it
+          // mounted, so the selected task and an open host list survive it.
           <Loading message="Loading tasks..." />
         ) : (
           <div ref={fillRef} style={fillHeight ? { height: fillHeight } : undefined}>

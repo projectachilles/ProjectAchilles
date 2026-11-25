@@ -152,6 +152,18 @@ describe('TasksPage', () => {
     await waitFor(() => expect(list).toHaveBeenLastCalledWith(expect.objectContaining({ breakdown: 'failed:offline' })));
   });
 
+  it('keeps the task list on screen while it reloads', async () => {
+    const user = userEvent.setup();
+    setup();
+    list.mockResolvedValue({ groups: [group('b1')], total: 1, typeCounts: {} });
+    await user.click(await screen.findByRole('button', { name: /Refresh/ }));
+    await waitFor(() => expect(screen.getByTestId('task-stream')).toHaveAttribute('data-groups', '1'));
+    list.mockReturnValue(new Promise(() => {})); // a reload that has not answered yet
+    await user.click(screen.getByRole('button', { name: /Refresh/ }));
+    expect(screen.getByTestId('task-stream')).toBeInTheDocument();
+    expect(screen.queryByText('Loading tasks...')).toBeNull();
+  });
+
   it('falls back to the last page when the total shrinks under the current page', async () => {
     const user = userEvent.setup();
     setup();
