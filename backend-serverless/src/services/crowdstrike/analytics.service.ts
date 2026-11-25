@@ -173,6 +173,8 @@ export interface RelatedAlertsResponse {
     attribution: 'stage' | 'bundle';
     /** Lowercased technique token when attribution === 'stage'. */
     attributed_control_id?: string;
+    /** Every stage binary the alert names; [0] is attributed_control_id. Absent unless stage-attributed. */
+    attributed_control_ids?: string[];
     /** Vendor-confirmed prevention disposition (quarantined | process_killed | blocked | kill_failed). */
     prevention_action?: string;
     /** Deep link to the alert in the vendor console. */

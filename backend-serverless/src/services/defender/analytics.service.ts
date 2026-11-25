@@ -88,6 +88,8 @@ export interface DefenderAlertItem {
   attribution?: 'stage' | 'bundle';
   /** Lowercased technique token from a stage-attributable evidence binary. */
   attributed_control_id?: string;
+  /** Every stage binary the alert names; [0] is attributed_control_id. Absent unless stage-attributed. */
+  attributed_control_ids?: string[];
   /** Vendor-confirmed prevention disposition (quarantined | process_killed | blocked | kill_failed). */
   prevention_action?: string;
   /** Deep link to the alert in the vendor console. */
