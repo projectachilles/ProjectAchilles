@@ -127,6 +127,10 @@ export const RESULTS_INDEX_MAPPING = {
           // <key>_prevention_action and <key>_stage_prevented (the action
           // came from an alert naming THIS stage; absent on older docs).
           ...edrFlagMappings(),
+          // What the alerts looked like when a Defender stage that did not run
+          // to completion found only alerts holding nothing of its run
+          // (edr/alert-enrichment.service.ts). Written once, stored, never indexed.
+          defender_no_run_evidence: { type: 'object' as const, enabled: false },
           tenant_label: { type: 'keyword' as const },
         },
       },

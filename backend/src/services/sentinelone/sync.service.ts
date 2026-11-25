@@ -490,7 +490,7 @@ export class SentinelOneSyncService {
    */
   async runEnrichmentPass(es?: Client): Promise<EnrichmentPassResult> {
     const empty = (errors: string[] = []): EnrichmentPassResult => ({
-      scanned: 0, detected: 0, stageDetected: 0, skipped: 0, batches: 0, alertsMarkedCorrelated: 0, stageDetectionsRemoved: 0, detectionsRemoved: 0, preventionsRemoved: 0, removedFlagDocs: [], errors, durationMs: 0,
+      scanned: 0, detected: 0, stageDetected: 0, skipped: 0, batches: 0, alertsMarkedCorrelated: 0, stageDetectionsRemoved: 0, detectionsRemoved: 0, preventionsRemoved: 0, removedFlagDocs: [], noRunEvidenceDocs: [], errors, durationMs: 0,
     });
     try {
       if (!this.settingsService().getSentinelOneSettings()?.configured) return empty();

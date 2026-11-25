@@ -636,7 +636,7 @@ export class DefenderSyncService {
     try {
       const integrationsService = new IntegrationsSettingsService();
       if (!integrationsService.isDefenderConfigured()) {
-        return { scanned: 0, detected: 0, stageDetected: 0, skipped: 0, batches: 0, alertsMarkedCorrelated: 0, stageDetectionsRemoved: 0, detectionsRemoved: 0, preventionsRemoved: 0, removedFlagDocs: [], errors: [], durationMs: 0 };
+        return { scanned: 0, detected: 0, stageDetected: 0, skipped: 0, batches: 0, alertsMarkedCorrelated: 0, stageDetectionsRemoved: 0, detectionsRemoved: 0, preventionsRemoved: 0, removedFlagDocs: [], noRunEvidenceDocs: [], errors: [], durationMs: 0 };
       }
       const es = this.getEsClient();
       const settingsService = new SettingsService();
@@ -655,6 +655,9 @@ export class DefenderSyncService {
         const more = result.removedFlagDocsOmitted ? ` (+${result.removedFlagDocsOmitted} more)` : '';
         console.log(`[Defender] Run-evidence re-check removed flags on: ${result.removedFlagDocs.join(', ')}${more}`);
       }
+      if (result.noRunEvidenceDocs.length > 0) {
+        console.log(`[Defender] Stage stopped with no evidence of its run, note stored on: ${result.noRunEvidenceDocs.join(', ')}`);
+      }
       for (const e of result.errors) {
         console.warn(`[Defender-Enrichment-ERROR] ${e}`);
       }
@@ -662,7 +665,7 @@ export class DefenderSyncService {
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
       console.error(`[Defender-Enrichment] pass threw: ${msg}`);
-      return { scanned: 0, detected: 0, stageDetected: 0, skipped: 0, batches: 0, alertsMarkedCorrelated: 0, stageDetectionsRemoved: 0, detectionsRemoved: 0, preventionsRemoved: 0, removedFlagDocs: [], errors: [msg], durationMs: 0 };
+      return { scanned: 0, detected: 0, stageDetected: 0, skipped: 0, batches: 0, alertsMarkedCorrelated: 0, stageDetectionsRemoved: 0, detectionsRemoved: 0, preventionsRemoved: 0, removedFlagDocs: [], noRunEvidenceDocs: [], errors: [msg], durationMs: 0 };
     }
   }
 

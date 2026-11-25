@@ -48,6 +48,12 @@ export interface EnrichmentPassResult {
   removedFlagDocs: string[];
   /** Results with a removed flag past the ones `removedFlagDocs` lists; absent when none. */
   removedFlagDocsOmitted?: number;
+  /**
+   * Results that got a `<vendor>_no_run_evidence` note this pass (at most
+   * NO_RUN_EVIDENCE_DOCS_LISTED ids, counted on `updated` only). `[]` when
+   * none, and always for every vendor but Defender (crediting by run).
+   */
+  noRunEvidenceDocs: string[];
   /** Per-batch errors collected non-fatally. */
   errors: string[];
   /** Wall-clock duration of the pass. */

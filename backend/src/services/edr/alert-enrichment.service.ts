@@ -14,7 +14,7 @@ import type { EnrichmentPassOptions, EnrichmentPassResult } from '../../types/ed
 import { isAchillesMitigated, ACHILLES_MITIGATION_FIELDS, ACHILLES_MITIGATED_QUERY } from '../shared/achillesMitigation.js';
 import { alertCredit, isStageFile, isTestFile, MULTI_TEST_EVIDENCE_FIELDS } from './multiTestEvidence.js';
 import {
-  alertCreditForRun, EVIDENCE_ITEMS_FIELD, foundBySpanOnly, holdsNothingOfRun, runWindow, spanHitUnusable, type RunWindow,
+  alertCreditForRun, EVIDENCE_ITEMS_FIELD, evidenceItems, foundBySpanOnly, holdsNothingOfRun, runWindow, spanHitUnusable, type RunWindow,
 } from './runEvidence.js';
 import { enrichmentEligibleClauses } from '../analytics/enrichment-eligibility.js';
 import type { EdrVendorKey } from '../outcomes/vendors.js';
@@ -100,6 +100,46 @@ export const DEFAULT_RECHECK_UNPREVENTED_HOURS = 72;
 
 /** Result ids a pass lists in `removedFlagDocs`; past this it only counts them (`removedFlagDocsOmitted`). */
 export const REMOVED_FLAG_DOCS_LISTED = 20;
+
+/** Result ids a pass lists in `noRunEvidenceDocs`; past this they are not listed. */
+export const NO_RUN_EVIDENCE_DOCS_LISTED = 20;
+
+/** Alerts a `<vendor>_no_run_evidence` note describes, the first ones its sub-query read. */
+const NO_RUN_EVIDENCE_ALERTS = 5;
+
+/** Alert times the note stores (crediting by run, the alert sub-queries fetch them). */
+const NOTE_ALERT_TIME_FIELDS = ['timestamp', 'first_activity_at', 'last_activity_at'];
+
+/**
+ * One alert as `<vendor>_no_run_evidence` describes it: the moment a stage
+ * that did not run to completion found only alerts holding nothing of its run.
+ */
+interface NoRunEvidenceAlert {
+  id: string;
+  /** The hit's `matched_queries` (how the query found it), else []. */
+  found_by: string[];
+  /** The alert's `timestamp` (last update). */
+  updated_at: string | null;
+  first_activity_at: string | null;
+  last_activity_at: string | null;
+  /** Evidence items on the alert. */
+  items: number;
+}
+
+const storedTime = (v: unknown): string | null => (typeof v === 'string' ? v : null);
+
+function noRunEvidenceAlert(hit: any): NoRunEvidenceAlert {
+  const src = (hit._source ?? {}) as Record<string, unknown>;
+  const named: unknown = hit.matched_queries;
+  return {
+    id: String(hit._id),
+    found_by: Array.isArray(named) && named.every((n) => typeof n === 'string') ? [...named] : [],
+    updated_at: storedTime(src.timestamp),
+    first_activity_at: storedTime(src.first_activity_at),
+    last_activity_at: storedTime(src.last_activity_at),
+    items: evidenceItems(src)?.length ?? 0,
+  };
+}
 
 /** Distinct prevention actions per alert sub-query (aggregated over every matching alert). */
 const PREVENTION_ACTION_BUCKETS = 10;
@@ -192,6 +232,7 @@ export class EdrAlertEnrichmentService {
       detectionsRemoved: 0,
       preventionsRemoved: 0,
       removedFlagDocs: [],
+      noRunEvidenceDocs: [],
       errors: [],
       durationMs: 0,
     };
@@ -289,12 +330,13 @@ export class EdrAlertEnrichmentService {
       //    matched alert _ids (needed for the alert-side correlation update)
       //    and can classify each alert. _source carries only what the flags
       //    need (prevention_action + the multi-test evidence fields, and the
-      //    evidence items when crediting by run). Crediting by run, a batch
+      //    evidence items and alert times when crediting by run, the times
+      //    for a `<vendor>_no_run_evidence` note). Crediting by run, a batch
       //    with no usable query still reaches the update step, so a result the
       //    run clause selected can get its marker (step 5).
       if (queries.length > 0 || this.target.runScopedEvidence) {
         const searches: unknown[] = [];
-        const runFields = this.target.runScopedEvidence ? [EVIDENCE_ITEMS_FIELD] : [];
+        const runFields = this.target.runScopedEvidence ? [EVIDENCE_ITEMS_FIELD, ...NOTE_ALERT_TIME_FIELDS] : [];
         for (const q of queries) {
           searches.push({ index: this.target.alertIndex });
           const source = this.target.ignoreAchillesMitigated
@@ -379,6 +421,9 @@ export class EdrAlertEnrichmentService {
            */
           stageNoRunItems: boolean;
           wideNoRunItems: boolean;
+          /** That sub-query's first usable alerts when `<kind>NoRunItems`, for the note; else []. */
+          stageNoRunAlerts: NoRunEvidenceAlert[];
+          wideNoRunAlerts: NoRunEvidenceAlert[];
           /** Sub-queries that answered this pass. */
           answered: number;
         }
@@ -386,7 +431,7 @@ export class EdrAlertEnrichmentService {
           hit, bundleUuid, wideMatched: false, stageMatched: false, alertIds: new Set(), stageActions: [], wideActions: [],
           correlatedAlertIds: new Set(), stageQueried: false, stageHitsAll: 0, stageHitsSingle: 0,
           wideQueried: false, wideHitsAll: 0, wideHitsCounting: 0, stageUnjudged: false, wideUnjudged: false,
-          stageNoRunItems: false, wideNoRunItems: false, answered: 0,
+          stageNoRunItems: false, wideNoRunItems: false, stageNoRunAlerts: [], wideNoRunAlerts: [], answered: 0,
         });
         const updatesByHitId = new Map<string, PerHitUpdate>();
         const responses = (msearchResponse as any).responses ?? [];
@@ -460,11 +505,14 @@ export class EdrAlertEnrichmentService {
           // vendor may have stopped the stage without adding an item.
           const nothingOfRun = usableHits.length > 0 && unread === 0 && unreadSpanOnly === 0
             && usableHits.every((h) => holdsNothingOfRun(h._source ?? {}, q.window));
+          // What those alerts looked like, for the note (step 5).
+          const noRunAlerts = nothingOfRun ? usableHits.slice(0, NO_RUN_EVIDENCE_ALERTS).map(noRunEvidenceAlert) : [];
           if (q.kind === 'stage') {
             entry.stageHitsAll += usableHits.length + unread;
             entry.stageHitsSingle += counting;
             if (unreadSpanOnly > 0) entry.stageUnjudged = true;
             entry.stageNoRunItems = nothingOfRun;
+            entry.stageNoRunAlerts = noRunAlerts;
             // The stage kind holds back the whole result: a judged test-level
             // kind would otherwise remove `_detected` or the prevention flags
             // (which a non-conclusive exit reads from it) beside a kept stage
@@ -479,6 +527,7 @@ export class EdrAlertEnrichmentService {
             entry.wideHitsCounting += counting;
             if (unreadSpanOnly > 0) entry.wideUnjudged = true;
             entry.wideNoRunItems = nothingOfRun;
+            entry.wideNoRunAlerts = noRunAlerts;
             if (nothingOfRun && !this.ranToCompletion(q.hit)) entry.wideUnjudged = true;
           }
           // Span form: an alert found only by span is stamped (and so can be
@@ -550,9 +599,13 @@ export class EdrAlertEnrichmentService {
             kind: 'test' | 'alert'; alertId?: string; docId?: string; wide: boolean; stage: boolean;
             /** Run view only: the flags this update turns from true to false. */
             removed?: { stage: boolean; wide: boolean; prevention: boolean };
+            /** The update carries a `<vendor>_no_run_evidence` note. */
+            note?: boolean;
           }> = [];
           const alertIdsEmitted = new Set<string>();
-          const matchedAt = new Date().toISOString();
+          // One time per batch: the alert stamps and the note's `seen_at` and freshness.
+          const passTime = new Date();
+          const matchedAt = passTime.toISOString();
 
           for (const u of updatesByHitId.values()) {
             // Test-doc update: only set the fields that flipped to true.
@@ -566,7 +619,8 @@ export class EdrAlertEnrichmentService {
             const stage = u.stageMatched && existing[`${v}_stage_detected`] !== true;
             // Run-evidence rule (RUN_RULE): a result with a run window that was
             // not evaluated under it re-runs the one-time checks below once.
-            const runView = this.runWindowOf(u.hit) !== null;
+            const window = this.runWindowOf(u.hit);
+            const runView = window !== null;
             const runRecheck = runView && existing[`${v}_run_rule`] !== RUN_RULE;
             if (wide)  f0rtika[`${v}_detected`]       = true;
             if (stage) f0rtika[`${v}_stage_detected`] = true;
@@ -729,6 +783,27 @@ export class EdrAlertEnrichmentService {
             ) {
               f0rtika[`${v}_run_rule`] = null;
             }
+            // A stage that did not run to completion whose alerts all hold
+            // nothing of its run (the kinds held back above): on a fresh result
+            // that has none yet, note what the alerts looked like, once, so the
+            // next real case shows what the vendor writes on them. The stage
+            // kind when it has nothing of the run, else the test-level kind.
+            // Never a flag. The window's event time is the parsed
+            // `routing.event_time`.
+            const noteKey = `${v}_no_run_evidence`;
+            const noteKind = u.stageNoRunItems ? 'stage' : u.wideNoRunItems ? 'wide' : null;
+            const note = window !== null
+              && noteKind !== null
+              && !this.ranToCompletion(u.hit)
+              && passTime.getTime() - window.eventTimeMs <= this.recheckHours * 3_600_000
+              && !(noteKey in existing);
+            if (note) {
+              f0rtika[noteKey] = {
+                seen_at: matchedAt,
+                kind: noteKind,
+                alerts: noteKind === 'stage' ? u.stageNoRunAlerts : u.wideNoRunAlerts,
+              };
+            }
             if (Object.keys(f0rtika).length > 0) {
               operations.push({ update: { _index: u.hit._index, _id: u.hit._id } });
               operations.push({ doc: { f0rtika } });
@@ -742,7 +817,7 @@ export class EdrAlertEnrichmentService {
                   prevention: gone(`${v}_prevented`) || gone(`${v}_stage_prevented`),
                 }
                 : undefined;
-              testOpMeta.push({ kind: 'test', docId: u.hit._id, wide, stage, removed });
+              testOpMeta.push({ kind: 'test', docId: u.hit._id, wide, stage, removed, note });
             }
 
             // Alert-doc updates (dedup per batch)
@@ -789,6 +864,9 @@ export class EdrAlertEnrichmentService {
                       if (result.removedFlagDocs.length < REMOVED_FLAG_DOCS_LISTED) result.removedFlagDocs.push(String(meta.docId));
                       else result.removedFlagDocsOmitted = (result.removedFlagDocsOmitted ?? 0) + 1;
                     }
+                  }
+                  if (meta.note && item?.result === 'updated' && result.noRunEvidenceDocs.length < NO_RUN_EVIDENCE_DOCS_LISTED) {
+                    result.noRunEvidenceDocs.push(String(meta.docId));
                   }
                 } else if (meta?.kind === 'alert') {
                   result.alertsMarkedCorrelated += 1;

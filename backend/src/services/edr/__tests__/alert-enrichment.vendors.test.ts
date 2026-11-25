@@ -184,7 +184,7 @@ describe.each(VENDORS)('EDR alert enrichment — $name', ({ prefix, index, make 
 
 // Credit by run (edr/runEvidence.ts) is Defender-only: the other vendors'
 // alerts carry no per-item evidence, so their sub-queries never ask for it.
-describe.each(VENDORS.filter((v) => v.prefix !== 'defender'))('EDR alert enrichment — $name never reads evidence_items', ({ make }) => {
+describe.each(VENDORS.filter((v) => v.prefix !== 'defender'))('EDR alert enrichment — $name never reads evidence_items', ({ prefix, make }) => {
   const search = vi.fn();
   const msearch = vi.fn();
   const bulk = vi.fn();
@@ -214,6 +214,56 @@ describe.each(VENDORS.filter((v) => v.prefix !== 'defender'))('EDR alert enrichm
       expect(Object.keys(b.aggs)).toEqual(['prevention']);
       expect(b.aggs.prevention.aggs.actions.terms.field).toBe('prevention_action');
     }
+  });
+
+  it('the other three EDRs never write a no_run_evidence note and return noRunEvidenceDocs: []', async () => {
+    // The Defender situation exactly: a fresh, stopped stage with a run start
+    // whose alerts carry only other-run items and the alert times.
+    vi.useFakeTimers({ toFake: ['Date'] });
+    vi.setSystemTime(new Date('2026-10-20T11:00:00.000Z'));
+    try {
+      const doc = resultDoc(999);
+      const withRunStart = { ...doc, _source: { ...doc._source, routing: { ...doc._source.routing, run_started_at: '2026-10-20T09:58:50Z' } } };
+      const earlier = {
+        file: 'b1-t1003.exe', path: 'c:\\f0', parent: null, parent_path: null, kind: 'process', verdict: 'suspicious',
+        action: null, started_at: '2026-10-14T09:06:46Z', added_at: '2026-10-14T09:08:16Z',
+      };
+      const alert = {
+        hits: {
+          total: { value: 1 },
+          hits: [{
+            _id: 'alert-1',
+            matched_queries: ['activity_span'],
+            _source: {
+              evidence_filenames: ['b1-t1003.exe'], evidence_items: [earlier], timestamp: '2026-10-20T09:51:00Z',
+              first_activity_at: '2026-10-14T09:06:00Z', last_activity_at: '2026-10-20T09:41:00Z',
+            },
+          }],
+        },
+      };
+      search.mockResolvedValueOnce({ hits: { hits: [withRunStart] } });
+      msearch.mockResolvedValueOnce({ responses: [alert, alert] });
+      bulk.mockResolvedValue({ items: [{ update: { result: 'updated' } }, { update: { result: 'updated' } }, { update: { result: 'updated' } }] });
+      const result = await make(client).runEnrichmentPass({ batchSize: 200 });
+      const ops = (bulk.mock.calls[0]?.[0].operations ?? []) as any[];
+      expect(JSON.stringify(ops)).not.toContain('no_run_evidence');
+      expect(result.noRunEvidenceDocs).toEqual([]);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('their alert sub-queries\' _source lists are unchanged', async () => {
+    search.mockResolvedValueOnce({ hits: { hits: [resultDoc(999)] } });
+    msearch.mockResolvedValueOnce({ responses: [none, none] });
+    await make(client).runEnrichmentPass({ batchSize: 200 });
+    const bodies = (msearch.mock.calls[0][0].searches as any[]).filter((_, i) => i % 2 === 1);
+    const evidence = ['evidence_filenames', 'evidence_filepaths', 'evidence_file_verdicts', 'evidence_child_actions'];
+    const expected = prefix === 'sentinelone'
+      ? ['prevention_action', 'f0rtika.auto_mitigated', 'f0rtika.auto_mitigation_mode', 'f0rtika.auto_mitigation_error', 'f0rtika.achilles_correlated', ...evidence]
+      : ['prevention_action', 'f0rtika.achilles_correlated', ...evidence];
+    expect(bodies).toHaveLength(2);
+    for (const b of bodies) expect(b._source).toEqual(expected);
   });
 });
 
