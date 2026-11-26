@@ -796,6 +796,16 @@ router.get('/coverage-matrix', asyncHandler(async (req, res) => {
   res.json(result);
 }));
 
+// GET /api/analytics/score-movement - What became of each failure in the range,
+// and how new attack tests did on their first run. Always latest-result
+// posture, any-stage: basis and scoringMode are ignored; the service ignores
+// the outcome filters.
+router.get('/score-movement', asyncHandler(async (req, res) => {
+  const { basis: _basis, scoringMode: _scoringMode, ...query } = req.query;
+  const es = await getEsService();
+  res.json(await es.getScoreMovement(extractFilterParams(query)));
+}));
+
 // GET /api/analytics/outcome-breakdown - Protected / prevented / detected / silent
 // split of the latest-basis pairs. Basis is ignored; outcome filters are ignored by the service.
 router.get('/outcome-breakdown', asyncHandler(async (req, res) => {

@@ -350,6 +350,7 @@ async function startServer() {
       stageCoverage: true,
       coverageMatrix: true,
       activityStrip: true,
+      scoreMovement: true,
       testRunRecency: true,
       about: true,
       platform: 'docker',

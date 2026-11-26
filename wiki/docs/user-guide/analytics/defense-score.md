@@ -57,6 +57,54 @@ A *pair* is one test on one endpoint (within one organization). Only the most re
 
 The execution-count formula above still applies where noted: the PDF execution report and the test-vs-alert timeline cards stay on executions. The Defense Score [alert](../integrations/alerting) uses the latest-result score over a fixed 30 days, so it compares your threshold with the number the dashboard shows for 30d. Breakdowns by test, technique, severity, category, and organization also count executions. API users select the basis with `basis=latest|executions`; see the [Analytics API](../../api-reference/analytics#score-basis).
 
+## What moved the score
+
+The score can rise without anything being fixed. The **What moved the score** card on the Dashboard shows which part of a change is real. It appears when Analytics is configured, and it follows the Dashboard's time range. The card is not available on the serverless (Vercel) deployment.
+
+**Why the score can rise without a fix**
+
+- **New tests that pass.** Twenty pairs with eight failing is 60%. Add eighty passing pairs and the score is 92%, with the same eight still failing.
+- **Old results leaving the window.** A failing pair that is never run again drops out of the score once its last result is older than the range.
+- **Risk acceptance.** An accepted failing pair is no longer counted.
+
+The card does not change the score. It sorts the same results into what was fixed and what only left the score.
+
+**Reading the card**
+
+The line under the title gives the number of pairs in the score and the number of failing pairs at the start and at the end of the range. These are the score's own counts.
+
+The **Failures dealt with** panel covers every pair that failed during the range, and every pair that was already failing when the range started, if it was still in the score then or was re-tested in the range. Cyber-hygiene controls are included here, because the score counts them:
+
+- **Fixed**: the pair was run again and its latest result is protected.
+- **Still failing**: the pair was run again after it failed and still gets through.
+- **Not re-tested**: the pair failed and has not been run since.
+- **Left the score untested**: the pair was failing before the range started and has not been run in it, so its old result is no longer counted. It is not fixed, only out of sight. The pill at the top right (**N failures not re-tested**) adds this group to **Not re-tested**.
+
+The line under the rows explains where the failures came from: failures already open at the start of the range, older failures that were re-tested, new tests that got through, regressions (a pair that was protected and later got through) and first results on an endpoint (the first result of a pair that is not a new test: an existing test run for the first time on a machine, or any cyber-hygiene control, including those of a new bundle).
+
+The **New tests · first run** panel covers tests the organization had never run before the range. It counts each test on each endpoint by its first result in the range: **Stopped on the first run** or **Got through on the first run**. A new test that got through and was fixed later still counts as got through here and as fixed in the other panel. Cyber-hygiene bundles are left out of this panel: their controls count under **Failures dealt with** if they fail, and their first results are counted under first time on an endpoint, never under new tests.
+
+Each number that is not zero has a **view** link that opens the list of tests and endpoints behind it, with the origin of each failure, when it started failing, when it was fixed and the date of its last result. A list shows at most 200 rows and says "Showing 200 of N" when there are more. **Still failing** and **Not re-tested** are the work lists.
+
+The footer shows, only when they are not zero: pairs that regressed and how many of them are fixed since; pairs seen for the first time on an endpoint (an existing test run for the first time on a machine, or the first result of any cyber-hygiene control, counted apart from new tests; deploying a new cyber-hygiene bundle makes this figure large); failing pairs hidden by risk acceptances; and the two lines below.
+
+**One test on one endpoint is one item.** The score can hold two pairs for the same test on the same endpoint: one for runs where the test's stages reported, and one for runs that ended before any stage (for example, the test was blocked at launch). The card merges them, so blocking a test at launch counts as fixing it. The score does not merge them, so it can disagree with the card. The footer says by how much:
+
+- **N failures the score still counts were fixed by blocking the test before it started**: the card counts these as fixed and the score still holds their old failing result.
+- **N open failures are counted twice by the score**: the score holds a failing pair for each of the two, the card holds one.
+
+With these two numbers the failing count at the end of the range equals the open failures on the card (still failing plus not re-tested) plus the two footer figures.
+
+**What to keep in mind**
+
+- A pair that fails, passes and fails again counts once, by where it ended.
+- For a standalone test or a cyber-hygiene control the card sees the first and the last result of each day, so a result in the middle of a day is not seen. Every run of a multi-stage test is seen.
+- A risk acceptance on a single control can remove one stage from a multi-stage run. In the rare case where that removes a pair's whole earlier run, a later failure reads as a first result and not as a regression.
+- When a failure was already open before the range, the day it began is not known. Its row says "before" and the first day of the range.
+- "First run" is per endpoint. If a new test runs on 3 machines, is tuned, and then runs on 40 more, those 40 count as first runs.
+- A test that only ever produced errors before, and gets its first conclusive result in the range, counts as new.
+- A test last run more than 365 days before the range counts as new again.
+
 ## Breakdowns
 
 The Defense Score can be broken down by:

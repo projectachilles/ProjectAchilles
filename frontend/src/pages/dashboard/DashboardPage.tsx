@@ -1,9 +1,11 @@
+import { useMemo } from 'react';
 import { FlaskConical, Server, ShieldAlert, Star } from 'lucide-react';
 import { CrowdStrikeLogo, DefenderLogo, SophosLogo } from '@/components/shared/VendorLogos';
 import { cn } from '@/lib/utils';
 import { isLowSample, POSTURE_HELP, postureCaption, postureWindowLabel } from '@/lib/posture';
 import { isSameTimeRange, TIME_RANGE_PRESETS, timeRangeButtonLabel } from '@/lib/timeRange';
 import { PageHeader } from '@/components/layout/PageHeader';
+import { useCapabilities } from '@/hooks/useCapabilities';
 import { useSharedTimeRange } from '@/hooks/useSharedTimeRange';
 import { AttentionBanner } from './components/AttentionBanner';
 import { AttackOutcomeMatrix } from './components/AttackOutcomeMatrix';
@@ -11,11 +13,14 @@ import { FleetHealthCard } from './components/FleetHealthCard';
 import { KpiCard, type KpiCardProps } from './components/KpiCard';
 import { KpiGrid } from './components/KpiGrid';
 import { RecentExecutionsCard } from './components/RecentExecutionsCard';
+import { ScoreMovementCard } from './components/ScoreMovementCard';
 import { TestingCadenceCard } from './components/TestingCadenceCard';
 import { ThreatActorReadinessCard } from './components/ThreatActorReadinessCard';
 import { TopControlsCard } from './components/TopControlsCard';
 import { TrendOverviewChart } from './components/TrendOverviewChart';
+import { buildScoreMovementView } from './scoreMovementView';
 import { useDashboardData } from './useDashboardData';
+import { useScoreMovement } from './useScoreMovement';
 
 const DEFENSE_DANGER_THRESHOLD = 60;
 
@@ -28,6 +33,14 @@ export default function DashboardPage() {
   const data = useDashboardData(range);
   // '30d', '1d', 'last 365d' (All), or a custom range's length
   const windowLabel = postureWindowLabel(range);
+  const trendRangeLabel = windowLabel.startsWith('last') ? windowLabel : `last ${windowLabel}`;
+  const capabilities = useCapabilities();
+  const movementOn = capabilities.scoreMovement && data.analyticsConfigured;
+  const movement = useScoreMovement(range, movementOn);
+  const movementView = useMemo(
+    () => (movement.data ? buildScoreMovementView(movement.data, trendRangeLabel) : null),
+    [movement.data, trendRangeLabel],
+  );
 
   const defenseCurrent = { score: data.defenseCurrentScore, pairCount: data.defensePairCount };
 
@@ -196,12 +209,23 @@ export default function DashboardPage() {
             hasSecureScore={data.defenderConfigured}
             hasZtaScore={data.crowdstrikeConfigured && data.ztaScore != null}
             hasSophosScore={data.sophosConfigured && data.sophosHealth != null}
-            rangeLabel={windowLabel.startsWith('last') ? windowLabel : `last ${windowLabel}`}
+            rangeLabel={trendRangeLabel}
             loading={data.loading}
           />
         </div>
         <TestingCadenceCard view={data.cadence} configured={data.analyticsConfigured} loading={data.loading} />
       </div>
+
+      {/* What moved the score: its own request and loading state */}
+      {movementOn && (
+        <ScoreMovementCard
+          view={movementView}
+          lists={movement.data?.lists ?? null}
+          periodStart={movement.data?.window.from}
+          loading={movement.loading}
+          error={movement.error}
+        />
+      )}
 
       {/* ATT&CK outcomes + threat actors */}
       <div className="grid gap-4 lg:grid-cols-3 max-lg:[&>*]:min-w-0">

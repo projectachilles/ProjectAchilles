@@ -44,6 +44,7 @@ The serverless backend is a subset of `backend/`. New features are often built f
 | `outcomeBreakdown`, `stageCoverage` | `true` | `false` | Outcome breakdown and Stage coverage cards |
 | `coverageMatrix` | `true` | `false` | Coverage matrix endpoint (latest result per test and host) |
 | `activityStrip` | `true` | `false` | Runs per time bucket for the strip above All Executions |
+| `scoreMovement` | `true` | `false` | What moved the score card on the Dashboard |
 | `randomizedOnce`, `testFleet`, `testRunRecency` | `true` | not reported | Randomized Once schedules, per-test fleet results, last-run recency |
 | `buildUpload`, `certGenerate`, `certUpload` | `true` | `true` | |
 
