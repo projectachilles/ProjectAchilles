@@ -262,6 +262,7 @@ Besides the usual status, type, search and paging filters it accepts:
 | Query | Notes |
 |-------|-------|
 | `breakdown` | Only tasks whose finished outcome matches one key of the 7-day breakdown. Implies `execute_test` tasks and the last 7 days. An unknown shape returns `400 — Invalid breakdown` |
+| `detail` | `full` (the default, also when the value is empty) returns whole tasks. `summary` returns light tasks, below. Any other value, or the parameter given more than once, returns `400 — Invalid detail` |
 
 Breakdown keys:
 
@@ -282,6 +283,32 @@ The metrics response (`GET /api/agent/admin/metrics`) carries the same keys in
 ```
 
 Pass a row's `key` back as `breakdown` to list the tasks behind its `count`. The type-pill counts (`type_counts`) ignore `breakdown`.
+
+#### Light tasks (`detail=summary`)
+
+A page of whole tasks can run to megabytes: every task carries its stdout, its test
+metadata and, for a cyber-hygiene bundle, the full detail of 50 to 150 controls. A list
+draws none of that. With `detail=summary` each task keeps every field except these two,
+which are cut down to what a list draws:
+
+| Field | Kept |
+|-------|------|
+| `payload` | `test_uuid`, `test_name`, `binary_name`, `execution_timeout`, and `command` for a command task |
+| `result` | `summary: true`, `exit_code`, `execution_duration_ms`, and when present `error`, `edr_terminated`, `compacted_at`, `bundle_results` |
+| `result.bundle_results`, any category but `cyber-hygiene` | `bundle_category` and `controls`: each stage's `control_id`, `exit_code` and `skipped`, in order. An entry without a text `control_id` and a numeric `exit_code` is left out |
+| `result.bundle_results`, category `cyber-hygiene` | `bundle_category` and `control_counts`: `evaluated` (controls not skipped) and `compliant` (by the control's own `compliant` flag, or by exit code 105, 126 or 127 when it has none). Entries without a text `control_id` and a numeric `exit_code` are not counted. Neither `controls` nor `control_counts` is sent for a bundle with no controls |
+
+`result` stays `null` for a task without one. Group-level fields are the same in both forms.
+`summary: true` tells a light result from one whose output is empty or was removed by
+retention (`compacted_at`).
+
+Get the whole task, with its output and every control, from
+[`GET /api/agent/admin/tasks/:id`](#other-task-routes). The Tasks page asks for light tasks and
+fetches the task whose detail is open.
+
+A light task is made of allowlists: a field is added to it only when a list starts to draw it.
+Read whole tasks (the default) if you need anything else. The Vercel backend ignores `detail`
+and always returns whole tasks.
 
 ### Retry a Task
 

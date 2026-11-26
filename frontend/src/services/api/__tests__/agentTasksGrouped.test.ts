@@ -14,12 +14,17 @@ describe('agentApi.listTasksGrouped', () => {
 
   it('sends several types as one comma-separated type param', async () => {
     await agentApi.listTasksGrouped({ types: ['update_agent', 'uninstall'], limit: 25 });
-    expect(getMock).toHaveBeenCalledWith('/agent/admin/tasks/grouped', { params: { type: 'update_agent,uninstall', limit: 25 } });
+    expect(getMock).toHaveBeenCalledWith('/agent/admin/tasks/grouped', { params: { type: 'update_agent,uninstall', limit: 25, detail: 'summary' } });
   });
 
   it('sends no type for All, and returns the per-type counts', async () => {
     const res = await agentApi.listTasksGrouped({ limit: 25 });
-    expect(getMock.mock.calls[0][1]).toEqual({ params: { limit: 25 } });
+    expect(getMock.mock.calls[0][1]).toEqual({ params: { limit: 25, detail: 'summary' } });
     expect(res.typeCounts).toEqual({ execute_test: 4, update_agent: 50 });
+  });
+
+  it('asks for light tasks: a list draws no output, and the detail panel fetches the task it shows', async () => {
+    await agentApi.listTasksGrouped();
+    expect(getMock.mock.calls[0][1]).toEqual({ params: { detail: 'summary' } });
   });
 });

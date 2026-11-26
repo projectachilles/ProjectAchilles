@@ -73,12 +73,21 @@ export interface TaskTestMetadata {
 
 export interface TaskResult {
   exit_code: number;
-  stdout: string;
-  stderr: string;
-  started_at: string;
-  completed_at: string;
-  execution_duration_ms: number;
-  hostname: string;
+  /** Absent from a light result (`summary`); the detail panel fetches the task for it. */
+  stdout?: string;
+  stderr?: string;
+  /**
+   * True on a result from the task list (`detail=summary`): only what a list
+   * draws. No stdout or stderr, of each stage only what decides a verdict, and
+   * for a cyber-hygiene bundle `control_counts` in place of its controls.
+   * `GET /tasks/:id` returns the whole result.
+   */
+  summary?: boolean;
+  execution_duration_ms?: number;
+  /** Not in a light result. */
+  started_at?: string;
+  completed_at?: string;
+  hostname?: string;
   error?: string;
   /** Set by the EDR reconciliation pass on a watchdog-failed run the EDR killed (counts as Protected). */
   edr_terminated?: { vendors: string[]; alert_ids: string[]; killed_at?: string; reconciled_at?: string; bundle_name?: string };
@@ -86,6 +95,8 @@ export interface TaskResult {
   bundle_results?: {
     bundle_category?: string;
     controls?: Array<{ control_id: string; exit_code: number; skipped?: boolean; compliant?: boolean }>;
+    /** A light result's count of a cyber-hygiene bundle's controls, by the rule in testOutcome.ts. */
+    control_counts?: { evaluated: number; compliant: number };
   };
   /** ISO time the retention job removed the full output; set only on compacted results. */
   compacted_at?: string;

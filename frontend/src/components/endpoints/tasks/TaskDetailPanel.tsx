@@ -14,6 +14,7 @@ import { Button } from '../../shared/ui/Button';
 import { CopyButton } from '../../shared/ui/CopyButton';
 import TaskStatusBadge from './TaskStatusBadge';
 import { formatDuration, normalizeUtc, taskName } from './taskFormat';
+import { useTaskOutput } from './useTaskOutput';
 import { cn } from '@/lib/utils';
 
 export interface TaskDetailPanelProps {
@@ -76,6 +77,7 @@ function OutputBlock({
 export default function TaskDetailPanel({ task, notice, onCancel, onRetry, onDelete, onOpenNotes, fill = false }: TaskDetailPanelProps) {
   const [outputView, setOutputView] = useState<{ label: string; task: string; text: string } | null>(null);
   const outcome = testOutcome(task);
+  const output = useTaskOutput(task);
   // What a command task ran. The list names the run by it; here it is shown whole.
   const command = task.type === 'execute_command' ? task.payload?.command?.trim() : undefined;
 
@@ -169,22 +171,35 @@ export default function TaskDetailPanel({ task, notice, onCancel, onRetry, onDel
                   results are kept.
                 </div>
               )}
-              <OutputBlock
-                label="stdout"
-                text={task.result.stdout}
-                maxHeightClass="max-h-44"
-                onExpand={() =>
-                  setOutputView({ label: 'stdout', task: taskName(task), text: task.result?.stdout ?? '' })
-                }
-              />
-              <OutputBlock
-                label="stderr"
-                text={task.result.stderr}
-                maxHeightClass="max-h-32"
-                onExpand={() =>
-                  setOutputView({ label: 'stderr', task: taskName(task), text: task.result?.stderr ?? '' })
-                }
-              />
+              {output.state === 'loading' && (
+                <div role="status" className="flex h-20 items-center justify-center text-sm text-faint">
+                  Loading output…
+                </div>
+              )}
+              {output.state === 'error' && (
+                <div className="flex items-center justify-between gap-3 rounded-md bg-danger-dim p-2 text-sm text-danger">
+                  <span>The output could not be loaded.</span>
+                  <Button variant="secondary" size="sm" onClick={output.retry}>
+                    Try again
+                  </Button>
+                </div>
+              )}
+              {output.state === 'ready' && (
+                <>
+                  <OutputBlock
+                    label="stdout"
+                    text={output.stdout}
+                    maxHeightClass="max-h-44"
+                    onExpand={() => setOutputView({ label: 'stdout', task: taskName(task), text: output.stdout })}
+                  />
+                  <OutputBlock
+                    label="stderr"
+                    text={output.stderr}
+                    maxHeightClass="max-h-32"
+                    onExpand={() => setOutputView({ label: 'stderr', task: taskName(task), text: output.stderr })}
+                  />
+                </>
+              )}
             </>
           ) : (
             <div className="flex h-20 items-center justify-center text-sm text-faint">
