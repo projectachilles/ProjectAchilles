@@ -201,6 +201,34 @@ describe('which view', () => {
   });
 });
 
+describe('export and archive by date', () => {
+  it('are above the matrix too: they act on the filters, not on a view', async () => {
+    const user = userEvent.setup();
+    const onFetchAllExecutions = vi.fn().mockResolvedValue({ executions: [], total: 0 });
+    const onArchiveByDate = vi.fn().mockResolvedValue(undefined);
+    setup({ onFetchAllExecutions, onArchiveByDate, reportHref: '/analytics/report?x=1' });
+    await screen.findByRole('heading', { name: 'Solo test' });
+
+    await user.click(screen.getByRole('button', { name: 'Export CSV' }));
+    expect(onFetchAllExecutions).toHaveBeenCalledTimes(1);
+    expect(screen.getByRole('link', { name: 'Report (PDF)' })).toHaveAttribute('href', '/analytics/report?x=1');
+    expect(screen.getByRole('button', { name: /Archive by date/ })).toBeInTheDocument();
+  });
+
+  it('are the list\'s own in the list view: one toolbar, never two', async () => {
+    const user = userEvent.setup();
+    setup({ onFetchAllExecutions: vi.fn(), onArchiveByDate: vi.fn() });
+    await screen.findByRole('heading', { name: 'Solo test' });
+
+    await user.click(screen.getByRole('button', { name: 'List' }));
+
+    // The list here is a stand-in without a toolbar: nothing else may draw one.
+    expect(screen.getByTestId('list')).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Export CSV' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: /Archive by date/ })).not.toBeInTheDocument();
+  });
+});
+
 describe('a pair and its runs', () => {
   it('opens the pair of a clicked mark and its latest run in the drawer, and says so in the address', async () => {
     const user = userEvent.setup();

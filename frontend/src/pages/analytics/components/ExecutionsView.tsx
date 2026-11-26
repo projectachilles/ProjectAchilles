@@ -9,6 +9,8 @@ import ExecutionsDataTable, { type ExecutionsDataTableProps } from './Executions
 import { RunDetailPanel } from './executions/RunDetailPanel';
 import { useRunDetail } from './executions/useRunDetail';
 import { useRunDetailDialogs } from './executions/RunDetailDialogs';
+import { useExecutionsExport } from './executions/useExecutionsExport';
+import { ExecutionsToolbar } from './ExecutionsToolbar';
 import type { DisplayRow } from './executions/shared';
 import { CoverageMatrix, type PairRef } from './matrix/CoverageMatrix';
 import { PairRuns } from './matrix/PairRuns';
@@ -74,6 +76,13 @@ export default function ExecutionsView({ filterParams, reloadToken, forceList, o
     onViewChange?.(shown);
   }, [shown, onViewChange]);
 
+  // The matrix view's export: every result matching the filters (it has no page of its own to fall back on).
+  const exportState = useExecutionsExport({
+    pageExecutions: [],
+    onFetchAllExecutions: table.onFetchAllExecutions,
+    showVersions: Boolean(capabilities.testVersions),
+  });
+
   // Until the server has answered, neither: the list must not flash before the matrix.
   if (!ready) {
     return (
@@ -92,24 +101,37 @@ export default function ExecutionsView({ filterParams, reloadToken, forceList, o
 
   return (
     <div className="flex flex-col gap-3">
-      <div role="group" aria-label="View" className="flex items-center gap-2 self-start">
-        <span className="text-[12px] text-muted">View</span>
-        <span className="inline-flex overflow-hidden rounded-md border border-border">
-          {(['matrix', 'list'] as const).map((name) => (
-            <button
-              key={name}
-              type="button"
-              aria-pressed={view === name}
-              onClick={() => choose(name)}
-              className={cn(
-                'px-3 py-1 text-xs font-medium transition-colors first:border-r first:border-border',
-                view === name ? 'bg-accent-dim text-accent' : 'text-muted hover:bg-raised hover:text-foreground',
-              )}
-            >
-              {name === 'matrix' ? 'Matrix' : 'List'}
-            </button>
-          ))}
-        </span>
+      <div className="flex flex-wrap items-center gap-2">
+        <div role="group" aria-label="View" className="flex items-center gap-2">
+          <span className="text-[12px] text-muted">View</span>
+          <span className="inline-flex overflow-hidden rounded-md border border-border">
+            {(['matrix', 'list'] as const).map((name) => (
+              <button
+                key={name}
+                type="button"
+                aria-pressed={view === name}
+                onClick={() => choose(name)}
+                className={cn(
+                  'px-3 py-1 text-xs font-medium transition-colors first:border-r first:border-border',
+                  view === name ? 'bg-accent-dim text-accent' : 'text-muted hover:bg-raised hover:text-foreground',
+                )}
+              >
+                {name === 'matrix' ? 'Matrix' : 'List'}
+              </button>
+            ))}
+          </span>
+        </div>
+        {/* The list draws these in its own header, next to its sorting. */}
+        {view === 'matrix' && (
+          <ExecutionsToolbar
+            exportState={exportState}
+            reportHref={table.reportHref}
+            onExportSbReport={table.onExportSbReport}
+            sbReportExporting={table.sbReportExporting}
+            onArchiveByDate={table.onArchiveByDate}
+            archiving={table.archiving}
+          />
+        )}
       </div>
       {view === 'list' ? (
         <ExecutionsDataTable {...table} />

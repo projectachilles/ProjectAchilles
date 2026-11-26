@@ -1,17 +1,13 @@
 import { useState, useMemo, useEffect, useCallback } from 'react';
 import {
   Loader2,
-  ChevronDown,
   ChevronLeft,
   ChevronRight,
   ChevronsLeft,
   ChevronsRight,
-  Download,
   Archive,
   ArrowDownNarrowWide,
   ArrowUpNarrowWide,
-  Calendar,
-  X,
   ShieldOff,
 } from 'lucide-react';
 import type {
@@ -31,14 +27,14 @@ import {
 } from '@/components/ui/select';
 import { useCapabilities } from '@/hooks/useCapabilities';
 import {
-  exportColumns,
   SORT_FIELDS,
-  getCellValue,
   mapGroupsToDisplayRows,
 } from './executions/shared';
 import { RunList } from './executions/RunList';
 import { RunDetailPanel, type AcceptRiskItem } from './executions/RunDetailPanel';
 import { useRunDetail } from './executions/useRunDetail';
+import { useExecutionsExport } from './executions/useExecutionsExport';
+import { ExecutionsToolbar } from './ExecutionsToolbar';
 import { useRunDetailDialogs } from './executions/RunDetailDialogs';
 
 export interface ExecutionsDataTableProps {
@@ -108,10 +104,6 @@ export default function ExecutionsDataTable({
 
   // Bulk selection state
   const [selectedKeys, setSelectedKeys] = useState<Set<string>>(new Set());
-
-  // Dialog state
-  const [showDatePurge, setShowDatePurge] = useState(false);
-  const [purgeDate, setPurgeDate] = useState('');
 
   // What the detail panel shows beyond the row, and the dialogs it opens:
   // shared with the coverage matrix's drawer.
@@ -204,12 +196,6 @@ export default function ExecutionsDataTable({
   const archiveEnabled = !!onArchive;
 
 
-  const handleDatePurgeConfirm = async () => {
-    if (!purgeDate || !onArchiveByDate) return;
-    await onArchiveByDate(purgeDate);
-    setShowDatePurge(false);
-    setPurgeDate('');
-  };
 
   const riskEnabled = !!onAcceptRisk;
 
@@ -230,66 +216,9 @@ export default function ExecutionsDataTable({
     if (items.length > 0) dialogs.requestAcceptRisk(items);
   };
 
-  // ── Export ───────────────────────────────────────────────────────
-  const [exporting, setExporting] = useState(false);
-  const [exportNote, setExportNote] = useState<string | null>(null);
-  /** The rows to export: every match when the page can fetch them, else this page. */
-  const rowsForExport = async (): Promise<EnrichedTestExecution[] | null> => {
-    if (!onFetchAllExecutions) return allExecutions;
-    setExporting(true);
-    setExportNote(null);
-    try {
-      const { executions, total } = await onFetchAllExecutions();
-      if (executions.length < total) {
-        setExportNote(`Exported the newest ${executions.length.toLocaleString()} of ${total.toLocaleString()} results.`);
-      }
-      return executions;
-    } catch (err) {
-      console.error('Failed to fetch executions for export:', err);
-      setExportNote('Export failed: could not load the results.');
-      return null;
-    } finally {
-      setExporting(false);
-    }
-  };
+  // Export and "Archive by date" are the toolbar's (shared with the matrix view).
+  const exportState = useExecutionsExport({ pageExecutions: allExecutions, onFetchAllExecutions, showVersions });
 
-  const exportToCsv = async () => {
-    const executions = await rowsForExport();
-    if (!executions?.length) return;
-    const columns = exportColumns(showVersions);
-    const headers = columns.map(c => c.label);
-    const rows = executions.map(exec => {
-      return columns.map(col => {
-        const value = getCellValue(exec, col.key);
-        const strValue = String(value ?? '');
-        if (strValue.includes(',') || strValue.includes('"') || strValue.includes('\n')) {
-          return `"${strValue.replace(/"/g, '""')}"`;
-        }
-        return strValue;
-      });
-    });
-    const csv = [headers.join(','), ...rows.map(r => r.join(','))].join('\n');
-    downloadFile(csv, 'executions.csv', 'text/csv');
-  };
-
-  const exportToJson = async () => {
-    const executions = await rowsForExport();
-    if (!executions?.length) return;
-    const json = JSON.stringify(executions, null, 2);
-    downloadFile(json, 'executions.json', 'application/json');
-  };
-
-  const downloadFile = (content: string, filename: string, type: string) => {
-    const blob = new Blob([content], { type });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = filename;
-    document.body.appendChild(a);
-    a.click();
-    document.body.removeChild(a);
-    URL.revokeObjectURL(url);
-  };
 
   if (loading && !data) {
     return (
@@ -325,82 +254,40 @@ export default function ExecutionsDataTable({
               'Loading…'
             )}
           </span>
-          {exportNote && <span className="text-[12px] text-warning" role="status">{exportNote}</span>}
         </div>
 
-        <div className="ml-auto flex flex-wrap items-center gap-2">
-          <Select
-            value={sortField ?? 'routing.event_time'}
-            onValueChange={(field) => onSort(field, sortOrder)}
-          >
-            <SelectTrigger className="h-8 text-xs">
-              <SelectValue />
-            </SelectTrigger>
-            <SelectContent>
-              {SORT_FIELDS.map((f) => (
-                <SelectItem key={f.field} value={f.field}>
-                  {f.label}
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
-          <Button
-            variant="outline"
-            size="icon-sm"
-            onClick={() => onSort(sortField ?? 'routing.event_time', sortOrder === 'desc' ? 'asc' : 'desc')}
-            title={sortOrder === 'desc' ? 'Descending' : 'Ascending'}
-          >
-            {sortOrder === 'desc' ? <ArrowDownNarrowWide /> : <ArrowUpNarrowWide />}
-          </Button>
-          {onArchiveByDate && (
-            <Button variant="secondary" size="sm" onClick={() => setShowDatePurge(true)}>
-              <Calendar />
-              Archive by date
-            </Button>
-          )}
-          <div className="relative group">
-            <Button variant="secondary" size="sm">
-              <Download />
-              Export
-              <ChevronDown className="!size-3" />
-            </Button>
-            <div className="invisible absolute right-0 z-50 mt-1 w-32 overflow-hidden rounded-md border border-border bg-overlay opacity-0 shadow-lg transition-all group-hover:visible group-hover:opacity-100 group-focus-within:visible group-focus-within:opacity-100">
-              <button
-                onClick={() => { void exportToCsv(); }}
-                disabled={exporting}
-                className="w-full px-3 py-2 text-left text-sm transition-colors hover:bg-raised hover:text-accent disabled:opacity-50"
-              >
-                {exporting ? 'Exporting…' : 'Export CSV'}
-              </button>
-              <button
-                onClick={() => { void exportToJson(); }}
-                disabled={exporting}
-                className="w-full px-3 py-2 text-left text-sm transition-colors hover:bg-raised hover:text-accent disabled:opacity-50"
-              >
-                {exporting ? 'Exporting…' : 'Export JSON'}
-              </button>
-              {reportHref && (
-                <a
-                  href={reportHref}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className="block w-full px-3 py-2 text-left text-sm transition-colors hover:bg-raised hover:text-accent"
-                >
-                  Report (PDF)
-                </a>
-              )}
-              {onExportSbReport && (
-                <button
-                  onClick={() => { void onExportSbReport(); }}
-                  disabled={sbReportExporting}
-                  className="w-full px-3 py-2 text-left text-sm transition-colors hover:bg-raised hover:text-accent disabled:opacity-50"
-                >
-                  {sbReportExporting ? 'Exporting SB Export…' : 'SB Export'}
-                </button>
-              )}
-            </div>
-          </div>
-        </div>
+        <ExecutionsToolbar
+          exportState={exportState}
+          reportHref={reportHref}
+          onExportSbReport={onExportSbReport}
+          sbReportExporting={sbReportExporting}
+          onArchiveByDate={onArchiveByDate}
+          archiving={archiving}
+        >
+        <Select
+          value={sortField ?? 'routing.event_time'}
+          onValueChange={(field) => onSort(field, sortOrder)}
+        >
+          <SelectTrigger className="h-8 text-xs">
+            <SelectValue />
+          </SelectTrigger>
+          <SelectContent>
+            {SORT_FIELDS.map((f) => (
+              <SelectItem key={f.field} value={f.field}>
+                {f.label}
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+        <Button
+          variant="outline"
+          size="icon-sm"
+          onClick={() => onSort(sortField ?? 'routing.event_time', sortOrder === 'desc' ? 'asc' : 'desc')}
+          title={sortOrder === 'desc' ? 'Descending' : 'Ascending'}
+        >
+          {sortOrder === 'desc' ? <ArrowDownNarrowWide /> : <ArrowUpNarrowWide />}
+        </Button>
+        </ExecutionsToolbar>
       </div>
 
       {/* Bulk actions bar */}
@@ -504,39 +391,6 @@ export default function ExecutionsDataTable({
       )}
 
 
-      {/* Date Purge Dialog */}
-      {showDatePurge && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-background/70" onClick={() => !archiving && setShowDatePurge(false)}>
-          <div className="mx-4 w-full max-w-md rounded-[10px] border border-border-strong bg-surface p-6 shadow-[0_24px_60px_rgba(0,0,0,0.55)]" onClick={(e) => e.stopPropagation()}>
-            <div className="mb-4 flex items-center justify-between">
-              <h3 className="text-sm font-semibold tracking-tight">Archive by Date</h3>
-              <button onClick={() => !archiving && setShowDatePurge(false)} className="text-muted hover:text-foreground">
-                <X className="h-5 w-5" />
-              </button>
-            </div>
-            <div className="mb-6">
-              <label className="mb-2 block text-[11px] uppercase tracking-wider text-faint">
-                Archive all executions before:
-              </label>
-              <input
-                type="date"
-                value={purgeDate}
-                onChange={(e) => setPurgeDate(e.target.value)}
-                className="w-full rounded-md border border-border bg-raised px-3 py-2 text-sm outline-none focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-accent"
-              />
-            </div>
-            <div className="flex justify-end gap-3">
-              <Button variant="ghost" onClick={() => { setShowDatePurge(false); setPurgeDate(''); }} disabled={archiving}>
-                Cancel
-              </Button>
-              <Button variant="destructive" onClick={handleDatePurgeConfirm} disabled={!purgeDate || archiving}>
-                {archiving && <Loader2 className="animate-spin" />}
-                Archive
-              </Button>
-            </div>
-          </div>
-        </div>
-      )}
 
 
       {dialogs.dialogs}
