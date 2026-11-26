@@ -73,16 +73,19 @@ Earlier releases did, and decided with a test insert. Each rule above exists bec
 
 1. **A recreation keeps only the columns it lists.** A column added later by `ALTER TABLE` must be added to the recreate function too: to its `optionalCols` (`recreateAgentsTable`, `recreateAgentVersionsTable`, `recreateTasksTable`) or to its `CREATE TABLE` (`recreateAgentEventsTable`, `recreateApiKeysTable`), and its index to the index statements. Otherwise the recreation fails on a database that has the column (`table tasks_new has no column named ...`). `checkRecreations.test.ts` and `tasksRecreation.test.ts` rebuild each table with today's columns and an old CHECK, and fail when a column is missing.
 2. **Use `database.pragma()`**, not `database.exec('PRAGMA ...')`, and only outside a transaction: SQLite ignores `PRAGMA foreign_keys` inside one. With the checks on, SQLite refuses to drop a table other tables reference.
-3. **Never drop a `<table>_new` you did not just create.** Beside an up-to-date table it can be the only copy of the rows after an interrupted upgrade of an earlier release.
-4. **`agents` is backed up first**, to `agents.db.bak` beside the database (`VACUUM INTO`, a consistent copy). Pass `{ backUpFirst: true }` for a table whose loss would cut off the fleet.
+3. **A `<table>_new` beside an up-to-date table is never dropped.** It can be the only copy of the rows after an interrupted upgrade of an earlier release, so start-up warns about it and leaves it. Beside an out-of-date table it is taken for the unfinished copy of a failed attempt and dropped when the recreation starts.
+4. **Do not name a CHECK value in a comment inside the `CREATE TABLE` parentheses.** SQLite stores such comments as part of the definition, and the text search would find the value there.
+5. **`agents` is backed up first**, to `agents.db.bak` beside the database, with the database file's permissions. The copy is made inside the lock, by the process that recreates, through a second read-only connection (`VACUUM INTO` cannot run inside a transaction). It needs free disk space the size of the database; a copy that cannot be made is logged and does not stop the start. Pass `{ backUpFirst: true }` for a table whose loss would cut off the fleet.
 
 ### Adding a Column
 
-Check `PRAGMA table_info(<table>)` and add the column with `addColumn(database, 'ALTER TABLE ... ADD COLUMN ...')`. `addColumn` accepts `duplicate column name`: when two processes start together on a database that lacks the column, both find it missing and the slower one's `ALTER` fails with that error.
+Check `PRAGMA table_info(<table>)` and add the column with `addColumn(database, 'ALTER TABLE ... ADD COLUMN ...')`, never with a bare `database.exec`. `addColumn` accepts `duplicate column name`: when two processes start together on a database that lacks the column, both find it missing and the slower one's `ALTER` fails with that error. A test adds every column from a second connection first and fails on a bare `ALTER`.
 
 ### A Failed Start-Up
 
-`getDatabase()` keeps its connection only after `initializeTables()` has returned. If a migration throws, the connection is closed and the next call opens the database and runs the set-up again. A process never serves requests on a database whose migrations stopped part-way.
+`getDatabase()` keeps its connection only after `initializeTables()` has returned. If a migration throws, the connection is closed. Calls in the next 5 seconds get the same error without another attempt, and the first call after that opens the database and runs the set-up again. A process never serves requests on a database whose migrations stopped part-way.
+
+In single-process mode and in the cluster primary, the first call happens at start (the scheduler's catch-up) and is not caught, so a failed set-up ends the process and its supervisor restarts it. Cluster workers open the database on their first request and are the ones that retry.
 
 ## Storage Architecture
 

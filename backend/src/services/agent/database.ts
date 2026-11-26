@@ -2,7 +2,6 @@ import Database from 'better-sqlite3';
 import path from 'path';
 import os from 'os';
 import fs from 'fs';
-import { randomUUID } from 'crypto';
 import { backfillScheduleRuns } from './scheduleRunBackfill.js';
 
 const DATA_DIR = path.join(os.homedir(), '.projectachilles');
@@ -10,15 +9,24 @@ const DB_PATH = path.join(DATA_DIR, 'agents.db');
 
 let db: Database.Database | null = null;
 
+/**
+ * A set-up that failed is not tried again for this long; calls in between get
+ * the same error at once. Without it every request on a database that cannot
+ * be set up would run the whole set-up again, up to the 5 s busy timeout each.
+ */
+const SETUP_RETRY_MS = 5_000;
+let setupFailure: { at: number; error: unknown } | null = null;
+
 let walCheckpointTimer: ReturnType<typeof setInterval> | null = null;
 
 export function getDatabase(): Database.Database {
   if (db) return db;
+  if (setupFailure && Date.now() - setupFailure.at < SETUP_RETRY_MS) throw setupFailure.error;
 
   fs.mkdirSync(DATA_DIR, { recursive: true });
 
   // Kept only once the schema is set up. A handle whose set-up failed is
-  // closed and the next call starts again: kept, it would be handed to every
+  // closed and a later call starts again: kept, it would be handed to every
   // later caller with the migrations after the failed one never run.
   const handle = new Database(DB_PATH);
   try {
@@ -31,6 +39,7 @@ export function getDatabase(): Database.Database {
 
     initializeTables(handle);
   } catch (err) {
+    setupFailure = { at: Date.now(), error: err };
     try {
       handle.close();
     } catch {
@@ -38,6 +47,7 @@ export function getDatabase(): Database.Database {
     }
     throw err;
   }
+  setupFailure = null;
   db = handle;
 
   // Periodically checkpoint the WAL to prevent unbounded growth.
@@ -578,6 +588,10 @@ type RecreatedTable = 'agents' | 'agent_versions' | 'tasks' | 'agent_events' | '
  * does it for any insert. The plain text search needs no knowledge of how the
  * CHECK is spelled, and cannot loop: a recreated table's definition always
  * contains the values.
+ *
+ * SQLite keeps comments written inside a CREATE TABLE's parentheses as part
+ * of the definition. Never name one of these values in such a comment: the
+ * search would find it there and the table would read as up to date.
  */
 function definitionLacks(database: Database.Database, table: RecreatedTable, values: readonly string[]): boolean {
   const row = database
@@ -613,51 +627,66 @@ function recreateIfOutdated(
     return;
   }
 
-  // VACUUM INTO cannot run inside a transaction, so the copy is taken before
-  // the lock and only kept once this process knows it is the one recreating.
-  const snapshot = options.backUpFirst ? snapshotDatabase(database) : null;
-
   // Only outside a transaction: SQLite ignores this pragma inside one.
   database.pragma('foreign_keys = OFF');
   try {
     database.transaction(() => {
       // Another process may have done it while this one waited for the lock.
       if (!outdated()) return;
-      if (snapshot) keepSnapshot(snapshot, `${database.name}.bak`);
+      if (options.backUpFirst) backUpDatabase(database);
       recreate();
     }).immediate();
   } finally {
     database.pragma('foreign_keys = ON');
-    // Still there when nothing was recreated: a copy taken after another
-    // process's recreation must not replace the one taken before it.
-    if (snapshot) fs.rmSync(snapshot, { force: true });
   }
 }
 
 /**
- * A consistent copy of the whole database in a temporary file beside it, or
- * null when there is no file to copy (in-memory) or the copy failed. A failed
- * copy does not stop the migration: the recreation is one transaction.
+ * Copies the whole database to `<database>.bak`, replacing an earlier copy.
+ *
+ * Call it holding the write lock, before the first change: only the process
+ * that recreates a table makes a copy, and the copy is of the database as it
+ * was. VACUUM INTO cannot run inside a transaction, so a second, read-only
+ * connection makes it; it reads the last committed state, which no other
+ * process can change while this one holds the lock.
+ *
+ * Never stops the migration: the recreation is one transaction, and a start
+ * that cannot make the copy (no disk space, a read-only folder) should not be
+ * a start that cannot run. Nothing to copy for an in-memory database.
  */
-function snapshotDatabase(database: Database.Database): string | null {
-  if (database.memory || !database.name) return null;
-  const temp = `${database.name}.bak.${randomUUID()}.tmp`;
-  try {
-    database.prepare('VACUUM INTO ?').run(temp);
-    return temp;
-  } catch (err) {
-    console.warn(`[db] Warning: could not back up the database before recreating a table: ${err instanceof Error ? err.message : String(err)}`);
+function backUpDatabase(database: Database.Database): void {
+  if (database.memory || !database.name) return;
+  const backupPath = `${database.name}.bak`;
+  const temp = `${backupPath}.tmp`;
+  const removeTemp = () => {
     fs.rmSync(temp, { force: true });
-    return null;
-  }
-}
-
-function keepSnapshot(snapshot: string, backupPath: string): void {
+    fs.rmSync(`${temp}-journal`, { force: true });
+  };
+  let reader: Database.Database | null = null;
   try {
-    fs.renameSync(snapshot, backupPath);
+    // What a process killed during an earlier copy left. No other process is
+    // writing it: this one holds the write lock.
+    removeTemp();
+    // The copy holds what the database holds (agent key hashes), so it gets
+    // the database file's permissions, whatever the umask. VACUUM INTO accepts
+    // an empty file.
+    fs.closeSync(fs.openSync(temp, 'wx', 0o600));
+    fs.chmodSync(temp, fs.statSync(database.name).mode & 0o777);
+    reader = new Database(database.name, { readonly: true, fileMustExist: true });
+    reader.prepare('VACUUM INTO ?').run(temp);
+    reader.close();
+    reader = null;
+    fs.renameSync(temp, backupPath);
     console.log(`[db] Database backed up to ${backupPath}`);
   } catch (err) {
-    console.warn(`[db] Warning: could not keep the database backup: ${err instanceof Error ? err.message : String(err)}`);
+    console.warn(`[db] Warning: could not back up the database before recreating a table: ${err instanceof Error ? err.message : String(err)}`);
+  } finally {
+    try {
+      reader?.close();
+      removeTemp();
+    } catch {
+      // the copy is best effort; the warning above has said why
+    }
   }
 }
 
@@ -714,8 +743,9 @@ function recreateAgentsTable(database: Database.Database): void {
     colSet.has('key_rotation_initiated_at') ? 'key_rotation_initiated_at TEXT DEFAULT NULL' : null,
   ].filter(Boolean);
 
-  // A leftover here sits beside an out-of-date table that still has its rows:
-  // it is an unfinished copy, not the only one.
+  // A leftover beside an out-of-date table is taken for the unfinished copy of
+  // an attempt that failed before its DROP, and dropped, as every release has
+  // done. (The backup just made has it too.)
   database.exec(`DROP TABLE IF EXISTS agents_new`);
   database.exec(`
     CREATE TABLE agents_new (
@@ -926,7 +956,7 @@ function migrateTaskScheduleRun(database: Database.Database): void {
 function migrateTaskTestUuid(database: Database.Database): void {
   const cols = database.prepare(`PRAGMA table_info(tasks)`).all() as { name: string }[];
   if (!cols.some((c) => c.name === 'test_uuid')) {
-    database.exec(`ALTER TABLE tasks ADD COLUMN test_uuid TEXT DEFAULT NULL`);
+    addColumn(database, `ALTER TABLE tasks ADD COLUMN test_uuid TEXT DEFAULT NULL`);
   }
   ensureTaskTestUuidObjects(database);
   // Backfill rows written before the column (or before the triggers) existed.
@@ -1042,6 +1072,7 @@ function recreateApiKeysTable(database: Database.Database): void {
 }
 
 export function closeDatabase(): void {
+  setupFailure = null;
   if (walCheckpointTimer) {
     clearInterval(walCheckpointTimer);
     walCheckpointTimer = null;

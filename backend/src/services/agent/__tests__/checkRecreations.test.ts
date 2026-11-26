@@ -1,12 +1,15 @@
-import { describe, it, expect, afterAll, afterEach, vi } from 'vitest';
+import { describe, it, expect, beforeAll, afterAll, afterEach, vi } from 'vitest';
 
-// database.ts works out ~/.projectachilles when it is imported, and the agents
-// recreation makes a backup. HOME points at a folder that does not exist
-// before that import, so nothing here can read or write the real data folder.
-const fakeHome = vi.hoisted(() => {
-  const dir = `${process.env.TMPDIR ?? '/tmp'}/pa-check-recreations-home-${process.pid}`;
-  process.env.HOME = dir;
-  return dir;
+// database.ts works out ~/.projectachilles from os.homedir() when it is
+// imported. The home folder it sees is one that does not exist, so nothing
+// here can read or write the real data folder. The os module is replaced, not
+// the HOME variable: a worker thread has its own copy of the environment,
+// which os.homedir() does not read.
+const fakeHome = vi.hoisted(() => `${process.env.TMPDIR ?? '/tmp'}/pa-check-recreations-home-${process.pid}`);
+vi.mock('os', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('os')>();
+  const homedir = () => fakeHome;
+  return { ...actual, homedir, default: { ...actual, homedir } };
 });
 
 import Database from 'better-sqlite3';
@@ -16,9 +19,10 @@ import path from 'node:path';
 import { initializeTables } from '../database.js';
 
 // Widening a CHECK means recreating the table (new table, copy every row, drop
-// the old one, rename). Four of these decided with a test insert and treated
-// any error as "out of date", SQLITE_BUSY included, and ran as separate
-// statements. They now decide from the table's definition and run in one
+// the old one, rename). Three of these decided with a test insert and treated
+// any error as "out of date", SQLITE_BUSY included (agents twice, agent_versions,
+// api_keys), and three ran as separate statements (agents, agent_versions,
+// agent_events). All now decide from the table's definition and run in one
 // transaction that takes the write lock first, like the tasks table (see
 // tasksRecreation.test.ts).
 
@@ -180,6 +184,10 @@ afterEach(() => {
   while (opened.length) opened.pop()!.close();
   if (dir) fs.rmSync(dir, { recursive: true, force: true });
   dir = undefined;
+});
+beforeAll(() => {
+  // Without this no test may run: database.ts would point at the real data folder.
+  expect(os.homedir()).toBe(fakeHome);
 });
 afterAll(() => {
   fs.rmSync(fakeHome, { recursive: true, force: true });
@@ -436,13 +444,99 @@ describe('the backup made before the agents table is recreated', () => {
     expect(fs.readdirSync(dir!).filter((name) => name.endsWith('.tmp'))).toEqual([]);
   });
 
+  // Two modes: the copy is not simply created private, nor with the umask's default.
+  it.each([0o600, 0o640])('has the permissions of the database file (%o), whatever the umask', (mode) => {
+    const db = openFile();
+    initializeTables(db);
+    seed(db);
+    makeLegacy(db, agentsUninstalled);
+    fs.chmodSync(dbFile(), mode);
+    vi.spyOn(console, 'log').mockImplementation(() => {});
+
+    initializeTables(db);
+
+    expect(fs.statSync(`${dbFile()}.bak`).mode & 0o777).toBe(mode);
+  });
+
+  it('clears away what a process killed during an earlier copy left behind', () => {
+    const db = openFile();
+    initializeTables(db);
+    seed(db);
+    makeLegacy(db, agentsUninstalled);
+    fs.writeFileSync(`${dbFile()}.bak.tmp`, 'half a copy');
+    fs.writeFileSync(`${dbFile()}.bak.tmp-journal`, 'its journal');
+    vi.spyOn(console, 'log').mockImplementation(() => {});
+
+    initializeTables(db);
+
+    expect(fs.readdirSync(dir!).filter((name) => name.includes('.tmp'))).toEqual([]);
+    const copy = new Database(`${dbFile()}.bak`, { readonly: true });
+    opened.push(copy);
+    expect(copy.prepare('SELECT id FROM agents').all()).toEqual([{ id: 'a' }]);
+  });
+
+  it.each([
+    ['the copy cannot be written', '.bak.tmp'],
+    ['the copy cannot be put in place', '.bak'],
+  ])('does not stop the recreation when %s', (_what, suffix) => {
+    const db = openFile();
+    initializeTables(db);
+    seed(db);
+    makeLegacy(db, agentsUninstalled);
+    // A folder where the file should go.
+    fs.mkdirSync(`${dbFile()}${suffix}`);
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+
+    expect(() => initializeTables(db)).not.toThrow();
+
+    expect(acceptsNewValue(db, agentsUninstalled)).toBe(true);
+    expect(rowsOf(db, 'agents')).toHaveLength(1);
+    expect(warn.mock.calls.flat().join(' ')).toMatch(/could not back up/);
+    expect(fs.readdirSync(dir!).filter((name) => name.endsWith('.tmp') && fs.statSync(path.join(dir!, name)).isFile())).toEqual([]);
+  });
+
+  it('is made once, by the process that recreates the table', () => {
+    const first = openFile();
+    initializeTables(first);
+    seed(first);
+    makeLegacy(first, agentsUninstalled);
+    const second = openFile();
+    const log = vi.spyOn(console, 'log').mockImplementation(() => {});
+
+    const prepare = second.prepare.bind(second);
+    let decisions = 0;
+    vi.spyOn(second, 'prepare').mockImplementation(((sql: string) => {
+      const stmt = prepare(sql);
+      if (!isDecision(sql, 'agents')) return stmt;
+      decisions += 1;
+      if (decisions !== 1) return stmt;
+      return {
+        get: (...args: unknown[]) => {
+          const row = stmt.get(...args);
+          initializeTables(first);
+          return row;
+        },
+      } as never;
+    }) as never);
+
+    initializeTables(second);
+
+    expect(log.mock.calls.flat().filter((line) => String(line).includes('backed up'))).toHaveLength(1);
+  });
+
   it('is not attempted for an in-memory database, and no start that recreates nothing makes one', () => {
     const memory = open();
     initializeTables(memory);
     seed(memory);
     makeLegacy(memory, agentsUninstalled);
     const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
-    initializeTables(memory);
+    const strays = [':memory:.bak', ':memory:.bak.tmp'];
+    try {
+      initializeTables(memory);
+      expect(strays.filter((name) => fs.existsSync(name))).toEqual([]);
+    } finally {
+      for (const name of strays) fs.rmSync(name, { force: true });
+    }
     expect(warn.mock.calls.flat().join(' ')).not.toMatch(/back/i);
 
     const db = openFile();
@@ -494,5 +588,46 @@ describe('a column another process adds between the check and the ALTER', () => 
     vi.restoreAllMocks();
     expect(reads).toBeGreaterThanOrEqual(nthRead);
     expect(columns(second)).toContain(column);
+  });
+});
+
+describe('every column a start adds', () => {
+  it('may be added first by another process starting at the same moment', () => {
+    // A new database: its tables are created with their first columns, and
+    // every later column is added by an ALTER. Whenever this process is about
+    // to add one, the other process adds it first.
+    const other = openFile();
+    const starting = openFile();
+    const raced: string[] = [];
+    const addFirst = (sql: string) => {
+      const m = /ALTER TABLE (\w+) ADD COLUMN (\w+)/.exec(sql);
+      // Inside a transaction this process holds the write lock: no other can add anything.
+      if (!m || starting.inTransaction) return;
+      raced.push(`${m[1]}.${m[2]}`);
+      other.exec(sql);
+    };
+    const exec = starting.exec.bind(starting);
+    const prepare = starting.prepare.bind(starting);
+    vi.spyOn(starting, 'exec').mockImplementation(((sql: string) => {
+      addFirst(sql);
+      return exec(sql);
+    }) as never);
+    vi.spyOn(starting, 'prepare').mockImplementation(((sql: string) => {
+      addFirst(sql);
+      return prepare(sql);
+    }) as never);
+
+    expect(() => initializeTables(starting)).not.toThrow();
+
+    vi.restoreAllMocks();
+    expect(raced).toContain('tasks.test_uuid');
+    expect(raced.length).toBeGreaterThan(25);
+    // The database is the one a start alone produces.
+    const columnsOf = (db: Database.Database) =>
+      (db.prepare("SELECT m.name AS t, p.name AS c FROM sqlite_master m, pragma_table_info(m.name) p WHERE m.type = 'table' ORDER BY 1, 2").all() as { t: string; c: string }[])
+        .map((r) => `${r.t}.${r.c}`);
+    const alone = open();
+    initializeTables(alone);
+    expect(columnsOf(starting)).toEqual(columnsOf(alone));
   });
 });
