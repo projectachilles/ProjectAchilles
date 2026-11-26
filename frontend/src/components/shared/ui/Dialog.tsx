@@ -67,7 +67,7 @@ export function DialogHeader({ children, onClose }: DialogHeaderProps) {
     <div className="mb-4 flex items-start justify-between border-b border-border pb-3">
       <div>{children}</div>
       {onClose && (
-        <Button variant="ghost" size="icon" onClick={onClose} className="h-8 w-8 -mr-2 -mt-2">
+        <Button variant="ghost" size="icon" onClick={onClose} aria-label="Close" className="h-8 w-8 -mr-2 -mt-2">
           <X className="w-4 h-4" />
         </Button>
       )}

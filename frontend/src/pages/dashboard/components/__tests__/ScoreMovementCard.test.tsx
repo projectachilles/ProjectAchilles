@@ -108,6 +108,24 @@ describe('ScoreMovementCard', () => {
     expect(within(dialog).getByText('–', { selector: '[data-col="failing-since"]' })).toBeInTheDocument();
   });
 
+  it('shows the failing-since date on the got-through list', async () => {
+    const through: MovementRow = { ...ROW, origin: undefined };
+    wrap(<ScoreMovementCard {...props({ lists: { ...LISTS, newGotThrough: { total: 35, rows: [through] } } })} />);
+    await userEvent.click(screen.getByRole('button', { name: 'View Got through on the first run (35)' }));
+    expect(within(screen.getByRole('dialog')).getByText('Nov 4')).toBeInTheDocument();
+  });
+
+  it('moves focus into the dialog, names the close control and returns focus on close', async () => {
+    wrap(<ScoreMovementCard {...props()} />);
+    const opener = screen.getByRole('button', { name: 'View Still failing (6)' });
+    await userEvent.click(opener);
+    const dialog = screen.getByRole('dialog');
+    expect(dialog).toHaveFocus();
+    await userEvent.click(within(dialog).getByRole('button', { name: 'Close' }));
+    expect(screen.queryByRole('dialog')).toBeNull();
+    expect(opener).toHaveFocus();
+  });
+
   it('has no view control for a zero count', () => {
     const view = buildScoreMovementView({ ...FULL, failures: { ...FULL.failures, stillFailing: 0 } }, 'last 30d');
     wrap(<ScoreMovementCard {...props({ view })} />);

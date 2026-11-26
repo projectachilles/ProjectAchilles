@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/shared/ui';
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/shared/ui/Dialog';
@@ -136,19 +136,33 @@ function ListDialog({
   periodStart?: string;
   onClose: () => void;
 }) {
+  const dialogRef = useRef<HTMLDivElement>(null);
+  // Move focus into the dialog on open and give it back to the opener on close.
+  useEffect(() => {
+    const opener = document.activeElement instanceof HTMLElement ? document.activeElement : null;
+    dialogRef.current?.focus();
+    return () => opener?.focus();
+  }, []);
   const rows = list?.rows ?? [];
   const total = list?.total ?? 0;
   const showFixed = segment.list === 'fixed';
-  const firstRuns = segment.list === 'newStopped' || segment.list === 'newGotThrough';
+  const stoppedFirstRuns = segment.list === 'newStopped';
   const failingSince = (row: MovementRow): string => {
-    if (firstRuns) return DASH;
+    if (stoppedFirstRuns) return DASH;
     if (row.openBeforePeriod) return periodStart ? `before ${formatDay(periodStart)}` : 'before the period';
     return row.failingSince ? formatDay(row.failingSince) : DASH;
   };
 
   return (
     <Dialog open onClose={onClose} className="max-w-4xl">
-      <div role="dialog" aria-modal="true" aria-labelledby="score-movement-list-title">
+      <div
+        ref={dialogRef}
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="score-movement-list-title"
+        tabIndex={-1}
+        className="outline-none"
+      >
         <DialogHeader onClose={onClose}>
           <span id="score-movement-list-title">
             <DialogTitle>{segment.label}</DialogTitle>

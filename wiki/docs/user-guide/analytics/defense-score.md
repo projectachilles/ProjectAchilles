@@ -73,20 +73,20 @@ The card does not change the score. It sorts the same results into what was fixe
 
 The line under the title gives the number of pairs in the score and the number of failing pairs at the start and at the end of the range. These are the score's own counts.
 
-The **Failures dealt with** panel covers every pair that was failing at some point in the range, or was already failing before it:
+The **Failures dealt with** panel covers every pair that failed during the range, and every pair that was already failing when the range started, if it was still in the score then or was re-tested in the range. Cyber-hygiene controls are included here, because the score counts them:
 
 - **Fixed**: the pair was run again and its latest result is protected.
 - **Still failing**: the pair was run again after it failed and still gets through.
 - **Not re-tested**: the pair failed and has not been run since.
 - **Left the score untested**: the pair was failing before the range started and has not been run in it, so its old result is no longer counted. It is not fixed, only out of sight. The pill at the top right (**N failures not re-tested**) adds this group to **Not re-tested**.
 
-The line under the rows explains where the failures came from: failures already open at the start of the range, older failures that were re-tested, new tests that got through, regressions (a pair that was protected and later got through) and the first result of an existing test on an endpoint.
+The line under the rows explains where the failures came from: failures already open at the start of the range, older failures that were re-tested, new tests that got through, regressions (a pair that was protected and later got through) and first results on an endpoint (the first result of a pair that is not a new test: an existing test run for the first time on a machine, or any cyber-hygiene control, including those of a new bundle).
 
-The **New tests · first run** panel covers tests the organization had never run before the range. It counts each test on each endpoint by its first result in the range: **Stopped on the first run** or **Got through on the first run**. A new test that got through and was fixed later still counts as got through here and as fixed in the other panel. Cyber-hygiene bundles are left out of this panel.
+The **New tests · first run** panel covers tests the organization had never run before the range. It counts each test on each endpoint by its first result in the range: **Stopped on the first run** or **Got through on the first run**. A new test that got through and was fixed later still counts as got through here and as fixed in the other panel. Cyber-hygiene bundles are left out of this panel: their controls count under **Failures dealt with** if they fail, and their first results are counted under first time on an endpoint, never under new tests.
 
 Each number has a **view** link that opens the list of tests and endpoints behind it, with the origin of each failure, when it started failing, when it was fixed and the date of its last result. A list shows at most 200 rows and says "Showing 200 of N" when there are more. **Still failing** and **Not re-tested** are the work lists.
 
-The footer shows, only when they are not zero: pairs that regressed and how many of them are fixed since; pairs seen for the first time on an endpoint (an existing test on a newly enrolled machine, counted apart from new tests); failing pairs hidden by risk acceptances; and the two lines below.
+The footer shows, only when they are not zero: pairs that regressed and how many of them are fixed since; pairs seen for the first time on an endpoint (an existing test run for the first time on a machine, or the first result of any cyber-hygiene control, counted apart from new tests; deploying a new cyber-hygiene bundle makes this figure large); failing pairs hidden by risk acceptances; and the two lines below.
 
 **One test on one endpoint is one item.** The score can hold two pairs for the same test on the same endpoint: one for runs where the test's stages reported, and one for runs that ended before any stage (for example, the test was blocked at launch). The card merges them, so blocking a test at launch counts as fixing it. The score does not merge them, so it can disagree with the card. The footer says by how much:
 
