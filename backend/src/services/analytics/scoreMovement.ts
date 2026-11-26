@@ -9,9 +9,20 @@
  * cyber-hygiene control stays its own item. Pure (no Elasticsearch);
  * ElasticsearchService fetches the runs.
  */
+import { latestPairsAsOf, summarizePairs } from './posture.js';
 import type { PairRun, PostureWindow } from './posture.js';
 import { pairControlId, pairOrg, pairTestUuid } from './pairKeys.js';
-import type { MovementOrigin, MovementOutcome } from '../../types/analytics.js';
+import type {
+  MovementList,
+  MovementListKey,
+  MovementOrigin,
+  MovementOutcome,
+  MovementRow,
+  ScoreMovementResponse,
+} from '../../types/analytics.js';
+
+/** Rows kept per list; each list's total stays the full count. */
+export const MOVEMENT_LIST_LIMIT = 200;
 
 export interface MovementInput {
   window: PostureWindow;
@@ -39,6 +50,8 @@ export interface MovementItem {
   /** Any of its results has category 'cyber-hygiene'. */
   cyberHygiene: boolean;
   hasPrior: boolean;
+  /** Time of its prior result (the latest before the period); undefined without one. */
+  priorMs?: number;
   /** A failure in play: one the card accounts for. */
   inPlay: boolean;
   /** Set exactly when inPlay. */
@@ -47,6 +60,8 @@ export interface MovementItem {
   outcome?: MovementOutcome;
   /** Verdict of its first period result; undefined when it has none. */
   firstPeriodProtected?: boolean;
+  /** Time of its first period result; undefined when it has none. */
+  firstPeriodMs?: number;
   /** First period result of the failing run the row describes; null when openBeforePeriod or not inPlay. */
   failingSinceMs: number | null;
   /** That failing run includes the prior result, so its true start was not read. */
@@ -133,8 +148,9 @@ function classifyItem(key: string, runs: PairRun[], window: PostureWindow, known
     testName: latest.testName,
     cyberHygiene,
     hasPrior: prior !== undefined,
+    ...(prior !== undefined ? { priorMs: prior.ts } : {}),
     inPlay,
-    ...(period.length > 0 ? { firstPeriodProtected: period[0].protected } : {}),
+    ...(period.length > 0 ? { firstPeriodProtected: period[0].protected, firstPeriodMs: period[0].ts } : {}),
     failingSinceMs: null,
     openBeforePeriod: false,
     lastResultMs: latest.ts,
@@ -166,4 +182,138 @@ function originOf(first: PairRun, priorFailing: boolean, inScoreAtStart: boolean
   // exactly when a protected result comes before the first failing one.
   if (first.protected) return 'regression';
   return !known && !cyberHygiene ? 'new_test' : 'first_on_endpoint';
+}
+
+const round2 = (x: number): number => Math.round(x * 100) / 100;
+const rate = (part: number, whole: number): number | null => (whole === 0 ? null : round2((part / whole) * 100));
+const iso = (ms: number): string => new Date(ms).toISOString();
+const isOpen = (outcome: MovementOutcome | undefined): boolean =>
+  outcome === 'still_failing' || outcome === 'not_retested' || outcome === 'left_untested';
+
+/** A pair of a new attack test: no prior result, a period result, not cyber-hygiene, the test not known. */
+function isNewTestPair(item: MovementItem, knownTests: ReadonlySet<string>): boolean {
+  return !item.hasPrior && item.firstPeriodMs !== undefined && !item.cyberHygiene && !knownTests.has(item.testKey);
+}
+
+function rowOf(item: MovementItem, withOrigin: boolean): MovementRow {
+  return {
+    testUuid: item.testUuid,
+    testName: item.testName,
+    ...(item.controlId !== undefined ? { controlId: item.controlId } : {}),
+    hostname: item.hostname,
+    ...(withOrigin && item.origin !== undefined ? { origin: item.origin } : {}),
+    failingSince: item.failingSinceMs === null ? null : iso(item.failingSinceMs),
+    ...(item.openBeforePeriod ? { openBeforePeriod: true as const } : {}),
+    ...(item.fixedAtMs !== undefined ? { fixedAt: iso(item.fixedAtMs) } : {}),
+    lastResultAt: iso(item.lastResultMs),
+  };
+}
+
+const byTie = (a: MovementItem, b: MovementItem): number => byText(a.testUuid, b.testUuid) || byText(a.hostname, b.hostname);
+
+/** Work lists: failures open before the period first, oldest prior result first; then oldest failingSince first. */
+function byOldestFailure(a: MovementItem, b: MovementItem): number {
+  if (a.openBeforePeriod !== b.openBeforePeriod) return a.openBeforePeriod ? -1 : 1;
+  const ta = a.openBeforePeriod ? (a.priorMs ?? 0) : (a.failingSinceMs ?? 0);
+  const tb = b.openBeforePeriod ? (b.priorMs ?? 0) : (b.failingSinceMs ?? 0);
+  return ta - tb || byTie(a, b);
+}
+const byNewestFix = (a: MovementItem, b: MovementItem): number => (b.fixedAtMs ?? 0) - (a.fixedAtMs ?? 0) || byTie(a, b);
+const byNewestFirstRun = (a: MovementItem, b: MovementItem): number =>
+  (b.firstPeriodMs ?? 0) - (a.firstPeriodMs ?? 0) || byTie(a, b);
+
+function listOf(items: MovementItem[], order: (a: MovementItem, b: MovementItem) => number, withOrigin = true): MovementList {
+  const rows = items.slice().sort(order).slice(0, MOVEMENT_LIST_LIMIT).map((item) => rowOf(item, withOrigin));
+  return { total: items.length, rows };
+}
+
+/** Open failures that the risk-acceptance exclusion removes entirely; null when nothing is excluded. */
+function riskAcceptedCount(input: MovementInput): number | null {
+  if (input.rawPrior === null && input.rawPeriod === null) return null;
+  const kept = new Set<string>();
+  for (const run of [...input.prior, ...input.period]) kept.add(itemKeyOf(run));
+  const raw = classifyItems({
+    window: input.window,
+    prior: input.rawPrior ?? input.prior,
+    period: input.rawPeriod ?? input.period,
+    knownTests: input.knownTests,
+  });
+  return raw.filter((item) => isOpen(item.outcome) && !kept.has(item.key)).length;
+}
+
+/** The "What moved the score" response for one period. */
+export function buildScoreMovement(input: MovementInput): ScoreMovementResponse {
+  const { window, knownTests } = input;
+  const items = classifyItems(input);
+  const inPlay = items.filter((item) => item.inPlay);
+  const withOutcome = (outcome: MovementOutcome) => inPlay.filter((item) => item.outcome === outcome);
+  const withOrigin = (origin: MovementOrigin) => inPlay.filter((item) => item.origin === origin).length;
+
+  const fixed = withOutcome('fixed');
+  const stillFailing = withOutcome('still_failing');
+  const notRetested = withOutcome('not_retested');
+  const leftUntested = withOutcome('left_untested');
+
+  const newPairs = items.filter((item) => isNewTestPair(item, knownTests));
+  const newStopped = newPairs.filter((item) => item.firstPeriodProtected === true);
+  const newGotThrough = newPairs.filter((item) => item.firstPeriodProtected === false);
+  const gotThroughFixed = newGotThrough.filter((item) => item.outcome === 'fixed').length;
+
+  const firstOnEndpoint = items.filter(
+    (item) => !item.hasPrior && item.firstPeriodMs !== undefined && !isNewTestPair(item, knownTests),
+  );
+  const regressed = inPlay.filter((item) => item.origin === 'regression');
+
+  const start = summarizePairs(latestPairsAsOf(input.prior, window.fromMs, window.freshnessMs));
+  const end = summarizePairs(latestPairsAsOf(input.period, window.toMs, window.freshnessMs));
+
+  const lists: Record<MovementListKey, MovementList> = {
+    fixed: listOf(fixed, byNewestFix),
+    stillFailing: listOf(stillFailing, byOldestFailure),
+    notRetested: listOf(notRetested, byOldestFailure),
+    leftUntested: listOf(leftUntested, byOldestFailure),
+    newStopped: listOf(newStopped, byNewestFirstRun, false),
+    newGotThrough: listOf(newGotThrough, byNewestFirstRun),
+  };
+
+  return {
+    window: { from: iso(window.fromMs), to: iso(window.toMs), label: window.label },
+    pairs: { start: start.pairCount, end: end.pairCount },
+    failing: { start: start.pairCount - start.protectedCount, end: end.pairCount - end.protectedCount },
+    scoreDifference: {
+      fixedButCounted: fixed.filter((item) => item.scoreFailingPairs >= 1).length,
+      countedTwice: [...stillFailing, ...notRetested].filter((item) => item.scoreFailingPairs === 2).length,
+    },
+    failures: {
+      total: inPlay.length,
+      fixed: fixed.length,
+      stillFailing: stillFailing.length,
+      notRetested: notRetested.length,
+      leftUntested: leftUntested.length,
+      fixRate: rate(fixed.length, inPlay.length),
+      origins: {
+        openAtStart: withOrigin('open_at_start'),
+        olderRetested: withOrigin('older_retested'),
+        regression: withOrigin('regression'),
+        newTest: withOrigin('new_test'),
+        firstOnEndpoint: withOrigin('first_on_endpoint'),
+      },
+    },
+    newTests: {
+      tests: new Set(newPairs.map((item) => item.testKey)).size,
+      pairs: newPairs.length,
+      stopped: newStopped.length,
+      gotThrough: newGotThrough.length,
+      rate: rate(newStopped.length, newPairs.length),
+      gotThroughFixed,
+      gotThroughOpen: newGotThrough.length - gotThroughFixed,
+    },
+    regressed: { total: regressed.length, fixed: regressed.filter((item) => item.outcome === 'fixed').length },
+    firstOnEndpoint: {
+      pairs: firstOnEndpoint.length,
+      stopped: firstOnEndpoint.filter((item) => item.firstPeriodProtected === true).length,
+    },
+    riskAccepted: riskAcceptedCount(input),
+    lists,
+  };
 }
