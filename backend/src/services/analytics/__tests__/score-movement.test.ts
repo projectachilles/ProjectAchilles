@@ -170,9 +170,63 @@ describe('getScoreMovement', () => {
 
   it('leaves the Defense Score requests as they were', async () => {
     useIndex([single('2026-11-20T10:00:00Z', SOLO, 101)]);
+    const es = service();
     // The method the /defense-score/trend route calls for basis=latest.
-    await service().getDefenseScoreTrendLatest({ ...RANGE, interval: 'day', scoringMode: 'any-stage', basis: 'latest' });
-    expect(mockSearch).toHaveBeenCalled();
+    await es.getDefenseScoreTrendLatest({ ...RANGE, interval: 'day', scoringMode: 'any-stage', basis: 'latest' });
+    const afterTrend = mockSearch.mock.calls.length;
+    await es.getCoverageMatrix(RANGE, { rows: 'tests' });
+    const afterMatrix = mockSearch.mock.calls.length;
+    await es.getOutcomeBreakdown({ ...RANGE, scoringMode: 'any-stage' });
+    // Each of the three made its own requests, and none asks for each day's first result.
+    expect(afterTrend).toBeGreaterThan(0);
+    expect(afterMatrix).toBeGreaterThan(afterTrend);
+    expect(mockSearch.mock.calls.length).toBeGreaterThan(afterMatrix);
     expect(JSON.stringify(mockSearch.mock.calls)).not.toContain('"earliest"');
+  });
+
+  it('shares one load between concurrent calls for the same range, and not with another range', async () => {
+    useIndex([single('2026-11-20T10:00:00Z', SOLO, 101)]);
+    await service().getScoreMovement(RANGE);
+    const perLoad = mockSearch.mock.calls.length;
+    mockSearch.mockClear();
+
+    const es = service();
+    const [a, b] = await Promise.all([es.getScoreMovement(RANGE), es.getScoreMovement({ ...RANGE })]);
+    expect(b).toEqual(a);
+    expect(mockSearch.mock.calls.length).toBe(perLoad);
+
+    await es.getScoreMovement({ from: 'now-7d', to: 'now' });
+    expect(mockSearch.mock.calls.length).toBe(2 * perLoad);
+  });
+
+  it('does not keep a failed load', async () => {
+    const es = service();
+    mockSearch.mockRejectedValueOnce(new Error('boom'));
+    await expect(es.getScoreMovement(RANGE)).rejects.toThrow('boom');
+    useIndex([single('2026-11-20T10:00:00Z', SOLO, 101)]);
+    expect((await es.getScoreMovement(RANGE)).failures.total).toBe(1);
+  });
+
+  // RANGE starts at 2026-10-27T12:00:00.000Z (now - 30 days).
+  it('counts a result at exactly the range start as a period result', async () => {
+    useIndex([single('2026-10-27T12:00:00.000Z', SOLO, 101)]);
+    const m = await service().getScoreMovement(RANGE);
+    expect(m.failures).toMatchObject({ total: 1, notRetested: 1, leftUntested: 0, origins: { newTest: 1, openAtStart: 0 } });
+    expect(m.newTests).toMatchObject({ pairs: 1, gotThrough: 1 });
+  });
+
+  it('counts a result one millisecond before the range start as the prior result', async () => {
+    useIndex([single('2026-10-27T11:59:59.999Z', SOLO, 101)]);
+    const m = await service().getScoreMovement(RANGE);
+    expect(m.failures).toMatchObject({ total: 1, leftUntested: 1, origins: { openAtStart: 1, newTest: 0 } });
+    expect(m.newTests.pairs).toBe(0);
+  });
+
+  it('does not read a result more than 365 days before the range start', async () => {
+    // A failure 365 days and one day before the start, then a pass in the range: a new first result, not a fix.
+    useIndex([single('2025-10-26T12:00:00.000Z', SOLO, 101), single('2026-11-20T10:00:00Z', SOLO, 126)]);
+    const m = await service().getScoreMovement(RANGE);
+    expect(m.failures).toMatchObject({ total: 0, fixed: 0 });
+    expect(m.newTests).toMatchObject({ pairs: 1, stopped: 1, gotThrough: 0 });
   });
 });

@@ -109,14 +109,12 @@ export function classifyItems(input: Pick<MovementInput, 'window' | 'prior' | 'p
 }
 
 function classifyItem(key: string, runs: PairRun[], window: PostureWindow, knownTests: ReadonlySet<string>): MovementItem | null {
-  // One result read twice (the first and the last of a day are one document) counts once.
-  const seen = new Set<string>();
-  const unique = runs.filter((r) => {
-    const id = `${r.ts}|${r.pairKey}`;
-    if (seen.has(id)) return false;
-    seen.add(id);
-    return true;
-  });
+  // One result read twice (the first and the last of a day are one document)
+  // counts once. Of two runs of one score pair at the same time, the last in
+  // input order is kept, as latestPairsAsOf does for the score.
+  const byRun = new Map<string, PairRun>();
+  for (const r of runs) byRun.set(`${r.ts}|${r.pairKey}`, r);
+  const unique = [...byRun.values()];
   unique.sort((a, b) => a.ts - b.ts || byText(a.pairKey, b.pairKey));
 
   // The timeline is the prior result (the latest before the period) and every period result.

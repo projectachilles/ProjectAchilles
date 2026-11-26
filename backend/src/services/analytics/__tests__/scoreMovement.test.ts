@@ -133,6 +133,38 @@ describe('classifyItems', () => {
   it('20: a pair that stayed protected is not in play', () => {
     expect(one([plain(-5, true), plain(8, true)], KNOWN)).toMatchObject({ inPlay: false });
   });
+
+  it('21: a failure older than the window, re-tested and failing again, is still failing', () => {
+    expect(one([plain(-45, false), plain(3, false)], KNOWN)).toMatchObject({
+      origin: 'older_retested', outcome: 'still_failing', openBeforePeriod: true, failingSinceMs: null,
+    });
+  });
+
+  it('22: a failure older than the window, fixed and failing again, is not re-tested', () => {
+    expect(one([plain(-45, false), plain(3, true), plain(8, false)], KNOWN)).toMatchObject({
+      origin: 'older_retested', outcome: 'not_retested', openBeforePeriod: false, failingSinceMs: at(8),
+    });
+  });
+
+  it('23: a protected prior result older than the window followed by a failure is a regression', () => {
+    expect(one([plain(-45, true), plain(8, false)], KNOWN)).toMatchObject({
+      inPlay: true, origin: 'regression', outcome: 'not_retested', hasPrior: true, failingSinceMs: at(8),
+    });
+  });
+
+  it('24: a pair that failed, passed, failed and passed is fixed at its last pass', () => {
+    expect(one([plain(2, false), plain(5, true), plain(9, false), plain(12, true)])).toMatchObject({
+      origin: 'new_test', outcome: 'fixed', failingSinceMs: at(9), fixedAtMs: at(12),
+    });
+  });
+
+  it('25: a failing chain prior result beside a newer protected plain prior result takes the newer one', () => {
+    const item = one([chain(-10, false), plain(-5, true)], KNOWN);
+    expect(item).toMatchObject({ hasPrior: true, priorMs: at(-5), inPlay: false });
+    expect(one([chain(-10, false), plain(-5, true), plain(8, false)], KNOWN)).toMatchObject({
+      priorMs: at(-5), origin: 'regression', outcome: 'not_retested',
+    });
+  });
 });
 
 describe('buildScoreMovement', () => {
@@ -165,6 +197,46 @@ describe('buildScoreMovement', () => {
     expect(score.pairCount - score.protectedCount)
       .toBe(m.failures.stillFailing + m.failures.notRetested + m.scoreDifference.fixedButCounted + m.scoreDifference.countedTwice);
     expect(m.failing.end).toBe(score.pairCount - score.protectedCount);
+  });
+
+  it('keeps the last of two results of one pair at the same time, as the score does', () => {
+    for (const runs of [[plain(9, false), plain(9, true)], [plain(9, true), plain(9, false)]]) {
+      const m = build(runs);
+      const score = summarizePairs(latestPairsAsOf(runs, window.toMs, window.freshnessMs));
+      expect(score.pairCount - score.protectedCount)
+        .toBe(m.failures.stillFailing + m.failures.notRetested + m.scoreDifference.fixedButCounted + m.scoreDifference.countedTwice);
+      expect(m.failing.end).toBe(score.pairCount - score.protectedCount);
+    }
+    expect(build([plain(9, false), plain(9, true)]).failures.total).toBe(0);
+    expect(build([plain(9, true), plain(9, false)]).failures.notRetested).toBe(1);
+  });
+
+  it('reconciles with the Defense Score when a risk acceptance hides some results', () => {
+    const adjusted = [chain(5, false), plain(9, true),                              // fixed, still counted
+      plain(4, false, { test: T2 }), plain(7, false, { test: T2 })];                // still failing
+    const raw = [...adjusted,
+      plain(3, false, { host: 'h7' }),                                              // accepted, open
+      plain(-5, false, { test: T2, host: 'h8' })];                                  // accepted, left untested
+    const m = build(adjusted, [], raw);
+    const score = summarizePairs(latestPairsAsOf(adjusted, window.toMs, window.freshnessMs));
+    expect(score.pairCount - score.protectedCount)
+      .toBe(m.failures.stillFailing + m.failures.notRetested + m.scoreDifference.fixedButCounted + m.scoreDifference.countedTwice);
+    expect(m.failing.end).toBe(score.pairCount - score.protectedCount);
+    expect(m.failures).toMatchObject({ total: 2, fixed: 1, stillFailing: 1 });
+    expect(m.riskAccepted).toBe(2);
+  });
+
+  it('counts a risk-accepted failure left untested as risk accepted', () => {
+    // A failing raw prior result in the score at the start, gone once the exclusion applies, never re-run.
+    const m = build([plain(4, false, { test: T2 })], [], [plain(4, false, { test: T2 }), plain(-5, false, { host: 'h9' })]);
+    expect(m.failures.leftUntested).toBe(0);
+    expect(m.riskAccepted).toBe(1);
+  });
+
+  it('gives a list row of a control its control id', () => {
+    const m = build([control(4, false)]);
+    expect(m.lists.notRetested.rows).toHaveLength(1);
+    expect(m.lists.notRetested.rows[0]).toMatchObject({ testUuid: CH, controlId: 'CH-1', hostname: 'h1' });
   });
 
   it('keeps cyber-hygiene out of new tests and counts it as first time on an endpoint', () => {

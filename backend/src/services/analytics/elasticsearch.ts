@@ -1330,6 +1330,19 @@ export class ElasticsearchService {
     weigh: (v) => v.runs.length + (v.rawRuns?.length ?? 0),
   });
 
+  /**
+   * "What moved the score" answers: same TTL and entry count as the posture
+   * snapshots. An answer is small (each list is capped at MOVEMENT_LIST_LIMIT
+   * rows), so each one weighs 1.
+   */
+  private readonly scoreMovementCache = new TtlPromiseCache<ScoreMovementResponse>({
+    ttlMs: POSTURE_CACHE_OPTIONS.ttlMs,
+    maxEntries: POSTURE_CACHE_OPTIONS.maxEntries,
+    maxEntryWeight: 1,
+    maxTotalWeight: POSTURE_CACHE_OPTIONS.maxEntries,
+    weigh: () => 1,
+  });
+
   /** Skipped stages per bundle run (stage coverage): same TTL and budget as the inconclusive runs. */
   private readonly skippedCache = new TtlPromiseCache<Map<string, number>>({
     ttlMs: POSTURE_CACHE_OPTIONS.ttlMs,
@@ -1572,6 +1585,11 @@ export class ElasticsearchService {
   private async fetchBundlePairRuns(filters: any[], opts: PairFetchOptions): Promise<PairRun[]> {
     const all: PairRun[] = [];
     const allBundles: string[] = []; // bundle_id of all[i]
+    // latestOnly: the latest run per pair so far, so memory is per pair, not
+    // per run. A Map keeps each key where it was first set, so the runs come
+    // out in the order their pair was first seen, and a later bucket with an
+    // equal ts replaces the earlier one (the same picks as a pass over all runs).
+    const latest = new Map<string, { run: PairRun; bundleId: string }>();
     await this.paginateComposite(
       filters,
       'bundle_runs',
@@ -1668,6 +1686,11 @@ export class ElasticsearchService {
           blockedCount: (Number(b.strict?.doc_count) || 0) + (Number(b.edr_stopped?.doc_count) || 0),
           detectedCount: Number(b.alerted_stages?.doc_count) || 0,
         };
+        if (opts.latestOnly) {
+          const cur = latest.get(run.pairKey);
+          if (cur === undefined || run.ts >= cur.run.ts) latest.set(run.pairKey, { run, bundleId });
+          return;
+        }
         all.push(run);
         allBundles.push(bundleId);
       },
@@ -1676,14 +1699,8 @@ export class ElasticsearchService {
     let runs = all;
     let bundleOf = allBundles;
     if (opts.latestOnly) {
-      const latestIdx = new Map<string, number>(); // pairKey → index into all
-      all.forEach((r, i) => {
-        const j = latestIdx.get(r.pairKey);
-        if (j === undefined || r.ts >= all[j].ts) latestIdx.set(r.pairKey, i);
-      });
-      const idx = [...latestIdx.values()];
-      runs = idx.map(i => all[i]);
-      bundleOf = idx.map(i => allBundles[i]);
+      runs = [...latest.values()].map((v) => v.run);
+      bundleOf = [...latest.values()].map((v) => v.bundleId);
     }
     if (!opts.withMetadata || runs.length === 0) return runs;
 
@@ -2087,10 +2104,16 @@ export class ElasticsearchService {
    * (per-document pairs: each day's first and last), each also without the
    * risk-acceptance exclusion when one applies, and the tests known before the
    * period judged on org scope alone. basis, scoringMode and the outcome
-   * filters are ignored. Not cached: one request per Dashboard load.
+   * filters are ignored. The answer is cached for a few seconds
+   * (scoreMovementCache), so a Dashboard reload does not read it all again.
    */
   async getScoreMovement(params: AnalyticsQueryParams & Partial<ExtendedAnalyticsQueryParams>): Promise<ScoreMovementResponse> {
     const scope = await this.resolvePostureScope({ ...params, scoringMode: 'any-stage' });
+    const key = JSON.stringify({ ...scope.keyBase, kind: 'score-movement' });
+    return this.scoreMovementCache.get(key, () => this.loadScoreMovement(scope));
+  }
+
+  private async loadScoreMovement(scope: PostureScope): Promise<ScoreMovementResponse> {
     const { window, org, clauses, exclusionFilter } = scope;
     const priorLowerMs = window.fromMs - MAX_FRESHNESS_DAYS * DAY_MS;
     const code = this.buildConclusiveResultsFilter();
@@ -2098,14 +2121,17 @@ export class ElasticsearchService {
     const priorFilters = this.buildPostureFilters(priorLowerMs, window.fromMs - 1, code, org, clauses);
     const periodOpts: PairFetchOptions = { withMetadata: true, latestOnly: false, firstOfDay: true };
     const priorOpts: PairFetchOptions = { withMetadata: true, latestOnly: true };
+    // The raw reads feed only the risk-accepted count (item keys and outcomes)
+    // and the known-test keys (pair keys); a test's name or category changes
+    // neither, so they are read without the metadata pass.
     const read = (filters: any[], opts: PairFetchOptions) => this.fetchPairRuns(filters, true, opts);
     const adjusted = (filters: any[]) => (exclusionFilter ? [...filters, exclusionFilter] : filters);
 
     const [prior, period, rawPrior, rawPeriod, orgPrior] = await Promise.all([
       read(adjusted(priorFilters), priorOpts),
       read(adjusted(periodFilters), periodOpts),
-      exclusionFilter ? read(priorFilters, priorOpts) : null,
-      exclusionFilter ? read(periodFilters, periodOpts) : null,
+      exclusionFilter ? read(priorFilters, { ...priorOpts, withMetadata: false }) : null,
+      exclusionFilter ? read(periodFilters, { ...periodOpts, withMetadata: false }) : null,
       // A filter-bar clause (a host, say) could hide a test's earlier results,
       // so known tests are read on org scope alone when there are clauses.
       clauses.length > 0
