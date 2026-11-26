@@ -53,48 +53,64 @@ export function PairRuns({ scope, pair, testName, hostname, org, selectedRunKey,
 
   const [rows, setRows] = useState<DisplayRow[]>([]);
   const [total, setTotal] = useState(0);
-  const [page, setPage] = useState(1);
   const [loading, setLoading] = useState(true);
   const [failed, setFailed] = useState(false);
+  /** A further page is on its way: its button stays, so the focus does. */
+  const [loadingMore, setLoadingMore] = useState(false);
   const [attempt, setAttempt] = useState(0);
   const request = useRef(0);
-  const loaded = useRef<{ query: string; reloadToken: number } | null>(null);
+  const shownQuery = useRef<string | null>(null);
+  /** Pages on screen: a reload reads them all again, so a run from a later page stays listed. */
+  const pages = useRef(1);
   /** The rows on screen, for appending a page outside a state updater. */
   const shown = useRef<DisplayRow[]>([]);
   const reported = useRef(onRunsLoaded);
   reported.current = onRunsLoaded;
 
+  const fetchPage = (page: number) =>
+    analyticsApi.getGroupedPaginatedExecutions({
+      ...(JSON.parse(query) as ExtendedFilterParams & { testUuid: string }),
+      page,
+      pageSize: PAIR_RUNS_PAGE,
+      sortField: 'routing.event_time',
+      sortOrder: 'desc',
+    });
+  const show = (all: DisplayRow[]) => {
+    shown.current = all;
+    setRows(all);
+    reported.current(all);
+  };
+
   useEffect(() => {
     const id = ++request.current;
-    // Another pair or a reload starts over from the first page; "show more" appends.
-    const fresh = loaded.current?.query !== query || loaded.current.reloadToken !== reloadToken;
-    const wanted = fresh ? 1 : page;
-    if (loaded.current?.query !== query) {
+    // Another pair starts over from the first page; a reload of the same pair keeps its rows meanwhile.
+    if (shownQuery.current !== query) {
       shown.current = [];
       setRows([]);
+      pages.current = 1;
     }
-    if (fresh && page !== 1) setPage(1);
-    loaded.current = { query, reloadToken };
+    shownQuery.current = query;
     setLoading(true);
+    setLoadingMore(false);
     setFailed(false);
-    analyticsApi
-      .getGroupedPaginatedExecutions({
-        ...(JSON.parse(query) as ExtendedFilterParams & { testUuid: string }),
-        page: wanted,
-        pageSize: PAIR_RUNS_PAGE,
-        sortField: 'routing.event_time',
-        sortOrder: 'desc',
-      })
-      .then((response) => {
+    (async () => {
+      const all: DisplayRow[] = [];
+      let count = 0;
+      let filled = 0;
+      for (let page = 1; page <= pages.current; page++) {
+        const response = await fetchPage(page);
         if (id !== request.current) return;
         const next = mapGroupsToDisplayRows(response.groups);
-        setTotal(response.pagination?.totalGroups ?? next.length);
-        const prev = wanted === 1 ? [] : shown.current;
-        const all = [...prev, ...next.filter((r) => !prev.some((p) => p.key === r.key))];
-        shown.current = all;
-        setRows(all);
-        reported.current(all);
-      })
+        all.push(...next.filter((r) => !all.some((p) => p.key === r.key)));
+        count = response.pagination?.totalGroups ?? all.length;
+        if (next.length === 0) break;
+        filled = page;
+      }
+      // Pages that no longer exist (runs archived since) are not asked for again.
+      pages.current = Math.max(1, filled);
+      setTotal(count);
+      show(all);
+    })()
       .catch(() => {
         if (id === request.current) setFailed(true);
       })
@@ -102,12 +118,37 @@ export function PairRuns({ scope, pair, testName, hostname, org, selectedRunKey,
         if (id === request.current) setLoading(false);
       });
     // An answer that arrives after this pair was closed, or replaced, is nobody's:
-    // reporting it would open a run of a pair that is no longer the open one.
+    // reporting it would open a run of a pair that is no longer the open one. That
+    // goes for a further page asked for meanwhile too, so whatever is in flight is voided.
     return () => {
-      if (request.current === id) request.current++;
+      request.current++;
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [query, reloadToken, page, attempt]);
+  }, [query, reloadToken, attempt]);
+
+  const showMore = () => {
+    const id = ++request.current;
+    const page = pages.current + 1;
+    setLoading(true);
+    setLoadingMore(true);
+    setFailed(false);
+    fetchPage(page)
+      .then((response) => {
+        if (id !== request.current) return;
+        pages.current = page;
+        const prev = shown.current;
+        setTotal(response.pagination?.totalGroups ?? prev.length);
+        show([...prev, ...mapGroupsToDisplayRows(response.groups).filter((r) => !prev.some((p) => p.key === r.key))]);
+      })
+      .catch(() => {
+        if (id === request.current) setFailed(true);
+      })
+      .finally(() => {
+        if (id !== request.current) return;
+        setLoading(false);
+        setLoadingMore(false);
+      });
+  };
 
   const remaining = Math.min(PAIR_RUNS_PAGE, total - rows.length);
 
@@ -167,8 +208,9 @@ export function PairRuns({ scope, pair, testName, hostname, org, selectedRunKey,
         })}
       </ul>
 
-      {!failed && !loading && remaining > 0 && (
-        <Button variant="ghost" size="sm" className="mt-1" onClick={() => setPage((n) => n + 1)}>
+      {!failed && remaining > 0 && (!loading || loadingMore) && (
+        <Button variant="ghost" size="sm" className="mt-1" aria-disabled={loadingMore} onClick={loadingMore ? undefined : showMore}>
+          {loadingMore && <Loader2 className="animate-spin" />}
           Show {remaining} more
         </Button>
       )}

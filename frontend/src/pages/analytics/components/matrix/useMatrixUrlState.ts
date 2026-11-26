@@ -3,12 +3,15 @@ import { useSearchParams } from 'react-router-dom';
 import type { PairRef } from './MatrixRow';
 
 export type ExecutionsViewName = 'matrix' | 'list';
+/** Which way the matrix is turned: a row per test, or a row per host. */
+export type MatrixRows = 'tests' | 'hosts';
 
 /**
  * What the matrix view keeps in the address, so a link reopens the same
- * thing: the view, the open pair and the run shown in the drawer.
- * `expanded=` stays the List view's selection and is dropped on the way to
- * the matrix; the pair and run are dropped on the way to the list.
+ * thing: the view, which way the matrix is turned, the open pair and the run
+ * shown in the drawer. `expanded=` stays the List view's selection and is
+ * dropped on the way to the matrix; what is the matrix's is dropped on the
+ * way to the list.
  */
 export function useMatrixUrlState() {
   const [params, setParams] = useSearchParams();
@@ -18,6 +21,8 @@ export function useMatrixUrlState() {
   const pairHost = params.get('pairHost');
   const pair = useMemo<PairRef | null>(() => (pairTest && pairHost ? { testUuid: pairTest, hostKey: pairHost } : null), [pairTest, pairHost]);
   const runKey = params.get('run');
+  const rowsParam = params.get('rows');
+  const rows: MatrixRows | null = rowsParam === 'tests' || rowsParam === 'hosts' ? rowsParam : null;
 
   // One update per change: two updates in one tick would each start from the same address.
   const update = useCallback(
@@ -39,7 +44,18 @@ export function useMatrixUrlState() {
       update((p) => {
         p.set('view', next);
         if (next === 'matrix') p.delete('expanded');
-        else for (const key of ['pairTest', 'pairHost', 'run']) p.delete(key);
+        else for (const key of ['rows', 'pairTest', 'pairHost', 'run']) p.delete(key);
+      }),
+    [update],
+  );
+
+  /** Turn the matrix. The open pair closes: its host or test may not be on the other side's page. */
+  const setRows = useCallback(
+    (next: MatrixRows) =>
+      update((p) => {
+        p.set('view', 'matrix');
+        p.set('rows', next);
+        for (const key of ['pairTest', 'pairHost', 'run']) p.delete(key);
       }),
     [update],
   );
@@ -71,5 +87,5 @@ export function useMatrixUrlState() {
     [update],
   );
 
-  return { view, setView, pair, setPair, runKey, setRunKey };
+  return { view, setView, rows, setRows, pair, setPair, runKey, setRunKey };
 }
