@@ -84,6 +84,14 @@ describe('settleForm', () => {
     expect(state.form).toBe('squares');
   });
 
+  it('measures the change from the last width that agreed with the form shown', () => {
+    // Widened to 900 as small tiles, then narrowed to 770: that is 130 px, not the 15 px from where it started.
+    let state = settleForm(null, 785, 30, true);
+    state = settleForm(state, 900, 30, true);
+
+    expect(settleForm(state, 770, 30, true).form).toBe('squares');
+  });
+
   it('starts over for another fleet, and once the width is first known', () => {
     const small = settleForm(null, 785, 30, true);
 

@@ -188,6 +188,22 @@ describe('forms', () => {
     expect(within(rowOf('Solo test')).getByText('38 never run')).toBeInTheDocument();
   });
 
+  it('keeps its form when the width changes by no more than a scrollbar', async () => {
+    width.value = 785; // 30 hosts: 26.2 px each, small tiles
+    getCoverageMatrix.mockResolvedValue(response({ hosts: hostsOf(30), tests: [row({ cells: [{ i: 0, verdict: 'protected', at: at(1) }] })] }));
+    const { rerenderWith } = setup();
+    await screen.findByRole('heading', { name: 'Solo test' });
+    expect(screen.getByTestId('matrix')).toHaveAttribute('data-form', 'small');
+
+    width.value = 768; // a scrollbar appeared: 25.6 px each would be squares
+    rerenderWith({});
+    expect(screen.getByTestId('matrix')).toHaveAttribute('data-form', 'small');
+
+    width.value = 700; // the window really is narrower
+    rerenderWith({});
+    expect(screen.getByTestId('matrix')).toHaveAttribute('data-form', 'squares');
+  });
+
   it('draws a bundle on a host as a gauge filled to its compliant share, with the numbers', async () => {
     setup();
     await screen.findByRole('heading', { name: 'Baseline' });
@@ -448,7 +464,7 @@ describe('opening a pair', () => {
 
   it('is one stop for the Tab key: the mark last focused, the first one before any was', async () => {
     const user = userEvent.setup();
-    setup();
+    const { rerenderWith } = setup();
     await screen.findByRole('heading', { name: 'Chain A' });
     const buttons = screen.getAllByTestId('matrix-mark').filter((m) => m.tagName === 'BUTTON');
     const stops = () => buttons.map((b) => b.getAttribute('tabindex'));
@@ -456,6 +472,11 @@ describe('opening a pair', () => {
     expect(stops()).toEqual(['0', '-1', '-1']);
     buttons[0].focus();
     await user.keyboard('{ArrowRight}');
+    expect(stops()).toEqual(['-1', '0', '-1']);
+
+    // The stop survives a redraw (a reload, an opened pair): it does not jump back to the first mark.
+    rerenderWith({ reloadToken: 1 });
+    await waitFor(() => expect(getCoverageMatrix).toHaveBeenCalledTimes(2));
     expect(stops()).toEqual(['-1', '0', '-1']);
 
     await user.tab(); // leaves the matrix: no other mark takes focus

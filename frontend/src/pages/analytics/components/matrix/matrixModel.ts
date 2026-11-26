@@ -47,7 +47,7 @@ export const FORM_SLACK_PX = 24;
 
 export interface SettledForm {
   form: MatrixForm;
-  /** The width the form was chosen at. */
+  /** The last width whose own form was the one shown. */
   width: number;
   /** The fleet it was chosen for. */
   key: string;
@@ -58,7 +58,9 @@ export function settleForm(previous: SettledForm | null, stripWidth: number, hos
   const key = `${hostCount}|${cellsIncluded}`;
   const form = matrixForm(stripWidth, hostCount, cellsIncluded);
   if (!previous || previous.key !== key || previous.width <= 0) return { form, width: stripWidth, key };
-  if (form === previous.form) return previous;
+  // A change is measured from the last width that agreed with the form on screen,
+  // so the width may wander within one form without wearing the slack away.
+  if (form === previous.form) return stripWidth === previous.width ? previous : { form, width: stripWidth, key };
   return Math.abs(stripWidth - previous.width) > FORM_SLACK_PX ? { form, width: stripWidth, key } : previous;
 }
 

@@ -105,7 +105,7 @@ describe('SegmentHosts', () => {
     expect(onOpenPair).toHaveBeenCalledWith({ testUuid: 'b1', hostKey: 'org-1|HOST-7' }, bundleHost.cells[0].at);
   });
 
-  it('reads the hosts again on a reload, and nothing after it is gone', async () => {
+  it('reads the hosts again on a reload, from the first page', async () => {
     const view = render(<SegmentHosts params={PARAMS} test={TEST} state="unprotected" onOpenPair={vi.fn()} now={NOW} reloadToken={0} />);
     await screen.findByRole('button', { name: /HOST-3/ });
 

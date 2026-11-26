@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import { act, renderHook } from '@testing-library/react';
-import { MemoryRouter, useLocation } from 'react-router-dom';
+import { MemoryRouter, useLocation, useNavigate } from 'react-router-dom';
 import type { ReactNode } from 'react';
 import { useMatrixUrlState } from '../useMatrixUrlState';
 
@@ -8,7 +8,7 @@ import { useMatrixUrlState } from '../useMatrixUrlState';
 
 function setup(search: string) {
   const wrapper = ({ children }: { children: ReactNode }) => <MemoryRouter initialEntries={[`/analytics${search}`]}>{children}</MemoryRouter>;
-  const { result } = renderHook(() => ({ state: useMatrixUrlState(), search: useLocation().search }), { wrapper });
+  const { result } = renderHook(() => ({ state: useMatrixUrlState(), search: useLocation().search, navigate: useNavigate() }), { wrapper });
   const params = () => Object.fromEntries(new URLSearchParams(result.current.search));
   return { result, params };
 }
@@ -54,6 +54,17 @@ describe('useMatrixUrlState', () => {
     expect(params()).toEqual({ pairTest: 't1', pairHost: 'h', run: 'run-1' });
     act(() => result.current.state.setRunKey(null));
     expect(params()).toEqual({ pairTest: 't1', pairHost: 'h' });
+  });
+
+  it('replaces the address instead of adding a step to the history, like the list\'s selection', () => {
+    const { result, params } = setup('?tab=executions');
+
+    act(() => result.current.state.setPair({ testUuid: 't1', hostKey: 'h' }));
+    act(() => result.current.state.setRunKey('run-1'));
+    // Nothing was pushed, so there is no earlier step to go back to.
+    act(() => { void result.current.navigate(-1); });
+
+    expect(params()).toMatchObject({ pairTest: 't1', run: 'run-1' });
   });
 
   it('going to the list drops the matrix\'s pair and run; going to the matrix drops the list\'s selection', () => {
