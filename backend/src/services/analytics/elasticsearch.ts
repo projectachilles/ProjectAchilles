@@ -23,6 +23,7 @@ import { summarizeStageCoverage } from './stageCoverage.js';
 import { pairControlId, pairTestUuid } from './pairKeys.js';
 import { buildCoverageModel, hostsView, testsView } from './coverageMatrix.js';
 import type { HostsViewOptions, MatrixRun } from './coverageMatrix.js';
+import { buildScoreMovement, testKeyOf } from './scoreMovement.js';
 import { TtlPromiseCache } from './postureCache.js';
 import type { TtlCacheOptions } from './postureCache.js';
 import {
@@ -69,6 +70,7 @@ import type {
   OutcomeBreakdownResponse,
   CoverageMatrixTestsResponse,
   CoverageMatrixHostsResponse,
+  ScoreMovementResponse,
   DefenseScoreByHostItem,
   CanonicalTestCountResponse,
   ErrorRateResponse,
@@ -147,6 +149,8 @@ interface PostureSnapshot {
 interface PairFetchOptions {
   withMetadata: boolean;
   latestOnly: boolean;
+  /** Also return each day's first result of a per-document pair. */
+  firstOfDay?: boolean;
 }
 
 /**
@@ -1428,10 +1432,49 @@ export class ElasticsearchService {
     return docRuns.concat(bundleRuns);
   }
 
-  /** Per-doc pairs: the latest doc per (oid, test_uuid, hostname[, UTC day]). */
+  /**
+   * Per-doc pairs: the latest doc per (oid, test_uuid, hostname[, UTC day]).
+   * With firstOfDay (per-day buckets only), each day's first doc too, when it
+   * is older than that day's latest.
+   */
   private async fetchDocPairRuns(filters: any[], opts: PairFetchOptions): Promise<PairRun[]> {
     const runs: MatrixRun[] = [];
     const uuidOf: string[] = []; // test_uuid of runs[i], for the metadata join
+    const firstOfDay = opts.firstOfDay === true && !opts.latestOnly;
+    const metrics = [
+      'routing.event_time',
+      'f0rtika.is_protected',
+      ...edrOwnDetectionFields(),
+      ...edrFlagSourceFields(['prevented']),
+      'event.ERROR',
+      'f0rtika.error_name',
+    ].map(field => ({ field }));
+    /** The run of one top_metrics hit; null when it has none or no usable time. */
+    const runOf = (top: any, oid: unknown, testUuid: string, hostname: string): MatrixRun | null => {
+      if (!top) return null;
+      const m = top.metrics ?? {};
+      const ts = parseEsTime(m['routing.event_time'] ?? top.sort?.[0]);
+      if (!Number.isFinite(ts)) return null;
+      // top_metrics reports a missing field as null; Number(null) would be 0.
+      const code = m['event.ERROR'] == null ? Number.NaN : Number(m['event.ERROR']);
+      const codes = Number.isFinite(code) ? [code] : [];
+      const isProtected = esBool(m['f0rtika.is_protected']);
+      return {
+        pairKey: `${oid ?? ''}|${testUuid}|${hostname}`,
+        ts,
+        // Each doc is its own pair here (per-stage in all-stages mode), so it
+        // needs its own evidence: a bundle stage is never credited for an
+        // alert that named a sibling stage (edrOwnDetectedClause).
+        protected: isProtected || hasOwnEdrDetection((f) => esBool(m[f])),
+        strictProtected: isProtected,
+        edrPrevented: edrFlagSourceFields(['prevented']).some((f) => esBool(m[f])),
+        errorCodes: codes,
+        errorNames: errorNamesFor(codes, typeof m['f0rtika.error_name'] === 'string' ? [m['f0rtika.error_name']] : []),
+        hostname,
+        testName: '',
+        techniques: [],
+      };
+    };
     await this.paginateComposite(
       filters,
       'pairs',
@@ -1443,48 +1486,24 @@ export class ElasticsearchService {
         ...(opts.latestOnly ? [] : [this.PAIR_DAY_SOURCE]),
       ],
       {
-        latest: {
-          top_metrics: {
-            metrics: [
-              'routing.event_time',
-              'f0rtika.is_protected',
-              ...edrOwnDetectionFields(),
-              ...edrFlagSourceFields(['prevented']),
-              'event.ERROR',
-              'f0rtika.error_name',
-            ].map(field => ({ field })),
-            sort: { 'routing.event_time': 'desc' },
-          },
-        },
+        latest: { top_metrics: { metrics, sort: { 'routing.event_time': 'desc' } } },
+        // Only when asked, so every other request body stays as it was.
+        ...(firstOfDay ? { earliest: { top_metrics: { metrics, sort: { 'routing.event_time': 'asc' } } } } : {}),
       },
       (b) => {
-        const top = b.latest?.top?.[0];
-        if (!top) return;
-        const m = top.metrics ?? {};
-        const ts = parseEsTime(m['routing.event_time'] ?? top.sort?.[0]);
-        if (!Number.isFinite(ts)) return;
         const testUuid = String(b.key.test);
         const hostname = String(b.key.host);
-        // top_metrics reports a missing field as null; Number(null) would be 0.
-        const code = m['event.ERROR'] == null ? Number.NaN : Number(m['event.ERROR']);
-        const codes = Number.isFinite(code) ? [code] : [];
-        const isProtected = esBool(m['f0rtika.is_protected']);
-        runs.push({
-          pairKey: `${b.key.oid ?? ''}|${testUuid}|${hostname}`,
-          ts,
-          // Each doc is its own pair here (per-stage in all-stages mode), so it
-          // needs its own evidence: a bundle stage is never credited for an
-          // alert that named a sibling stage (edrOwnDetectedClause).
-          protected: isProtected || hasOwnEdrDetection((f) => esBool(m[f])),
-          strictProtected: isProtected,
-          edrPrevented: edrFlagSourceFields(['prevented']).some((f) => esBool(m[f])),
-          errorCodes: codes,
-          errorNames: errorNamesFor(codes, typeof m['f0rtika.error_name'] === 'string' ? [m['f0rtika.error_name']] : []),
-          hostname,
-          testName: '',
-          techniques: [],
-        });
+        const latest = runOf(b.latest?.top?.[0], b.key.oid, testUuid, hostname);
+        if (!latest) return;
+        runs.push(latest);
         uuidOf.push(testUuid);
+        if (!firstOfDay) return;
+        // The day's first result, unless it is the latest one (or shares its time).
+        const first = runOf(b.earliest?.top?.[0], b.key.oid, testUuid, hostname);
+        if (first && first.ts < latest.ts) {
+          runs.push(first);
+          uuidOf.push(testUuid);
+        }
       },
     );
     if (!opts.withMetadata || runs.length === 0) return runs;
@@ -2058,6 +2077,43 @@ export class ElasticsearchService {
     ]);
     const model = buildCoverageModel({ window, runs, rawRuns, noVerdict: noVerdict.runs, rawNoVerdict: noVerdict.rawRuns });
     return view.rows === 'tests' ? testsView(model, window.label) : hostsView(model, window.label, view);
+  }
+
+  /**
+   * "What moved the score": what became of each failure in the period and how
+   * new tests did on their first run (rules in scoreMovement.ts). Latest-basis
+   * and any-stage, from the Defense Score's own pair fetch: the latest result
+   * per pair in the 365 days before the period, every result in the period
+   * (per-document pairs: each day's first and last), each also without the
+   * risk-acceptance exclusion when one applies, and the tests known before the
+   * period judged on org scope alone. basis, scoringMode and the outcome
+   * filters are ignored. Not cached: one request per Dashboard load.
+   */
+  async getScoreMovement(params: AnalyticsQueryParams & Partial<ExtendedAnalyticsQueryParams>): Promise<ScoreMovementResponse> {
+    const scope = await this.resolvePostureScope({ ...params, scoringMode: 'any-stage' });
+    const { window, org, clauses, exclusionFilter } = scope;
+    const priorLowerMs = window.fromMs - MAX_FRESHNESS_DAYS * DAY_MS;
+    const code = this.buildConclusiveResultsFilter();
+    const periodFilters = this.buildPostureFilters(window.fromMs, window.toMs, code, org, clauses);
+    const priorFilters = this.buildPostureFilters(priorLowerMs, window.fromMs - 1, code, org, clauses);
+    const periodOpts: PairFetchOptions = { withMetadata: true, latestOnly: false, firstOfDay: true };
+    const priorOpts: PairFetchOptions = { withMetadata: true, latestOnly: true };
+    const read = (filters: any[], opts: PairFetchOptions) => this.fetchPairRuns(filters, true, opts);
+    const adjusted = (filters: any[]) => (exclusionFilter ? [...filters, exclusionFilter] : filters);
+
+    const [prior, period, rawPrior, rawPeriod, orgPrior] = await Promise.all([
+      read(adjusted(priorFilters), priorOpts),
+      read(adjusted(periodFilters), periodOpts),
+      exclusionFilter ? read(priorFilters, priorOpts) : null,
+      exclusionFilter ? read(periodFilters, periodOpts) : null,
+      // A filter-bar clause (a host, say) could hide a test's earlier results,
+      // so known tests are read on org scope alone when there are clauses.
+      clauses.length > 0
+        ? read(this.buildPostureFilters(priorLowerMs, window.fromMs - 1, code, org, []), { withMetadata: false, latestOnly: true })
+        : null,
+    ]);
+    const knownTests = new Set((orgPrior ?? rawPrior ?? prior).map((r) => testKeyOf(r.pairKey)));
+    return buildScoreMovement({ window, prior, period, rawPrior, rawPeriod, knownTests });
   }
 
   /**
