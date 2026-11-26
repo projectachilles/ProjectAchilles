@@ -1,4 +1,4 @@
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { render, screen, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { MemoryRouter } from 'react-router-dom';
@@ -32,6 +32,16 @@ function props(overrides: Partial<Parameters<typeof ScoreMovementCard>[0]> = {})
 }
 
 describe('ScoreMovementCard', () => {
+  // Dates leave out the year only in the current year, so the clock is pinned.
+  // Only Date is faked, so userEvent's timers still run.
+  beforeEach(() => {
+    vi.useFakeTimers({ toFake: ['Date'] });
+    vi.setSystemTime(new Date('2026-11-26T12:00:00Z'));
+  });
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
   it('renders both panels, the pill and the footer', () => {
     wrap(<ScoreMovementCard {...props()} />);
     expect(screen.getByText('What moved the score · last 30d')).toBeInTheDocument();
