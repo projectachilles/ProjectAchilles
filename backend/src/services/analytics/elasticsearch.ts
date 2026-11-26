@@ -21,6 +21,8 @@ import type { OutcomeRun } from './outcomeBreakdown.js';
 import { countPairOutcomes } from './outcomeBreakdown.js';
 import { summarizeStageCoverage } from './stageCoverage.js';
 import { pairControlId, pairTestUuid } from './pairKeys.js';
+import { buildCoverageModel, hostsView, testsView } from './coverageMatrix.js';
+import type { HostsViewOptions, MatrixRun } from './coverageMatrix.js';
 import { TtlPromiseCache } from './postureCache.js';
 import type { TtlCacheOptions } from './postureCache.js';
 import {
@@ -65,6 +67,8 @@ import type {
   ChainDepthResponse,
   StageCoverageResponse,
   OutcomeBreakdownResponse,
+  CoverageMatrixTestsResponse,
+  CoverageMatrixHostsResponse,
   DefenseScoreByHostItem,
   CanonicalTestCountResponse,
   ErrorRateResponse,
@@ -212,19 +216,23 @@ interface PostureShapeSpec extends PairFetchOptions {
   withRaw: boolean;
 }
 
-type PostureShape = 'series' | 'metadata' | 'breakdown' | 'score';
+type PostureShape = 'series' | 'metadata' | 'breakdown' | 'score' | 'matrix';
 
 /**
  * The snapshot shapes: tile + trend share 'series'; the four breakdowns share
  * 'metadata'; the outcome breakdown card uses 'breakdown' (latest run per pair,
  * no lookback, no metadata, with rawRuns for risk-accepted pairs); 'score' is
- * the same without rawRuns, for the alert, which needs only the adjusted score.
+ * the same without rawRuns, for the alert, which needs only the adjusted score;
+ * 'matrix' (the coverage matrix) is every run of each pair in the window, for
+ * the earlier-run marks, with metadata for the row names and rawRuns for the
+ * risk-accepted cells.
  */
 const POSTURE_SHAPES: Record<PostureShape, PostureShapeSpec> = {
   series: { lookback: true, withMetadata: false, withRaw: true, latestOnly: false },
   metadata: { lookback: false, withMetadata: true, withRaw: false, latestOnly: true },
   breakdown: { lookback: false, withMetadata: false, withRaw: true, latestOnly: true },
   score: { lookback: false, withMetadata: false, withRaw: false, latestOnly: true },
+  matrix: { lookback: false, withMetadata: true, withRaw: true, latestOnly: false },
 };
 
 /**
@@ -1306,6 +1314,18 @@ export class ElasticsearchService {
     weigh: (m) => m.size,
   });
 
+  /**
+   * Pairs without a verdict (coverage matrix): same TTL and budget as the
+   * inconclusive runs. Always fetched any-stage, so the key needs no scoring mode.
+   */
+  private readonly noVerdictCache = new TtlPromiseCache<PairRun[]>({
+    ttlMs: POSTURE_CACHE_OPTIONS.ttlMs,
+    maxEntries: POSTURE_CACHE_OPTIONS.maxEntries,
+    maxEntryWeight: INCONCLUSIVE_CACHE_MAX_ENTRIES,
+    maxTotalWeight: INCONCLUSIVE_CACHE_MAX_ENTRIES,
+    weigh: (runs) => runs.length,
+  });
+
   /** Skipped stages per bundle run (stage coverage): same TTL and budget as the inconclusive runs. */
   private readonly skippedCache = new TtlPromiseCache<Map<string, number>>({
     ttlMs: POSTURE_CACHE_OPTIONS.ttlMs,
@@ -1410,7 +1430,7 @@ export class ElasticsearchService {
 
   /** Per-doc pairs: the latest doc per (oid, test_uuid, hostname[, UTC day]). */
   private async fetchDocPairRuns(filters: any[], opts: PairFetchOptions): Promise<PairRun[]> {
-    const runs: OutcomeRun[] = [];
+    const runs: MatrixRun[] = [];
     const uuidOf: string[] = []; // test_uuid of runs[i], for the metadata join
     await this.paginateComposite(
       filters,
@@ -1479,6 +1499,8 @@ export class ElasticsearchService {
       run.subcategory = info?.subcategory;
       run.techniques = info?.techniques ?? [];
       run.threatActor = info?.threatActor;
+      // A cyber-hygiene control is its own pair; the coverage matrix names its row by the bundle.
+      if (info?.bundleName) run.bundleName = info.bundleName;
     });
     return runs;
   }
@@ -1487,7 +1509,7 @@ export class ElasticsearchService {
   private async fetchTestMetadata(
     filters: any[],
     testCount: number,
-  ): Promise<Map<string, { testName?: string; category?: string; subcategory?: string; techniques: string[]; threatActor?: string }>> {
+  ): Promise<Map<string, { testName?: string; bundleName?: string; category?: string; subcategory?: string; techniques: string[]; threatActor?: string }>> {
     const response = await this.client.search({
       index: this.settings.indexPattern,
       size: 0,
@@ -1500,19 +1522,20 @@ export class ElasticsearchService {
               top_hits: {
                 size: 1,
                 sort: [{ 'routing.event_time': { order: 'desc' } }],
-                _source: ['f0rtika.test_name', 'f0rtika.category', 'f0rtika.subcategory', 'f0rtika.techniques', 'f0rtika.threat_actor'],
+                _source: ['f0rtika.test_name', 'f0rtika.bundle_name', 'f0rtika.category', 'f0rtika.subcategory', 'f0rtika.techniques', 'f0rtika.threat_actor'],
               },
             },
           },
         },
       },
     });
-    const out = new Map<string, { testName?: string; category?: string; subcategory?: string; techniques: string[]; threatActor?: string }>();
+    const out = new Map<string, { testName?: string; bundleName?: string; category?: string; subcategory?: string; techniques: string[]; threatActor?: string }>();
     const buckets: any[] = (response.aggregations as any)?.test_meta?.buckets ?? [];
     for (const b of buckets) {
       const src = b.doc?.hits?.hits?.[0]?._source ?? {};
       out.set(String(b.key), {
         testName: optString(getField(src, 'f0rtika.test_name')),
+        bundleName: optString(getField(src, 'f0rtika.bundle_name')),
         category: optString(getField(src, 'f0rtika.category')),
         subcategory: optString(getField(src, 'f0rtika.subcategory')),
         techniques: toStringArray(getField(src, 'f0rtika.techniques')),
@@ -1965,6 +1988,18 @@ export class ElasticsearchService {
 
   /** Pairs with docs in the window but no conclusive result (not cached). */
   private async countNoConclusivePairs(scope: PostureScope, conclusiveKeys: Set<string>): Promise<number> {
+    const runs = await this.fetchNoConclusiveRuns(scope, false);
+    const missing = new Set<string>();
+    for (const r of runs) if (!conclusiveKeys.has(r.pairKey)) missing.add(r.pairKey);
+    return missing.size;
+  }
+
+  /**
+   * The latest non-conclusive result of each pair in the window, with the
+   * scope's filters and risk-acceptance exclusion. A pair listed here may
+   * also have a conclusive result: the caller removes those.
+   */
+  private fetchNoConclusiveRuns(scope: PostureScope, withMetadata: boolean): Promise<PairRun[]> {
     const filters = this.buildPostureFilters(
       scope.window.fromMs,
       scope.window.toMs,
@@ -1973,10 +2008,38 @@ export class ElasticsearchService {
       scope.clauses,
     );
     if (scope.exclusionFilter) filters.push(scope.exclusionFilter);
-    const runs = await this.fetchPairRuns(filters, scope.isAnyStage, { withMetadata: false, latestOnly: true });
-    const missing = new Set<string>();
-    for (const r of runs) if (!conclusiveKeys.has(r.pairKey)) missing.add(r.pairKey);
-    return missing.size;
+    return this.fetchPairRuns(filters, scope.isAnyStage, { withMetadata, latestOnly: true });
+  }
+
+  /**
+   * Coverage matrix: the latest result per test and host. The cells are the
+   * Defense Score's latest-basis, any-stage pairs (same snapshot code, same
+   * exclusion), plus the pairs that ran without ever reaching a verdict and
+   * the pairs a risk acceptance hides. Outcome filters are ignored, as on the
+   * outcome breakdown card; basis and scoring mode are fixed. The pivot and
+   * its limits are in coverageMatrix.ts.
+   *
+   * With `view.testUuid` only that test (or bundle) is read, for the host
+   * list of one of its segments.
+   */
+  async getCoverageMatrix(
+    params: AnalyticsQueryParams & Partial<ExtendedAnalyticsQueryParams>,
+    view: { rows: 'tests' } | ({ rows: 'hosts' } & HostsViewOptions),
+  ): Promise<CoverageMatrixTestsResponse | CoverageMatrixHostsResponse> {
+    const scope = await this.resolvePostureScope({
+      ...params,
+      result: undefined,
+      errorCodes: undefined,
+      errorNames: undefined,
+      scoringMode: 'any-stage',
+      ...(view.rows === 'hosts' && view.testUuid ? { testUuid: view.testUuid } : {}),
+    });
+    const [{ window, runs, rawRuns }, noVerdict] = await Promise.all([
+      this.latestPostureFor(scope, 'matrix'),
+      this.noVerdictCache.get(JSON.stringify({ ...scope.keyBase, kind: 'matrix-no-verdict' }), () => this.fetchNoConclusiveRuns(scope, true)),
+    ]);
+    const model = buildCoverageModel({ window, runs, rawRuns, noVerdict });
+    return view.rows === 'tests' ? testsView(model, window.label) : hostsView(model, window.label, view);
   }
 
   /**
