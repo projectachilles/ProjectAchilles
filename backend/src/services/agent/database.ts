@@ -642,20 +642,19 @@ function migrateDarwinConstraint(database: Database.Database): void {
 }
 
 /**
- * True when the tasks table's CHECK on `type` predates 'execute_command'.
+ * True when the tasks table's definition predates 'execute_command'.
  *
- * Read from the table's definition. The earlier probe inserted a test row,
- * which always failed on the agent foreign key, so every database looked
- * out of date and the table was recreated on every start.
+ * Read from the table's definition, not tried with a test row: the earlier
+ * probe inserted one, which always failed on the agent foreign key, so every
+ * database looked out of date and the table was recreated on every start.
+ * The plain text search needs no knowledge of how the CHECK is spelled, and
+ * cannot loop: the recreated table's definition always contains the value.
  */
 function tasksTypeCheckIsOutdated(database: Database.Database): boolean {
   const row = database
     .prepare(`SELECT sql FROM sqlite_master WHERE type = 'table' AND name = 'tasks'`)
     .get() as { sql: string | null } | undefined;
-  if (!row?.sql) return false;
-  const check = /\btype\s+TEXT\b[^,]*?CHECK\s*\(\s*type\s+IN\s*\(([^)]*)\)/i.exec(row.sql);
-  // No CHECK on `type` to widen: nothing this migration can do.
-  return check !== null && !check[1].includes("'execute_command'");
+  return Boolean(row?.sql) && !row!.sql!.includes("'execute_command'");
 }
 
 /**
@@ -669,7 +668,10 @@ function tasksTypeCheckIsOutdated(database: Database.Database): boolean {
  * and lose the table, and a failure after the drop lost every row.
  */
 function migrateExecuteCommandType(database: Database.Database): void {
-  if (!tasksTypeCheckIsOutdated(database)) return;
+  if (!tasksTypeCheckIsOutdated(database)) {
+    warnAboutLeftoverTasksCopy(database);
+    return;
+  }
 
   // Only outside a transaction: SQLite ignores this pragma inside one.
   database.pragma('foreign_keys = OFF');
@@ -681,6 +683,31 @@ function migrateExecuteCommandType(database: Database.Database): void {
   } finally {
     database.pragma('foreign_keys = ON');
   }
+}
+
+/**
+ * A `tasks_new` table beside an up-to-date `tasks` is what an interrupted
+ * recreation of an earlier release left behind. Those releases recreated the
+ * table on every start, as separate statements, and began by dropping any
+ * `tasks_new`; this one never drops it, because after a failure between the
+ * DROP and the RENAME it was the only copy of the tasks. Say so and leave it
+ * for a person to look at.
+ */
+function warnAboutLeftoverTasksCopy(database: Database.Database): void {
+  const leftover = database
+    .prepare(`SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'tasks_new'`)
+    .get();
+  if (!leftover) return;
+  let rows = 'an unknown number of';
+  try {
+    rows = String((database.prepare('SELECT COUNT(*) AS n FROM tasks_new').get() as { n: number }).n);
+  } catch {
+    // unreadable: the warning still says the table is there
+  }
+  console.warn(
+    `[Database] A table named tasks_new with ${rows} row${rows === '1' ? '' : 's'} is left from an interrupted upgrade. ` +
+      'It is not used and is not deleted: compare it with the tasks table before removing it.',
+  );
 }
 
 /** The recreation itself. Call inside a transaction, with foreign keys off. */
