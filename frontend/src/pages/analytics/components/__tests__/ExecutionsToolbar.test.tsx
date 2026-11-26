@@ -149,6 +149,9 @@ describe('archive by date', () => {
 
     await waitFor(() => expect(onArchiveByDate).toHaveBeenCalledWith('2026-01-15'));
     await waitFor(() => expect(screen.queryByRole('button', { name: 'Archive' })).not.toBeInTheDocument());
+    // The next time it starts without a date: the one just used must not be one click from being used again.
+    await user.click(screen.getByRole('button', { name: /Archive by date/ }));
+    expect(screen.getByLabelText('Archive all executions before:')).toHaveValue('');
   });
 
   it('archives nothing on Cancel, and starts without a date the next time', async () => {

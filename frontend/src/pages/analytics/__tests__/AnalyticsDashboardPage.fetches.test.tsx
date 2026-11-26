@@ -889,6 +889,34 @@ describe('All Executions: matrix or list', () => {
     expect(address).toContain('hostnames=HOST-01');
   });
 
+  it('keeps the archive confirmation open when the archive fails, and says why', async () => {
+    withMatrix(false);
+    const run = {
+      test_uuid: 'a0000000-1234-4abc-8def-000000000001', test_name: 'Solo test', hostname: 'HOST-01', org: 'org-1',
+      timestamp: '2026-01-10T09:00:00.000Z', error_code: 101, is_protected: false, techniques: [],
+    };
+    mocks.analytics.reset({
+      getGroupedPaginatedExecutions: {
+        groups: [{ groupKey: 'run-1', type: 'standalone', representative: run, members: [run], protectedCount: 0, unprotectedCount: 1, totalCount: 1 }],
+        pagination: { page: 1, pageSize: 25, totalGroups: 1, totalDocuments: 1, totalPages: 1, hasNext: false, hasPrevious: false },
+      },
+      getFilterOptions: { tests: [], techniques: [], hostnames: [], categories: [], threatActors: [], tags: [], errorNames: [], errorCodes: [], bundleNames: [] },
+      lookupAcceptances: {},
+    });
+    mocks.analytics.api.archiveExecutions.mockRejectedValue(new Error('index is read-only'));
+    vi.spyOn(console, 'error').mockImplementation(() => {});
+    renderAt('?tab=executions');
+
+    fireEvent.click(await screen.findByRole('button', { name: 'Archive' }));
+    expect(await screen.findByRole('heading', { name: 'Archive Executions' })).toBeInTheDocument();
+    const confirm = screen.getAllByRole('button', { name: 'Archive' }).at(-1)!;
+    fireEvent.click(confirm);
+
+    expect(await screen.findByText('Archive failed: index is read-only')).toBeInTheDocument();
+    // Nothing was archived: the question stays, so the user can try again or cancel.
+    expect(screen.getByRole('heading', { name: 'Archive Executions' })).toBeInTheDocument();
+  });
+
   it('does not ask for the matrix on the dashboard tab', async () => {
     renderAt('');
     await screen.findByText('Outcome breakdown');

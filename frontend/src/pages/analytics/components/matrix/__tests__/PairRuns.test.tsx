@@ -181,6 +181,25 @@ describe('PairRuns', () => {
     await waitFor(() => expect((props.onRunsLoaded as ReturnType<typeof vi.fn>).mock.lastCall![0].map((r: { key: string }) => r.key)).toEqual(['run-3', 'run-2', 'run-1']));
   });
 
+  it('reads only the first page of another pair, however many pages the one before had shown', async () => {
+    const user = userEvent.setup();
+    getGrouped.mockImplementation((p: { page: number }) =>
+      Promise.resolve(p.page === 1
+        ? page([solo('run-3', {}), solo('run-2', {})], { totalGroups: 3, hasNext: true, totalPages: 2 })
+        : page([solo('run-1', {})], { page: 2, totalGroups: 3, hasPrevious: true, totalPages: 2 })));
+    const { rerenderWith } = setup();
+    await screen.findAllByRole('button', { name: /Unprotected/ });
+    await user.click(screen.getByRole('button', { name: 'Show 1 more' }));
+    await waitFor(() => expect(screen.getAllByRole('button', { name: /Unprotected/ })).toHaveLength(3));
+    getGrouped.mockClear();
+
+    rerenderWith({ pair: { testUuid: TEST, hostKey: 'org-1|HOST-02' }, hostname: 'HOST-02' });
+
+    await waitFor(() => expect(getGrouped).toHaveBeenCalled());
+    await new Promise((r) => setTimeout(r, 20));
+    expect(getGrouped.mock.calls.map((c) => [c[0].hostnames, c[0].page])).toEqual([['HOST-02', 1]]);
+  });
+
   it('says when the pair has no run in the window', async () => {
     getGrouped.mockResolvedValue(page([]));
     setup();

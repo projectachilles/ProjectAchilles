@@ -1570,3 +1570,33 @@ describe('ExecutionsDataTable: selecting another run', () => {
     expect(within(stages()).queryByRole('button', { expanded: true })).not.toBeInTheDocument();
   });
 });
+
+describe('ExecutionsDataTable: archive by date', () => {
+  it('offers it in the list\'s header and archives everything before the chosen date', async () => {
+    getAlertsForTestMock.mockResolvedValue({ alerts: [], matchedTechniques: [], total: 0 });
+    const onArchiveByDate = vi.fn().mockResolvedValue(undefined);
+    render(
+      <ExecutionsDataTable
+        data={makeData([makeStage({})], { defenderDetected: false })}
+        loading={false}
+        onPageChange={vi.fn()}
+        onPageSizeChange={vi.fn()}
+        onSort={vi.fn()}
+        onArchiveByDate={onArchiveByDate}
+      />,
+    );
+
+    await userEvent.click(screen.getByRole('button', { name: /Archive by date/ }));
+    await userEvent.type(screen.getByLabelText('Archive all executions before:'), '2026-05-01');
+    await userEvent.click(screen.getByRole('button', { name: 'Archive' }));
+
+    await waitFor(() => expect(onArchiveByDate).toHaveBeenCalledWith('2026-05-01'));
+  });
+
+  it('does not offer it where the page cannot archive', () => {
+    getAlertsForTestMock.mockResolvedValue({ alerts: [], matchedTechniques: [], total: 0 });
+    renderTable(makeData([makeStage({})], { defenderDetected: false }));
+
+    expect(screen.queryByRole('button', { name: /Archive by date/ })).not.toBeInTheDocument();
+  });
+});

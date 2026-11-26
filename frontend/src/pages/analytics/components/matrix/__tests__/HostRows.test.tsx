@@ -64,6 +64,7 @@ describe('rows of hosts', () => {
     const names = (await screen.findAllByRole('heading', { level: 3 })).map((h) => h.textContent);
 
     expect(names).toEqual(['HOST-1', 'HOST-2']);
+    expect(screen.getByRole('heading', { name: 'HOST-1' })).toHaveAttribute('title', 'HOST-1');
     expect(within(rowOf('HOST-1')).getByText('caught on 0 of 1 test')).toBeInTheDocument();
     expect(within(rowOf('HOST-2')).getByText('caught on 2 of 2 tests')).toBeInTheDocument();
     expect(screen.getByText('2 hosts · 3 tests · latest result in 30d')).toBeInTheDocument();
@@ -124,6 +125,8 @@ describe('rows of hosts', () => {
 
     rerenderWith({ openPair: { testUuid: 't2', hostKey: 'org-1|HOST-2' } });
     expect(second()).toHaveAttribute('aria-expanded', 'true');
+    // Only that test's mark, not the host's other marks.
+    expect(within(rowOf('HOST-2')).getAllByTestId('matrix-mark')[0]).toHaveAttribute('aria-expanded', 'false');
     await user.click(second());
     expect(props.onOpenPair).toHaveBeenLastCalledWith(null);
   });
@@ -144,6 +147,8 @@ describe('rows of hosts', () => {
       .mockResolvedValueOnce(answer([host(3, [])], { hostCount: 3, page: 2 }));
     setup();
     await screen.findByRole('heading', { name: 'HOST-2' });
+    // The count is the fleet's, not the number of rows loaded so far.
+    expect(screen.getByText('3 hosts · 3 tests · latest result in 30d')).toBeInTheDocument();
 
     await user.click(screen.getByRole('button', { name: 'Show 1 more' }));
 
@@ -175,6 +180,44 @@ describe('rows of hosts', () => {
     expect(screen.queryByRole('heading', { name: 'HOST-3' })).not.toBeInTheDocument();
     expect(screen.queryByRole('heading', { name: 'HOST-1' })).not.toBeInTheDocument();
     expect(getHosts.mock.lastCall![1]).toEqual({ page: 1, pageSize: 25 });
+  });
+
+  it('never shows another scope\'s hosts as this one\'s, and reads only the first page of the new one', async () => {
+    const user = userEvent.setup();
+    getHosts.mockImplementation((_scope: unknown, view: { page: number }) =>
+      Promise.resolve(view.page === 1 ? answer(FIRST.hosts, { hostCount: 3 }) : answer([host(3, [])], { hostCount: 3, page: 2 })));
+    const { rerenderWith } = setup();
+    await screen.findByRole('heading', { name: 'HOST-2' });
+    await user.click(screen.getByRole('button', { name: 'Show 1 more' }));
+    await screen.findByRole('heading', { name: 'HOST-3' });
+    getHosts.mockClear();
+    let resolveNew!: (v: CoverageMatrixHostsResponse) => void;
+    getHosts.mockReturnValue(new Promise((r) => { resolveNew = r; }));
+
+    rerenderWith({ params: { from: 'now-7d', to: 'now' } });
+
+    // At once: the old rows are gone, and it says it is loading.
+    expect(screen.queryByRole('heading', { name: 'HOST-1' })).not.toBeInTheDocument();
+    expect(screen.getByRole('status')).toHaveTextContent('Loading the matrix…');
+    await act(async () => resolveNew(answer([host(9, [])])));
+    expect(screen.getByRole('heading', { name: 'HOST-9' })).toBeInTheDocument();
+    expect(getHosts.mock.calls.map((c) => c[1].page)).toEqual([1]);
+  });
+
+  it('drops the first page of an old scope when it answers after the new one', async () => {
+    let resolveOld!: (v: CoverageMatrixHostsResponse) => void;
+    getHosts.mockReturnValueOnce(new Promise((r) => { resolveOld = r; }));
+    const { rerenderWith } = setup();
+    getHosts.mockResolvedValue(answer([host(9, [])]));
+
+    rerenderWith({ params: { from: 'now-7d', to: 'now' } });
+    await screen.findByRole('heading', { name: 'HOST-9' });
+    await act(async () => {
+      resolveOld(FIRST);
+      await new Promise((r) => setTimeout(r, 20));
+    });
+
+    expect(screen.getAllByRole('heading', { level: 3 }).map((h) => h.textContent)).toEqual(['HOST-9']);
   });
 
   it('on a reload reads again every page it has, and keeps the rows meanwhile', async () => {
