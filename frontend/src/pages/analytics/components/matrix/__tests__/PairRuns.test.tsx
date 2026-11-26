@@ -200,6 +200,27 @@ describe('PairRuns', () => {
     expect(getGrouped.mock.calls.map((c) => [c[0].hostnames, c[0].page])).toEqual([['HOST-02', 1]]);
   });
 
+  it('keeps "Show more" in place while its page loads, and takes no second click', async () => {
+    const user = userEvent.setup();
+    let resolveMore!: (v: GroupedPaginatedResponse) => void;
+    getGrouped
+      .mockResolvedValueOnce(page([solo('run-3', {}), solo('run-2', {})], { totalGroups: 3, hasNext: true, totalPages: 2 }))
+      .mockReturnValueOnce(new Promise((r) => { resolveMore = r; }));
+    setup();
+    await screen.findAllByRole('button', { name: /Unprotected/ });
+    const more = screen.getByRole('button', { name: 'Show 1 more' });
+
+    await user.click(more);
+    await user.click(more);
+
+    expect(more).toBeInTheDocument();
+    expect(more).toHaveAttribute('aria-disabled', 'true');
+    expect(more).toHaveFocus();
+    expect(getGrouped).toHaveBeenCalledTimes(2);
+    await act(async () => resolveMore(page([solo('run-1', {})], { page: 2, totalGroups: 3, hasPrevious: true, totalPages: 2 })));
+    expect(screen.getAllByRole('button', { name: /Unprotected/ })).toHaveLength(3);
+  });
+
   it('says when the pair has no run in the window', async () => {
     getGrouped.mockResolvedValue(page([]));
     setup();

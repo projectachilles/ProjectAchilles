@@ -138,6 +138,8 @@ describe('rows of hosts', () => {
 
     expect(within(rowOf('HOST-2')).getByText('runs of Chain A on HOST-2')).toBeInTheDocument();
     expect(within(rowOf('HOST-1')).queryByText(/runs of/)).not.toBeInTheDocument();
+    // Once: under its row, and not above the rows as for a host that is not loaded.
+    expect(screen.getAllByText(/runs of/)).toHaveLength(1);
   });
 
   it('hands the open pair\'s own test to the runs, not the first test of the row', async () => {
@@ -196,6 +198,85 @@ describe('rows of hosts', () => {
     expect(await screen.findByRole('heading', { name: 'HOST-3' })).toBeInTheDocument();
     expect(getHosts.mock.calls.map((c) => c[1].page)).toEqual([1, 2, 2]);
     expect(screen.queryByRole('alert')).not.toBeInTheDocument();
+  });
+
+  it('names the mark under the focus in every form: a tile shows only the start of a test\'s name', async () => {
+    setup();
+    await screen.findByRole('heading', { name: 'HOST-1' });
+    expect(screen.getByTestId('matrix')).toHaveAttribute('data-form', 'tile');
+
+    within(rowOf('HOST-1')).getAllByRole('button')[0].focus();
+
+    expect(screen.getByTestId('matrix-hint')).toHaveTextContent('HOST-1 · Chain A: unprotected, 3 days ago');
+  });
+
+  it('reads every page again when a further page has other tests than the rows on screen', async () => {
+    const user = userEvent.setup();
+    const extra: MatrixTest = { key: 'new', testUuid: 'new', name: 'New test', kind: 'test', counts: counts() };
+    getHosts
+      .mockResolvedValueOnce(answer(FIRST.hosts, { hostCount: 3 }))
+      // A test was added since: these columns are not the ones the first rows were drawn for.
+      .mockResolvedValueOnce(answer([host(3, [{ i: 3, verdict: 'unprotected', at: at(1) }])], { hostCount: 3, page: 2, tests: [...TESTS, extra], testCount: 4 }))
+      .mockResolvedValueOnce(answer(FIRST.hosts, { hostCount: 3, tests: [...TESTS, extra], testCount: 4 }))
+      .mockResolvedValueOnce(answer([host(3, [{ i: 3, verdict: 'unprotected', at: at(1) }])], { hostCount: 3, page: 2, tests: [...TESTS, extra], testCount: 4 }));
+    setup();
+    await screen.findByRole('heading', { name: 'HOST-2' });
+
+    await user.click(screen.getByRole('button', { name: 'Show 1 more' }));
+
+    await waitFor(() => expect(getHosts.mock.calls.map((c) => c[1].page)).toEqual([1, 2, 1, 2]));
+    await screen.findByRole('heading', { name: 'HOST-3' });
+    expect(within(rowOf('HOST-1')).getAllByTestId('matrix-mark')).toHaveLength(4);
+    expect(within(rowOf('HOST-3')).getByRole('button')).toHaveAccessibleName('New test: unprotected, 1 day ago');
+  });
+
+  it('on a reload, reads once more when its pages disagree on the tests', async () => {
+    const user = userEvent.setup();
+    const extra: MatrixTest = { key: 'new', testUuid: 'new', name: 'New test', kind: 'test', counts: counts() };
+    const wide = { tests: [...TESTS, extra], testCount: 4 };
+    getHosts
+      .mockResolvedValueOnce(answer(FIRST.hosts, { hostCount: 3 }))
+      .mockResolvedValueOnce(answer([host(3, [])], { hostCount: 3, page: 2 }));
+    const { rerenderWith } = setup();
+    await screen.findByRole('heading', { name: 'HOST-2' });
+    await user.click(screen.getByRole('button', { name: 'Show 1 more' }));
+    await screen.findByRole('heading', { name: 'HOST-3' });
+    getHosts.mockClear();
+    getHosts
+      // The server's snapshot changed between the two pages of the reload.
+      .mockResolvedValueOnce(answer(FIRST.hosts, { hostCount: 3 }))
+      .mockResolvedValueOnce(answer([host(3, [])], { hostCount: 3, page: 2, ...wide }))
+      .mockResolvedValueOnce(answer(FIRST.hosts, { hostCount: 3, ...wide }))
+      .mockResolvedValueOnce(answer([host(3, [])], { hostCount: 3, page: 2, ...wide }));
+
+    rerenderWith({ reloadToken: 1 });
+
+    await waitFor(() => expect(getHosts.mock.calls.map((c) => c[1].page)).toEqual([1, 2, 1, 2]));
+    await waitFor(() => expect(within(rowOf('HOST-1')).getAllByTestId('matrix-mark')).toHaveLength(4));
+  });
+
+  it('stops asking for a page of hosts that no longer exists', async () => {
+    const user = userEvent.setup();
+    getHosts
+      .mockResolvedValueOnce(answer(FIRST.hosts, { hostCount: 3 }))
+      .mockResolvedValueOnce(answer([host(3, [])], { hostCount: 3, page: 2 }));
+    const { rerenderWith } = setup();
+    await screen.findByRole('heading', { name: 'HOST-2' });
+    await user.click(screen.getByRole('button', { name: 'Show 1 more' }));
+    await screen.findByRole('heading', { name: 'HOST-3' });
+    // HOST-3's results were archived: one page is left.
+    getHosts.mockImplementation((_scope: unknown, view: { page: number }) =>
+      Promise.resolve(view.page === 1 ? answer(FIRST.hosts) : answer([], { page: 2, hostCount: 2 })));
+    getHosts.mockClear();
+
+    rerenderWith({ reloadToken: 1 });
+    await waitFor(() => expect(getHosts.mock.calls.map((c) => c[1].page)).toEqual([1, 2]));
+    getHosts.mockClear();
+    rerenderWith({ reloadToken: 2 });
+
+    await waitFor(() => expect(getHosts).toHaveBeenCalled());
+    await act(async () => { await new Promise((r) => setTimeout(r, 20)); });
+    expect(getHosts.mock.calls.map((c) => c[1].page)).toEqual([1]);
   });
 
   it('loads the next page on request and keeps the hosts it has', async () => {
