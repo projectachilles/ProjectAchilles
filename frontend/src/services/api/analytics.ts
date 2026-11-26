@@ -415,6 +415,93 @@ export interface PaginatedExecutionsParams extends ExtendedFilterParams {
   sortField?: string;
   sortOrder?: 'asc' | 'desc';
   grouped?: boolean;
+  /** Only this test: its id, or a bundle's id. `tests` matches names; this is exact (a coverage matrix pair's runs). */
+  testUuid?: string;
+}
+
+// ── Coverage matrix (GET /analytics/coverage-matrix) ───────────────────────
+// Mirrors backend/src/types/analytics.ts. Every value is the server's: the
+// page draws a state, it never works one out.
+
+/** What a cell shows. "Caught" is protected + detected. */
+export type MatrixVerdict = 'protected' | 'detected' | 'unprotected' | 'no_verdict' | 'risk_accepted';
+
+/** A cyber-hygiene bundle on one host (or summed): its controls' latest results. */
+export interface MatrixRatio {
+  compliant: number;
+  evaluated: number;
+  notAssessed: number;
+  accepted: number;
+}
+
+export interface MatrixCell {
+  /** Index into `hosts` (rows = tests) or into `tests` (rows = hosts). */
+  i: number;
+  /** Absent on a cell that has `ratio`. */
+  verdict?: MatrixVerdict;
+  ratio?: MatrixRatio;
+  /** Time of the result shown. */
+  at: string;
+  /** Earlier conclusive verdicts of the pair, one per day, newest first, at most 6. */
+  earlier?: MatrixVerdict[];
+}
+
+export interface MatrixCounts {
+  protected: number;
+  detected: number;
+  unprotected: number;
+  noVerdict: number;
+  riskAccepted: number;
+  neverRun: number;
+}
+
+export interface MatrixHost {
+  /** `<organization id>|<hostname>`. */
+  key: string;
+  hostname: string;
+  org: string | null;
+  counts: MatrixCounts;
+  ratio: MatrixRatio;
+}
+
+export interface MatrixTest {
+  key: string;
+  testUuid: string;
+  name: string;
+  /** A standalone test, a multi-stage attack chain, or a cyber-hygiene bundle (ratio cells). */
+  kind: 'test' | 'chain' | 'controls';
+  category?: string;
+  counts: MatrixCounts;
+  ratio?: MatrixRatio;
+}
+
+export type MatrixTestRow = MatrixTest & { cells: MatrixCell[] | null };
+
+export interface CoverageMatrixTestsResponse {
+  rows: 'tests';
+  windowLabel: string;
+  /** Most exposed first; empty when `cellsIncluded` is false. */
+  hosts: MatrixHost[];
+  hostCount: number;
+  tests: MatrixTestRow[];
+  testCount: number;
+  /** False above the server's host limit: counts only, no cells, no hosts. */
+  cellsIncluded: boolean;
+  truncated: boolean;
+}
+
+export type MatrixHostRow = MatrixHost & { cells: MatrixCell[] };
+
+export interface CoverageMatrixHostsResponse {
+  rows: 'hosts';
+  windowLabel: string;
+  tests: MatrixTest[];
+  testCount: number;
+  hosts: MatrixHostRow[];
+  hostCount: number;
+  page: number;
+  pageSize: number;
+  truncated: boolean;
 }
 
 // Grouped execution result (one per collapsed display row)
@@ -774,6 +861,25 @@ export const analyticsApi = {
 
   async getStageCoverage(params?: ExtendedFilterParams): Promise<StageCoverageResponse> {
     const response = await apiClient.get('/analytics/stage-coverage', { params });
+    return response.data;
+  },
+
+  /** The latest result per test and host: rows of tests. */
+  async getCoverageMatrix(params?: ExtendedFilterParams): Promise<CoverageMatrixTestsResponse> {
+    const response = await apiClient.get('/analytics/coverage-matrix', { params: { ...params, rows: 'tests' } });
+    return response.data;
+  },
+
+  /**
+   * One page of the matrix's hosts, most exposed first. With `test` (and
+   * `state`) the hosts that have a cell for that test (in that state). The
+   * filter is `state`: `verdict` is the executions list's, with other values.
+   */
+  async getCoverageMatrixHosts(
+    params: ExtendedFilterParams | undefined,
+    view: { page: number; pageSize: number; test?: string; state?: MatrixVerdict },
+  ): Promise<CoverageMatrixHostsResponse> {
+    const response = await apiClient.get('/analytics/coverage-matrix', { params: { ...params, rows: 'hosts', ...view } });
     return response.data;
   },
 
