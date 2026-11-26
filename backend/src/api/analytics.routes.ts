@@ -12,8 +12,9 @@ import { resolvePostureWindow } from '../services/analytics/posture.js';
 import { getTestFleet } from '../services/analytics/testFleet.js';
 import { validate } from '../middleware/validation.js';
 import { AnalyticsSettingsSchema, AnalyticsTestSchema, CreateIndexSchema, ArchiveByGroupKeysSchema, ArchiveByDateSchema } from '../schemas/analytics.schemas.js';
-import type { AnalyticsQueryParams, ExtendedAnalyticsQueryParams, PaginatedExecutionsParams, ExecutionVerdict } from '../types/analytics.js';
-import { EXECUTION_VERDICTS } from '../types/analytics.js';
+import type { AnalyticsQueryParams, ExtendedAnalyticsQueryParams, PaginatedExecutionsParams, ExecutionVerdict, MatrixVerdict } from '../types/analytics.js';
+import { EXECUTION_VERDICTS, MATRIX_VERDICTS } from '../types/analytics.js';
+import { TestUuidSchema } from '../schemas/admin.schemas.js';
 import type { CurrentTestVersion, ResultVersionState } from '../types/testVersion.js';
 import { RESULT_VERSION_STATES, MAX_VERSION_FILTER_TESTS } from '../services/analytics/testVersionState.js';
 import { currentFingerprintMap } from '../services/browser/currentFingerprints.js';
@@ -38,6 +39,23 @@ function parseScoringMode(value: unknown): 'all-stages' | 'any-stage' {
   if (value === 'all-stages' || value === 'any-stage') return value;
   throw new AppError('Invalid scoringMode', 400);
 }
+
+/** A test (or bundle) id from the query string: one UUID, or undefined when absent or empty. */
+function parseTestUuid(value: unknown, error: string): string | undefined {
+  if (value === undefined || value === '') return undefined;
+  if (typeof value !== 'string' || !TestUuidSchema.safeParse(value).success) throw new AppError(error, 400);
+  return value;
+}
+
+/** A whole number from the query string, at least `min`; `fallback` when absent. */
+function parseCount(value: unknown, fallback: number, min: number, error: string): number {
+  if (value === undefined || value === '') return fallback;
+  if (typeof value !== 'string' || !/^\d{1,9}$/.test(value) || Number(value) < min) throw new AppError(error, 400);
+  return Number(value);
+}
+
+/** Most hosts on one page of the coverage matrix's rows = hosts. */
+const MATRIX_MAX_PAGE_SIZE = 100;
 
 // Extract extended filter params from Express query object.
 // Dashboard endpoints pass these through so filter bar affects all metrics.
@@ -462,6 +480,8 @@ router.get('/executions/paginated', asyncHandler(async (req, res) => {
     errorNames, errorCodes, bundleNames, result,
     page, pageSize, sortField, sortOrder, grouped, verdict, versionState
   } = req.query;
+  // One test (or bundle) by id: the `tests` filter matches by name.
+  const testUuid = parseTestUuid(req.query.testUuid, 'Invalid testUuid');
 
   if (verdict !== undefined && !EXECUTION_VERDICTS.includes(verdict as ExecutionVerdict)) {
     throw new AppError('Invalid verdict', 400);
@@ -497,6 +517,7 @@ router.get('/executions/paginated', asyncHandler(async (req, res) => {
     verdict: verdict as ExecutionVerdict | undefined,
     versionState: versionState as ResultVersionState | undefined,
     currentFingerprints: fingerprints,
+    ...(testUuid ? { testUuid } : {}),
   };
 
   if (params.grouped) {
@@ -715,6 +736,37 @@ router.get('/stage-coverage', asyncHandler(async (req, res) => {
   const es = await getEsService();
   const { basis: _basis, ...query } = req.query;
   const result = await es.getStageCoverage(extractFilterParams(query));
+  res.json(result);
+}));
+
+// GET /api/analytics/coverage-matrix - The latest result per test and host.
+// rows=tests (default): the host axis and, per test, its counts and cells.
+// rows=hosts: one page of hosts, most exposed first; `test` (and `state`)
+// narrow it to the hosts of one test (in one state).
+// Always latest-result posture, any-stage: basis and scoringMode are ignored,
+// and so are the outcome filters, among them the executions list's `verdict`,
+// which the page sends along with the filter bar. Hence `state`, not `verdict`.
+router.get('/coverage-matrix', asyncHandler(async (req, res) => {
+  const { basis: _basis, scoringMode: _scoringMode, rows, page, pageSize, test, state, ...query } = req.query;
+  if (rows !== undefined && rows !== 'tests' && rows !== 'hosts') throw new AppError('Invalid rows', 400);
+  if (state !== undefined && !MATRIX_VERDICTS.includes(state as MatrixVerdict)) throw new AppError('Invalid state', 400);
+  const testUuid = parseTestUuid(test, 'Invalid test');
+  const pageNumber = parseCount(page, 1, 1, 'Invalid page');
+  const size = Math.min(Math.max(parseCount(pageSize, 25, 0, 'Invalid pageSize'), 1), MATRIX_MAX_PAGE_SIZE);
+
+  const es = await getEsService();
+  const result = await es.getCoverageMatrix(
+    extractFilterParams(query),
+    rows === 'hosts'
+      ? {
+          rows: 'hosts',
+          page: pageNumber,
+          pageSize: size,
+          ...(testUuid ? { testUuid } : {}),
+          ...(state ? { verdict: state as MatrixVerdict } : {}),
+        }
+      : { rows: 'tests' },
+  );
   res.json(result);
 }));
 

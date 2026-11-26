@@ -51,6 +51,7 @@ vi.mock('../../services/analytics/elasticsearch.js', () => ({
     getAvailableTests = record('getAvailableTests', []);
     getExecutedTestUuids = record('getExecutedTestUuids', []);
     getAvailableTechniques = record('getAvailableTechniques', []);
+    getCoverageMatrix = record('getCoverageMatrix', { rows: 'tests' });
     archiveByGroupKeys = record('archiveByGroupKeys', { archived: 0, errors: [] });
     archiveByDateRange = record('archiveByDateRange', { archived: 0, errors: [] });
   },
@@ -88,7 +89,7 @@ function orgPassedTo(method: string): unknown {
   const call = [...calls].reverse().find((c) => c.method === method);
   if (!call) throw new Error(`${method} was not called`);
   const [first, second] = call.args;
-  if (method === 'getDefenseScore' || method === 'getDefenseScoreByOrg') return (first as { org?: string }).org;
+  if (method === 'getDefenseScore' || method === 'getDefenseScoreByOrg' || method === 'getCoverageMatrix') return (first as { org?: string }).org;
   if (method === 'archiveByGroupKeys' || method === 'archiveByDateRange') return second;
   return first;
 }
@@ -141,6 +142,16 @@ describe('a caller in an organization', () => {
     const res = await request(appAs(ORG_A)).get(`/api/analytics${path}`);
     expect(res.status).toBe(200);
     expect(orgPassedTo(method)).toBe(ORG_A);
+  });
+
+  it('reads the coverage matrix of its own org only', async () => {
+    expect((await request(appAs(ORG_A)).get('/api/analytics/coverage-matrix')).status).toBe(200);
+    expect(orgPassedTo('getCoverageMatrix')).toBe(ORG_A);
+
+    calls.length = 0;
+    const res = await request(appAs(ORG_A)).get(`/api/analytics/coverage-matrix?org=${ORG_B}`);
+    expect(res.status).toBe(403);
+    expect(calls).toHaveLength(0);
   });
 
   it('archives only its own org results', async () => {

@@ -42,6 +42,7 @@ The serverless backend is a subset of `backend/`. New features are often built f
 | `consoleIdentity` | `true` | `false` | Console identity (Settings → General) |
 | `sentinelone`, `sophos` | `true` | `false` | SentinelOne and Sophos integrations |
 | `outcomeBreakdown`, `stageCoverage` | `true` | `false` | Outcome breakdown and Stage coverage cards |
+| `coverageMatrix` | `true` | `false` | Coverage matrix endpoint (latest result per test and host) |
 | `randomizedOnce`, `testFleet`, `testRunRecency` | `true` | not reported | Randomized Once schedules, per-test fleet results, last-run recency |
 | `buildUpload`, `certGenerate`, `certUpload` | `true` | `true` | |
 

@@ -20,6 +20,9 @@ import type { OutcomeFilters, PairRun, PostureWindow } from './posture.js';
 import type { OutcomeRun } from './outcomeBreakdown.js';
 import { countPairOutcomes } from './outcomeBreakdown.js';
 import { summarizeStageCoverage } from './stageCoverage.js';
+import { pairControlId, pairTestUuid } from './pairKeys.js';
+import { buildCoverageModel, hostsView, testsView } from './coverageMatrix.js';
+import type { HostsViewOptions, MatrixRun } from './coverageMatrix.js';
 import { TtlPromiseCache } from './postureCache.js';
 import type { TtlCacheOptions } from './postureCache.js';
 import {
@@ -64,6 +67,8 @@ import type {
   ChainDepthResponse,
   StageCoverageResponse,
   OutcomeBreakdownResponse,
+  CoverageMatrixTestsResponse,
+  CoverageMatrixHostsResponse,
   DefenseScoreByHostItem,
   CanonicalTestCountResponse,
   ErrorRateResponse,
@@ -186,19 +191,8 @@ function bundlePairKey(oid: unknown, bundleId: string, hostname: string): string
   return `${oid ?? ''}|bundle:${bundleId}|${hostname}`;
 }
 
-/**
- * Test (or bundle) UUID behind a pair key: plain `oid|<uuid>|host`, any-stage
- * bundle `oid|bundle:<id>|host`, cyber-hygiene control `oid|<bundle>::<control>|host`.
- */
-export function pairTestUuid(pairKey: string): string {
-  const id = pairKey.split('|')[1] ?? '';
-  return (id.startsWith('bundle:') ? id.slice('bundle:'.length) : id).split('::')[0];
-}
-
-/** Control (or stage) id of a per-stage pair `oid|<bundle>::<control>|host`; undefined for plain and `bundle:` keys. */
-export function pairControlId(pairKey: string): string | undefined {
-  return (pairKey.split('|')[1] ?? '').split('::')[1];
-}
+// The readers of a pair key live in pairKeys.ts; re-exported for the modules that import them from here.
+export { pairTestUuid, pairControlId };
 
 /**
  * Everything that shapes a basis=latest fetch, resolved once per request so
@@ -222,19 +216,23 @@ interface PostureShapeSpec extends PairFetchOptions {
   withRaw: boolean;
 }
 
-type PostureShape = 'series' | 'metadata' | 'breakdown' | 'score';
+type PostureShape = 'series' | 'metadata' | 'breakdown' | 'score' | 'matrix';
 
 /**
  * The snapshot shapes: tile + trend share 'series'; the four breakdowns share
  * 'metadata'; the outcome breakdown card uses 'breakdown' (latest run per pair,
  * no lookback, no metadata, with rawRuns for risk-accepted pairs); 'score' is
- * the same without rawRuns, for the alert, which needs only the adjusted score.
+ * the same without rawRuns, for the alert, which needs only the adjusted score;
+ * 'matrix' (the coverage matrix) is every run of each pair in the window, for
+ * the earlier-run marks, with metadata for the row names and rawRuns for the
+ * risk-accepted cells.
  */
 const POSTURE_SHAPES: Record<PostureShape, PostureShapeSpec> = {
   series: { lookback: true, withMetadata: false, withRaw: true, latestOnly: false },
   metadata: { lookback: false, withMetadata: true, withRaw: false, latestOnly: true },
   breakdown: { lookback: false, withMetadata: false, withRaw: true, latestOnly: true },
   score: { lookback: false, withMetadata: false, withRaw: false, latestOnly: true },
+  matrix: { lookback: false, withMetadata: true, withRaw: true, latestOnly: false },
 };
 
 /**
@@ -1316,6 +1314,18 @@ export class ElasticsearchService {
     weigh: (m) => m.size,
   });
 
+  /**
+   * Pairs without a verdict (coverage matrix): same TTL and budget as the
+   * inconclusive runs. Always fetched any-stage, so the key needs no scoring mode.
+   */
+  private readonly noVerdictCache = new TtlPromiseCache<{ runs: PairRun[]; rawRuns: PairRun[] | null }>({
+    ttlMs: POSTURE_CACHE_OPTIONS.ttlMs,
+    maxEntries: POSTURE_CACHE_OPTIONS.maxEntries,
+    maxEntryWeight: INCONCLUSIVE_CACHE_MAX_ENTRIES,
+    maxTotalWeight: INCONCLUSIVE_CACHE_MAX_ENTRIES,
+    weigh: (v) => v.runs.length + (v.rawRuns?.length ?? 0),
+  });
+
   /** Skipped stages per bundle run (stage coverage): same TTL and budget as the inconclusive runs. */
   private readonly skippedCache = new TtlPromiseCache<Map<string, number>>({
     ttlMs: POSTURE_CACHE_OPTIONS.ttlMs,
@@ -1420,7 +1430,7 @@ export class ElasticsearchService {
 
   /** Per-doc pairs: the latest doc per (oid, test_uuid, hostname[, UTC day]). */
   private async fetchDocPairRuns(filters: any[], opts: PairFetchOptions): Promise<PairRun[]> {
-    const runs: OutcomeRun[] = [];
+    const runs: MatrixRun[] = [];
     const uuidOf: string[] = []; // test_uuid of runs[i], for the metadata join
     await this.paginateComposite(
       filters,
@@ -1489,6 +1499,8 @@ export class ElasticsearchService {
       run.subcategory = info?.subcategory;
       run.techniques = info?.techniques ?? [];
       run.threatActor = info?.threatActor;
+      // A cyber-hygiene control is its own pair; the coverage matrix names its row by the bundle.
+      if (info?.bundleName) run.bundleName = info.bundleName;
     });
     return runs;
   }
@@ -1497,7 +1509,7 @@ export class ElasticsearchService {
   private async fetchTestMetadata(
     filters: any[],
     testCount: number,
-  ): Promise<Map<string, { testName?: string; category?: string; subcategory?: string; techniques: string[]; threatActor?: string }>> {
+  ): Promise<Map<string, { testName?: string; bundleName?: string; category?: string; subcategory?: string; techniques: string[]; threatActor?: string }>> {
     const response = await this.client.search({
       index: this.settings.indexPattern,
       size: 0,
@@ -1510,19 +1522,20 @@ export class ElasticsearchService {
               top_hits: {
                 size: 1,
                 sort: [{ 'routing.event_time': { order: 'desc' } }],
-                _source: ['f0rtika.test_name', 'f0rtika.category', 'f0rtika.subcategory', 'f0rtika.techniques', 'f0rtika.threat_actor'],
+                _source: ['f0rtika.test_name', 'f0rtika.bundle_name', 'f0rtika.category', 'f0rtika.subcategory', 'f0rtika.techniques', 'f0rtika.threat_actor'],
               },
             },
           },
         },
       },
     });
-    const out = new Map<string, { testName?: string; category?: string; subcategory?: string; techniques: string[]; threatActor?: string }>();
+    const out = new Map<string, { testName?: string; bundleName?: string; category?: string; subcategory?: string; techniques: string[]; threatActor?: string }>();
     const buckets: any[] = (response.aggregations as any)?.test_meta?.buckets ?? [];
     for (const b of buckets) {
       const src = b.doc?.hits?.hits?.[0]?._source ?? {};
       out.set(String(b.key), {
         testName: optString(getField(src, 'f0rtika.test_name')),
+        bundleName: optString(getField(src, 'f0rtika.bundle_name')),
         category: optString(getField(src, 'f0rtika.category')),
         subcategory: optString(getField(src, 'f0rtika.subcategory')),
         techniques: toStringArray(getField(src, 'f0rtika.techniques')),
@@ -1761,6 +1774,16 @@ export class ElasticsearchService {
     return this.latestPostureFor(await this.resolvePostureScope(params), shape);
   }
 
+  /** One test by id, or every stage and control of the bundle with that id (they carry `<bundle>::<control>`). */
+  private testUuidClause(uuid: string): any {
+    return {
+      bool: {
+        should: [{ term: { 'f0rtika.test_uuid': uuid } }, { term: { 'f0rtika.bundle_id': uuid } }],
+        minimum_should_match: 1,
+      },
+    };
+  }
+
   /** Window, filter-bar clauses and risk-acceptance exclusion of a latest-basis request. */
   private async resolvePostureScope(
     params: AnalyticsQueryParams & Partial<ExtendedAnalyticsQueryParams> & TechniqueScopeOption,
@@ -1778,14 +1801,7 @@ export class ElasticsearchService {
     // as its own `oid|<bundle>|host` pair no later real run would replace it.
     // Standalone kill docs stay: there the kill doc is the test's only doc.
     else if (!isAnyStage) clauses.push({ bool: { must_not: [this.STAGELESS_BUNDLE_DOC] } });
-    if (params.testUuid) {
-      clauses.push({
-        bool: {
-          should: [{ term: { 'f0rtika.test_uuid': params.testUuid } }, { term: { 'f0rtika.bundle_id': params.testUuid } }],
-          minimum_should_match: 1,
-        },
-      });
-    }
+    if (params.testUuid) clauses.push(this.testUuidClause(params.testUuid));
     const exclusionFilter: unknown = (await this.getRiskAcceptanceService().buildExclusionFilter(params.org)) ?? null;
     return {
       window,
@@ -1975,6 +1991,18 @@ export class ElasticsearchService {
 
   /** Pairs with docs in the window but no conclusive result (not cached). */
   private async countNoConclusivePairs(scope: PostureScope, conclusiveKeys: Set<string>): Promise<number> {
+    const runs = await this.fetchNoConclusiveRuns(scope, false);
+    const missing = new Set<string>();
+    for (const r of runs) if (!conclusiveKeys.has(r.pairKey)) missing.add(r.pairKey);
+    return missing.size;
+  }
+
+  /**
+   * The latest non-conclusive result of each pair in the window, with the
+   * scope's filters and risk-acceptance exclusion. A pair listed here may
+   * also have a conclusive result: the caller removes those.
+   */
+  private fetchNoConclusiveRuns(scope: PostureScope, withMetadata: boolean, withExclusion = true): Promise<PairRun[]> {
     const filters = this.buildPostureFilters(
       scope.window.fromMs,
       scope.window.toMs,
@@ -1982,11 +2010,54 @@ export class ElasticsearchService {
       scope.org,
       scope.clauses,
     );
-    if (scope.exclusionFilter) filters.push(scope.exclusionFilter);
-    const runs = await this.fetchPairRuns(filters, scope.isAnyStage, { withMetadata: false, latestOnly: true });
-    const missing = new Set<string>();
-    for (const r of runs) if (!conclusiveKeys.has(r.pairKey)) missing.add(r.pairKey);
-    return missing.size;
+    if (withExclusion && scope.exclusionFilter) filters.push(scope.exclusionFilter);
+    return this.fetchPairRuns(filters, scope.isAnyStage, { withMetadata, latestOnly: true });
+  }
+
+  /**
+   * The coverage matrix's pairs without a verdict, with their names, and (only
+   * when a risk acceptance exists) the same without the exclusion: a pair that
+   * is accepted and never had a verdict is in the second list alone.
+   */
+  private getMatrixNoVerdictRuns(scope: PostureScope): Promise<{ runs: PairRun[]; rawRuns: PairRun[] | null }> {
+    const key = JSON.stringify({ ...scope.keyBase, kind: 'matrix-no-verdict' });
+    return this.noVerdictCache.get(key, async () => {
+      const [runs, rawRuns] = await Promise.all([
+        this.fetchNoConclusiveRuns(scope, true),
+        scope.exclusionFilter ? this.fetchNoConclusiveRuns(scope, true, false) : null,
+      ]);
+      return { runs, rawRuns };
+    });
+  }
+
+  /**
+   * Coverage matrix: the latest result per test and host. The cells are the
+   * Defense Score's latest-basis, any-stage pairs (same snapshot code, same
+   * exclusion), plus the pairs that ran without ever reaching a verdict and
+   * the pairs a risk acceptance hides entirely. Outcome filters are ignored, as on the
+   * outcome breakdown card; basis and scoring mode are fixed. The pivot and
+   * its limits are in coverageMatrix.ts.
+   *
+   * Every view is cut from the same whole model, also the host list of one
+   * test (`view.testUuid`): its host order and counts are the matrix's, and it
+   * is normally answered from the snapshot the matrix just cached.
+   */
+  async getCoverageMatrix(
+    params: AnalyticsQueryParams & Partial<ExtendedAnalyticsQueryParams>,
+    view: { rows: 'tests' } | ({ rows: 'hosts' } & HostsViewOptions),
+  ): Promise<CoverageMatrixTestsResponse | CoverageMatrixHostsResponse> {
+    // The scope's outcome filters are never applied here (they are in-memory
+    // filters of the callers that want them), so they need no stripping.
+    const scope = await this.resolvePostureScope({
+      ...params,
+      scoringMode: 'any-stage',
+    });
+    const [{ window, runs, rawRuns }, noVerdict] = await Promise.all([
+      this.latestPostureFor(scope, 'matrix'),
+      this.getMatrixNoVerdictRuns(scope),
+    ]);
+    const model = buildCoverageModel({ window, runs, rawRuns, noVerdict: noVerdict.runs, rawNoVerdict: noVerdict.rawRuns });
+    return view.rows === 'tests' ? testsView(model, window.label) : hostsView(model, window.label, view);
   }
 
   /**
@@ -2805,6 +2876,7 @@ export class ElasticsearchService {
     verdict?: ExecutionVerdict;
     versionState?: ResultVersionState;
     currentFingerprints?: Map<string, CurrentTestVersion>;
+    testUuid?: string;
   }): any[] {
     const filters: any[] = [
       this.buildTestDataFilter(),
@@ -2815,6 +2887,9 @@ export class ElasticsearchService {
     if (orgFilter) filters.push(orgFilter);
 
     filters.push(...this.buildFilterBarClauses(params));
+
+    // The runs of one coverage-matrix pair (with `hostnames`).
+    if (params.testUuid) filters.push(this.testUuidClause(params.testUuid));
 
     if (params.verdict) {
       // Same population as the Outcome breakdown card: attack tests only.

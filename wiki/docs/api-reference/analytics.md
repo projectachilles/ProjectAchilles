@@ -194,6 +194,7 @@ Filtered, grouped, paginated execution results. Accepts every shared filter plus
 | `grouped` | boolean | If true, groups results by bundle/standalone identity. |
 | `verdict` | string | `protected`, `prevented`, `detected` or `silent`: keeps only rows with that outcome, for attack tests only (cyber-hygiene bundles are excluded, matching the Outcome breakdown card; any other value is a 400 `Invalid verdict`). Read only by this endpoint. It is what the Outcome breakdown card's legend rows open on the Executions tab. |
 | `versionState` | string | `current`, `older`, `unknown` or `not_recorded`: keeps only rows in that [version state](#test-version-on-result-rows), by the same rule as `version_state`. Any other value is a 400 `Invalid versionState`; a 503 `Test versions are not available` when the backend can't read the current test versions, and a 400 `Too many tests to filter by version` when the library has more than 10,000 tests. Read only by this endpoint. Not available on `backend-serverless`. |
+| `testUuid` | string | One test by its UUID, or a bundle by its UUID (its stages and controls). The `tests` filter matches by name; this one is exact. With `hostnames` it lists the runs of one [coverage matrix](#coverage-matrix) pair. 400 `Invalid testUuid` when it is not a UUID. Read only by this endpoint. Not available on `backend-serverless`. |
 
 **Response shape** depends on the `grouped` parameter:
 
@@ -321,6 +322,79 @@ Accepts the shared filter parameters. Always latest-result posture: `basis` and 
   - `depthNotTested`: one stage was caught and other stages produced no result, either Skipped (exit 0, the run stopped at its first block) or errored after the block, so its depth is unknown.
   - `layered`: two or more stages caught.
   - `noneCaught`: no stage caught on its own evidence. This includes the rare chain that is protected only through an alert naming the bundle.
+
+### Coverage Matrix
+
+```
+GET /api/analytics/coverage-matrix
+```
+
+The latest result of every test on every host: one cell per test x host pair. The cells are the Defense Score's latest-result, any-stage pairs, read by the same code, so a cell and the score agree; the two places where the matrix shows one cell for what the score counts as more are listed at the end of this section. It accepts the shared filter parameters for scope (organization, dates, tests, hosts, techniques, categories, tags, threat actors). `basis` and `scoringMode` are ignored, and so are the outcome filters (`result`, `errorCodes`, `errorNames`, and the `verdict` of `/executions/paginated`): narrowing a matrix by outcome would only hide cells. The window is capped at 365 days. Not available on `backend-serverless` (`coverageMatrix: false` in `/api/capabilities`).
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| `rows` | string | `tests` (default) or `hosts`. Any other value is a 400 `Invalid rows`. |
+| `page` | number | Page of hosts, from 1 (default 1). 400 `Invalid page` for 0 or a non-number. |
+| `pageSize` | number | Hosts per page (default 25, at most 100). 400 `Invalid pageSize` for a non-number. |
+| `test` | string | A test or bundle UUID: only that test is listed, and only the hosts that have a cell for it. 400 `Invalid test` when it is not a UUID. |
+| `state` | string | `protected`, `detected`, `unprotected`, `no_verdict` or `risk_accepted`: only hosts whose cell (for `test`, or for any test without it) is in that state. 400 `Invalid state` otherwise. A cyber-hygiene cell has a ratio and no state, so it never matches. |
+
+`page`, `pageSize`, `test` and `state` are used with `rows=hosts` only. They are checked on every request, so a bad value is a 400 with `rows=tests` too.
+
+**What a cell shows**
+
+| `verdict` | Meaning |
+|-----------|---------|
+| `protected` | The latest conclusive result was blocked, or the EDR prevented it. |
+| `detected` | The test ran and an EDR alert named it; nothing stopped it. |
+| `unprotected` | The test ran and nothing alerted. |
+| `no_verdict` | The pair has results in the window, none of them conclusive. A pair whose newest run has no verdict still shows its older conclusive result, as the Defense Score does. |
+| `risk_accepted` | A risk acceptance covers every result of the pair, with or without a verdict. It is not counted as caught. An acceptance on one stage of a chain does not accept the chain: the cell is judged by the other stages. |
+
+"Caught" is `protected` plus `detected`. A multi-stage attack chain is one cell per host (protected if any stage of its latest run is). A cyber-hygiene bundle is one row whose cells carry a `ratio` and no `verdict`: `compliant` of `evaluated` controls by their latest results, plus `notAssessed` (controls that never had a conclusive result) and `accepted` (controls a risk acceptance covers). An attack cell also lists `earlier`: the pair's conclusive results on the days (UTC) before the run shown, the latest of each day, newest first, at most six.
+
+**`rows=tests`**
+
+```json
+{
+  "rows": "tests",
+  "windowLabel": "30d",
+  "hosts": [
+    { "key": "org_1|HOST-02", "hostname": "HOST-02", "org": "org_1",
+      "counts": { "protected": 0, "detected": 1, "unprotected": 0, "noVerdict": 0, "riskAccepted": 0, "neverRun": 0 },
+      "ratio": { "compliant": 31, "evaluated": 48, "notAssessed": 2, "accepted": 0 } }
+  ],
+  "hostCount": 1,
+  "tests": [
+    { "key": "7659eeba-…", "testUuid": "7659eeba-…", "name": "Chain A", "kind": "chain", "category": "intel-driven",
+      "counts": { "protected": 0, "detected": 1, "unprotected": 0, "noVerdict": 0, "riskAccepted": 0, "neverRun": 0 },
+      "cells": [ { "i": 0, "verdict": "detected", "at": "2026-11-20T09:00:00.000Z", "earlier": ["unprotected"] } ] },
+    { "key": "b0c1…", "testUuid": "b0c1…", "name": "Baseline", "kind": "controls", "category": "cyber-hygiene",
+      "counts": { "protected": 0, "detected": 0, "unprotected": 0, "noVerdict": 0, "riskAccepted": 0, "neverRun": 0 },
+      "ratio": { "compliant": 31, "evaluated": 48, "notAssessed": 2, "accepted": 0 },
+      "cells": [ { "i": 0, "ratio": { "compliant": 31, "evaluated": 48, "notAssessed": 2, "accepted": 0 }, "at": "2026-11-20T09:00:00.000Z" } ] }
+  ],
+  "testCount": 2,
+  "cellsIncluded": true,
+  "truncated": false
+}
+```
+
+- `hosts` is every host with a result in the window, most exposed first (most `unprotected` cells, then most non-compliant controls, then the name). The order is the same for every row, and a cell's `i` is an index into it. A host is an organization plus a hostname (`key`), so one hostname in two organizations is two hosts. An enrolled machine with no result in the window is not listed.
+- `tests` lists attack tests first, the ones with the most `unprotected` hosts first, then cyber-hygiene bundles, lowest compliant share first. `kind` is `test`, `chain` (multi-stage) or `controls` (cyber-hygiene bundle). `counts` are the row's cells by state; `neverRun` is the number of listed hosts with no cell for the test.
+- Above 150 hosts the cells are left out, and with them the axis they index: `cellsIncluded` is `false`, every `cells` is `null` and `hosts` is empty, while `hostCount`, `counts` and `ratio` stay complete. Use `rows=hosts` to page through the hosts and cells of a large fleet.
+- At most 500 tests are listed; `truncated` is `true` and `testCount` gives the total when there are more.
+
+**`rows=hosts`** returns `tests` (the same test objects, without `cells`), `testCount`, one page of `hosts` (each with `cells` whose `i` is an index into `tests`), `hostCount` (hosts matching the request, over all pages), `page`, `pageSize` and `truncated`. Hosts come in the same order as in `rows=tests`, with the same counts, whatever `test` and `state` say. With `test` and `state` it is the host list of one segment of a test's bar. At most 500 tests are listed here too.
+
+A pair's runs come from [`/executions/paginated`](#paginated-executions) with `testUuid=<testUuid>&hostnames=<hostname>&grouped=true` (add `org=<org>` from the host when the caller has no organization of its own).
+
+**Where the matrix shows one cell and the score counts more.** Both come from one test having two kinds of result on one host:
+
+- A multi-stage test with stage results, and a result of the same test that carries no bundle id (a run that reported one whole-test code and no stages). The score counts two pairs; the matrix shows one cell, the latest conclusive result of the two. The cell can read protected while the score still counts the older unprotected chain run.
+- A cyber-hygiene bundle with control results, and a whole-run result of the same bundle on that host. The score counts the whole-run result as one more pair; the matrix shows the controls' ratio only.
+
+Everywhere else the cells add up to the any-stage, latest-result Defense Score of the same filters: `protected` + `detected` cells plus `compliant` controls are its protected pairs.
 
 ### Test Results
 
