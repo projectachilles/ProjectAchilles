@@ -6,9 +6,43 @@ description: "Browse and filter test execution results in the paginated Executio
 
 # Execution Table
 
-The Execution Table is the **All Executions** tab of Analytics: a paginated, filterable view of all test execution results stored in Elasticsearch.
+The Execution Table is the **All Executions** tab of Analytics. It has two views, chosen with the **View** switch above it:
 
-## Features
+- **Matrix** — the latest result of every test on every host, one row per test. It answers "where am I exposed now".
+- **List** — every run, newest first, with sorting, bulk actions and export. It is the page as it was before the matrix, and the only view on a server that does not provide the matrix (`backend-serverless`).
+
+The matrix is the default, and your last choice is remembered in your browser. A link to one run (`?expanded=<id>`) and a click on the dashboard's Outcome breakdown card open the List, because both select or filter runs, not pairs. Clicking **Matrix** from there drops that selection or filter.
+
+## Matrix view
+
+Each row is one test, with its name written once and one mark per host. Hosts keep the same order in every row, most exposed first, so a weak host is a column and a hard test is a row.
+
+| Mark | State | Meaning |
+|------|-------|---------|
+| ✓ green | Protected | The latest conclusive result was blocked, or the EDR prevented it. |
+| ▲ amber | Detected | The test ran and an EDR alert named it; nothing stopped it. |
+| ✕ red | Unprotected | The test ran and nothing alerted. |
+| ? grey | No verdict | The test ran on this host in the window, with no conclusive result. |
+| ⊘ blue | Risk accepted | A risk acceptance covers every result of this test on this host. |
+| dashed, empty | Never run | The host has results in the window, none for this test. |
+
+The states are the Defense Score's: the same latest result per test and host, counted the same way. A test whose newest run has no verdict keeps showing its older conclusive result. A multi-stage attack is one mark per host. Under each name, "caught on x of y hosts" counts protected and detected among the hosts with a verdict.
+
+**Cyber-hygiene bundles** are one row each. A bundle has no single state per host, so its mark is a gauge filled to the share of compliant controls, with the numbers on wide marks ("31/48"). No threshold turns a gauge green or red: the fill is the share.
+
+**How much a mark shows depends on the room each host gets.** A few hosts get tiles with the result's age and a dot for each earlier result (up to six, one per day, newest first), under their hostnames. More hosts get smaller tiles with the glyph only, then small squares; hover or focus a square for its host, state and age. When the hosts no longer fit, or the fleet is above 150 hosts, each test becomes one bar with the number of hosts per state and "n never run". Click a count on a bar to list the hosts in that state.
+
+**Opening a result.** Click a mark to list that test's runs on that host under the row, newest first, with each chain run's stages as squares. The newest run opens in a panel on the right with the full run detail described below (attack chain, stages, EDR evidence, test version, **Accept risk**, **Archive**). `↑` / `↓` or the panel's arrows move between the runs of that pair, `Esc` closes the panel, and the arrow keys move between marks in the matrix. The open pair and run are kept in the address, so a link reopens them.
+
+**Filters.** The filter bar's scope applies (organization, date range, tests, hosts, techniques, categories, tags, threat actors, bundles). Outcome filters (result, error name, error code, the Outcome chip, the Version filter) narrow the List only; the matrix says so when a result or error filter is set. A machine with no result in the window is not a column.
+
+**Export, sorting, bulk accept-risk and archive, and Archive by date** are in the List view.
+
+:::note
+The screenshot below shows the List view. A screenshot of the Matrix view will be added.
+:::
+
+## List view features
 
 - **Master-detail layout** — runs on the left, the selected run's detail on the right. `↑` / `↓` move the selection, and the selected run is kept in the URL (`?expanded=<id>`), so a link opens straight to it
 - **Pagination** — 10, 25, 50 or 100 runs per page. The toolbar shows the number of runs (groups) and of results (documents)
