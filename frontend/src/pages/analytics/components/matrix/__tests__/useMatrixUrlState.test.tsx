@@ -35,7 +35,8 @@ describe('useMatrixUrlState', () => {
 
     act(() => result.current.state.setPair({ testUuid: 't2', hostKey: 'org-1|HOST-09' }));
 
-    expect(params()).toEqual({ tab: 'executions', hostnames: 'HOST-01', pairTest: 't2', pairHost: 'org-1|HOST-09' });
+    // And it names the view: the address is then the matrix for whoever opens it.
+    expect(params()).toEqual({ tab: 'executions', hostnames: 'HOST-01', view: 'matrix', pairTest: 't2', pairHost: 'org-1|HOST-09' });
   });
 
   it('closing the pair drops the pair and its run', () => {

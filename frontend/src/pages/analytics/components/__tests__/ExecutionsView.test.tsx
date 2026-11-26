@@ -120,11 +120,18 @@ describe('which view', () => {
     expect(screen.queryByRole('group', { name: 'View' })).not.toBeInTheDocument();
     expect(api.getCoverageMatrix).not.toHaveBeenCalled();
   });
+  it('tells the page the list is on screen where the server has no matrix', () => {
+    caps.coverageMatrix = false;
+    const { props } = setup({ onViewChange: vi.fn() });
+
+    expect(props.onViewChange).toHaveBeenLastCalledWith('list');
+  });
 
   it('shows neither view until the server has said what it supports', () => {
     caps.loaded = false;
-    setup();
+    const { props } = setup({ onViewChange: vi.fn() });
 
+    expect(props.onViewChange).toHaveBeenLastCalledWith(null);
     expect(screen.queryByTestId('list')).not.toBeInTheDocument();
     expect(api.getCoverageMatrix).not.toHaveBeenCalled();
   });
@@ -210,6 +217,58 @@ describe('a pair and its runs', () => {
     expect(prime).toHaveBeenLastCalledWith(expect.objectContaining({ key: 'run-2' }));
   });
 
+  it('opens the run the mark shows, not a newer run without a verdict above it', async () => {
+    const user = userEvent.setup();
+    // The mark is the latest conclusive result (12 Jan); a newer run that only errored sits above it.
+    api.getGroupedPaginatedExecutions.mockResolvedValue({
+      ...runs(['run-newer', 'run-shown']),
+      groups: [group('run-newer', { timestamp: '2026-01-14T09:00:00.000Z', error_code: 999 }), group('run-shown', { timestamp: '2026-01-12T09:00:00.000Z' })],
+    });
+    setup();
+
+    await user.click(await mark('HOST-01'));
+
+    expect(within(await drawer()).getByTestId('detail')).toHaveTextContent('detail of run-shown');
+    expect(url()).toContain('run=run-shown');
+  });
+
+  it('opens the newest run when the one the mark shows is not among those loaded', async () => {
+    const user = userEvent.setup();
+    api.getGroupedPaginatedExecutions.mockResolvedValue(runs(['run-2', 'run-1'], { timestamp: '2026-01-01T09:00:00.000Z' }));
+    setup();
+
+    await user.click(await mark('HOST-01'));
+
+    expect(within(await drawer()).getByTestId('detail')).toHaveTextContent('detail of run-2');
+  });
+
+  it('names the drawer by the bundle for a chain run, and looks up acceptances for each of its stages', async () => {
+    const user = userEvent.setup();
+    const stage = (n: number) => exec({ test_uuid: `${T1}::T${n}`, test_name: `Chain A - Stage ${n}`, bundle_id: T1, bundle_name: 'Chain A', is_bundle_control: true, control_id: `T${n}`, timestamp: '2026-01-12T09:00:00.000Z' } as Partial<EnrichedTestExecution>);
+    api.getGroupedPaginatedExecutions.mockResolvedValue({
+      ...runs(['chain-run']),
+      groups: [{ groupKey: 'chain-run', type: 'bundle', representative: stage(1), members: [stage(1), stage(2)], protectedCount: 0, unprotectedCount: 2, totalCount: 2 } as ExecutionGroup],
+    });
+    setup();
+
+    await user.click(await mark('HOST-01'));
+
+    expect(await screen.findByRole('dialog', { name: 'Chain A on HOST-01' })).toBeInTheDocument();
+    await waitFor(() => expect(api.lookupAcceptances).toHaveBeenCalledWith(['Chain A - Stage 1', 'Chain A - Stage 2']));
+  });
+
+  it('tells the page which view is on screen', async () => {
+    const user = userEvent.setup();
+    const onViewChange = vi.fn();
+    setup({ onViewChange });
+    await screen.findByRole('heading', { name: 'Solo test' });
+    expect(onViewChange).toHaveBeenLastCalledWith('matrix');
+
+    await user.click(screen.getByRole('button', { name: 'List' }));
+
+    expect(onViewChange).toHaveBeenLastCalledWith('list');
+  });
+
   it('opens the same pair and run from an address', async () => {
     setup({}, `?tab=executions&pairTest=${T1}&pairHost=${encodeURIComponent('org-1|HOST-01')}&run=run-1`);
 
@@ -235,10 +294,11 @@ describe('a pair and its runs', () => {
     const user = userEvent.setup();
     setup({}, `?tab=executions&pairTest=${T1}&pairHost=${encodeURIComponent('org-1|HOST-01')}`);
     const list = await screen.findByRole('group', { name: 'Runs of Solo test on HOST-01' });
-    await waitFor(() => expect(within(list).getAllByRole('button')).toHaveLength(2));
+    const runButtons = () => within(list).getAllByRole('button', { name: /Protected|Unprotected/ });
+    await waitFor(() => expect(runButtons()).toHaveLength(2));
     expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
 
-    await user.click(within(list).getAllByRole('button')[1]);
+    await user.click(runButtons()[1]);
 
     expect(within(await drawer()).getByTestId('detail')).toHaveTextContent('detail of run-1');
     expect(url()).toContain('run=run-1');

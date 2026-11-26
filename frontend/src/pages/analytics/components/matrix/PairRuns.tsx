@@ -1,9 +1,10 @@
 import { useEffect, useRef, useState } from 'react';
-import { Loader2 } from 'lucide-react';
+import { Loader2, X } from 'lucide-react';
 import { analyticsApi } from '@/services/api/analytics';
 import type { ExtendedFilterParams } from '@/services/api/analytics';
 import { Button } from '@/components/ui/button';
 import { cn } from '@/lib/utils';
+import { joinFilterList } from '@/lib/filterList';
 import { StageSquares } from '@/components/shared/marks/StageSquares';
 import { BundleResultLabel, ExecResultLabel, formatTimestamp, mapGroupsToDisplayRows, type DisplayRow } from '../executions/shared';
 import { stageSquareMarks } from '../executions/stageDisplay';
@@ -25,6 +26,8 @@ interface PairRunsProps {
   onSelectRun: (row: DisplayRow) => void;
   /** Every run loaded so far, latest first (the drawer moves through them). */
   onRunsLoaded: (rows: DisplayRow[]) => void;
+  /** Close this pair: the only way to in the bar form, where no mark stands for it. */
+  onClose: () => void;
   /** A new value loads the runs again. */
   reloadToken: number;
   showVersions?: boolean;
@@ -35,7 +38,7 @@ interface PairRunsProps {
  * the verdict the List view gives it (the same label components), and a
  * chain's stages as squares. Selecting one opens its detail.
  */
-export function PairRuns({ scope, pair, testName, hostname, org, selectedRunKey, onSelectRun, onRunsLoaded, reloadToken, showVersions = false }: PairRunsProps) {
+export function PairRuns({ scope, pair, testName, hostname, org, selectedRunKey, onSelectRun, onRunsLoaded, onClose, reloadToken, showVersions = false }: PairRunsProps) {
   // Only the window and the organization: the other filters chose the matrix's
   // rows, and a technique or outcome filter would hide stages of a run.
   const organization = scope.org ?? org ?? undefined;
@@ -44,7 +47,8 @@ export function PairRuns({ scope, pair, testName, hostname, org, selectedRunKey,
     to: scope.to,
     ...(organization ? { org: organization } : {}),
     testUuid: pair.testUuid,
-    hostnames: hostname,
+    // One hostname of a comma-separated list parameter.
+    hostnames: joinFilterList([hostname]),
   });
 
   const [rows, setRows] = useState<DisplayRow[]>([]);
@@ -97,6 +101,11 @@ export function PairRuns({ scope, pair, testName, hostname, org, selectedRunKey,
       .finally(() => {
         if (id === request.current) setLoading(false);
       });
+    // An answer that arrives after this pair was closed, or replaced, is nobody's:
+    // reporting it would open a run of a pair that is no longer the open one.
+    return () => {
+      if (request.current === id) request.current++;
+    };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [query, reloadToken, page, attempt]);
 
@@ -110,6 +119,15 @@ export function PairRuns({ scope, pair, testName, hostname, org, selectedRunKey,
           <span>{total} run{total === 1 ? '' : 's'} in this window</span>
         )}
         {loading && <Loader2 role="status" aria-label="Loading runs" className="h-3 w-3 animate-spin" />}
+        <button
+          type="button"
+          aria-label={`Close the runs of ${hostname}`}
+          title="Close"
+          onClick={onClose}
+          className="ml-auto rounded-sm p-0.5 text-muted outline-offset-1 hover:text-foreground focus-visible:outline focus-visible:outline-2 focus-visible:outline-accent"
+        >
+          <X className="h-3.5 w-3.5" />
+        </button>
       </div>
 
       {failed && (

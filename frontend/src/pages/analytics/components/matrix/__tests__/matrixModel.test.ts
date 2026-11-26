@@ -10,6 +10,8 @@ import {
   gaugePercent,
   matrixScope,
   parseHostKey,
+  settleForm,
+  FORM_SLACK_PX,
   TILE_MIN_PX,
   SMALL_MIN_PX,
   SQUARE_MIN_PX,
@@ -54,6 +56,40 @@ describe('matrixForm', () => {
 
   it('is tiles for no host at all', () => {
     expect(matrixForm(800, 0, true)).toBe('tile');
+  });
+});
+
+describe('settleForm', () => {
+  // 30 hosts: small tiles from 780 px, squares below.
+  it('takes the form the width gives at first', () => {
+    expect(settleForm(null, 800, 30, true)).toMatchObject({ form: 'small' });
+    expect(settleForm(null, 770, 30, true)).toMatchObject({ form: 'squares' });
+  });
+
+  it('does not change form for a change of width a scrollbar could make', () => {
+    // Small tiles are taller: the page gets a scrollbar, the strip narrows by its width,
+    // squares are shorter, the scrollbar goes. Without slack the two forms alternate for ever.
+    const small = settleForm(null, 785, 30, true);
+    const narrower = settleForm(small, 785 - 17, 30, true);
+
+    expect(narrower.form).toBe('small');
+    expect(settleForm(narrower, 785, 30, true).form).toBe('small');
+    expect(FORM_SLACK_PX).toBeGreaterThanOrEqual(20);
+  });
+
+  it('changes form once the width has really changed, also in small steps', () => {
+    let state = settleForm(null, 785, 30, true);
+    for (const width of [775, 765, 755]) state = settleForm(state, width, 30, true);
+
+    expect(state.form).toBe('squares');
+  });
+
+  it('starts over for another fleet, and once the width is first known', () => {
+    const small = settleForm(null, 785, 30, true);
+
+    expect(settleForm(small, 775, 31, true).form).toBe('squares');
+    expect(settleForm(small, 775, 30, false).form).toBe('bar');
+    expect(settleForm(settleForm(null, 0, 30, true), 800, 30, true).form).toBe('small');
   });
 });
 

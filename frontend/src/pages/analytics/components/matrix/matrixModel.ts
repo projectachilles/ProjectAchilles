@@ -38,6 +38,31 @@ export function matrixForm(stripWidth: number, hostCount: number, cellsIncluded:
 }
 
 /**
+ * A change of width smaller than this never changes the form. Small tiles
+ * make the page taller than squares do; where the browser draws a scrollbar
+ * in the page, that alone narrows the strip by 15 to 17 px, and without slack
+ * the two forms would alternate for ever at a width near a threshold.
+ */
+export const FORM_SLACK_PX = 24;
+
+export interface SettledForm {
+  form: MatrixForm;
+  /** The width the form was chosen at. */
+  width: number;
+  /** The fleet it was chosen for. */
+  key: string;
+}
+
+/** The form to draw now, given the one drawn before: `matrixForm`, held steady across small changes of width. */
+export function settleForm(previous: SettledForm | null, stripWidth: number, hostCount: number, cellsIncluded: boolean): SettledForm {
+  const key = `${hostCount}|${cellsIncluded}`;
+  const form = matrixForm(stripWidth, hostCount, cellsIncluded);
+  if (!previous || previous.key !== key || previous.width <= 0) return { form, width: stripWidth, key };
+  if (form === previous.form) return previous;
+  return Math.abs(stripWidth - previous.width) > FORM_SLACK_PX ? { form, width: stripWidth, key } : previous;
+}
+
+/**
  * Word, colour and glyph of each state. The tones are the Tasks page's for
  * the same results; the glyph carries the state where colour cannot.
  */
@@ -105,6 +130,11 @@ const COUNT_OF: Record<MatrixVerdict, keyof MatrixTest['counts']> = {
   no_verdict: 'noVerdict',
   risk_accepted: 'riskAccepted',
 };
+
+/** How many of a test's hosts are in a state. */
+export function verdictCount(test: Pick<MatrixTest, 'counts'>, verdict: MatrixVerdict): number {
+  return test.counts[COUNT_OF[verdict]];
+}
 
 /**
  * A row as one bar. An attack row counts hosts per state, worst first, then

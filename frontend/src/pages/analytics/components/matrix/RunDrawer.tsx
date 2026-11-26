@@ -81,12 +81,14 @@ export function RunDrawer({ open, title, onClose, onPrevious, onNext, suspended 
   const canMove = Boolean(onPrevious || onNext);
 
   return (
-    <div className="fixed inset-0 z-40">
+    // Under one of the detail's dialogs the drawer steps aside: inert, and no longer modal,
+    // or a screen reader would not reach the dialog, which is its sibling in the page.
+    <div className="fixed inset-0 z-40" inert={suspended}>
       <div data-testid="drawer-backdrop" className="absolute inset-0 bg-background/60" onClick={onClose} />
       <div
         ref={panel}
         role="dialog"
-        aria-modal="true"
+        aria-modal={suspended ? undefined : true}
         aria-label={title}
         className="absolute inset-y-0 right-0 flex w-full max-w-[680px] flex-col border-l border-border-strong bg-surface shadow-[-24px_0_60px_rgba(0,0,0,0.6)]"
       >

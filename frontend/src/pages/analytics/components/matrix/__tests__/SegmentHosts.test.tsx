@@ -27,7 +27,7 @@ const answer = (hosts: MatrixHostRow[], hostCount: number, page = 1): CoverageMa
 
 const PARAMS = { from: 'now-30d', to: 'now', result: 'protected' as const };
 const setup = (onOpenPair = vi.fn()) => {
-  render(<SegmentHosts params={PARAMS} test={TEST} state="unprotected" onOpenPair={onOpenPair} now={NOW} />);
+  render(<SegmentHosts params={PARAMS} test={TEST} state="unprotected" onOpenPair={onOpenPair} now={NOW} reloadToken={0} />);
   return { onOpenPair };
 };
 
@@ -66,7 +66,8 @@ describe('SegmentHosts', () => {
 
     await user.click(await screen.findByRole('button', { name: /HOST-1/ }));
 
-    expect(onOpenPair).toHaveBeenCalledWith({ testUuid: 't1', hostKey: 'org-1|HOST-1' });
+    // With the time of the result listed, so that run is the one opened.
+    expect(onOpenPair).toHaveBeenCalledWith({ testUuid: 't1', hostKey: 'org-1|HOST-1' }, new Date(NOW - 9 * 86_400_000).toISOString());
   });
 
   it('loads more hosts on request until all are listed', async () => {
@@ -84,15 +85,45 @@ describe('SegmentHosts', () => {
     expect(screen.queryByRole('button', { name: /Show \d+ more/ })).not.toBeInTheDocument();
   });
 
+  it('lists every host of a bundle, with its controls, when no state is given', async () => {
+    const BUNDLE: MatrixTest = { key: 'b1', testUuid: 'b1', name: 'Baseline', kind: 'controls', counts, ratio: { compliant: 31, evaluated: 48, notAssessed: 2, accepted: 0 } };
+    const bundleHost: MatrixHostRow = {
+      key: 'org-1|HOST-7', hostname: 'HOST-7', org: 'org-1', counts, ratio: { compliant: 31, evaluated: 48, notAssessed: 2, accepted: 0 },
+      cells: [{ i: 0, ratio: { compliant: 31, evaluated: 48, notAssessed: 2, accepted: 0 }, at: new Date(NOW - 86_400_000).toISOString() }],
+    };
+    getHosts.mockResolvedValue({ ...answer([], 1), tests: [BUNDLE], hosts: [bundleHost] });
+    const onOpenPair = vi.fn();
+    const user = userEvent.setup();
+    render(<SegmentHosts params={PARAMS} test={BUNDLE} onOpenPair={onOpenPair} now={NOW} reloadToken={0} />);
+
+    const row = await screen.findByRole('button', { name: 'HOST-7: 31 of 48 controls compliant, 2 not assessed, 1 day ago' });
+
+    expect(getHosts).toHaveBeenCalledWith({ from: 'now-30d', to: 'now' }, { page: 1, pageSize: 25, test: 'b1' });
+    expect(screen.getByRole('group', { name: '1 host with results for Baseline' })).toBeInTheDocument();
+    expect(row).toHaveTextContent('31/48');
+    await user.click(row);
+    expect(onOpenPair).toHaveBeenCalledWith({ testUuid: 'b1', hostKey: 'org-1|HOST-7' }, bundleHost.cells[0].at);
+  });
+
+  it('reads the hosts again on a reload, and nothing after it is gone', async () => {
+    const view = render(<SegmentHosts params={PARAMS} test={TEST} state="unprotected" onOpenPair={vi.fn()} now={NOW} reloadToken={0} />);
+    await screen.findByRole('button', { name: /HOST-3/ });
+
+    view.rerender(<SegmentHosts params={PARAMS} test={TEST} state="unprotected" onOpenPair={vi.fn()} now={NOW} reloadToken={1} />);
+
+    await waitFor(() => expect(getHosts).toHaveBeenCalledTimes(2));
+    expect(getHosts.mock.calls[1][1]).toMatchObject({ page: 1 });
+  });
+
   it('says when it is loading, when there is none, and when it failed', async () => {
     const user = userEvent.setup();
     getHosts.mockReturnValueOnce(new Promise(() => {}));
-    const first = render(<SegmentHosts params={PARAMS} test={TEST} state="unprotected" onOpenPair={vi.fn()} now={NOW} />);
+    const first = render(<SegmentHosts params={PARAMS} test={TEST} state="unprotected" onOpenPair={vi.fn()} now={NOW} reloadToken={0} />);
     expect(screen.getByRole('status')).toHaveTextContent('Loading hosts…');
     first.unmount();
 
     getHosts.mockResolvedValueOnce(answer([], 0));
-    const second = render(<SegmentHosts params={PARAMS} test={TEST} state="unprotected" onOpenPair={vi.fn()} now={NOW} />);
+    const second = render(<SegmentHosts params={PARAMS} test={TEST} state="unprotected" onOpenPair={vi.fn()} now={NOW} reloadToken={0} />);
     expect(await screen.findByText('No host in this state now')).toBeInTheDocument();
     second.unmount();
 

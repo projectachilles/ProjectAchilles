@@ -50,6 +50,8 @@ export function useMatrixUrlState() {
       update((p) => {
         p.delete('run');
         if (next) {
+          // The address then opens the matrix for anyone, whatever view their browser remembers.
+          p.set('view', 'matrix');
           p.set('pairTest', next.testUuid);
           p.set('pairHost', next.hostKey);
         } else {

@@ -46,6 +46,11 @@ export interface ExecutionsViewProps extends ExecutionsDataTableProps {
   forceList: boolean;
   /** The user chose Matrix while the list was required: drop what required it. */
   onReleaseList: () => void;
+  /**
+   * Which view is on screen, null until the server has said what it supports.
+   * The page loads the list's runs only while the list is shown.
+   */
+  onViewChange?: (view: ExecutionsViewName | null) => void;
 }
 
 /**
@@ -53,25 +58,34 @@ export interface ExecutionsViewProps extends ExecutionsDataTableProps {
  * or today's list. The matrix is the default where the server has it
  * (capability `coverageMatrix`); elsewhere there is no switch and only the list.
  */
-export default function ExecutionsView({ filterParams, reloadToken, forceList, onReleaseList, ...table }: ExecutionsViewProps) {
+export default function ExecutionsView({ filterParams, reloadToken, forceList, onReleaseList, onViewChange, ...table }: ExecutionsViewProps) {
   const capabilities = useCapabilities();
-  const { view: viewInUrl, setView } = useMatrixUrlState();
-  const [remembered, setRemembered] = useState(storedView);
+  const { view: viewInUrl, pair: pairInUrl, setView } = useMatrixUrlState();
+  // Read once: after that the address says which view, so a click changes the view
+  // and the address in the same step (the list writes `expanded=` as soon as it shows).
+  const [remembered] = useState(storedView);
+
+  const ready = capabilities.loaded !== false;
+  const hasMatrix = ready && Boolean(capabilities.coverageMatrix);
+  // A pair in the address is the matrix's: a link to one opens the matrix whatever this browser remembers.
+  const view: ExecutionsViewName = !hasMatrix || forceList ? 'list' : viewInUrl ?? (pairInUrl ? 'matrix' : null) ?? remembered ?? 'matrix';
+  const shown = ready ? view : null;
+  useEffect(() => {
+    onViewChange?.(shown);
+  }, [shown, onViewChange]);
 
   // Until the server has answered, neither: the list must not flash before the matrix.
-  if (capabilities.loaded === false) {
+  if (!ready) {
     return (
       <Card className="flex min-h-40 items-center justify-center">
         <Loader2 className="h-6 w-6 animate-spin text-muted" />
       </Card>
     );
   }
-  if (!capabilities.coverageMatrix) return <ExecutionsDataTable {...table} />;
+  if (!hasMatrix) return <ExecutionsDataTable {...table} />;
 
-  const view: ExecutionsViewName = forceList ? 'list' : viewInUrl ?? remembered ?? 'matrix';
   const choose = (next: ExecutionsViewName) => {
     rememberView(next);
-    setRemembered(next);
     if (next === 'matrix' && forceList) onReleaseList();
     setView(next);
   };
@@ -130,8 +144,12 @@ function MatrixView({ filterParams, reloadToken, onAcceptRisk, onRevokeRisk, onA
   const token = reloadToken + changes;
 
   const [pairRows, setPairRows] = useState<DisplayRow[]>([]);
-  /** The pair was opened by a click: its latest run opens with it. A pair from an address opens the run the address names. */
-  const openLatest = useRef(false);
+  /**
+   * The pair was opened by a click: the run the mark shows opens with it (`at`
+   * is that result's time; the newest run when it is not among those loaded).
+   * A pair from an address opens the run the address names.
+   */
+  const openWith = useRef<{ at?: string } | null>(null);
 
   const index = runKey ? pairRows.findIndex((row) => row.key === runKey) : -1;
   const selectedRow = index >= 0 ? pairRows[index] : null;
@@ -166,8 +184,9 @@ function MatrixView({ filterParams, reloadToken, onAcceptRisk, onRevokeRisk, onA
     };
   }, [namesKey, token]);
 
-  const openPair = (next: PairRef | null) => {
-    openLatest.current = next !== null;
+  const openPair = (next: PairRef | null, at?: string) => {
+    openWith.current = next ? { at } : null;
+    collapseControls();
     setPairRows([]);
     setPair(next);
   };
@@ -177,9 +196,13 @@ function MatrixView({ filterParams, reloadToken, onAcceptRisk, onRevokeRisk, onA
   };
   const runsLoaded = (rows: DisplayRow[]) => {
     setPairRows(rows);
-    if (openLatest.current && rows.length > 0) {
-      openLatest.current = false;
-      setRunKey(rows[0].key);
+    const wanted = openWith.current;
+    if (wanted && rows.length > 0) {
+      openWith.current = null;
+      // The mark shows the latest conclusive result; a newer run without a verdict may sit above it.
+      const at = wanted.at ? Date.parse(wanted.at) : Number.NaN;
+      const shownRun = rows.find((row) => Date.parse(row.type === 'bundle' ? row.timestamp : row.execution.timestamp) === at);
+      setRunKey((shownRun ?? rows[0]).key);
     }
   };
 
@@ -222,12 +245,13 @@ function MatrixView({ filterParams, reloadToken, onAcceptRisk, onRevokeRisk, onA
               selectedRunKey={selectedKey}
               onSelectRun={selectRun}
               onRunsLoaded={runsLoaded}
+              onClose={() => openPair(null)}
               reloadToken={token}
               showVersions={detail.panelProps.showVersions}
             />
           );
         }}
-        renderSegment={(test, state) => <SegmentHosts params={filterParams} test={test} state={state} onOpenPair={openPair} />}
+        renderSegment={(test, state) => <SegmentHosts params={filterParams} test={test} state={state ?? undefined} onOpenPair={openPair} reloadToken={token} />}
       />
       <RunDrawer
         open={selectedRow !== null}

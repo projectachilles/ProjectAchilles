@@ -829,6 +829,52 @@ describe('All Executions: matrix or list', () => {
     await waitFor(() => expect(matrix()).toHaveBeenCalledTimes(2));
   });
 
+  it('downloads the list\'s runs only while the list is shown', async () => {
+    const list = mocks.analytics.api.getGroupedPaginatedExecutions;
+    renderAt('?tab=executions');
+    await screen.findByText('No results in this window');
+    await new Promise((r) => setTimeout(r, 30));
+    expect(list).not.toHaveBeenCalled();
+
+    fireEvent.click(screen.getByRole('button', { name: /Refresh/ }));
+    await waitFor(() => expect(matrix()).toHaveBeenCalledTimes(2));
+    expect(list).not.toHaveBeenCalled();
+
+    fireEvent.click(screen.getByRole('button', { name: 'List' }));
+    await waitFor(() => expect(list).toHaveBeenCalledTimes(1));
+
+    fireEvent.click(screen.getByRole('button', { name: 'Matrix' }));
+    await screen.findByText('No results in this window');
+    fireEvent.click(screen.getByRole('button', { name: /Refresh/ }));
+    await waitFor(() => expect(matrix()).toHaveBeenCalledTimes(4));
+    expect(list).toHaveBeenCalledTimes(1);
+  });
+
+  it('keeps "view=list" in the address when the list selects its first run as it appears', async () => {
+    // The list writes `expanded=` the moment it shows; that must not undo the click that showed it.
+    const run = {
+      test_uuid: 'a0000000-1234-4abc-8def-000000000001', test_name: 'Solo test', hostname: 'HOST-01', org: 'org-1',
+      timestamp: '2026-01-10T09:00:00.000Z', error_code: 101, is_protected: false, techniques: [],
+    };
+    mocks.analytics.reset({
+      getGroupedPaginatedExecutions: {
+        groups: [{ groupKey: 'run-1', type: 'standalone', representative: run, members: [run], protectedCount: 0, unprotectedCount: 1, totalCount: 1 }],
+        pagination: { page: 1, pageSize: 25, totalGroups: 1, totalDocuments: 1, totalPages: 1, hasNext: false, hasPrevious: false },
+      },
+      getCoverageMatrix: emptyMatrix,
+      getFilterOptions: { tests: [], techniques: [], hostnames: [], categories: [], threatActors: [], tags: [], errorNames: [], errorCodes: [], bundleNames: [] },
+      lookupAcceptances: {},
+    });
+    renderAt('?tab=executions');
+    await screen.findByText('No results in this window');
+
+    fireEvent.click(screen.getByRole('button', { name: 'List' }));
+
+    await waitFor(() => expect(screen.getByTestId('loc').textContent).toContain('expanded=run-1'));
+    expect(screen.getByTestId('loc').textContent).toContain('view=list');
+    expect(screen.getByRole('button', { name: 'List' })).toHaveAttribute('aria-pressed', 'true');
+  });
+
   it('does not ask for the matrix on the dashboard tab', async () => {
     renderAt('');
     await screen.findByText('Outcome breakdown');

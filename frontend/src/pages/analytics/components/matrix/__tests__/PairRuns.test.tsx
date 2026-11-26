@@ -13,6 +13,7 @@ vi.mock('@/services/api/analytics', async () => {
 });
 
 const { PairRuns } = await import('../PairRuns');
+const { joinFilterList } = await import('@/lib/filterList');
 type Props = Parameters<typeof PairRuns>[0];
 
 const TEST = 'a0000000-1234-4abc-8def-000000000001';
@@ -41,6 +42,7 @@ function setup(over: Partial<Props> = {}) {
     selectedRunKey: null,
     onSelectRun: vi.fn(),
     onRunsLoaded: vi.fn(),
+    onClose: vi.fn(),
     reloadToken: 0,
     ...over,
   };
@@ -125,6 +127,39 @@ describe('PairRuns', () => {
     expect(getGrouped.mock.calls[1][0]).toMatchObject({ page: 2 });
     expect(screen.queryByRole('button', { name: /Show \d+ more/ })).not.toBeInTheDocument();
     expect((props.onRunsLoaded as ReturnType<typeof vi.fn>).mock.lastCall![0].map((r: { key: string }) => r.key)).toEqual(['run-3', 'run-2', 'run-1']);
+  });
+
+  it('can be closed from its own header', async () => {
+    const user = userEvent.setup();
+    const { props } = setup();
+    await screen.findAllByRole('button', { name: /Protected|Unprotected/ });
+
+    await user.click(screen.getByRole('button', { name: 'Close the runs of HOST-01' }));
+
+    expect(props.onClose).toHaveBeenCalledTimes(1);
+  });
+
+  it('asks for a hostname that holds a comma as one hostname', async () => {
+    setup({ hostname: 'odd,name', pair: { testUuid: TEST, hostKey: 'org-1|odd,name' } });
+    await screen.findAllByRole('button', { name: /Protected|Unprotected/ });
+
+    // The parameter is a comma-separated list: a bare comma would ask for two hosts.
+    expect(getGrouped.mock.calls[0][0].hostnames).toBe(joinFilterList(['odd,name']));
+    expect(getGrouped.mock.calls[0][0].hostnames).not.toBe('odd,name');
+  });
+
+  it('reports nothing once it is gone: a late answer is nobody\'s', async () => {
+    let resolve!: (v: GroupedPaginatedResponse) => void;
+    getGrouped.mockReturnValueOnce(new Promise((r) => { resolve = r; }));
+    const { props, unmount } = setup();
+
+    unmount();
+    await act(async () => {
+      resolve(page([solo('run-1', {})]));
+      await new Promise((r) => setTimeout(r, 20));
+    });
+
+    expect(props.onRunsLoaded).not.toHaveBeenCalled();
   });
 
   it('says when the pair has no run in the window', async () => {

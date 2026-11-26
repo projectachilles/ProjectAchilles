@@ -25,6 +25,7 @@ const SHAPE: Record<MarkForm, string> = {
 /**
  * A bundle's controls on one host: the compliant share, filled. The same
  * classes whatever the share: the width says it, no threshold picks a colour.
+ * With nothing evaluated the gauge is empty and neutral, never all red.
  */
 function Gauge({ ratio, className }: { ratio: MatrixRatio; className?: string }) {
   const percent = gaugePercent(ratio);
@@ -43,11 +44,19 @@ interface MatrixCellMarkProps {
   /** This pair's runs are shown under the row. */
   open: boolean;
   onToggle: () => void;
+  /** Position in the matrix, for the arrow keys: the test's row and the host's column. */
+  row: number;
+  col: number;
   now: number;
 }
 
-/** One test on one host: a button that opens the pair's runs, or a hollow mark where it never ran. */
-export function MatrixCellMark({ form, host, cell, open, onToggle, now }: MatrixCellMarkProps) {
+/**
+ * One test on one host: a button that opens the pair's runs, or a hollow mark
+ * where it never ran. The matrix is one stop for the Tab key and the arrow
+ * keys move inside it (CoverageMatrix sets which mark is the stop), so a mark
+ * is out of the tab order on its own.
+ */
+export function MatrixCellMark({ form, host, cell, open, onToggle, row, col, now }: MatrixCellMarkProps) {
   const label = cellLabel(host, cell, now);
 
   if (!cell) {
@@ -69,8 +78,11 @@ export function MatrixCellMark({ form, host, cell, open, onToggle, now }: Matrix
   const meta = cell.verdict ? VERDICT_META[cell.verdict] : null;
   const shared = {
     type: 'button' as const,
+    tabIndex: -1,
     'data-testid': 'matrix-mark',
     'data-matrix-mark': '',
+    'data-row': row,
+    'data-col': col,
     'aria-label': label,
     'aria-expanded': open,
     title: label,

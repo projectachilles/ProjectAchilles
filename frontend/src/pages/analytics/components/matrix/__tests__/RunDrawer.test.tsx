@@ -144,6 +144,20 @@ describe('RunDrawer', () => {
     expect(document.body.style.overflow).toBe('');
   });
 
+  it('steps aside for a dialog opened over it: not modal, and inert', () => {
+    // The detail's dialogs are siblings of the drawer. A modal drawer would hide them from
+    // a screen reader; an inert one leaves the dialog as the only thing to use.
+    const { rerender } = render(<Harness startOpen suspended />);
+    const dialog = screen.getByRole('dialog', { name: 'Chain A on HOST-01', hidden: true });
+
+    expect(dialog).not.toHaveAttribute('aria-modal');
+    expect(dialog.closest('[inert]')).not.toBeNull();
+
+    rerender(<Harness startOpen />);
+    expect(screen.getByRole('dialog', { name: 'Chain A on HOST-01' })).toHaveAttribute('aria-modal', 'true');
+    expect(screen.getByRole('dialog', { name: 'Chain A on HOST-01' }).closest('[inert]')).toBeNull();
+  });
+
   it('ignores the keyboard while a dialog is open over it', async () => {
     const user = userEvent.setup();
     const onClose = vi.fn();

@@ -114,7 +114,7 @@ describe('rows', () => {
     expect(await screen.findByText('3 hosts · 2 tests · latest result in 30d')).toBeInTheDocument();
     const legend = screen.getByRole('list', { name: 'States' });
     expect(within(legend).getAllByRole('listitem').map((li) => li.textContent)).toEqual([
-      '✓protected', '▲detected', '✕unprotected', '?no verdict', '⊘risk accepted',
+      '✓protected', '▲detected', '✕unprotected', '?no verdict', '⊘risk accepted', 'never run',
     ]);
   });
 
@@ -312,12 +312,51 @@ describe('a fleet the server sends without cells', () => {
     expect(screen.queryByText('hosts of the segment')).not.toBeInTheDocument();
   });
 
-  it('offers no host list for a bundle\'s bar: a bundle has no state per host', async () => {
+  it('lists a bundle\'s hosts from one button: its bar counts controls, not hosts', async () => {
+    const user = userEvent.setup();
     getCoverageMatrix.mockResolvedValue(BIG);
-    setup();
+    const renderSegment = vi.fn((test, state) => <p>hosts of {test.name}: {state ?? 'all'}</p>);
+    setup({ renderSegment });
     await screen.findByRole('heading', { name: 'Baseline' });
+    const row = within(rowOf('Baseline'));
 
-    expect(within(rowOf('Baseline')).queryByRole('button')).not.toBeInTheDocument();
+    // The counts are text here: "300 not compliant" is controls, there is no such list of hosts.
+    expect(row.getAllByRole('button').map((b) => b.textContent)).toEqual(['Show hosts']);
+    await user.click(row.getByRole('button', { name: 'Show hosts' }));
+
+    expect(row.getByText('hosts of Baseline: all')).toBeInTheDocument();
+    expect(row.getByRole('button', { name: 'Hide hosts' })).toHaveAttribute('aria-expanded', 'true');
+    await user.click(row.getByRole('button', { name: 'Hide hosts' }));
+    expect(screen.queryByText(/hosts of Baseline/)).not.toBeInTheDocument();
+  });
+
+  it('keeps a segment\'s hosts above the runs of a host opened from them', async () => {
+    const user = userEvent.setup();
+    getCoverageMatrix.mockResolvedValue(BIG);
+    const { rerenderWith } = setup({ renderSegment: () => <p>the hosts</p>, renderPair: () => <p>the runs</p> });
+    await screen.findByRole('heading', { name: 'Solo test' });
+    await user.click(within(rowOf('Solo test')).getByRole('button', { name: '12 unprotected' }));
+
+    rerenderWith({ renderSegment: () => <p>the hosts</p>, renderPair: () => <p>the runs</p>, openPair: { testUuid: 't1', hostKey: 'org-1|HOST-77' } });
+
+    const row = rowOf('Solo test');
+    expect(within(row).getByText('the hosts')).toBeInTheDocument();
+    expect(within(row).getByText('the runs')).toBeInTheDocument();
+    expect(within(row).getByText('the hosts').compareDocumentPosition(within(row).getByText('the runs')) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+  });
+
+  it('closes a segment whose count fell to zero after a reload', async () => {
+    const user = userEvent.setup();
+    getCoverageMatrix.mockResolvedValue(BIG);
+    const { rerenderWith } = setup({ renderSegment: () => <p>the hosts</p> });
+    await screen.findByRole('heading', { name: 'Solo test' });
+    await user.click(within(rowOf('Solo test')).getByRole('button', { name: '3 detected' }));
+    expect(screen.getByText('the hosts')).toBeInTheDocument();
+    getCoverageMatrix.mockResolvedValue({ ...BIG, tests: [{ ...BIG.tests[0], counts: { ...BIG.tests[0].counts, detected: 0 } }, BIG.tests[1]] });
+
+    rerenderWith({ reloadToken: 1 });
+
+    await waitFor(() => expect(screen.queryByText('the hosts')).not.toBeInTheDocument());
   });
 });
 
@@ -329,7 +368,8 @@ describe('opening a pair', () => {
     const first = () => within(rowOf('Chain A')).getAllByTestId('matrix-mark')[0];
 
     await user.click(first());
-    expect(props.onOpenPair).toHaveBeenLastCalledWith({ testUuid: 'c1', hostKey: 'org-1|HOST-01' });
+    // With the time of the result the mark shows, so the run opened is that one.
+    expect(props.onOpenPair).toHaveBeenLastCalledWith({ testUuid: 'c1', hostKey: 'org-1|HOST-01' }, at(3));
     expect(first()).toHaveAttribute('aria-expanded', 'false');
 
     rerenderWith({ openPair: { testUuid: 'c1', hostKey: 'org-1|HOST-01' } });
@@ -348,6 +388,31 @@ describe('opening a pair', () => {
     expect(renderPair).toHaveBeenCalledWith({ testUuid: 'c1', hostKey: 'org-1|HOST-02' }, expect.objectContaining({ testUuid: 'c1' }), expect.objectContaining({ hostname: 'HOST-02' }));
   });
 
+  it('paints each state in its own colour', async () => {
+    const verdicts = ['protected', 'detected', 'unprotected', 'no_verdict', 'risk_accepted'] as const;
+    getCoverageMatrix.mockResolvedValue(response({ hosts: hostsOf(5), tests: [row({ cells: verdicts.map((verdict, i) => ({ i, verdict, at: at(1) })) })] }));
+    setup();
+    await screen.findByRole('heading', { name: 'Solo test' });
+    const colourOf = (el: HTMLElement) => ['accent', 'warning', 'danger', 'info'].find((tone) => el.className.includes(`text-${tone}`) || el.className.includes(`bg-${tone}`)) ?? 'neutral';
+
+    expect(within(rowOf('Solo test')).getAllByTestId('matrix-mark').map(colourOf)).toEqual(['accent', 'warning', 'danger', 'neutral', 'info']);
+  });
+
+  it('keeps hostnames above small tiles inside the card: capped, and leaning towards their own column', async () => {
+    const hosts = hostsOf(30).map((h, i) => (i === 29 ? { ...h, hostname: 'a-very-long-hostname.lab.example.test' } : h));
+    getCoverageMatrix.mockResolvedValue(response({ hosts, tests: [row({ cells: [{ i: 0, verdict: 'protected', at: at(1) }] })] }));
+    setup();
+    await screen.findByRole('heading', { name: 'Solo test' });
+
+    const last = screen.getAllByTestId('matrix-host')[29];
+
+    expect(last).toHaveAttribute('title', 'a-very-long-hostname.lab.example.test');
+    // Anchored at its right end, so it never extends past the last column; cut at a fixed length.
+    expect(last.className).toContain('origin-bottom-right');
+    expect(last.className).toContain('truncate');
+    expect(last.className).toMatch(/max-w-/);
+  });
+
   it('shows an open pair of a fleet drawn as bars, where the host is not on the axis', async () => {
     getCoverageMatrix.mockResolvedValue(response({ hosts: [], hostCount: 400, cellsIncluded: false, tests: [row({ cells: null })] }));
     const renderPair = vi.fn(() => <p>runs</p>);
@@ -357,21 +422,83 @@ describe('opening a pair', () => {
     expect(renderPair).toHaveBeenCalledWith({ testUuid: 't1', hostKey: 'org-1|HOST-77' }, expect.anything(), null);
   });
 
-  it('moves between marks with the arrow keys and opens with Enter', async () => {
+  it('moves along a row with left and right, between rows in the same column with up and down, and opens with Enter', async () => {
     const user = userEvent.setup();
     const { props } = setup();
     await screen.findByRole('heading', { name: 'Chain A' });
-    const buttons = screen.getAllByTestId('matrix-mark').filter((m) => m.tagName === 'BUTTON');
+    const [chain1, chain2] = within(rowOf('Chain A')).getAllByRole('button');
+    const [baseline1] = within(rowOf('Baseline')).getAllByRole('button');
 
+    chain1.focus();
+    await user.keyboard('{ArrowRight}');
+    expect(chain2).toHaveFocus();
+    await user.keyboard('{ArrowRight}'); // the row's last mark: stays
+    expect(chain2).toHaveFocus();
+    await user.keyboard('{ArrowDown}'); // Baseline has no mark in HOST-02's column: stays
+    expect(chain2).toHaveFocus();
+    await user.keyboard('{ArrowLeft}');
+    expect(chain1).toHaveFocus();
+    await user.keyboard('{ArrowDown}');
+    expect(baseline1).toHaveFocus();
+    await user.keyboard('{ArrowUp}');
+    expect(chain1).toHaveFocus();
+    await user.keyboard('{Enter}');
+    expect(props.onOpenPair).toHaveBeenLastCalledWith({ testUuid: 'c1', hostKey: 'org-1|HOST-01' }, at(3));
+  });
+
+  it('is one stop for the Tab key: the mark last focused, the first one before any was', async () => {
+    const user = userEvent.setup();
+    setup();
+    await screen.findByRole('heading', { name: 'Chain A' });
+    const buttons = screen.getAllByTestId('matrix-mark').filter((m) => m.tagName === 'BUTTON');
+    const stops = () => buttons.map((b) => b.getAttribute('tabindex'));
+
+    expect(stops()).toEqual(['0', '-1', '-1']);
     buttons[0].focus();
     await user.keyboard('{ArrowRight}');
+    expect(stops()).toEqual(['-1', '0', '-1']);
+
+    await user.tab(); // leaves the matrix: no other mark takes focus
+    expect(buttons.some((b) => b === document.activeElement)).toBe(false);
+    await user.tab({ shift: true });
     expect(buttons[1]).toHaveFocus();
-    await user.keyboard('{ArrowDown}');
-    expect(buttons[2]).toHaveFocus();
-    await user.keyboard('{ArrowLeft}');
-    expect(buttons[1]).toHaveFocus();
-    await user.keyboard('{Enter}');
-    expect(props.onOpenPair).toHaveBeenLastCalledWith({ testUuid: 'c1', hostKey: 'org-1|HOST-02' });
+  });
+
+  it('names each row\'s marks by its test, for a reader that lands on a mark', async () => {
+    setup();
+    await screen.findByRole('heading', { name: 'Chain A' });
+
+    const strip = within(rowOf('Chain A')).getByRole('group', { name: 'Chain A' });
+
+    expect(within(strip).getAllByTestId('matrix-mark')).toHaveLength(3);
+  });
+
+  it('writes out the mark that has the focus or the pointer, where marks are too small to carry text', async () => {
+    const user = userEvent.setup();
+    getCoverageMatrix.mockResolvedValue(
+      response({ hosts: hostsOf(100), tests: [row({ cells: [{ i: 0, verdict: 'protected', at: at(1) }, { i: 99, verdict: 'unprotected', at: at(2) }] })] }),
+    );
+    setup();
+    await screen.findByRole('heading', { name: 'Solo test' });
+    const marks = within(rowOf('Solo test')).getAllByTestId('matrix-mark');
+    const hint = screen.getByTestId('matrix-hint');
+    expect(hint).toHaveTextContent('');
+
+    marks[0].focus();
+    expect(hint).toHaveTextContent('Solo test · HOST-01: protected, 1 day ago');
+    await user.hover(marks[99]);
+    expect(hint).toHaveTextContent('Solo test · HOST-100: unprotected, 2 days ago');
+    await user.hover(marks[50]);
+    expect(hint).toHaveTextContent('Solo test · HOST-51: never run');
+    // A screen reader has each mark's own name; the line is for the eye.
+    expect(hint).toHaveAttribute('aria-hidden', 'true');
+  });
+
+  it('has no such line where each mark already shows its host and age', async () => {
+    setup();
+    await screen.findByRole('heading', { name: 'Chain A' });
+
+    expect(screen.queryByTestId('matrix-hint')).not.toBeInTheDocument();
   });
 });
 
