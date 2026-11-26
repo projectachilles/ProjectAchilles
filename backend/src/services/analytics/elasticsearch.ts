@@ -1318,12 +1318,12 @@ export class ElasticsearchService {
    * Pairs without a verdict (coverage matrix): same TTL and budget as the
    * inconclusive runs. Always fetched any-stage, so the key needs no scoring mode.
    */
-  private readonly noVerdictCache = new TtlPromiseCache<PairRun[]>({
+  private readonly noVerdictCache = new TtlPromiseCache<{ runs: PairRun[]; rawRuns: PairRun[] | null }>({
     ttlMs: POSTURE_CACHE_OPTIONS.ttlMs,
     maxEntries: POSTURE_CACHE_OPTIONS.maxEntries,
     maxEntryWeight: INCONCLUSIVE_CACHE_MAX_ENTRIES,
     maxTotalWeight: INCONCLUSIVE_CACHE_MAX_ENTRIES,
-    weigh: (runs) => runs.length,
+    weigh: (v) => v.runs.length + (v.rawRuns?.length ?? 0),
   });
 
   /** Skipped stages per bundle run (stage coverage): same TTL and budget as the inconclusive runs. */
@@ -2002,7 +2002,7 @@ export class ElasticsearchService {
    * scope's filters and risk-acceptance exclusion. A pair listed here may
    * also have a conclusive result: the caller removes those.
    */
-  private fetchNoConclusiveRuns(scope: PostureScope, withMetadata: boolean): Promise<PairRun[]> {
+  private fetchNoConclusiveRuns(scope: PostureScope, withMetadata: boolean, withExclusion = true): Promise<PairRun[]> {
     const filters = this.buildPostureFilters(
       scope.window.fromMs,
       scope.window.toMs,
@@ -2010,15 +2010,31 @@ export class ElasticsearchService {
       scope.org,
       scope.clauses,
     );
-    if (scope.exclusionFilter) filters.push(scope.exclusionFilter);
+    if (withExclusion && scope.exclusionFilter) filters.push(scope.exclusionFilter);
     return this.fetchPairRuns(filters, scope.isAnyStage, { withMetadata, latestOnly: true });
+  }
+
+  /**
+   * The coverage matrix's pairs without a verdict, with their names, and (only
+   * when a risk acceptance exists) the same without the exclusion: a pair that
+   * is accepted and never had a verdict is in the second list alone.
+   */
+  private getMatrixNoVerdictRuns(scope: PostureScope): Promise<{ runs: PairRun[]; rawRuns: PairRun[] | null }> {
+    const key = JSON.stringify({ ...scope.keyBase, kind: 'matrix-no-verdict' });
+    return this.noVerdictCache.get(key, async () => {
+      const [runs, rawRuns] = await Promise.all([
+        this.fetchNoConclusiveRuns(scope, true),
+        scope.exclusionFilter ? this.fetchNoConclusiveRuns(scope, true, false) : null,
+      ]);
+      return { runs, rawRuns };
+    });
   }
 
   /**
    * Coverage matrix: the latest result per test and host. The cells are the
    * Defense Score's latest-basis, any-stage pairs (same snapshot code, same
    * exclusion), plus the pairs that ran without ever reaching a verdict and
-   * the pairs a risk acceptance hides. Outcome filters are ignored, as on the
+   * the pairs a risk acceptance hides entirely. Outcome filters are ignored, as on the
    * outcome breakdown card; basis and scoring mode are fixed. The pivot and
    * its limits are in coverageMatrix.ts.
    *
@@ -2029,19 +2045,18 @@ export class ElasticsearchService {
     params: AnalyticsQueryParams & Partial<ExtendedAnalyticsQueryParams>,
     view: { rows: 'tests' } | ({ rows: 'hosts' } & HostsViewOptions),
   ): Promise<CoverageMatrixTestsResponse | CoverageMatrixHostsResponse> {
+    // The scope's outcome filters are never applied here (they are in-memory
+    // filters of the callers that want them), so they need no stripping.
     const scope = await this.resolvePostureScope({
       ...params,
-      result: undefined,
-      errorCodes: undefined,
-      errorNames: undefined,
       scoringMode: 'any-stage',
       ...(view.rows === 'hosts' && view.testUuid ? { testUuid: view.testUuid } : {}),
     });
     const [{ window, runs, rawRuns }, noVerdict] = await Promise.all([
       this.latestPostureFor(scope, 'matrix'),
-      this.noVerdictCache.get(JSON.stringify({ ...scope.keyBase, kind: 'matrix-no-verdict' }), () => this.fetchNoConclusiveRuns(scope, true)),
+      this.getMatrixNoVerdictRuns(scope),
     ]);
-    const model = buildCoverageModel({ window, runs, rawRuns, noVerdict });
+    const model = buildCoverageModel({ window, runs, rawRuns, noVerdict: noVerdict.runs, rawNoVerdict: noVerdict.rawRuns });
     return view.rows === 'tests' ? testsView(model, window.label) : hostsView(model, window.label, view);
   }
 

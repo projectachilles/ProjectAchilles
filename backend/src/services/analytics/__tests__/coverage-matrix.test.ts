@@ -285,6 +285,35 @@ describe('getCoverageMatrix', () => {
       expect(cell(view, CHAIN, 'host-1')).toEqual({ i: 0, verdict: 'detected', at: iso(T0) });
     });
 
+    it('marks an accepted test that never had a verdict on that host', async () => {
+      mockExclusion.mockResolvedValue({ bool: { must_not: [{ term: { 'f0rtika.test_name': 'Not applicable here' } }] } });
+
+      const view = await matrix([single(T0, SOLO, 126), single(T1, FAILS, 999, { name: 'Not applicable here' })]);
+
+      expect(cell(view, FAILS, 'host-1')).toEqual({ i: 0, verdict: 'risk_accepted', at: iso(T1) });
+      expect(view.tests.find((t) => t.testUuid === FAILS)).toMatchObject({ name: 'Not applicable here' });
+    });
+
+    it('reads a chain as "no verdict" when its only conclusive stage is accepted', async () => {
+      mockExclusion.mockResolvedValue({ bool: { must_not: [{ term: { 'f0rtika.control_id': 'T2' } }] } });
+
+      const view = await matrix([stage(T0, 1, 999), stage(T0, 2, 126), stage(T0, 3, 999)]);
+
+      expect(cell(view, CHAIN, 'host-1')).toEqual({ i: 0, verdict: 'no_verdict', at: iso(T0) });
+    });
+
+    it('reads the unfiltered results only when a risk is accepted', async () => {
+      await matrix(FLEET);
+      const without = mockSearch.mock.calls.length;
+      mockSearch.mockClear();
+      mockExclusion.mockResolvedValue({ bool: { must_not: [{ term: { 'f0rtika.control_id': 'CH-3' } }] } });
+
+      await matrix(FLEET);
+
+      // Each of the two fetches (conclusive, no verdict) runs once more without the exclusion.
+      expect(mockSearch.mock.calls.length).toBe(2 * without);
+    });
+
     it('counts an accepted control in its bundle\'s ratio', async () => {
       mockExclusion.mockResolvedValue({ bool: { must_not: [{ term: { 'f0rtika.control_id': 'CH-3' } }] } });
 
@@ -326,6 +355,13 @@ describe('getCoverageMatrix', () => {
 
       await es.getCoverageMatrix({ ...RANGE, hostnames: 'host-1' }, { rows: 'tests' });
       expect(mockSearch).toHaveBeenCalled();
+    });
+
+    it('reads the window and nothing before it', async () => {
+      await matrix(FLEET);
+
+      const lowerBounds = mockSearch.mock.calls.map(([req]) => req.query.bool.filter.find((f: any) => f.range)?.range['routing.event_time'].gte);
+      expect(new Set(lowerBounds)).toEqual(new Set(['2025-01-01T00:00:00.000Z']));
     });
 
     it('caps the window at 365 days', async () => {

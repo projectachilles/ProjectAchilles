@@ -52,7 +52,7 @@ const chain = (bundle: string, host: string, o: Opts = {}) => make(`bundle:${bun
 const control = (bundle: string, id: string, host: string, o: Opts = {}) =>
   make(`${bundle}::${id}`, host, { bundleName: 'Baseline', category: 'cyber-hygiene', ...o });
 
-const input = (i: Partial<MatrixInput>): MatrixInput => ({ window: W, runs: [], rawRuns: null, noVerdict: [], ...i });
+const input = (i: Partial<MatrixInput>): MatrixInput => ({ window: W, runs: [], rawRuns: null, noVerdict: [], rawNoVerdict: null, ...i });
 const tests = (i: Partial<MatrixInput>): CoverageMatrixTestsResponse => testsView(buildCoverageModel(input(i)), W.label);
 
 /** The cell of a test on a host, by names. */
@@ -111,10 +111,34 @@ describe('a cell is the pair\'s latest verdict', () => {
     expect(view.tests[0].counts).toMatchObject({ protected: 1, riskAccepted: 1 });
   });
 
-  it('prefers "risk accepted" to "no verdict" for one pair', () => {
-    const view = tests({ rawRuns: [plain('t1', 'h1', { day: 8 })], noVerdict: [plain('t1', 'h1', { day: 20 })] });
+  it('is "risk accepted" for an accepted pair that never had a verdict', () => {
+    const view = tests({ runs: [plain('t2', 'h1')], rawRuns: [plain('t2', 'h1')], rawNoVerdict: [plain('t1', 'h1', { day: 12, name: 'Not applicable here' })] });
 
-    expect(cell(view, 't1', 'h1')).toMatchObject({ verdict: 'risk_accepted', at: iso(8) });
+    expect(cell(view, 't1', 'h1')).toEqual({ i: 0, verdict: 'risk_accepted', at: iso(12) });
+    expect(view.tests.find((t) => t.testUuid === 't1')).toMatchObject({ name: 'Not applicable here', counts: { riskAccepted: 1, noVerdict: 0 } });
+  });
+
+  it('judges a pair by what the acceptance leaves of it: "no verdict" when only that remains', () => {
+    // A chain whose one conclusive stage is accepted: its other stages still ran, without a verdict.
+    const view = tests({
+      rawRuns: [chain('b1', 'h1', { day: 8, v: 'protected' })],
+      noVerdict: [chain('b1', 'h1', { day: 8 })],
+      rawNoVerdict: [chain('b1', 'h1', { day: 8 })],
+    });
+
+    expect(cell(view, 'b1', 'h1')).toEqual({ i: 0, verdict: 'no_verdict', at: iso(8) });
+  });
+
+  it('is not "risk accepted" for a pair the unfiltered runs merely repeat', () => {
+    const view = tests({
+      runs: [plain('t1', 'h1', { v: 'protected' })],
+      rawRuns: [plain('t1', 'h1', { v: 'protected' })],
+      noVerdict: [plain('t2', 'h1', { day: 3 })],
+      rawNoVerdict: [plain('t2', 'h1', { day: 3 }), plain('t1', 'h1', { day: 12 })],
+    });
+
+    expect(cell(view, 't1', 'h1')).toMatchObject({ verdict: 'protected' });
+    expect(cell(view, 't2', 'h1')).toMatchObject({ verdict: 'no_verdict' });
   });
 });
 
@@ -132,6 +156,7 @@ describe('rows', () => {
 
     expect(view.tests).toHaveLength(1);
     expect(view.tests[0]).toMatchObject({ key: 'b1', testUuid: 'b1', kind: 'chain', name: 'Chain A' });
+    expect(view.tests[0]).not.toHaveProperty('ratio');
     expect(cell(view, 'b1', 'h1')).toMatchObject({ verdict: 'detected' });
     expect(cell(view, 'b1', 'h2')).toMatchObject({ verdict: 'unprotected' });
   });
@@ -143,6 +168,14 @@ describe('rows', () => {
     expect(view.tests).toHaveLength(1);
     expect(view.tests[0]).toMatchObject({ kind: 'chain', counts: { protected: 1, unprotected: 0 } });
     expect(cell(view, 'b1', 'h1')).toEqual({ i: 0, verdict: 'protected', at: iso(9), earlier: ['unprotected'] });
+  });
+
+  it('lists one earlier result for a day on which both of them ran', () => {
+    const view = tests({
+      runs: [chain('b1', 'h1', { day: 9 }), chain('b1', 'h1', { day: 5, hour: 7 }), plain('b1', 'h1', { day: 5, hour: 18, v: 'protected' })],
+    });
+
+    expect(cell(view, 'b1', 'h1')).toEqual({ i: 0, verdict: 'unprotected', at: iso(9), earlier: ['protected'] });
   });
 
   it('draws a cyber-hygiene bundle as one row with a ratio per host', () => {
@@ -161,6 +194,8 @@ describe('rows', () => {
         control('ch', 'CH-4', 'h1', { v: 'silent', day: 6 }),
       ],
       noVerdict: [control('ch', 'CH-5', 'h1', { day: 6 }), control('ch', 'CH-1', 'h1', { day: 7 })],
+      // CH-6 is accepted and never had a verdict: accepted, not "not assessed".
+      rawNoVerdict: [control('ch', 'CH-5', 'h1', { day: 6 }), control('ch', 'CH-1', 'h1', { day: 7 }), control('ch', 'CH-6', 'h1', { day: 5 })],
     });
 
     expect(view.tests).toHaveLength(1);
@@ -169,13 +204,13 @@ describe('rows', () => {
       kind: 'controls',
       name: 'Baseline',
       category: 'cyber-hygiene',
-      ratio: { compliant: 2, evaluated: 4, notAssessed: 1, accepted: 1 },
+      ratio: { compliant: 2, evaluated: 4, notAssessed: 1, accepted: 2 },
     });
     const h1 = cell(view, 'ch', 'h1')!;
     // CH-1 has a conclusive result, so its later non-conclusive run does not make it "not assessed".
-    expect(h1).toEqual({ i: view.hosts.findIndex((h) => h.hostname === 'h1'), ratio: { compliant: 2, evaluated: 3, notAssessed: 1, accepted: 1 }, at: iso(6) });
+    expect(h1).toEqual({ i: view.hosts.findIndex((h) => h.hostname === 'h1'), ratio: { compliant: 2, evaluated: 3, notAssessed: 1, accepted: 2 }, at: iso(6) });
     expect(cell(view, 'ch', 'h2')).toMatchObject({ ratio: { compliant: 0, evaluated: 1, notAssessed: 0, accepted: 0 } });
-    expect(view.hosts.find((h) => h.hostname === 'h1')!.ratio).toEqual({ compliant: 2, evaluated: 3, notAssessed: 1, accepted: 1 });
+    expect(view.hosts.find((h) => h.hostname === 'h1')!.ratio).toEqual({ compliant: 2, evaluated: 3, notAssessed: 1, accepted: 2 });
   });
 
   it('shows "no verdict" on a bundle row for a host whose runs produced no control result', () => {
@@ -186,6 +221,24 @@ describe('rows', () => {
 
     expect(view.tests).toHaveLength(1);
     expect(cell(view, 'ch', 'h2')).toEqual({ i: view.hosts.findIndex((h) => h.hostname === 'h2'), verdict: 'no_verdict', at: iso(12) });
+  });
+
+  it('names a bundle row by a whole-run result before a control\'s own name', () => {
+    const view = tests({
+      runs: [make('ch::CH-1', 'h1', { name: 'CH-1 check' })],
+      noVerdict: [plain('ch', 'h2', { name: 'Baseline' })],
+    });
+
+    expect(view.tests[0]).toMatchObject({ kind: 'controls', name: 'Baseline' });
+  });
+
+  it('is a bundle row (ratio cells) when the same id has both controls and a chain run', () => {
+    const view = tests({ runs: [control('x', 'CH-1', 'h1', { v: 'protected' }), chain('x', 'h2', { name: 'X as a chain' })] });
+
+    expect(view.tests).toHaveLength(1);
+    expect(view.tests[0]).toMatchObject({ kind: 'controls', name: 'Baseline' });
+    expect(cell(view, 'x', 'h1')).toHaveProperty('ratio');
+    expect(cell(view, 'x', 'h2')).toMatchObject({ verdict: 'unprotected' });
   });
 
   it('names a bundle row by a control\'s test name when the bundle name is unknown', () => {
@@ -218,6 +271,12 @@ describe('earlier runs of an attack cell', () => {
     expect(earlier).toHaveLength(6);
     // Days 9 down to 4: day 3 (the protected one) is the seventh and is left out.
     expect(earlier).toEqual(Array(6).fill('unprotected'));
+  });
+
+  it('lists no run from before the window', () => {
+    const view = tests({ runs: [plain('t1', 'h1', { day: 10 }), plain('t1', 'h1', { day: -2, v: 'protected' })] });
+
+    expect(cell(view, 't1', 'h1')).not.toHaveProperty('earlier');
   });
 
   it('is absent when the pair ran once', () => {
@@ -264,6 +323,17 @@ describe('order', () => {
   });
 });
 
+describe('order of bundles', () => {
+  it('puts a bundle with no evaluated control last', () => {
+    const view = tests({
+      runs: [control('ch-full', 'CH-1', 'h1', { v: 'protected', bundleName: 'Full' })],
+      noVerdict: [control('ch-none', 'CH-1', 'h1', { bundleName: 'A bundle that never reported' })],
+    });
+
+    expect(view.tests.map((t) => t.name)).toEqual(['Full', 'A bundle that never reported']);
+  });
+});
+
 describe('organizations', () => {
   it('keeps one hostname in two organizations as two columns', () => {
     const view = tests({ runs: [plain('t1', 'h1', { org: 'org-a', v: 'protected' }), plain('t1', 'h1', { org: 'org-b' })] });
@@ -277,6 +347,12 @@ describe('organizations', () => {
     expect(cell(view, 't1', 'h1', 'org-b')).toMatchObject({ verdict: 'unprotected' });
   });
 
+  it('orders equally exposed hosts by hostname, not by organization', () => {
+    const view = tests({ runs: [plain('t1', 'beta', { org: 'org-a' }), plain('t1', 'Alpha', { org: 'org-b' })] });
+
+    expect(view.hosts.map((h) => h.key)).toEqual(['org-b|Alpha', 'org-a|beta']);
+  });
+
   it('reports no organization as null', () => {
     const view = tests({ runs: [plain('t1', 'h1', { org: '' })] });
 
@@ -285,6 +361,11 @@ describe('organizations', () => {
 });
 
 describe('limits', () => {
+  it('are 150 hosts with cells and 500 rows', () => {
+    // The page chooses its form from these; a change is a change of the contract in the API reference.
+    expect([MATRIX_CELL_HOST_LIMIT, MATRIX_MAX_ROWS]).toEqual([150, 500]);
+  });
+
   const fleet = (n: number) =>
     Array.from({ length: n }, (_, i) => plain('t1', `h${String(i).padStart(4, '0')}`, { v: i % 3 === 0 ? 'protected' : 'silent' }));
 

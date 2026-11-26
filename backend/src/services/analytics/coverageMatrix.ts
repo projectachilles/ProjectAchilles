@@ -42,6 +42,8 @@ export interface MatrixInput {
   rawRuns: MatrixRun[] | null;
   /** Non-conclusive runs of the window, exclusion applied. */
   noVerdict: MatrixRun[];
+  /** The same without the exclusion; null when nothing is excluded. */
+  rawNoVerdict: MatrixRun[] | null;
 }
 
 interface ModelCell {
@@ -108,8 +110,10 @@ export function buildCoverageModel(input: MatrixInput): CoverageModel {
   const { window } = input;
   const latestOf = (runs: MatrixRun[]): MatrixRun[] => latestPairsAsOf(runs, window.toMs, window.freshnessMs) as MatrixRun[];
 
-  // What each pair shows: its latest conclusive result; else that it is risk
-  // accepted (only the unfiltered runs have it); else that it never had a verdict.
+  // A pair is judged by what the risk-acceptance exclusion leaves of it: its
+  // latest conclusive result, else that it ran without a verdict. It is "risk
+  // accepted" only when the exclusion leaves nothing: an acceptance on one
+  // stage of a chain does not accept the chain.
   const entries: Entry[] = [];
   const seen = new Set<string>();
   const take = (runs: MatrixRun[], state: State): void => {
@@ -120,8 +124,9 @@ export function buildCoverageModel(input: MatrixInput): CoverageModel {
     }
   };
   take(input.runs, 'conclusive');
-  if (input.rawRuns) take(input.rawRuns, 'accepted');
   take(input.noVerdict, 'noVerdict');
+  if (input.rawRuns) take(input.rawRuns, 'accepted');
+  if (input.rawNoVerdict) take(input.rawNoVerdict, 'accepted');
 
   const hostInfo = new Map<string, { hostname: string; org: string | null }>();
   const drafts = new Map<string, TestDraft>();
@@ -239,9 +244,9 @@ function cellOf(slot: Slot, history: Map<string, MatrixRun[]>): ModelCell {
     }
     return { verdict: VERDICT_OF[classifyPairOutcome(shown.run)], atMs: shown.run.ts, ...(earlier.length > 0 ? { earlier } : {}) };
   }
-  const accepted = newest(slot.others.filter((e) => e.state === 'accepted'));
-  if (accepted) return { verdict: 'risk_accepted', atMs: accepted.run.ts };
-  return { verdict: 'no_verdict', atMs: newest(slot.others)!.run.ts };
+  const ran = newest(slot.others.filter((e) => e.state === 'noVerdict'));
+  if (ran) return { verdict: 'no_verdict', atMs: ran.run.ts };
+  return { verdict: 'risk_accepted', atMs: newest(slot.others)!.run.ts };
 }
 
 function describeTest(draft: TestDraft, counts: MatrixCounts, ratio: MatrixRatio): MatrixTest {

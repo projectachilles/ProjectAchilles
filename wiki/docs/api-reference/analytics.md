@@ -347,7 +347,7 @@ The latest result of every test on every host: one cell per test x host pair. Th
 | `detected` | The test ran and an EDR alert named it; nothing stopped it. |
 | `unprotected` | The test ran and nothing alerted. |
 | `no_verdict` | The pair has results in the window, none of them conclusive. A pair whose newest run has no verdict still shows its older conclusive result, as the Defense Score does. |
-| `risk_accepted` | A risk acceptance covers the pair. It is not counted as caught. |
+| `risk_accepted` | A risk acceptance covers every result of the pair, with or without a verdict. It is not counted as caught. An acceptance on one stage of a chain does not accept the chain: the cell is judged by the other stages. |
 
 "Caught" is `protected` plus `detected`. A multi-stage attack chain is one cell per host (protected if any stage of its latest run is). A cyber-hygiene bundle is one row whose cells carry a `ratio` and no `verdict`: `compliant` of `evaluated` controls by their latest results, plus `notAssessed` (controls that never had a conclusive result) and `accepted` (controls a risk acceptance covers). An attack cell also lists `earlier`: the pair's conclusive results on the days before the run shown, the latest of each day, newest first, at most six.
 
