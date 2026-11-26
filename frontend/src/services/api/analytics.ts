@@ -331,6 +331,71 @@ export interface StageCoverageResponse {
   noneCaught: StageCoverageGroup;
 }
 
+// Score movement (GET /api/analytics/score-movement)
+
+/** Where a failure in play came from, decided at its first failing moment. */
+export type MovementOrigin = 'open_at_start' | 'older_retested' | 'regression' | 'new_test' | 'first_on_endpoint';
+/** What became of a failure in play by the end of the period. */
+export type MovementOutcome = 'fixed' | 'still_failing' | 'not_retested' | 'left_untested';
+
+/** One test on one endpoint in a score movement list. */
+export interface MovementRow {
+  testUuid: string;
+  /** Bundle name for a bundle pair. */
+  testName: string;
+  controlId?: string;
+  hostname: string;
+  /** Absent on newStopped rows. */
+  origin?: MovementOrigin;
+  /** First result of the failing run the row describes (ISO); null when openBeforePeriod or never failing. */
+  failingSince: string | null;
+  /** That failing run includes the result before the period, so its true start was not read. */
+  openBeforePeriod?: true;
+  /** First protected result after that failing run (ISO). */
+  fixedAt?: string;
+  lastResultAt: string;
+}
+/** At most MOVEMENT_LIST_LIMIT rows; total is the full count. */
+export interface MovementList {
+  total: number;
+  rows: MovementRow[];
+}
+export type MovementListKey = 'fixed' | 'stillFailing' | 'notRetested' | 'leftUntested' | 'newStopped' | 'newGotThrough';
+export interface ScoreMovementResponse {
+  window: { from: string; to: string; label: string };
+  /** Score pairs in the score at from / at to. */
+  pairs: { start: number; end: number };
+  /** Unprotected score pairs at from / at to (the score's own counts). */
+  failing: { start: number; end: number };
+  /** failing.end = stillFailing + notRetested + fixedButCounted + countedTwice. */
+  scoreDifference: { fixedButCounted: number; countedTwice: number };
+  failures: {
+    total: number;
+    fixed: number;
+    stillFailing: number;
+    notRetested: number;
+    leftUntested: number;
+    fixRate: number | null;
+    origins: { openAtStart: number; olderRetested: number; regression: number; newTest: number; firstOnEndpoint: number };
+  };
+  /** First period result of every pair of a new attack test (cyber-hygiene left out). */
+  newTests: {
+    tests: number;
+    pairs: number;
+    stopped: number;
+    gotThrough: number;
+    rate: number | null;
+    gotThroughFixed: number;
+    gotThroughOpen: number;
+  };
+  regressed: { total: number; fixed: number };
+  /** Pairs with no prior result that are not new-test pairs. */
+  firstOnEndpoint: { pairs: number; stopped: number };
+  /** Open failures a risk acceptance removes entirely; null when nothing is excluded. */
+  riskAccepted: number | null;
+  lists: Record<MovementListKey, MovementList>;
+}
+
 export interface ExecutionActivityDay {
   date: string;
   protected: number;
@@ -774,6 +839,11 @@ export const analyticsApi = {
 
   async getStageCoverage(params?: ExtendedFilterParams): Promise<StageCoverageResponse> {
     const response = await apiClient.get('/analytics/stage-coverage', { params });
+    return response.data;
+  },
+
+  async getScoreMovement(params?: ExtendedFilterParams): Promise<ScoreMovementResponse> {
+    const response = await apiClient.get('/analytics/score-movement', { params });
     return response.data;
   },
 
