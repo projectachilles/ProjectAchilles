@@ -182,9 +182,10 @@ footer { padding: 16px 24px; text-align: center; color: var(--text-3); font-size
 
 <div class="note-card warn">
   <div class="label">Gotcha — table recreation</div>
-  SQLite has no <code>ALTER COLUMN</code>. Three CHECK-constraint expansions live in <code>database.ts</code>:
-  <code>migrateDarwinConstraint</code>, <code>migrateExecuteCommandType</code>, <code>migrateUninstalledStatus</code>.
-  Pattern: FK OFF → <code>DROP IF EXISTS temp</code> (crash-recovery) → CREATE temp → INSERT SELECT → DROP old → RENAME → recreate indexes → FK ON.
+  SQLite has no <code>ALTER COLUMN</code>. Five CHECK-constraint expansions live in <code>database.ts</code>
+  (<code>agents</code>, <code>agent_versions</code>, <code>tasks</code>, <code>agent_events</code>, <code>api_keys</code>), all through
+  <code>recreateIfOutdated()</code>: decide from the definition in <code>sqlite_master</code> (never a test insert) → FK OFF → <code>BEGIN IMMEDIATE</code> →
+  decide again → <code>DROP IF EXISTS temp</code> → CREATE temp → INSERT SELECT → DROP old → RENAME → recreate indexes → COMMIT → FK ON (in a <code>finally</code>).
   Always call <code>database.pragma('foreign_keys = OFF')</code> — never <code>exec('PRAGMA ...')</code> (PRAGMA only works outside transactions).
 </div>
 
