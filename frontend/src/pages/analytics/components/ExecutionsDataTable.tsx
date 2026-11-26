@@ -41,7 +41,7 @@ import { RunDetailPanel, type AcceptRiskItem } from './executions/RunDetailPanel
 import { useRunDetail } from './executions/useRunDetail';
 import { useRunDetailDialogs } from './executions/RunDetailDialogs';
 
-interface ExecutionsDataTableProps {
+export interface ExecutionsDataTableProps {
   data: GroupedPaginatedResponse | null;
   loading?: boolean;
   onPageChange: (page: number) => void;

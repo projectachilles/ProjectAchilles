@@ -9,6 +9,7 @@ import {
   caughtLine,
   gaugePercent,
   matrixScope,
+  parseHostKey,
   TILE_MIN_PX,
   SMALL_MIN_PX,
   SQUARE_MIN_PX,
@@ -184,6 +185,15 @@ describe('gaugePercent', () => {
 
   it('is unknown when nothing was evaluated', () => {
     expect(gaugePercent(ratio0)).toBeNull();
+  });
+});
+
+describe('parseHostKey', () => {
+  it('splits a host key at its first bar', () => {
+    expect(parseHostKey('org-1|HOST-01')).toEqual({ org: 'org-1', hostname: 'HOST-01' });
+    expect(parseHostKey('|HOST-01')).toEqual({ org: null, hostname: 'HOST-01' });
+    expect(parseHostKey('org-1|odd|name')).toEqual({ org: 'org-1', hostname: 'odd|name' });
+    expect(parseHostKey('no-bar')).toEqual({ org: null, hostname: 'no-bar' });
   });
 });
 

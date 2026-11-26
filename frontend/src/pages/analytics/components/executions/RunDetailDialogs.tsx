@@ -35,6 +35,8 @@ export interface RunDetailDialogs {
   requestAcceptRisk: (items: AcceptRiskItem[]) => void;
   /** Open the archive confirmation for these group keys (bulk action). */
   requestArchive: (keys: string[]) => void;
+  /** One of the dialogs is open (a drawer underneath leaves the keyboard to it). */
+  anyOpen: boolean;
 }
 
 /**
@@ -291,5 +293,6 @@ export function useRunDetailDialogs({
     dialogs,
     requestAcceptRisk: setRiskAcceptItems,
     requestArchive: setConfirmArchiveKeys,
+    anyOpen: Boolean(confirmArchiveKeys || riskAcceptItems || revokeTarget || infoModal),
   };
 }

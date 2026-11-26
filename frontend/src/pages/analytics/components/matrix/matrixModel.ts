@@ -143,6 +143,13 @@ export function caughtLine(test: MatrixTest): string {
   return `caught on ${caught} of ${judged} host${judged === 1 ? '' : 's'}`;
 }
 
+/** Organization and hostname of a host key (`<organization id>|<hostname>`; a hostname may hold a `|`, an id does not). */
+export function parseHostKey(hostKey: string): { org: string | null; hostname: string } {
+  const at = hostKey.indexOf('|');
+  if (at < 0) return { org: null, hostname: hostKey };
+  return { org: hostKey.slice(0, at) || null, hostname: hostKey.slice(at + 1) };
+}
+
 /** How full a bundle's gauge is: the compliant share of its evaluated controls, null when none was. */
 export function gaugePercent(ratio: MatrixRatio): number | null {
   return ratio.evaluated > 0 ? (ratio.compliant / ratio.evaluated) * 100 : null;
