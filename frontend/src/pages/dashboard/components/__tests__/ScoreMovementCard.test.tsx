@@ -92,10 +92,10 @@ describe('ScoreMovementCard', () => {
     expect(within(dialog).getByText('Nov 9')).toBeInTheDocument();
   });
 
-  it('leaves Origin blank and shows a dash for Failing since on the first-run list', async () => {
+  it('has no Origin or Failing since column on the first-run list, whatever the rows carry', async () => {
     const stopped: MovementRow = {
       ...ROW,
-      origin: undefined,
+      origin: 'new_test',
       failingSince: '2026-11-04T10:00:00Z',
       fixedAt: '2026-11-09T10:00:00Z',
     };
@@ -103,9 +103,37 @@ describe('ScoreMovementCard', () => {
     await userEvent.click(screen.getByRole('button', { name: 'View Stopped on the first run (193)' }));
     const dialog = screen.getByRole('dialog');
     expect(within(dialog).queryByRole('columnheader', { name: 'Fixed' })).toBeNull();
+    expect(within(dialog).queryByRole('columnheader', { name: 'Origin' })).toBeNull();
+    expect(within(dialog).queryByRole('columnheader', { name: 'Failing since' })).toBeNull();
+    expect(within(dialog).getByRole('columnheader', { name: 'Last result' })).toBeInTheDocument();
+    expect(within(dialog).queryByText('New test')).toBeNull();
     expect(within(dialog).queryByText('Nov 4')).toBeNull();
     expect(within(dialog).queryByText('Nov 9')).toBeNull();
-    expect(within(dialog).getByText('–', { selector: '[data-col="failing-since"]' })).toBeInTheDocument();
+    expect(within(dialog).getByText('Nov 12')).toBeInTheDocument();
+  });
+
+  it('names the dialog by its title', async () => {
+    wrap(<ScoreMovementCard {...props()} />);
+    await userEvent.click(screen.getByRole('button', { name: 'View Still failing (6)' }));
+    expect(screen.getByRole('dialog', { name: 'Still failing' })).toBeInTheDocument();
+    expect(screen.getByRole('heading', { level: 2, name: 'Still failing' }).closest('span')).toBeNull();
+  });
+
+  it('writes counts of 1,000 and more with a thousands separator', async () => {
+    const view = buildScoreMovementView({ ...FULL, failures: { ...FULL.failures, stillFailing: 1289 } }, 'last 30d');
+    wrap(<ScoreMovementCard {...props({ view, lists: { ...LISTS, stillFailing: { total: 1289, rows: [ROW] } } })} />);
+    expect(screen.getByText('1,289', { selector: 'span' })).toBeInTheDocument();
+    expect(screen.getByRole('img', { name: 'Fixed 32, Still failing 1,289, Not re-tested 5, Left the score untested 3' }))
+      .toBeInTheDocument();
+    await userEvent.click(screen.getByRole('button', { name: 'View Still failing (1,289)' }));
+    expect(screen.getByText('Showing 1 of 1,289')).toBeInTheDocument();
+  });
+
+  it('keeps a control id on one line', async () => {
+    const row: MovementRow = { ...ROW, controlId: 'CH-IEP-003' };
+    wrap(<ScoreMovementCard {...props({ lists: { ...LISTS, stillFailing: { total: 6, rows: [row] } } })} />);
+    await userEvent.click(screen.getByRole('button', { name: 'View Still failing (6)' }));
+    expect(within(screen.getByRole('dialog')).getByText('CH-IEP-003')).toHaveClass('whitespace-nowrap');
   });
 
   it('shows the failing-since date on the got-through list', async () => {

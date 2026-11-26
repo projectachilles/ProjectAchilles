@@ -33,9 +33,22 @@ export interface ScoreMovementView {
   footer: string[];
 }
 
-// Same format as formatRangeDay in DashboardPage.tsx ("Oct 27").
-function formatDay(iso: string): string {
-  return new Date(iso).toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+/**
+ * A day as the card writes it: "Oct 27", with the year ("Oct 27, 2025") when
+ * it is not the current year. Used by the card's notes and its list dialog.
+ */
+export function formatMovementDay(iso: string): string {
+  const date = new Date(iso);
+  const sameYear = date.getFullYear() === new Date().getFullYear();
+  return date.toLocaleDateString(
+    'en-US',
+    sameYear ? { month: 'short', day: 'numeric' } : { month: 'short', day: 'numeric', year: 'numeric' },
+  );
+}
+
+/** A count as the card writes it, with the thousands separator of the Defense Score tile ("1,289"). */
+export function formatCount(n: number): string {
+  return n.toLocaleString('en-US');
 }
 
 function percent(rate: number | null): string | null {
@@ -50,26 +63,28 @@ function failuresNote(data: ScoreMovementResponse): string | null {
   const { total, origins } = data.failures;
   if (total === 0) return null;
   const terms: string[] = [];
-  if (origins.openAtStart > 0) terms.push(`${origins.openAtStart} open on ${formatDay(data.window.from)}`);
-  if (origins.olderRetested > 0) {
-    terms.push(`${origins.olderRetested} ${plural(origins.olderRetested, 'older failure', 'older failures')} re-tested`);
+  const term = (n: number, one: string, many: string) => `${formatCount(n)} ${plural(n, one, many)}`;
+  if (origins.openAtStart > 0) {
+    terms.push(`${formatCount(origins.openAtStart)} open on ${formatMovementDay(data.window.from)}`);
   }
-  if (origins.newTest > 0) {
-    terms.push(`${origins.newTest} ${plural(origins.newTest, 'new test', 'new tests')} that got through`);
-  }
-  if (origins.regression > 0) terms.push(`${origins.regression} ${plural(origins.regression, 'regression', 'regressions')}`);
-  if (origins.firstOnEndpoint > 0) terms.push(`${origins.firstOnEndpoint} first time on an endpoint`);
-  return `${total} ${plural(total, 'failure', 'failures')} = ${terms.join(' + ')}`;
+  if (origins.olderRetested > 0) terms.push(`${term(origins.olderRetested, 'older failure', 'older failures')} re-tested`);
+  if (origins.newTest > 0) terms.push(`${term(origins.newTest, 'new test', 'new tests')} that got through`);
+  if (origins.regression > 0) terms.push(term(origins.regression, 'regression', 'regressions'));
+  if (origins.firstOnEndpoint > 0) terms.push(`${formatCount(origins.firstOnEndpoint)} first time on an endpoint`);
+  return `${formatCount(total)} ${plural(total, 'failure', 'failures')} = ${terms.join(' + ')}`;
 }
 
 function newTestsNote(data: ScoreMovementResponse): string | null {
   const { tests, pairs, gotThrough, gotThroughFixed, gotThroughOpen } = data.newTests;
   if (pairs === 0) return null;
   const base =
-    `${tests} ${plural(tests, 'test', 'tests')} run for the first time in this organization, ` +
-    `across ${pairs} test × endpoint ${plural(pairs, 'pair', 'pairs')}.`;
+    `${formatCount(tests)} ${plural(tests, 'test', 'tests')} run for the first time in this organization, ` +
+    `across ${formatCount(pairs)} test × endpoint ${plural(pairs, 'pair', 'pairs')}.`;
   if (gotThrough === 0) return base;
-  return `${base} Of the ${gotThrough} that got through: ${gotThroughFixed} fixed since, ${gotThroughOpen} still open.`;
+  return (
+    `${base} Of the ${formatCount(gotThrough)} that got through: ` +
+    `${formatCount(gotThroughFixed)} fixed since, ${formatCount(gotThroughOpen)} still open.`
+  );
 }
 
 function footerLines(data: ScoreMovementResponse): string[] {
@@ -77,31 +92,32 @@ function footerLines(data: ScoreMovementResponse): string[] {
   const { regressed, firstOnEndpoint, riskAccepted, scoreDifference } = data;
   if (regressed.total > 0) {
     lines.push(
-      `Regressed: ${regressed.total} ${plural(regressed.total, 'pair was', 'pairs were')} protected and got through, ` +
-        `${regressed.fixed} fixed since`,
+      `Regressed: ${formatCount(regressed.total)} ${plural(regressed.total, 'pair was', 'pairs were')} ` +
+        'protected and got through, ' +
+        `${formatCount(regressed.fixed)} fixed since`,
     );
   }
   if (firstOnEndpoint.pairs > 0) {
     lines.push(
-      `First time on an endpoint: ${firstOnEndpoint.pairs} ${plural(firstOnEndpoint.pairs, 'pair', 'pairs')}, ` +
-        `${firstOnEndpoint.stopped} stopped on the first run. Counted apart from new tests`,
+      `First time on an endpoint: ${formatCount(firstOnEndpoint.pairs)} ${plural(firstOnEndpoint.pairs, 'pair', 'pairs')}, ` +
+        `${formatCount(firstOnEndpoint.stopped)} stopped on the first run. Counted apart from new tests`,
     );
   }
   if (riskAccepted !== null && riskAccepted > 0) {
     lines.push(
-      `${riskAccepted} failing ${plural(riskAccepted, 'pair is', 'pairs are')} risk-accepted and not counted`,
+      `${formatCount(riskAccepted)} failing ${plural(riskAccepted, 'pair is', 'pairs are')} risk-accepted and not counted`,
     );
   }
   if (scoreDifference.fixedButCounted > 0) {
     const n = scoreDifference.fixedButCounted;
     lines.push(
-      `${n} ${plural(n, 'failure the score still counts was', 'failures the score still counts were')} ` +
+      `${formatCount(n)} ${plural(n, 'failure the score still counts was', 'failures the score still counts were')} ` +
         'fixed by blocking the test before it started',
     );
   }
   if (scoreDifference.countedTwice > 0) {
     const n = scoreDifference.countedTwice;
-    lines.push(`${n} open ${plural(n, 'failure is', 'failures are')} counted twice by the score`);
+    lines.push(`${formatCount(n)} open ${plural(n, 'failure is', 'failures are')} counted twice by the score`);
   }
   return lines;
 }
@@ -113,11 +129,13 @@ export function buildScoreMovementView(data: ScoreMovementResponse, rangeLabel: 
 
   return {
     title: `What moved the score · ${rangeLabel}`,
-    description: `${data.pairs.start} → ${data.pairs.end} pairs in the score · ${data.failing.start} → ${data.failing.end} failing`,
-    pill: notTested > 0 ? `${notTested} ${plural(notTested, 'failure', 'failures')} not re-tested` : null,
+    description:
+      `${formatCount(data.pairs.start)} → ${formatCount(data.pairs.end)} pairs in the score · ` +
+      `${formatCount(data.failing.start)} → ${formatCount(data.failing.end)} failing`,
+    pill: notTested > 0 ? `${formatCount(notTested)} ${plural(notTested, 'failure', 'failures')} not re-tested` : null,
     failures: {
       empty: f.total === 0 ? 'No failures in this period' : null,
-      headline: `${f.fixed} of ${f.total} fixed`,
+      headline: `${formatCount(f.fixed)} of ${formatCount(f.total)} fixed`,
       rate: f.total === 0 ? null : percent(f.fixRate),
       segments: [
         { list: 'fixed', label: 'Fixed', hint: 're-tested, now protected', count: f.fixed, tone: 'accent' },
@@ -135,7 +153,7 @@ export function buildScoreMovementView(data: ScoreMovementResponse, rangeLabel: 
     },
     newTests: {
       empty: n.pairs === 0 ? 'No new tests in this period' : null,
-      headline: `${n.stopped} of ${n.pairs} stopped`,
+      headline: `${formatCount(n.stopped)} of ${formatCount(n.pairs)} stopped`,
       rate: n.pairs === 0 ? null : percent(n.rate),
       segments: [
         { list: 'newStopped', label: 'Stopped on the first run', count: n.stopped, tone: 'accent' },

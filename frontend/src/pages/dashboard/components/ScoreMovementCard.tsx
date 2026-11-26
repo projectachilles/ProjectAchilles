@@ -4,6 +4,7 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/shared/ui
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/shared/ui/Dialog';
 import { cn } from '@/lib/utils';
 import type { MovementListKey, MovementOrigin, MovementRow, ScoreMovementResponse } from '@/services/api/analytics';
+import { formatCount, formatMovementDay as formatDay } from '../scoreMovementView';
 import type { MovementPanel, MovementSegment, ScoreMovementView, SegmentTone } from '../scoreMovementView';
 
 export interface ScoreMovementCardProps {
@@ -33,12 +34,6 @@ const ORIGIN_LABEL: Record<MovementOrigin, string> = {
 
 const DASH = '–';
 
-function formatDay(iso: string): string {
-  const date = new Date(iso);
-  const sameYear = date.getFullYear() === new Date().getFullYear();
-  return date.toLocaleDateString('en-US', sameYear ? { month: 'short', day: 'numeric' } : { month: 'short', day: 'numeric', year: 'numeric' });
-}
-
 function toneStyle(tone: SegmentTone) {
   return tone === 'faint' ? { background: HATCH } : undefined;
 }
@@ -55,7 +50,7 @@ function Swatch({ tone }: { tone: SegmentTone }) {
 
 function Bar({ segments }: { segments: MovementSegment[] }) {
   const shown = segments.filter((s) => s.count > 0);
-  const label = segments.map((s) => `${s.label} ${s.count}`).join(', ');
+  const label = segments.map((s) => `${s.label} ${formatCount(s.count)}`).join(', ');
   return (
     <div role="img" aria-label={label} className="my-3 flex h-2.5 gap-0.5 overflow-hidden rounded bg-border">
       {shown.map((s) => (
@@ -77,11 +72,11 @@ function SegmentRow({ segment, onView }: { segment: MovementSegment; onView: (li
         {segment.label}
         {segment.hint && <span className="ml-1.5 text-[11.5px] text-faint">{segment.hint}</span>}
       </span>
-      <span className="text-right font-mono text-xs">{segment.count}</span>
+      <span className="text-right font-mono text-xs">{formatCount(segment.count)}</span>
       {segment.count > 0 ? (
         <button
           type="button"
-          aria-label={`View ${segment.label} (${segment.count})`}
+          aria-label={`View ${segment.label} (${formatCount(segment.count)})`}
           onClick={() => onView(segment.list)}
           className="text-right text-xs text-accent hover:underline"
         >
@@ -146,15 +141,17 @@ function ListDialog({
   const rows = list?.rows ?? [];
   const total = list?.total ?? 0;
   const showFixed = segment.list === 'fixed';
-  const stoppedFirstRuns = segment.list === 'newStopped';
+  // A pair stopped on its first run never failed: no origin, no failing since.
+  const showFailure = segment.list !== 'newStopped';
   const failingSince = (row: MovementRow): string => {
-    if (stoppedFirstRuns) return DASH;
     if (row.openBeforePeriod) return periodStart ? `before ${formatDay(periodStart)}` : 'before the period';
     return row.failingSince ? formatDay(row.failingSince) : DASH;
   };
 
   return (
-    <Dialog open onClose={onClose} className="max-w-4xl">
+    // sm:max-w-4xl, not max-w-4xl: the stylesheet emits the Dialog's base
+    // max-w-lg after max-w-4xl, so only a variant wins over it.
+    <Dialog open onClose={onClose} className="sm:max-w-4xl">
       <div
         ref={dialogRef}
         role="dialog"
@@ -164,9 +161,9 @@ function ListDialog({
         className="outline-none"
       >
         <DialogHeader onClose={onClose}>
-          <span id="score-movement-list-title">
+          <div id="score-movement-list-title">
             <DialogTitle>{segment.label}</DialogTitle>
-          </span>
+          </div>
           {segment.hint && <p className="mt-1 text-xs text-muted">{segment.hint}</p>}
         </DialogHeader>
         <DialogContent className="pt-0">
@@ -176,8 +173,8 @@ function ListDialog({
                 <tr className="border-b border-border text-muted">
                   <th className="py-1.5 pr-3 font-medium">Test</th>
                   <th className="py-1.5 pr-3 font-medium">Endpoint</th>
-                  <th className="py-1.5 pr-3 font-medium">Origin</th>
-                  <th className="py-1.5 pr-3 font-medium">Failing since</th>
+                  {showFailure && <th className="py-1.5 pr-3 font-medium">Origin</th>}
+                  {showFailure && <th className="py-1.5 pr-3 font-medium">Failing since</th>}
                   {showFixed && <th className="py-1.5 pr-3 font-medium">Fixed</th>}
                   <th className="py-1.5 font-medium">Last result</th>
                 </tr>
@@ -189,13 +186,17 @@ function ListDialog({
                       <Link to={`/tests/${row.testUuid}`} className="text-accent hover:underline">
                         {row.testName}
                       </Link>
-                      {row.controlId && <span className="ml-1.5 font-mono text-faint">{row.controlId}</span>}
+                      {row.controlId && (
+                        <span className="ml-1.5 whitespace-nowrap font-mono text-faint">{row.controlId}</span>
+                      )}
                     </td>
                     <td className="py-1.5 pr-3 font-mono">{row.hostname}</td>
-                    <td className="py-1.5 pr-3">{row.origin ? ORIGIN_LABEL[row.origin] : ''}</td>
-                    <td data-col="failing-since" className="py-1.5 pr-3 font-mono">
-                      {failingSince(row)}
-                    </td>
+                    {showFailure && <td className="py-1.5 pr-3">{row.origin ? ORIGIN_LABEL[row.origin] : ''}</td>}
+                    {showFailure && (
+                      <td data-col="failing-since" className="py-1.5 pr-3 font-mono">
+                        {failingSince(row)}
+                      </td>
+                    )}
                     {showFixed && (
                       <td className="py-1.5 pr-3 font-mono">{row.fixedAt ? formatDay(row.fixedAt) : DASH}</td>
                     )}
@@ -207,7 +208,7 @@ function ListDialog({
           </div>
           {rows.length < total && (
             <p className="mt-3 text-xs text-muted">
-              Showing {rows.length} of {total}
+              Showing {formatCount(rows.length)} of {formatCount(total)}
             </p>
           )}
         </DialogContent>

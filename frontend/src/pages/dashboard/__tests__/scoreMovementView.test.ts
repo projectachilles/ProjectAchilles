@@ -1,8 +1,17 @@
-import { describe, it, expect } from 'vitest';
-import { buildScoreMovementView } from '../scoreMovementView';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
+import { buildScoreMovementView, formatMovementDay } from '../scoreMovementView';
 import { FULL } from './scoreMovementFixture';
 
 describe('buildScoreMovementView', () => {
+  // Dates leave out the year only in the current year, so the clock is pinned.
+  beforeEach(() => {
+    vi.useFakeTimers({ toFake: ['Date'] });
+    vi.setSystemTime(new Date('2026-11-26T12:00:00Z'));
+  });
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
   it('writes the card copy', () => {
     const v = buildScoreMovementView(FULL, 'last 30d');
     expect(v.title).toBe('What moved the score · last 30d');
@@ -80,6 +89,35 @@ describe('buildScoreMovementView', () => {
     );
     expect(v.failures).toMatchObject({ empty: 'No failures in this period', rate: null, note: null });
     expect(v.newTests).toMatchObject({ empty: 'No new tests in this period', rate: null, note: null });
+  });
+
+  it('adds the year to a date in another year than today', () => {
+    vi.setSystemTime(new Date('2027-02-10T12:00:00Z'));
+    expect(buildScoreMovementView(FULL, 'last 30d').failures.note).toBe(
+      '46 failures = 4 open on Oct 27, 2026 + 35 new tests that got through + 5 regressions + 2 first time on an endpoint',
+    );
+    expect(formatMovementDay('2027-01-05T12:00:00Z')).toBe('Jan 5');
+  });
+
+  it('writes counts of 1,000 and more with a thousands separator', () => {
+    const v = buildScoreMovementView(
+      {
+        ...FULL,
+        pairs: { start: 1052, end: 1289 },
+        failing: { start: 1004, end: 1011 },
+        failures: { ...FULL.failures, total: 1046, fixed: 1032, notRetested: 1005, leftUntested: 3 },
+        newTests: { ...FULL.newTests, pairs: 2228, stopped: 2193 },
+        riskAccepted: 1200,
+      },
+      'last 30d',
+    );
+    expect(v.description).toBe('1,052 → 1,289 pairs in the score · 1,004 → 1,011 failing');
+    expect(v.pill).toBe('1,008 failures not re-tested');
+    expect(v.failures.headline).toBe('1,032 of 1,046 fixed');
+    expect(v.failures.note?.startsWith('1,046 failures = ')).toBe(true);
+    expect(v.newTests.headline).toBe('2,193 of 2,228 stopped');
+    expect(v.newTests.note).toContain('across 2,228 test × endpoint pairs.');
+    expect(v.footer).toContain('1,200 failing pairs are risk-accepted and not counted');
   });
 
   it('uses the singular', () => {
