@@ -118,15 +118,18 @@ describe('rows', () => {
     ]);
   });
 
-  it('truncates a long name and keeps it whole in the title', async () => {
-    const long = 'A'.repeat(90);
+  it('lets a long name take two lines, cuts it there, and keeps it whole in the title', async () => {
+    const long = 'A long test name that says what the test does '.repeat(3).trim();
     getCoverageMatrix.mockResolvedValue(response({ tests: [row({ name: long, cells: [] })] }));
     setup();
 
     const heading = await screen.findByRole('heading', { name: long });
 
     expect(heading).toHaveAttribute('title', long);
-    expect(heading.className).toContain('truncate');
+    expect(heading.className).toContain('line-clamp-2');
+    // One line would cut the name at the label column's width; a word longer than the column must still break.
+    expect(heading.className).not.toContain('truncate');
+    expect(heading.className).toContain('break-words');
   });
 });
 
@@ -193,8 +196,30 @@ describe('forms', () => {
 
     expect(mark).toHaveAccessibleName('HOST-01: 31 of 48 controls compliant, 2 not assessed, 1 day ago');
     expect(mark).toHaveTextContent('31/48');
+    expect(mark).toHaveTextContent('1d');
     const fill = within(mark).getByTestId('gauge-fill');
     expect(fill.style.width).toBe(`${(31 / 48) * 100}%`);
+  });
+
+  it('draws a bundle with no evaluated control as an empty, neutral gauge, never as all red', async () => {
+    const none = { compliant: 0, evaluated: 0, notAssessed: 4, accepted: 0 };
+    const zero = { compliant: 0, evaluated: 10, notAssessed: 0, accepted: 0 };
+    getCoverageMatrix.mockResolvedValue(response({
+      tests: [
+        row({ key: 'b0', testUuid: 'b0', name: 'Not assessed', kind: 'controls', ratio: none, cells: [{ i: 0, ratio: none, at: at(1) }] }),
+        row({ key: 'b1', testUuid: 'b1', name: 'None compliant', kind: 'controls', ratio: zero, cells: [{ i: 0, ratio: zero, at: at(1) }] }),
+      ],
+    }));
+    setup();
+    await screen.findByRole('heading', { name: 'Not assessed' });
+
+    const gauge = (name: string) => within(within(rowOf(name)).getAllByTestId('matrix-mark')[0]).getByTestId('gauge');
+
+    expect(within(gauge('Not assessed')).queryByTestId('gauge-fill')).not.toBeInTheDocument();
+    expect(gauge('Not assessed').className).not.toContain('danger');
+    // Nothing compliant out of ten is a real result: the red track, with a fill of zero width.
+    expect(gauge('None compliant').className).toContain('danger');
+    expect(within(gauge('None compliant')).getByTestId('gauge-fill').style.width).toBe('0%');
   });
 
   it('gives a gauge the same classes whatever its share', async () => {
@@ -250,6 +275,41 @@ describe('a fleet the server sends without cells', () => {
 
     await user.click(within(rowOf('Solo test')).getByRole('button', { name: '3 detected' }));
     expect(screen.queryByText(/hosts of Solo test/)).not.toBeInTheDocument();
+  });
+
+  it('opens a segment under its own row only', async () => {
+    const user = userEvent.setup();
+    const two = response({
+      hosts: [], hostCount: 400, cellsIncluded: false,
+      tests: [
+        row({ counts: counts({ unprotected: 12 }), cells: null }),
+        row({ key: 't2', testUuid: 't2', name: 'Other test', counts: counts({ unprotected: 7 }), cells: null }),
+      ],
+    });
+    getCoverageMatrix.mockResolvedValue(two);
+    setup({ renderSegment: (test, state) => <p>hosts of {test.name}: {state}</p> });
+    await screen.findByRole('heading', { name: 'Other test' });
+
+    await user.click(within(rowOf('Solo test')).getByRole('button', { name: '12 unprotected' }));
+
+    expect(screen.getAllByText(/^hosts of/)).toHaveLength(1);
+    expect(within(rowOf('Other test')).getByRole('button', { name: '7 unprotected' })).toHaveAttribute('aria-pressed', 'false');
+  });
+
+  it('drops an open segment when the row is no longer a bar', async () => {
+    const user = userEvent.setup();
+    width.value = 1000;
+    getCoverageMatrix.mockResolvedValue(response({ hosts: hostsOf(150), tests: [row({ counts: counts({ unprotected: 12 }), cells: [] })] }));
+    const { rerenderWith } = setup({ renderSegment: () => <p>hosts of the segment</p> });
+    await screen.findByRole('heading', { name: 'Solo test' });
+    await user.click(screen.getByRole('button', { name: '12 unprotected' }));
+    expect(screen.getByText('hosts of the segment')).toBeInTheDocument();
+
+    width.value = 3000; // the window grew: 20 px a host, squares
+    rerenderWith({});
+
+    expect(screen.getByTestId('matrix')).toHaveAttribute('data-form', 'squares');
+    expect(screen.queryByText('hosts of the segment')).not.toBeInTheDocument();
   });
 
   it('offers no host list for a bundle\'s bar: a bundle has no state per host', async () => {

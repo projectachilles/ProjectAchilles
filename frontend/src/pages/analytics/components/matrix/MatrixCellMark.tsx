@@ -29,7 +29,7 @@ const SHAPE: Record<MarkForm, string> = {
 function Gauge({ ratio, className }: { ratio: MatrixRatio; className?: string }) {
   const percent = gaugePercent(ratio);
   return (
-    <span aria-hidden="true" className={cn('block overflow-hidden rounded-[2px]', percent === null ? 'bg-faint/40' : 'bg-danger/50', className)}>
+    <span aria-hidden="true" data-testid="gauge" className={cn('block overflow-hidden rounded-[2px]', percent === null ? 'bg-faint/40' : 'bg-danger/50', className)}>
       {percent !== null && <span data-testid="gauge-fill" className="block h-full bg-accent" style={{ width: `${percent}%` }} />}
     </span>
   );

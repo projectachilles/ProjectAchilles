@@ -51,9 +51,10 @@ export function MatrixRow({ test, hosts, form, openHostKey, onToggleHost, openSt
     <div data-matrix-row className="border-t border-border py-2">
       <div className={ROW_GRID}>
         <div className="min-w-0">
-          <div className="flex items-center gap-1.5">
-            <h3 title={test.name} className="truncate text-[13px] font-medium text-foreground">{test.name}</h3>
-            {badge && <span className="shrink-0 rounded-sm border border-border px-1 text-[10px] uppercase tracking-wide text-faint">{badge}</span>}
+          <div className="flex items-start gap-1.5">
+            {/* Two lines, then cut: one line left about 30 characters of a name at the usual width. */}
+            <h3 title={test.name} className="line-clamp-2 min-w-0 break-words text-[13px] font-medium leading-snug text-foreground">{test.name}</h3>
+            {badge && <span className="mt-px shrink-0 rounded-sm border border-border px-1 text-[10px] uppercase tracking-wide text-faint">{badge}</span>}
           </div>
           <p className="truncate text-[11px] text-faint">{caughtLine(test)}</p>
         </div>

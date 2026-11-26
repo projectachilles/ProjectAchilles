@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { render, screen, within, waitFor } from '@testing-library/react';
+import { act, render, screen, within, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import type { EnrichedTestExecution, ExecutionGroup, GroupedPaginatedResponse } from '@/services/api/analytics';
 
@@ -153,8 +153,11 @@ describe('PairRuns', () => {
     getGrouped.mockResolvedValue(page([solo('other-run', { hostname: 'HOST-02', error_code: 126, is_protected: true })]));
     rerenderWith({ pair: { testUuid: TEST, hostKey: 'org-1|HOST-02' }, hostname: 'HOST-02' });
     expect(await screen.findAllByRole('button', { name: /Protected/ })).toHaveLength(1);
-    resolveFirst(page([solo('run-1', {}), solo('run-0', {})]));
-    await Promise.resolve();
+    // The answer for HOST-01 arrives after HOST-02's: it must not replace HOST-02's run.
+    await act(async () => {
+      resolveFirst(page([solo('run-1', {}), solo('run-0', {})]));
+      await new Promise((r) => setTimeout(r, 20));
+    });
 
     expect(screen.getAllByRole('button', { name: /Protected|Unprotected/ })).toHaveLength(1);
     expect(getGrouped.mock.calls[1][0]).toMatchObject({ hostnames: 'HOST-02' });
