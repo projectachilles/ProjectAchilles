@@ -2,6 +2,7 @@ import Database from 'better-sqlite3';
 import path from 'path';
 import os from 'os';
 import fs from 'fs';
+import { randomUUID } from 'crypto';
 import { backfillScheduleRuns } from './scheduleRunBackfill.js';
 
 const DATA_DIR = path.join(os.homedir(), '.projectachilles');
@@ -16,15 +17,28 @@ export function getDatabase(): Database.Database {
 
   fs.mkdirSync(DATA_DIR, { recursive: true });
 
-  db = new Database(DB_PATH);
-  db.pragma('journal_mode = WAL');
-  db.pragma('foreign_keys = ON');
-  db.pragma('busy_timeout = 5000');
-  db.pragma('synchronous = NORMAL');
-  db.pragma('cache_size = -20000');
-  db.pragma('temp_store = MEMORY');
+  // Kept only once the schema is set up. A handle whose set-up failed is
+  // closed and the next call starts again: kept, it would be handed to every
+  // later caller with the migrations after the failed one never run.
+  const handle = new Database(DB_PATH);
+  try {
+    handle.pragma('journal_mode = WAL');
+    handle.pragma('foreign_keys = ON');
+    handle.pragma('busy_timeout = 5000');
+    handle.pragma('synchronous = NORMAL');
+    handle.pragma('cache_size = -20000');
+    handle.pragma('temp_store = MEMORY');
 
-  initializeTables(db);
+    initializeTables(handle);
+  } catch (err) {
+    try {
+      handle.close();
+    } catch {
+      // the set-up error is the one to report
+    }
+    throw err;
+  }
+  db = handle;
 
   // Periodically checkpoint the WAL to prevent unbounded growth.
   // Under sustained load (agent heartbeats + task polling), overlapping
@@ -271,12 +285,12 @@ export function initializeTables(database: Database.Database): void {
     (database.prepare(`PRAGMA table_info(run_notices)`).all() as { name: string }[]).map((c) => c.name),
   );
   if (!noticeCols.has('last_attempt_at')) {
-    database.exec('ALTER TABLE run_notices ADD COLUMN last_attempt_at TEXT');
+    addColumn(database, 'ALTER TABLE run_notices ADD COLUMN last_attempt_at TEXT');
   }
   // Migration: run_notices.org_id, the org of the tasks a notice gates (Ruling
   // R20: notices are per org). NULL for notices created before this column.
   if (!noticeCols.has('org_id')) {
-    database.exec('ALTER TABLE run_notices ADD COLUMN org_id TEXT');
+    addColumn(database, 'ALTER TABLE run_notices ADD COLUMN org_id TEXT');
   }
   database.exec('CREATE INDEX IF NOT EXISTS idx_run_notices_org_state ON run_notices(org_id, state)');
 
@@ -284,43 +298,43 @@ export function initializeTables(database: Database.Database): void {
   const hbCols = database.prepare(`PRAGMA table_info(heartbeat_history)`).all() as { name: string }[];
   const hbColNames = new Set(hbCols.map((c) => c.name));
   if (!hbColNames.has('process_cpu_percent')) {
-    database.exec('ALTER TABLE heartbeat_history ADD COLUMN process_cpu_percent REAL');
+    addColumn(database, 'ALTER TABLE heartbeat_history ADD COLUMN process_cpu_percent REAL');
   }
   if (!hbColNames.has('process_memory_mb')) {
-    database.exec('ALTER TABLE heartbeat_history ADD COLUMN process_memory_mb REAL');
+    addColumn(database, 'ALTER TABLE heartbeat_history ADD COLUMN process_memory_mb REAL');
   }
   if (!hbColNames.has('total_memory_mb')) {
-    database.exec('ALTER TABLE heartbeat_history ADD COLUMN total_memory_mb REAL');
+    addColumn(database, 'ALTER TABLE heartbeat_history ADD COLUMN total_memory_mb REAL');
   }
 
   // Migration: add notes columns to tasks table
   const columns = database.prepare(`PRAGMA table_info(tasks)`).all() as { name: string }[];
   const colNames = new Set(columns.map((c) => c.name));
   if (!colNames.has('notes')) {
-    database.exec(`ALTER TABLE tasks ADD COLUMN notes TEXT DEFAULT NULL`);
+    addColumn(database, `ALTER TABLE tasks ADD COLUMN notes TEXT DEFAULT NULL`);
   }
   if (!colNames.has('notes_history')) {
-    database.exec(`ALTER TABLE tasks ADD COLUMN notes_history TEXT DEFAULT '[]'`);
+    addColumn(database, `ALTER TABLE tasks ADD COLUMN notes_history TEXT DEFAULT '[]'`);
   }
   if (!colNames.has('target_index')) {
-    database.exec(`ALTER TABLE tasks ADD COLUMN target_index TEXT DEFAULT NULL`);
+    addColumn(database, `ALTER TABLE tasks ADD COLUMN target_index TEXT DEFAULT NULL`);
   }
   if (!colNames.has('batch_id')) {
-    database.exec("ALTER TABLE tasks ADD COLUMN batch_id TEXT");
+    addColumn(database, "ALTER TABLE tasks ADD COLUMN batch_id TEXT");
     database.exec("UPDATE tasks SET batch_id = id WHERE batch_id IS NULL");
     database.exec("CREATE INDEX IF NOT EXISTS idx_tasks_batch ON tasks(batch_id)");
   }
   if (!colNames.has('notice_id')) {
-    database.exec(`ALTER TABLE tasks ADD COLUMN notice_id TEXT DEFAULT NULL`);
+    addColumn(database, `ALTER TABLE tasks ADD COLUMN notice_id TEXT DEFAULT NULL`);
   }
   database.exec('CREATE INDEX IF NOT EXISTS idx_tasks_notice ON tasks(notice_id)');
   if (!colNames.has('campaign_run_id')) {
-    database.exec(`ALTER TABLE tasks ADD COLUMN campaign_run_id TEXT DEFAULT NULL`);
+    addColumn(database, `ALTER TABLE tasks ADD COLUMN campaign_run_id TEXT DEFAULT NULL`);
   }
   database.exec('CREATE INDEX IF NOT EXISTS idx_tasks_campaign_run ON tasks(campaign_run_id)');
   // Retention: marks results whose bulky output was compacted (see retention.service.ts).
   if (!colNames.has('result_compacted_at')) {
-    database.exec(`ALTER TABLE tasks ADD COLUMN result_compacted_at TEXT DEFAULT NULL`);
+    addColumn(database, `ALTER TABLE tasks ADD COLUMN result_compacted_at TEXT DEFAULT NULL`);
   }
   database.exec(
     'CREATE INDEX IF NOT EXISTS idx_tasks_compactable ON tasks(completed_at) WHERE result_compacted_at IS NULL',
@@ -333,60 +347,59 @@ export function initializeTables(database: Database.Database): void {
   const agentCols = database.prepare(`PRAGMA table_info(agents)`).all() as { name: string }[];
   const agentColNames = new Set(agentCols.map((c) => c.name));
   if (!agentColNames.has('api_key_rotated_at')) {
-    database.exec(`ALTER TABLE agents ADD COLUMN api_key_rotated_at TEXT DEFAULT NULL`);
+    addColumn(database, `ALTER TABLE agents ADD COLUMN api_key_rotated_at TEXT DEFAULT NULL`);
   }
 
   // Migration: add pending key rotation columns for zero-downtime rotation
   if (!agentColNames.has('pending_api_key_hash')) {
-    database.exec(`ALTER TABLE agents ADD COLUMN pending_api_key_hash TEXT DEFAULT NULL`);
+    addColumn(database, `ALTER TABLE agents ADD COLUMN pending_api_key_hash TEXT DEFAULT NULL`);
   }
   if (!agentColNames.has('pending_api_key_encrypted')) {
-    database.exec(`ALTER TABLE agents ADD COLUMN pending_api_key_encrypted TEXT DEFAULT NULL`);
+    addColumn(database, `ALTER TABLE agents ADD COLUMN pending_api_key_encrypted TEXT DEFAULT NULL`);
   }
   if (!agentColNames.has('key_rotation_initiated_at')) {
-    database.exec(`ALTER TABLE agents ADD COLUMN key_rotation_initiated_at TEXT DEFAULT NULL`);
+    addColumn(database, `ALTER TABLE agents ADD COLUMN key_rotation_initiated_at TEXT DEFAULT NULL`);
   }
 
   // Migration: add target_index to schedules table
   const scheduleCols = database.prepare(`PRAGMA table_info(schedules)`).all() as { name: string }[];
   const scheduleColNames = new Set(scheduleCols.map((c) => c.name));
   if (!scheduleColNames.has('target_index')) {
-    database.exec(`ALTER TABLE schedules ADD COLUMN target_index TEXT DEFAULT NULL`);
+    addColumn(database, `ALTER TABLE schedules ADD COLUMN target_index TEXT DEFAULT NULL`);
   }
 
   // Migration: add agent_next_runs (per-machine randomization) to schedules table
   if (!scheduleColNames.has('agent_next_runs')) {
-    database.exec(`ALTER TABLE schedules ADD COLUMN agent_next_runs TEXT DEFAULT NULL`);
+    addColumn(database, `ALTER TABLE schedules ADD COLUMN agent_next_runs TEXT DEFAULT NULL`);
   }
 
   // Migration: add signed column to agent_versions table
   const versionCols = database.prepare(`PRAGMA table_info(agent_versions)`).all() as { name: string }[];
   const versionColNames = new Set(versionCols.map((c) => c.name));
   if (!versionColNames.has('signed')) {
-    database.exec(`ALTER TABLE agent_versions ADD COLUMN signed INTEGER DEFAULT 0`);
+    addColumn(database, `ALTER TABLE agent_versions ADD COLUMN signed INTEGER DEFAULT 0`);
   }
   if (!versionColNames.has('binary_signature')) {
-    database.exec(`ALTER TABLE agent_versions ADD COLUMN binary_signature TEXT DEFAULT NULL`);
+    addColumn(database, `ALTER TABLE agent_versions ADD COLUMN binary_signature TEXT DEFAULT NULL`);
   }
   if (!versionColNames.has('signer_subject')) {
-    database.exec(`ALTER TABLE agent_versions ADD COLUMN signer_subject TEXT DEFAULT NULL`);
+    addColumn(database, `ALTER TABLE agent_versions ADD COLUMN signer_subject TEXT DEFAULT NULL`);
   }
   // SHA-256 fingerprint of the certificate a signed Windows binary carries
   // (the management-tool install script pins it). NULL on older rows is
   // filled in by listVersions().
   if (!versionColNames.has('signer_fingerprint')) {
-    database.exec(`ALTER TABLE agent_versions ADD COLUMN signer_fingerprint TEXT DEFAULT NULL`);
+    addColumn(database, `ALTER TABLE agent_versions ADD COLUMN signer_fingerprint TEXT DEFAULT NULL`);
   }
 
-  // Migration: expand os CHECK constraint to include 'darwin' for agents and agent_versions.
-  // SQLite doesn't support ALTER COLUMN, so recreate tables if constraint rejects 'darwin'.
-  migrateDarwinConstraint(database);
+  // Migrations that widen a CHECK. SQLite has no ALTER COLUMN, so each one
+  // recreates its table when the definition lacks a value (recreateIfOutdated).
+  // agents: os 'darwin', status 'uninstalled'. agent_versions: os 'darwin'.
+  migrateAgentsChecks(database);
+  migrateAgentVersionsOs(database);
 
   // Migration: expand tasks.type CHECK constraint to include 'execute_command'.
   migrateExecuteCommandType(database);
-
-  // Migration: expand agents.status CHECK constraint to include 'uninstalled'.
-  migrateUninstalledStatus(database);
 
   // Migration: expand agent_events.event_type CHECK to include
   // 'key_rotation_cancelled'.
@@ -501,13 +514,13 @@ export function initializeTables(database: Database.Database): void {
   const taskRetryCheck = database.prepare(`PRAGMA table_info(tasks)`).all() as { name: string }[];
   const taskRetryColNames = new Set(taskRetryCheck.map((c) => c.name));
   if (!taskRetryColNames.has('retry_count')) {
-    database.exec(`ALTER TABLE tasks ADD COLUMN retry_count INTEGER DEFAULT 0`);
+    addColumn(database, `ALTER TABLE tasks ADD COLUMN retry_count INTEGER DEFAULT 0`);
   }
   if (!taskRetryColNames.has('max_retries')) {
-    database.exec(`ALTER TABLE tasks ADD COLUMN max_retries INTEGER DEFAULT 2`);
+    addColumn(database, `ALTER TABLE tasks ADD COLUMN max_retries INTEGER DEFAULT 2`);
   }
   if (!taskRetryColNames.has('original_task_id')) {
-    database.exec(`ALTER TABLE tasks ADD COLUMN original_task_id TEXT DEFAULT NULL`);
+    addColumn(database, `ALTER TABLE tasks ADD COLUMN original_task_id TEXT DEFAULT NULL`);
   }
 
   // Migration: ES ingestion tracking. Result ingestion is async-with-retry —
@@ -516,13 +529,13 @@ export function initializeTables(database: Database.Database): void {
   // worker retry. ingest_attempts caps retries (10) to prevent infinite
   // loops on permanent failures (e.g. ES mapping conflicts).
   if (!taskRetryColNames.has('es_ingested')) {
-    database.prepare(`ALTER TABLE tasks ADD COLUMN es_ingested INTEGER NOT NULL DEFAULT 0`).run();
+    addColumn(database, `ALTER TABLE tasks ADD COLUMN es_ingested INTEGER NOT NULL DEFAULT 0`);
   }
   if (!taskRetryColNames.has('ingest_attempts')) {
-    database.prepare(`ALTER TABLE tasks ADD COLUMN ingest_attempts INTEGER NOT NULL DEFAULT 0`).run();
+    addColumn(database, `ALTER TABLE tasks ADD COLUMN ingest_attempts INTEGER NOT NULL DEFAULT 0`);
   }
   if (!taskRetryColNames.has('last_ingest_attempt_at')) {
-    database.prepare(`ALTER TABLE tasks ADD COLUMN last_ingest_attempt_at TEXT DEFAULT NULL`).run();
+    addColumn(database, `ALTER TABLE tasks ADD COLUMN last_ingest_attempt_at TEXT DEFAULT NULL`);
   }
   // Hot path for the retry worker: filter by status + ingestion flag.
   database.prepare(`CREATE INDEX IF NOT EXISTS idx_tasks_es_ingested ON tasks(status, es_ingested)`).run();
@@ -536,178 +549,251 @@ export function initializeTables(database: Database.Database): void {
   migrateTaskTestUuid(database);
 }
 
-function migrateDarwinConstraint(database: Database.Database): void {
-  // Temporarily disable FK checks — dropping `agents` would fail because `tasks` references it.
-  // PRAGMA foreign_keys can only be toggled outside a transaction.
-  database.pragma('foreign_keys = OFF');
-
-  // Test if agents table already accepts 'darwin'
-  let agentsNeedMigration = false;
-  try {
-    database.exec(`SAVEPOINT darwin_check`);
-    database.exec(`INSERT INTO agents (id, org_id, hostname, os, arch, agent_version, api_key_hash, enrolled_at)
-                    VALUES ('__darwin_check__', '__test__', '__test__', 'darwin', 'amd64', '0', '__test__', datetime('now'))`);
-    database.exec(`DELETE FROM agents WHERE id = '__darwin_check__'`);
-    database.exec(`RELEASE darwin_check`);
-  } catch {
-    database.exec(`ROLLBACK TO darwin_check`);
-    database.exec(`RELEASE darwin_check`);
-    agentsNeedMigration = true;
-  }
-
-  if (agentsNeedMigration) {
-    // Determine which columns exist (notes/notes_history/target_index may have been added by migration)
-    const cols = database.prepare(`PRAGMA table_info(agents)`).all() as { name: string }[];
-    const colSet = new Set(cols.map((c) => c.name));
-    const selectCols = cols.map((c) => c.name).join(', ');
-
-    const extraCols = [
-      colSet.has('notes') ? 'notes TEXT DEFAULT NULL' : null,
-      colSet.has('notes_history') ? "notes_history TEXT DEFAULT '[]'" : null,
-      colSet.has('target_index') ? 'target_index TEXT DEFAULT NULL' : null,
-    ].filter(Boolean);
-
-    // Drop leftover temp table from a previous interrupted migration
-    database.exec(`DROP TABLE IF EXISTS agents_new`);
-    database.exec(`
-      CREATE TABLE agents_new (
-        id TEXT PRIMARY KEY,
-        org_id TEXT NOT NULL,
-        hostname TEXT NOT NULL,
-        os TEXT NOT NULL CHECK(os IN ('windows', 'linux', 'darwin')),
-        arch TEXT NOT NULL CHECK(arch IN ('amd64', 'arm64')),
-        agent_version TEXT NOT NULL,
-        api_key_hash TEXT NOT NULL,
-        status TEXT NOT NULL DEFAULT 'active' CHECK(status IN ('active', 'disabled', 'decommissioned', 'uninstalled')),
-        last_heartbeat TEXT,
-        last_heartbeat_data TEXT,
-        enrolled_at TEXT NOT NULL,
-        enrolled_by TEXT,
-        tags TEXT NOT NULL DEFAULT '[]',
-        created_at TEXT NOT NULL DEFAULT (datetime('now')),
-        updated_at TEXT NOT NULL DEFAULT (datetime('now'))
-        ${extraCols.length > 0 ? ', ' + extraCols.join(', ') : ''}
-      );
-      INSERT INTO agents_new (${selectCols}) SELECT ${selectCols} FROM agents;
-      DROP TABLE agents;
-      ALTER TABLE agents_new RENAME TO agents;
-      CREATE INDEX IF NOT EXISTS idx_agents_org ON agents(org_id);
-      CREATE INDEX IF NOT EXISTS idx_agents_status ON agents(status);
-    `);
-  }
-
-  // Test if agent_versions table already accepts 'darwin'
-  let versionsNeedMigration = false;
-  try {
-    database.exec(`SAVEPOINT darwin_ver_check`);
-    database.exec(`INSERT INTO agent_versions (version, os, arch, binary_path, binary_sha256, binary_size)
-                    VALUES ('__check__', 'darwin', 'amd64', '__test__', '__test__', 0)`);
-    database.exec(`DELETE FROM agent_versions WHERE version = '__check__' AND os = 'darwin'`);
-    database.exec(`RELEASE darwin_ver_check`);
-  } catch {
-    database.exec(`ROLLBACK TO darwin_ver_check`);
-    database.exec(`RELEASE darwin_ver_check`);
-    versionsNeedMigration = true;
-  }
-
-  if (versionsNeedMigration) {
-    const vCols = database.prepare(`PRAGMA table_info(agent_versions)`).all() as { name: string }[];
-    const vSelectCols = vCols.map((c) => c.name).join(', ');
-    const hasSigned = vCols.some((c) => c.name === 'signed');
-
-    // Drop leftover temp table from a previous interrupted migration
-    database.exec(`DROP TABLE IF EXISTS agent_versions_new`);
-    database.exec(`
-      CREATE TABLE agent_versions_new (
-        version TEXT NOT NULL,
-        os TEXT NOT NULL CHECK(os IN ('windows', 'linux', 'darwin')),
-        arch TEXT NOT NULL CHECK(arch IN ('amd64', 'arm64')),
-        binary_path TEXT NOT NULL,
-        binary_sha256 TEXT NOT NULL,
-        binary_size INTEGER NOT NULL,
-        release_notes TEXT,
-        mandatory INTEGER NOT NULL DEFAULT 0,
-        created_at TEXT NOT NULL DEFAULT (datetime('now'))
-        ${hasSigned ? ', signed INTEGER DEFAULT 0' : ''}
-        , PRIMARY KEY (version, os, arch)
-      );
-      INSERT INTO agent_versions_new (${vSelectCols}) SELECT ${vSelectCols} FROM agent_versions;
-      DROP TABLE agent_versions;
-      ALTER TABLE agent_versions_new RENAME TO agent_versions;
-    `);
-  }
-
-  // Re-enable FK checks and verify integrity
-  database.pragma('foreign_keys = ON');
-}
-
 /**
- * True when the tasks table's definition predates 'execute_command'.
+ * ALTER TABLE … ADD COLUMN for a column the caller has just found missing.
  *
- * Read from the table's definition, not tried with a test row: the earlier
- * probe inserted one, which always failed on the agent foreign key, so every
- * database looked out of date and the table was recreated on every start.
- * The plain text search needs no knowledge of how the CHECK is spelled, and
- * cannot loop: the recreated table's definition always contains the value.
+ * Two processes starting on the same database both find it missing, and the
+ * slower one's ALTER fails with "duplicate column name". That error means the
+ * column is there, which is all the caller wanted, so it is not an error here.
  */
-function tasksTypeCheckIsOutdated(database: Database.Database): boolean {
+function addColumn(database: Database.Database, sql: string): void {
+  try {
+    database.exec(sql);
+  } catch (err) {
+    if (err instanceof Error && /duplicate column name/i.test(err.message)) return;
+    throw err;
+  }
+}
+
+/** The tables a CHECK change makes this file recreate. */
+type RecreatedTable = 'agents' | 'agent_versions' | 'tasks' | 'agent_events' | 'api_keys';
+
+/**
+ * True when the table exists and its definition lacks one of the values its
+ * CHECKs name today.
+ *
+ * Read from the table's definition, never tried with a test row. A test row
+ * that fails for any other reason reads as "out of date": a foreign key did
+ * that for `tasks` on every start, and SQLITE_BUSY under a held write lock
+ * does it for any insert. The plain text search needs no knowledge of how the
+ * CHECK is spelled, and cannot loop: a recreated table's definition always
+ * contains the values.
+ */
+function definitionLacks(database: Database.Database, table: RecreatedTable, values: readonly string[]): boolean {
   const row = database
-    .prepare(`SELECT sql FROM sqlite_master WHERE type = 'table' AND name = 'tasks'`)
+    .prepare(`SELECT sql FROM sqlite_master WHERE type = 'table' AND name = '${table}'`)
     .get() as { sql: string | null } | undefined;
-  return Boolean(row?.sql) && !row!.sql!.includes("'execute_command'");
+  const sql = row?.sql;
+  if (!sql) return false;
+  return values.some((value) => !sql.includes(value));
 }
 
 /**
- * Widens the tasks table's CHECK to accept 'execute_command', which SQLite
- * can only do by recreating the table.
+ * Recreates a table whose definition lacks one of `values`, which is how
+ * SQLite widens a CHECK.
  *
  * All or nothing, and one process at a time: the recreation runs in one
  * transaction that takes the write lock first, and looks again once it has
  * the lock. As separate statements, two processes starting together could
  * interleave (one dropping the table the other had just renamed into place)
  * and lose the table, and a failure after the drop lost every row.
+ *
+ * `recreate` is called inside the transaction, with foreign keys off.
  */
-function migrateExecuteCommandType(database: Database.Database): void {
-  if (!tasksTypeCheckIsOutdated(database)) {
-    warnAboutLeftoverTasksCopy(database);
+function recreateIfOutdated(
+  database: Database.Database,
+  table: RecreatedTable,
+  values: readonly string[],
+  recreate: () => void,
+  options: { backUpFirst?: boolean } = {},
+): void {
+  const outdated = () => definitionLacks(database, table, values);
+  if (!outdated()) {
+    warnAboutLeftoverCopy(database, table);
     return;
   }
+
+  // VACUUM INTO cannot run inside a transaction, so the copy is taken before
+  // the lock and only kept once this process knows it is the one recreating.
+  const snapshot = options.backUpFirst ? snapshotDatabase(database) : null;
 
   // Only outside a transaction: SQLite ignores this pragma inside one.
   database.pragma('foreign_keys = OFF');
   try {
     database.transaction(() => {
       // Another process may have done it while this one waited for the lock.
-      if (tasksTypeCheckIsOutdated(database)) recreateTasksTable(database);
+      if (!outdated()) return;
+      if (snapshot) keepSnapshot(snapshot, `${database.name}.bak`);
+      recreate();
     }).immediate();
   } finally {
     database.pragma('foreign_keys = ON');
+    // Still there when nothing was recreated: a copy taken after another
+    // process's recreation must not replace the one taken before it.
+    if (snapshot) fs.rmSync(snapshot, { force: true });
   }
 }
 
 /**
- * A `tasks_new` table beside an up-to-date `tasks` is what an interrupted
- * recreation of an earlier release left behind. Those releases recreated the
- * table on every start, as separate statements, and began by dropping any
- * `tasks_new`; this one never drops it, because after a failure between the
- * DROP and the RENAME it was the only copy of the tasks. Say so and leave it
- * for a person to look at.
+ * A consistent copy of the whole database in a temporary file beside it, or
+ * null when there is no file to copy (in-memory) or the copy failed. A failed
+ * copy does not stop the migration: the recreation is one transaction.
  */
-function warnAboutLeftoverTasksCopy(database: Database.Database): void {
+function snapshotDatabase(database: Database.Database): string | null {
+  if (database.memory || !database.name) return null;
+  const temp = `${database.name}.bak.${randomUUID()}.tmp`;
+  try {
+    database.prepare('VACUUM INTO ?').run(temp);
+    return temp;
+  } catch (err) {
+    console.warn(`[db] Warning: could not back up the database before recreating a table: ${err instanceof Error ? err.message : String(err)}`);
+    fs.rmSync(temp, { force: true });
+    return null;
+  }
+}
+
+function keepSnapshot(snapshot: string, backupPath: string): void {
+  try {
+    fs.renameSync(snapshot, backupPath);
+    console.log(`[db] Database backed up to ${backupPath}`);
+  } catch (err) {
+    console.warn(`[db] Warning: could not keep the database backup: ${err instanceof Error ? err.message : String(err)}`);
+  }
+}
+
+/**
+ * A `<table>_new` table beside an up-to-date `<table>` is what an interrupted
+ * recreation of an earlier release left behind. Those releases recreated
+ * tables as separate statements and began by dropping any `<table>_new`; this
+ * one never drops it, because after a failure between the DROP and the RENAME
+ * it was the only copy of the rows. Say so and leave it for a person to look
+ * at.
+ */
+function warnAboutLeftoverCopy(database: Database.Database, table: RecreatedTable): void {
   const leftover = database
-    .prepare(`SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'tasks_new'`)
+    .prepare(`SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = '${table}_new'`)
     .get();
   if (!leftover) return;
   let rows = 'an unknown number of';
   try {
-    rows = String((database.prepare('SELECT COUNT(*) AS n FROM tasks_new').get() as { n: number }).n);
+    rows = String((database.prepare(`SELECT COUNT(*) AS n FROM ${table}_new`).get() as { n: number }).n);
   } catch {
     // unreadable: the warning still says the table is there
   }
   console.warn(
-    `[Database] A table named tasks_new with ${rows} row${rows === '1' ? '' : 's'} is left from an interrupted upgrade. ` +
-      'It is not used and is not deleted: compare it with the tasks table before removing it.',
+    `[Database] A table named ${table}_new with ${rows} row${rows === '1' ? '' : 's'} is left from an interrupted upgrade. ` +
+      `It is not used and is not deleted: compare it with the ${table} table before removing it.`,
   );
+}
+
+/**
+ * Widens the agents table's CHECKs to accept os 'darwin' and status
+ * 'uninstalled'. One recreation covers both: the new table always has today's
+ * definition. The database is backed up first (`agents.db.bak`): this table
+ * holds every agent's identity.
+ */
+function migrateAgentsChecks(database: Database.Database): void {
+  recreateIfOutdated(database, 'agents', ["'darwin'", "'uninstalled'"], () => recreateAgentsTable(database), {
+    backUpFirst: true,
+  });
+}
+
+/** The recreation itself. Call inside a transaction, with foreign keys off. */
+function recreateAgentsTable(database: Database.Database): void {
+  const cols = database.prepare(`PRAGMA table_info(agents)`).all() as { name: string }[];
+  const selectCols = cols.map((c) => c.name).join(', ');
+  const colSet = new Set(cols.map((c) => c.name));
+
+  // Columns added by ALTER TABLE since the first release. Any new `agents`
+  // column must be listed here, or this fails on a database that has it
+  // (`table agents_new has no column named …`).
+  const optionalCols = [
+    colSet.has('api_key_rotated_at') ? 'api_key_rotated_at TEXT DEFAULT NULL' : null,
+    colSet.has('pending_api_key_hash') ? 'pending_api_key_hash TEXT DEFAULT NULL' : null,
+    colSet.has('pending_api_key_encrypted') ? 'pending_api_key_encrypted TEXT DEFAULT NULL' : null,
+    colSet.has('key_rotation_initiated_at') ? 'key_rotation_initiated_at TEXT DEFAULT NULL' : null,
+  ].filter(Boolean);
+
+  // A leftover here sits beside an out-of-date table that still has its rows:
+  // it is an unfinished copy, not the only one.
+  database.exec(`DROP TABLE IF EXISTS agents_new`);
+  database.exec(`
+    CREATE TABLE agents_new (
+      id TEXT PRIMARY KEY,
+      org_id TEXT NOT NULL,
+      hostname TEXT NOT NULL,
+      os TEXT NOT NULL CHECK(os IN ('windows', 'linux', 'darwin')),
+      arch TEXT NOT NULL CHECK(arch IN ('amd64', 'arm64')),
+      agent_version TEXT NOT NULL,
+      api_key_hash TEXT NOT NULL,
+      status TEXT NOT NULL DEFAULT 'active' CHECK(status IN ('active', 'disabled', 'decommissioned', 'uninstalled')),
+      last_heartbeat TEXT,
+      last_heartbeat_data TEXT,
+      enrolled_at TEXT NOT NULL,
+      enrolled_by TEXT,
+      tags TEXT NOT NULL DEFAULT '[]',
+      created_at TEXT NOT NULL DEFAULT (datetime('now')),
+      updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+      ${optionalCols.length > 0 ? ', ' + optionalCols.join(', ') : ''}
+    );
+    INSERT INTO agents_new (${selectCols}) SELECT ${selectCols} FROM agents;
+    DROP TABLE agents;
+    ALTER TABLE agents_new RENAME TO agents;
+    CREATE INDEX IF NOT EXISTS idx_agents_org ON agents(org_id);
+    CREATE INDEX IF NOT EXISTS idx_agents_status ON agents(status);
+  `);
+}
+
+/** Widens the agent_versions table's CHECK to accept os 'darwin'. */
+function migrateAgentVersionsOs(database: Database.Database): void {
+  recreateIfOutdated(database, 'agent_versions', ["'darwin'"], () => recreateAgentVersionsTable(database));
+}
+
+/** The recreation itself. Call inside a transaction, with foreign keys off. */
+function recreateAgentVersionsTable(database: Database.Database): void {
+  const cols = database.prepare(`PRAGMA table_info(agent_versions)`).all() as { name: string }[];
+  const selectCols = cols.map((c) => c.name).join(', ');
+  const colSet = new Set(cols.map((c) => c.name));
+
+  // Columns added by ALTER TABLE since the first release. Any new
+  // `agent_versions` column must be listed here.
+  const optionalCols = [
+    colSet.has('signed') ? 'signed INTEGER DEFAULT 0' : null,
+    colSet.has('binary_signature') ? 'binary_signature TEXT DEFAULT NULL' : null,
+    colSet.has('signer_subject') ? 'signer_subject TEXT DEFAULT NULL' : null,
+    colSet.has('signer_fingerprint') ? 'signer_fingerprint TEXT DEFAULT NULL' : null,
+  ].filter(Boolean);
+
+  database.exec(`DROP TABLE IF EXISTS agent_versions_new`);
+  database.exec(`
+    CREATE TABLE agent_versions_new (
+      version TEXT NOT NULL,
+      os TEXT NOT NULL CHECK(os IN ('windows', 'linux', 'darwin')),
+      arch TEXT NOT NULL CHECK(arch IN ('amd64', 'arm64')),
+      binary_path TEXT NOT NULL,
+      binary_sha256 TEXT NOT NULL,
+      binary_size INTEGER NOT NULL,
+      release_notes TEXT,
+      mandatory INTEGER NOT NULL DEFAULT 0,
+      created_at TEXT NOT NULL DEFAULT (datetime('now'))
+      ${optionalCols.length > 0 ? ', ' + optionalCols.join(', ') : ''}
+      , PRIMARY KEY (version, os, arch)
+    );
+    INSERT INTO agent_versions_new (${selectCols}) SELECT ${selectCols} FROM agent_versions;
+    DROP TABLE agent_versions;
+    ALTER TABLE agent_versions_new RENAME TO agent_versions;
+  `);
+}
+
+/**
+ * Widens the tasks table's CHECK to accept 'execute_command'.
+ *
+ * Its earlier probe inserted a test row, which always failed on the agent
+ * foreign key, so every database looked out of date and the table was
+ * recreated on every start.
+ */
+function migrateExecuteCommandType(database: Database.Database): void {
+  recreateIfOutdated(database, 'tasks', ["'execute_command'"], () => recreateTasksTable(database));
 }
 
 /** The recreation itself. Call inside a transaction, with foreign keys off. */
@@ -778,7 +864,7 @@ function recreateTasksTable(database: Database.Database): void {
  * "<schedule id>:<local date of the slot>" (see scheduleRun.ts). The scheduler
  * writes it and retries inherit it; the task list groups by it, so a run that
  * reaches its agents one at a time is one entry with or without notices.
- * Listed in migrateExecuteCommandType's optionalCols and index recreation.
+ * Listed in recreateTasksTable's optionalCols and index recreation.
  */
 function migrateTaskScheduleRun(database: Database.Database): void {
   const hasColumn = () =>
@@ -887,24 +973,14 @@ function ensureTaskTestUuidObjects(database: Database.Database): void {
  * Expand `agent_events.event_type` to accept 'key_rotation_cancelled'.
  *
  * Written when an armed rotation expires without the agent ever picking the
- * new key up (see `cancelPendingKey`). SQLite has no ALTER COLUMN, so a CHECK
- * change means recreating the table.
- *
- * The probe reads `sqlite_master` rather than attempting a throwaway INSERT:
- * `agent_events.agent_id` carries a foreign key to `agents`, so an insert probe
- * with a synthetic id fails on the FK and would re-run this migration on every
- * startup.
+ * new key up (see `cancelPendingKey`).
  */
 function migrateKeyRotationCancelledEvent(database: Database.Database): void {
-  const existing = database
-    .prepare(`SELECT sql FROM sqlite_master WHERE type = 'table' AND name = 'agent_events'`)
-    .get() as { sql: string | null } | undefined;
+  recreateIfOutdated(database, 'agent_events', ["'key_rotation_cancelled'"], () => recreateAgentEventsTable(database));
+}
 
-  // Fresh databases get the value from CREATE TABLE above; nothing to do.
-  if (!existing?.sql || existing.sql.includes('key_rotation_cancelled')) return;
-
-  database.pragma('foreign_keys = OFF');
-
+/** The recreation itself. Call inside a transaction, with foreign keys off. */
+function recreateAgentEventsTable(database: Database.Database): void {
   const cols = database.prepare(`PRAGMA table_info(agent_events)`).all() as { name: string }[];
   const selectCols = cols.map((c) => c.name).join(', ');
 
@@ -929,142 +1005,40 @@ function migrateKeyRotationCancelledEvent(database: Database.Database): void {
     CREATE INDEX IF NOT EXISTS idx_agent_events_created ON agent_events(created_at);
     CREATE INDEX IF NOT EXISTS idx_agent_events_went_offline ON agent_events(agent_id, created_at) WHERE event_type = 'went_offline';
   `);
-
-  database.pragma('foreign_keys = ON');
-}
-
-function migrateUninstalledStatus(database: Database.Database): void {
-  // Probe: check if agents table already accepts 'uninstalled'
-  let needsMigration = false;
-  try {
-    database.exec(`SAVEPOINT uninstall_check`);
-    database.exec(`INSERT INTO agents (id, org_id, hostname, os, arch, agent_version, api_key_hash, status, enrolled_at)
-                    VALUES ('__uninstall_check__', '__test__', '__test__', 'linux', 'amd64', '0', '__test__', 'uninstalled', datetime('now'))`);
-    database.exec(`DELETE FROM agents WHERE id = '__uninstall_check__'`);
-    database.exec(`RELEASE uninstall_check`);
-  } catch {
-    database.exec(`ROLLBACK TO uninstall_check`);
-    database.exec(`RELEASE uninstall_check`);
-    needsMigration = true;
-  }
-
-  if (!needsMigration) return;
-
-  // Backup the database before destructive migration
-  try {
-    const backupPath = DB_PATH + '.bak';
-    fs.copyFileSync(DB_PATH, backupPath);
-    console.log(`[db] Database backed up to ${backupPath}`);
-  } catch (backupErr) {
-    console.warn(`[db] Warning: could not back up database: ${backupErr}`);
-  }
-
-  database.pragma('foreign_keys = OFF');
-
-  const cols = database.prepare(`PRAGMA table_info(agents)`).all() as { name: string }[];
-  const selectCols = cols.map((c) => c.name).join(', ');
-  const colSet = new Set(cols.map((c) => c.name));
-
-  // Build optional columns that may have been added by earlier migrations
-  const optionalCols = [
-    colSet.has('api_key_rotated_at') ? 'api_key_rotated_at TEXT DEFAULT NULL' : null,
-    colSet.has('pending_api_key_hash') ? 'pending_api_key_hash TEXT DEFAULT NULL' : null,
-    colSet.has('pending_api_key_encrypted') ? 'pending_api_key_encrypted TEXT DEFAULT NULL' : null,
-    colSet.has('key_rotation_initiated_at') ? 'key_rotation_initiated_at TEXT DEFAULT NULL' : null,
-  ].filter(Boolean);
-
-  database.exec(`DROP TABLE IF EXISTS agents_new`);
-  database.exec(`
-    CREATE TABLE agents_new (
-      id TEXT PRIMARY KEY,
-      org_id TEXT NOT NULL,
-      hostname TEXT NOT NULL,
-      os TEXT NOT NULL CHECK(os IN ('windows', 'linux', 'darwin')),
-      arch TEXT NOT NULL CHECK(arch IN ('amd64', 'arm64')),
-      agent_version TEXT NOT NULL,
-      api_key_hash TEXT NOT NULL,
-      status TEXT NOT NULL DEFAULT 'active' CHECK(status IN ('active', 'disabled', 'decommissioned', 'uninstalled')),
-      last_heartbeat TEXT,
-      last_heartbeat_data TEXT,
-      enrolled_at TEXT NOT NULL,
-      enrolled_by TEXT,
-      tags TEXT NOT NULL DEFAULT '[]',
-      created_at TEXT NOT NULL DEFAULT (datetime('now')),
-      updated_at TEXT NOT NULL DEFAULT (datetime('now'))
-      ${optionalCols.length > 0 ? ', ' + optionalCols.join(', ') : ''}
-    );
-    INSERT INTO agents_new (${selectCols}) SELECT ${selectCols} FROM agents;
-    DROP TABLE agents;
-    ALTER TABLE agents_new RENAME TO agents;
-    CREATE INDEX IF NOT EXISTS idx_agents_org ON agents(org_id);
-    CREATE INDEX IF NOT EXISTS idx_agents_status ON agents(status);
-  `);
-
-  database.pragma('foreign_keys = ON');
-
-  console.log(`[db] Migration complete: added 'uninstalled' status. Backup at ${DB_PATH}.bak`);
 }
 
 /**
- * Widen api_keys.scope to admit 'admin'.
- *
- * SQLite has no ALTER COLUMN, so a CHECK-constraint change means recreating the
- * table. api_keys has no indexes and no foreign keys, so nothing needs restoring
- * after the rename.
+ * Widen api_keys.scope to admit 'admin'. api_keys has no indexes and no
+ * foreign keys, so nothing needs restoring after the rename.
  */
 export function migrateAdminApiKeyScope(database: Database.Database): void {
-  // Probe: does the table already accept 'admin'?
-  let needsMigration = false;
-  try {
-    database.exec(`SAVEPOINT admin_scope_check`);
-    database.exec(`INSERT INTO api_keys (id, name, token_hash, key_prefix, scope, created_by)
-                    VALUES ('__scope_check__', '__t__', '__scope_check_hash__', 'pa_check', 'admin', '__t__')`);
-    database.exec(`DELETE FROM api_keys WHERE id = '__scope_check__'`);
-    database.exec(`RELEASE admin_scope_check`);
-  } catch {
-    database.exec(`ROLLBACK TO admin_scope_check`);
-    database.exec(`RELEASE admin_scope_check`);
-    needsMigration = true;
-  }
+  recreateIfOutdated(database, 'api_keys', ["'admin'"], () => recreateApiKeysTable(database));
+}
 
-  if (!needsMigration) return;
-
+/** The recreation itself. Call inside a transaction. */
+function recreateApiKeysTable(database: Database.Database): void {
   const cols = database.prepare(`PRAGMA table_info(api_keys)`).all() as { name: string }[];
   const selectCols = cols.map((c) => c.name).join(', ');
 
-  // Unlike the other table-recreate migrations in this file, this one runs
-  // as a single atomic transaction instead of the FK-off/DROP/RENAME/FK-on
-  // sequence. That sequence exists to make `DROP TABLE` legal on tables
-  // referenced by a foreign key — `PRAGMA foreign_keys` only works outside
-  // a transaction, so those migrations can't be wrapped. api_keys has no
-  // foreign keys and no indexes, so neither constraint applies here: no
-  // pragma toggle is needed, and wrapping in a transaction closes the crash
-  // window between `DROP TABLE api_keys` and the `RENAME` that would
-  // otherwise orphan real rows in `api_keys_new` (with `CREATE TABLE IF NOT
-  // EXISTS api_keys` on restart then fabricating an empty table whose probe
-  // passes, silently skipping the migration forever).
-  const recreate = database.transaction(() => {
-    database.exec(`DROP TABLE IF EXISTS api_keys_new`);
-    database.exec(`
-      CREATE TABLE api_keys_new (
-        id TEXT PRIMARY KEY,
-        name TEXT NOT NULL,
-        token_hash TEXT NOT NULL UNIQUE,
-        key_prefix TEXT NOT NULL,
-        scope TEXT NOT NULL DEFAULT 'read' CHECK(scope IN ('read','read-write','admin')),
-        created_by TEXT NOT NULL,
-        org_id TEXT,
-        created_at TEXT NOT NULL DEFAULT (datetime('now')),
-        expires_at TEXT,
-        last_used_at TEXT,
-        revoked_at TEXT
-      );
-      INSERT INTO api_keys_new (${selectCols}) SELECT ${selectCols} FROM api_keys;
-      DROP TABLE api_keys;
-      ALTER TABLE api_keys_new RENAME TO api_keys;
-    `);
-  });
-  recreate();
+  database.exec(`DROP TABLE IF EXISTS api_keys_new`);
+  database.exec(`
+    CREATE TABLE api_keys_new (
+      id TEXT PRIMARY KEY,
+      name TEXT NOT NULL,
+      token_hash TEXT NOT NULL UNIQUE,
+      key_prefix TEXT NOT NULL,
+      scope TEXT NOT NULL DEFAULT 'read' CHECK(scope IN ('read','read-write','admin')),
+      created_by TEXT NOT NULL,
+      org_id TEXT,
+      created_at TEXT NOT NULL DEFAULT (datetime('now')),
+      expires_at TEXT,
+      last_used_at TEXT,
+      revoked_at TEXT
+    );
+    INSERT INTO api_keys_new (${selectCols}) SELECT ${selectCols} FROM api_keys;
+    DROP TABLE api_keys;
+    ALTER TABLE api_keys_new RENAME TO api_keys;
+  `);
 }
 
 export function closeDatabase(): void {

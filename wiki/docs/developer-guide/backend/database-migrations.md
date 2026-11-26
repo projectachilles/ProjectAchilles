@@ -41,42 +41,48 @@ The serverless backend has its own schema and does not have the campaign, notice
 
 ## Table Recreation Migrations
 
-SQLite has no `ALTER COLUMN`, so changing CHECK constraints requires recreating the table:
+SQLite has no `ALTER COLUMN`, so changing a CHECK constraint means recreating the table: create `<table>_new` with the new definition, copy every row, drop the old table, rename. Five tables have such a migration: `agents`, `agent_versions`, `tasks`, `agent_events` and `api_keys`.
 
-:::danger[Follow This Exact Pattern]
+All of them go through one function in `database.ts`, and a new one must too:
 
 ```typescript
-// 1. Drop leftover temp tables (previous crash may leave them)
-database.exec('DROP TABLE IF EXISTS agents_temp');
-
-// 2. Disable FK checks (tasks references agents)
-database.pragma('foreign_keys = OFF');
-
-// 3. Create temp table with new schema
-database.exec(`CREATE TABLE agents_temp (...)`);
-
-// 4. Copy data (name the columns; do not rely on column order)
-database.exec('INSERT INTO agents_temp (<cols>) SELECT <cols> FROM agents');
-
-// 5. Swap
-database.exec('DROP TABLE agents');
-database.exec('ALTER TABLE agents_temp RENAME TO agents');
-
-// 6. Recreate indexes
-database.exec('CREATE INDEX ...');
-
-// 7. Re-enable FK checks
-database.pragma('foreign_keys = ON');
+function migrateAgentVersionsOs(database: Database.Database): void {
+  recreateIfOutdated(database, 'agent_versions', ["'darwin'"], () => recreateAgentVersionsTable(database));
+}
 ```
 
+`recreateIfOutdated(database, table, values, recreate)` does four things:
+
+1. **It decides from the table's definition.** It reads the `CREATE TABLE` text from `sqlite_master` and looks for the values today's CHECK names. It never tries a test row.
+2. **It turns foreign-key checks off** with `database.pragma('foreign_keys = OFF')`, and back on in a `finally`.
+3. **It runs `recreate` in one `BEGIN IMMEDIATE` transaction**, and decides again once it holds the write lock.
+4. **On an up-to-date table it warns about a leftover `<table>_new`** and does not delete it.
+
+The `recreate` function holds only the statements: `DROP TABLE IF EXISTS <table>_new`, `CREATE TABLE <table>_new (...)`, `INSERT INTO <table>_new (<cols>) SELECT <cols> FROM <table>`, `DROP TABLE <table>`, `ALTER TABLE <table>_new RENAME TO <table>`, then the table's indexes.
+
+:::danger[Do not write a recreation as separate statements]
+Earlier releases did, and decided with a test insert. Each rule above exists because of a failure:
+
+- **A test insert fails for reasons that have nothing to do with the CHECK.** The `tasks` probe pointed at an agent that does not exist, so the table was recreated on every start of every install. Any insert fails with `SQLITE_BUSY` while another process holds the write lock, which started a recreation of a table that was up to date.
+- **Separate statements interleave.** Two processes starting within a fraction of a second of each other lost the `tasks` table (one dropped the table the other had just renamed into place), and a failure after the `DROP` lost every row.
+- **Without the second look**, a process that decided before another one finished recreates the table again.
+- **Without the lock taken first**, another process's write between the decision and the first statement ends the recreation with `SQLITE_BUSY_SNAPSHOT`.
 :::
 
 ### Key Gotchas
 
-1. **Always `DROP TABLE IF EXISTS <temp>` first** — a previous crashed run may leave the temp table
-2. **Disable FK checks** — `PRAGMA foreign_keys = OFF` before the swap. Tables with FK references refuse DROP
-3. **Use `database.pragma()`** not `database.exec('PRAGMA ...')` — PRAGMA only works outside transactions
-4. **A recreate drops every column it does not list.** `migrateExecuteCommandType` recreates the `tasks` table and runs even on a fresh database. Columns added later by `ALTER TABLE` (for example `notice_id`, `campaign_run_id`, `result_compacted_at`) survive only because they are listed in its `optionalCols`. When you add a `tasks` column, add it to `optionalCols`, and add its index to the index recreation in the same function. `migrateUninstalledStatus` has the same list for `agents`
+1. **A recreation keeps only the columns it lists.** A column added later by `ALTER TABLE` must be added to the recreate function too: to its `optionalCols` (`recreateAgentsTable`, `recreateAgentVersionsTable`, `recreateTasksTable`) or to its `CREATE TABLE` (`recreateAgentEventsTable`, `recreateApiKeysTable`), and its index to the index statements. Otherwise the recreation fails on a database that has the column (`table tasks_new has no column named ...`). `checkRecreations.test.ts` and `tasksRecreation.test.ts` rebuild each table with today's columns and an old CHECK, and fail when a column is missing.
+2. **Use `database.pragma()`**, not `database.exec('PRAGMA ...')`, and only outside a transaction: SQLite ignores `PRAGMA foreign_keys` inside one. With the checks on, SQLite refuses to drop a table other tables reference.
+3. **Never drop a `<table>_new` you did not just create.** Beside an up-to-date table it can be the only copy of the rows after an interrupted upgrade of an earlier release.
+4. **`agents` is backed up first**, to `agents.db.bak` beside the database (`VACUUM INTO`, a consistent copy). Pass `{ backUpFirst: true }` for a table whose loss would cut off the fleet.
+
+### Adding a Column
+
+Check `PRAGMA table_info(<table>)` and add the column with `addColumn(database, 'ALTER TABLE ... ADD COLUMN ...')`. `addColumn` accepts `duplicate column name`: when two processes start together on a database that lacks the column, both find it missing and the slower one's `ALTER` fails with that error.
+
+### A Failed Start-Up
+
+`getDatabase()` keeps its connection only after `initializeTables()` has returned. If a migration throws, the connection is closed and the next call opens the database and runs the set-up again. A process never serves requests on a database whose migrations stopped part-way.
 
 ## Storage Architecture
 
@@ -110,6 +116,7 @@ graph TD
 ```
 ~/.projectachilles/
 ├── agents.db                    # SQLite database (WAL mode)
+├── agents.db.bak                # Copy made before the agents table is recreated (old installs only)
 ├── analytics.json               # ES connection config (encrypted fields)
 ├── tests.json                   # Platform/arch build settings
 ├── integrations.json            # EDR integrations, alerting, pre-execution notices (encrypted fields)
