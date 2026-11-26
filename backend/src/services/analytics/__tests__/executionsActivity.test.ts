@@ -247,6 +247,14 @@ describe('getExecutionsActivity', () => {
       expect(result.buckets).toHaveLength(8);
     });
 
+    it('counts the 7 days before an end given alone, as the coverage matrix does', async () => {
+      route();
+      const result = await createService().getExecutionsActivity({ to: '2026-10-10T12:00:00.000Z' }, 'UTC');
+
+      expect(result.buckets[0].from).toBe('2026-10-03T00:00:00.000Z');
+      expect(result.buckets[result.buckets.length - 1].to).toBe('2026-10-10T23:59:59.999Z');
+    });
+
     it('accepts the relative form the filter bar can send', async () => {
       route();
       const result = await createService().getExecutionsActivity({ from: 'now-24h' }, 'UTC');
@@ -264,6 +272,16 @@ describe('getExecutionsActivity', () => {
 
       expect(later.buckets.map((b) => [b.from, b.to])).toEqual(first.buckets.map((b) => [b.from, b.to]));
     });
+  });
+
+  it.each([
+    ['a date given twice', { from: ['2026-11-01', '2026-11-02'] as unknown as string, to: TO }],
+    ['a date beyond what a date can hold', { from: FROM, to: '+275760-09-13T00:00:00.000Z' }],
+    ['a date before the calendar', { from: '-271821-04-20T00:00:00.000Z', to: TO }],
+  ])('refuses %s as a bad request, not a server error', async (_name, params) => {
+    route();
+    await expect(createService().getExecutionsActivity(params, TZ)).rejects.toMatchObject({ statusCode: 400, message: 'Invalid date range' });
+    expect(mockSearch).not.toHaveBeenCalled();
   });
 
   it('refuses a date it cannot read', async () => {

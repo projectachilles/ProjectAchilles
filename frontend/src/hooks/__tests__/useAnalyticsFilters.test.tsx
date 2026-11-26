@@ -1,7 +1,7 @@
 import React from 'react';
 import { describe, it, expect, beforeEach } from 'vitest';
 import { renderHook, act } from '@testing-library/react';
-import { MemoryRouter } from 'react-router-dom';
+import { MemoryRouter, useLocation } from 'react-router-dom';
 import {
   useAnalyticsFilters,
   ALL_TIME_FROM,
@@ -412,5 +412,67 @@ describe('versionState filter', () => {
     act(() => result.current.setVersionState('unknown'));
     act(() => result.current.clearAllFilters());
     expect(result.current.filters.versionState).toBeNull();
+  });
+});
+
+describe('parameters that belong to the date range', () => {
+  // The activity strip's selected bucket is one: a new range drops it. It has to
+  // leave in the filters' own address update, because a second writer in the same
+  // tick starts from the same address and the last one wins.
+  const BOUND = ['bucketFrom', 'bucketTo'] as const;
+  function setup(search: string) {
+    const { result } = renderHook(
+      () => ({ filters: useAnalyticsFilters(true, { rangeBoundParams: BOUND }), search: useLocation().search }),
+      { wrapper: wrapperWithParams(search) },
+    );
+    return { result, params: () => Object.fromEntries(new URLSearchParams(result.current.search)) };
+  }
+
+  it('leave the address when the range changes, in the update that writes the range', () => {
+    const { result, params } = setup('tab=executions&bucketFrom=a&bucketTo=b&pairTest=t1');
+
+    act(() => result.current.filters.setDateRange({ preset: '7d' }));
+
+    expect(params()).toEqual({ tab: 'executions', date: '7d', pairTest: 't1' });
+  });
+
+  it('stay when the page opens with them', () => {
+    const { params } = setup('date=7d&bucketFrom=a&bucketTo=b');
+    expect(params()).toEqual({ date: '7d', bucketFrom: 'a', bucketTo: 'b' });
+  });
+
+  it('stay when another filter changes', () => {
+    const { result, params } = setup('date=7d&bucketFrom=a&bucketTo=b');
+
+    act(() => result.current.filters.setHostnames(['HOST-01']));
+
+    expect(params()).toEqual({ date: '7d', hostnames: 'HOST-01', bucketFrom: 'a', bucketTo: 'b' });
+  });
+
+  it('stay when the same range is set again', () => {
+    const { result, params } = setup('date=7d&bucketFrom=a&bucketTo=b');
+
+    act(() => result.current.filters.setDateRange({ preset: '7d' }));
+
+    expect(params()).toMatchObject({ bucketFrom: 'a', bucketTo: 'b' });
+  });
+
+  it('leave with a custom range too', () => {
+    const { result, params } = setup('bucketFrom=a&bucketTo=b');
+
+    act(() => result.current.filters.setDateRange({ preset: 'custom', from: '2026-11-01T00:00:00.000Z', to: '2026-11-08T00:00:00.000Z' }));
+
+    expect(params()).toEqual({ from: '2026-11-01T00:00:00.000Z', to: '2026-11-08T00:00:00.000Z' });
+  });
+
+  it('are nobody\'s business without the option', () => {
+    const { result } = renderHook(
+      () => ({ filters: useAnalyticsFilters(true), search: useLocation().search }),
+      { wrapper: wrapperWithParams('bucketFrom=a&bucketTo=b') },
+    );
+
+    act(() => result.current.filters.setDateRange({ preset: '7d' }));
+
+    expect(Object.fromEntries(new URLSearchParams(result.current.search))).toEqual({ date: '7d', bucketFrom: 'a', bucketTo: 'b' });
   });
 });

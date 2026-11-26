@@ -76,6 +76,8 @@ import type {
 /** CSV/JSON export: groups per request, and the most result docs one export holds. */
 const EXPORT_PAGE_GROUPS = 200;
 const EXPORT_MAX_DOCS = 10_000;
+/** In the address, the bucket selected on the activity strip. It belongs to the date range: a new range drops it. */
+const RANGE_BOUND_PARAMS = ['bucketFrom', 'bucketTo'] as const;
 
 type TabType = 'dashboard' | 'executions' | 'risk-acceptances' | 'defender' | 'crowdstrike' | 'sentinelone' | 'sophos';
 
@@ -191,7 +193,7 @@ export default function AnalyticsDashboardPage() {
   }, [setSearchParams]);
 
   // Filter state (with URL sync)
-  const filterState = useAnalyticsFilters(true);
+  const filterState = useAnalyticsFilters(true, { rangeBoundParams: RANGE_BOUND_PARAMS });
 
   // Same filters as the tab, serialized the same way, so the report is
   // bookmarkable and regenerates the same scope.
@@ -208,7 +210,11 @@ export default function AnalyticsDashboardPage() {
   // The activity strip of All Executions reads the filter bar's whole window. The views under it
   // (the matrix, the list, the export) read the bucket selected on the strip, when there is one:
   // its two instants replace the window's. The bucket is not a filter of the filter bar.
-  const { bucket: activityBucket, setBucket: setActivityBucket } = useActivityBucket();
+  const capabilities = useCapabilities();
+  const { bucket: bucketInAddress, setBucket: setActivityBucket } = useActivityBucket();
+  // Only where the strip is drawn: without it nothing on screen would show the narrowing, or clear it
+  // (a link from another install, opened on a server that has no strip).
+  const activityBucket = capabilities.activityStrip ? bucketInAddress : null;
   const stripParams = useMemo(() => getApiParams(), [getApiParams]);
   const matrixParams = useMemo(
     () => (activityBucket ? { ...stripParams, from: activityBucket.from, to: activityBucket.to } : stripParams),
@@ -216,22 +222,6 @@ export default function AnalyticsDashboardPage() {
   );
   /** Archives made on this page: the strip's bars are read again after each. */
   const [archivedCount, setArchivedCount] = useState(0);
-  const selectActivityBucket = useCallback((next: { from: string; to: string } | null) => {
-    setActivityBucket(next);
-    // Another stretch of time: its runs start at the first page.
-    setExecutionsPage(1);
-  }, [setActivityBucket]);
-
-  // A bucket belongs to the date range it was picked in: a new range drops it.
-  const { preset: rangePreset, from: rangeFrom, to: rangeTo } = filterState.filters.dateRange;
-  const rangeKey = `${rangePreset}|${rangeFrom ?? ''}|${rangeTo ?? ''}`;
-  const rangeSeen = useRef(rangeKey);
-  useEffect(() => {
-    if (rangeSeen.current === rangeKey) return;
-    rangeSeen.current = rangeKey;
-    setActivityBucket(null);
-  }, [rangeKey, setActivityBucket]);
-  const capabilities = useCapabilities();
   // Sent to the Executions endpoints only; never without the capability, even from a stale URL
   const versionStateParam = useMemo(
     () => (capabilities.testVersions && filterState.filters.versionState
@@ -307,8 +297,27 @@ export default function AnalyticsDashboardPage() {
   /** Bumped by Refresh on the executions tab, for the matrix view. */
   const [refreshCount, setRefreshCount] = useState(0);
   const [executionsPage, setExecutionsPage] = useState(1);
+  // Another stretch of time starts at its first page. Decided while rendering, from the bucket itself:
+  // the bucket arrives with the address (a navigation), and a page reset made in the click handler ran
+  // a render earlier, asked for the window's first page, and let the list write its selected run to
+  // the address before the bucket was in it, which wrote the bucket away.
+  const bucketKey = activityBucket ? `${activityBucket.from}|${activityBucket.to}` : '';
+  const [pageBucketKey, setPageBucketKey] = useState(bucketKey);
+  if (pageBucketKey !== bucketKey) {
+    setPageBucketKey(bucketKey);
+    setExecutionsPage(1);
+  }
   // Page state set by the Outcome breakdown card; not a filter, not in the URL
   const [executionsVerdict, setExecutionsVerdict] = useState<ExecutionVerdict | null>(null);
+  // Filters the list is asked with and the strip's bars are not. In the matrix view the matrix says so itself, about its own marks.
+  const stripListOnlyNote = useMemo(() => {
+    if (executionsView !== 'list') return null;
+    const outcome = executionsVerdict !== null || Boolean(stripParams.result || stripParams.errorCodes || stripParams.errorNames);
+    const version = 'versionState' in versionStateParam;
+    if (outcome && version) return 'Outcome and version filters narrow the list, not the bars.';
+    if (outcome) return 'Outcome filters narrow the list, not the bars.';
+    return version ? 'The version filter narrows the list, not the bars.' : null;
+  }, [executionsView, executionsVerdict, stripParams, versionStateParam]);
   const [executionsPageSize, setExecutionsPageSize] = useState(25);
   // Why the list could not load under a version filter (shown instead of an unexplained empty list)
   const [executionsError, setExecutionsError] = useState<string | null>(null);
@@ -1291,9 +1300,8 @@ export default function AnalyticsDashboardPage() {
                   params={stripParams}
                   reloadToken={settingsVersion + refreshCount + archivedCount}
                   selected={activityBucket}
-                  onSelect={selectActivityBucket}
-                  // In the matrix view the matrix says so itself, about its own marks.
-                  outcomeFiltered={executionsView === 'list' && (executionsVerdict !== null || Boolean(stripParams.result || stripParams.errorCodes || stripParams.errorNames))}
+                  onSelect={setActivityBucket}
+                  listOnlyNote={stripListOnlyNote}
                 />
               ) : undefined}
             />

@@ -59,7 +59,7 @@ describe('ActivityStrip with enough activity', () => {
     const heights = barHeights(BUSY).filter((h) => h.bar > 0);
 
     bars().forEach((b, i) => {
-      expect(b.style.height).toBe(`${heights[i].bar}px`);
+      expect(within(b).getByTestId('activity-column').style.height).toBe(`${heights[i].bar}px`);
       const segments = within(b).getAllByTestId('activity-segment');
       expect(segments.map((s) => s.style.height)).toEqual(heights[i].segments.filter((s) => s > 0).map((s) => `${s}px`));
     });
@@ -73,7 +73,20 @@ describe('ActivityStrip with enough activity', () => {
     expect(segments[0]).toHaveClass('bg-danger');
     expect(segments[2]).toHaveClass('bg-accent');
     // The bar stacks upwards from its first segment.
-    expect(bar(/^Nov 16/)).toHaveClass('flex-col-reverse');
+    expect(within(bar(/^Nov 16/)).getByTestId('activity-column')).toHaveClass('flex-col-reverse');
+  });
+
+  it('takes a click anywhere in the bucket\'s column: a one-run day is a few pixels of bar, not a few pixels of target', async () => {
+    const user = userEvent.setup();
+    const { onSelect } = setup();
+    const oneRun = bar(/^Nov 13/);
+
+    // The button is the whole slot; only the coloured column inside it is short.
+    expect(oneRun).toHaveClass('h-full');
+    expect(oneRun.parentElement).toHaveAttribute('data-testid', 'activity-slot');
+    expect(within(oneRun).getByTestId('activity-column').style.height).toBe('6px');
+    await user.click(oneRun);
+    expect(onSelect).toHaveBeenCalledWith(ref(BUSY[3]));
   });
 
   it('writes the first and the last bucket under the ends', () => {
@@ -110,14 +123,14 @@ describe('selecting a bucket', () => {
 
     expect(bar(/^Nov 16/)).toHaveAttribute('aria-pressed', 'true');
     expect(bar(/^Nov 11/)).toHaveAttribute('aria-pressed', 'false');
-    expect(bar(/^Nov 11/)).toHaveClass('opacity-40');
-    expect(bar(/^Nov 16/)).not.toHaveClass('opacity-40');
+    expect(within(bar(/^Nov 11/)).getByTestId('activity-column')).toHaveClass('opacity-40');
+    expect(within(bar(/^Nov 16/)).getByTestId('activity-column')).not.toHaveClass('opacity-40');
     expect(screen.getByRole('button', { name: 'Clear the selected Nov 16' })).toHaveTextContent('Nov 16');
   });
 
   it('dims nothing while nothing is selected', () => {
     setup();
-    for (const b of bars()) expect(b).not.toHaveClass('opacity-40');
+    for (const b of bars()) expect(within(b).getByTestId('activity-column')).not.toHaveClass('opacity-40');
     expect(screen.queryByRole('button', { name: /^Clear the selected/ })).not.toBeInTheDocument();
   });
 

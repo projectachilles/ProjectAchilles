@@ -286,6 +286,9 @@ function parseRangeTime(v: string, nowMs: number): number {
 
 type ActivityCounts = { protected: number; unprotected: number; inconclusive: number };
 
+/** Dates the activity strip accepts: within a year of what a Date can hold (about ±270,000 years), so bucket bounds stay valid dates. */
+const ACTIVITY_MAX_INSTANT_MS = 8.64e15 - 400 * DAY_MS;
+
 /**
  * The outcome of one bundle run, from the sub-aggregations of activityRules:
  * no conclusive stage is no verdict; a cyber-hygiene run is protected only when
@@ -4306,9 +4309,17 @@ export class ElasticsearchService {
     tz: string,
   ): Promise<ExecutionsActivityResponse> {
     const nowMs = Date.now();
-    const fromMs = params.from ? parseRangeTime(params.from, nowMs) : nowMs - 7 * DAY_MS;
-    const toMs = params.to ? parseRangeTime(params.to, nowMs) : nowMs;
-    if (Number.isNaN(fromMs) || Number.isNaN(toMs)) throw new AppError('Invalid date range', 400);
+    // A bound that is not one string (given twice in the query), not a date, or a date too far
+    // out to be cut into buckets and written back is the caller's mistake: 400, never a 500.
+    const bound = (value: unknown, fallback: number): number => {
+      if (value === undefined || value === '') return fallback;
+      const ms = typeof value === 'string' ? parseRangeTime(value, nowMs) : Number.NaN;
+      if (!Number.isFinite(ms) || Math.abs(ms) > ACTIVITY_MAX_INSTANT_MS) throw new AppError('Invalid date range', 400);
+      return ms;
+    };
+    const toMs = bound(params.to, nowMs);
+    // No start: the 7 days before the end, as for the coverage matrix.
+    const fromMs = bound(params.from, toMs - 7 * DAY_MS);
 
     const { interval, buckets: bounds, capped } = activityBuckets(fromMs, toMs, tz);
     if (bounds.length === 0) return { interval, timeZone: tz, buckets: [] };

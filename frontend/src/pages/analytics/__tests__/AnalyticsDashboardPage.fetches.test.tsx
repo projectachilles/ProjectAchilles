@@ -984,6 +984,8 @@ describe('All Executions: the activity strip', () => {
 
   beforeEach(() => {
     localStorage.clear();
+    // The date range is remembered per browser session: a test that picks one must not hand it to the next.
+    sessionStorage.clear();
     withStrip(true);
     mocks.analytics.reset({
       getOutcomeBreakdown: { pairCount: 10, protected: 4, prevented: 2, detected: 1, silent: 3, noConclusive: 0, riskAccepted: 0, windowLabel: '30d' },
@@ -1094,12 +1096,44 @@ describe('All Executions: the activity strip', () => {
     fireEvent.click((await screen.findByText('Page 1 of 5')).nextElementSibling as HTMLElement);
     await screen.findByText('Page 2 of 5');
     await waitFor(() => expect(lastOf(list())).toMatchObject({ page: 2 }));
+    // The list has selected the page's first run and written it to the address: the page is at rest.
+    await waitFor(() => expect(address().get('expanded')).toBe('run-2'), { timeout: 3000 });
+    list().mockClear();
 
     fireEvent.click(await screen.findByRole('button', { name: /^Nov 16/ }));
 
-    await waitFor(() => expect(lastOf(list())).toMatchObject({ from: NOV16.from, page: 1 }), { timeout: 3000 });
-    // Never the second page of the bucket: it may not have one.
-    expect(list().mock.calls.some((c) => c[0].from === NOV16.from && c[0].page === 2)).toBe(false);
+    await waitFor(() => expect(list()).toHaveBeenCalled(), { timeout: 3000 });
+    await new Promise((r) => setTimeout(r, 50));
+    // One request, for the bucket's first page. Not the window's first page on the way there:
+    // its answer could reach the list before the bucket reached the address, and the list,
+    // writing its selected run, would then write the bucket away.
+    expect(list().mock.calls.map((c) => [c[0].from, c[0].page])).toEqual([[NOV16.from, 1]]);
+    expect(address().get('bucketFrom')).toBe(NOV16.from);
+    expect(screen.getByRole('button', { name: /^Nov 16/ })).toHaveAttribute('aria-pressed', 'true');
+  });
+
+  it('goes back to the first page when the bucket is cleared from a later one, in one request', async () => {
+    const row = (page: number) => ({
+      groups: [{
+        groupKey: `run-${page}`, type: 'standalone',
+        representative: { test_uuid: 'u-1', test_name: 'Row', hostname: 'h1', is_protected: false, org: 'o', timestamp: '2026-11-16T12:47:49Z', error_code: 101 },
+        members: [], protectedCount: 0, unprotectedCount: 1, totalCount: 1,
+      }],
+      pagination: { page, pageSize: 25, totalGroups: 5, totalDocuments: 5, totalPages: 5, hasNext: page < 5, hasPrevious: page > 1 },
+    });
+    list().mockImplementation(async (p: { page?: number }) => row(p.page ?? 1));
+    renderAt(`?tab=executions&view=list&${IN_ADDRESS}`);
+    fireEvent.click((await screen.findByText('Page 1 of 5')).nextElementSibling as HTMLElement);
+    await screen.findByText('Page 2 of 5');
+    await waitFor(() => expect(lastOf(list())).toMatchObject({ from: NOV16.from, page: 2 }));
+    await waitFor(() => expect(address().get('expanded')).toBe('run-2'), { timeout: 3000 });
+    list().mockClear();
+
+    fireEvent.click(screen.getByRole('button', { name: 'Clear the selected Nov 16' }));
+
+    await waitFor(() => expect(list()).toHaveBeenCalled(), { timeout: 3000 });
+    await new Promise((r) => setTimeout(r, 50));
+    expect(list().mock.calls.map((c) => [c[0].from, c[0].page])).toEqual([['now-30d', 1]]);
   });
 
   it('reads the bars again after a run is archived', async () => {
@@ -1193,6 +1227,89 @@ describe('All Executions: the activity strip', () => {
     expect(lastOf(matrix()).from).not.toBe(NOV16.from);
   });
 
+  describe('a new date range still reaches the address', () => {
+    // The bucket is dropped with the range. That must be the same address update as the
+    // filters' own: a second writer in the same tick starts from the same address and wins.
+    const pickRange = (value: string) => {
+      const range = screen.getAllByRole('combobox').find((el) => [...(el as HTMLSelectElement).options].some((o) => o.value === '7d')) as HTMLSelectElement;
+      fireEvent.change(range, { target: { value } });
+    };
+
+    it('on All Executions without a bucket', async () => {
+      renderAt('?tab=executions');
+      await screen.findByRole('button', { name: /^Nov 16/ });
+
+      pickRange('7d');
+
+      await waitFor(() => expect(address().get('date')).toBe('7d'));
+    });
+
+    it('on the dashboard tab', async () => {
+      renderAt('');
+      await screen.findByText('Outcome breakdown');
+
+      pickRange('7d');
+
+      await waitFor(() => expect(address().get('date')).toBe('7d'));
+    });
+
+    it('when the address already named a range', async () => {
+      renderAt('?tab=executions&date=7d&hostnames=HOST-01');
+      await screen.findByRole('button', { name: /^Nov 16/ });
+
+      pickRange('90d');
+
+      await waitFor(() => expect(address().get('date')).toBe('90d'));
+      expect(address().get('hostnames')).toBe('HOST-01');
+    });
+
+    it('together with the bucket leaving it', async () => {
+      renderAt(`?tab=executions&${IN_ADDRESS}`);
+      await screen.findByRole('button', { name: /^Nov 16/ });
+
+      pickRange('7d');
+
+      await waitFor(() => expect(address().get('date')).toBe('7d'));
+      expect(address().has('bucketFrom')).toBe(false);
+      expect(address().has('bucketTo')).toBe(false);
+    });
+
+    it('and an open pair stays open, as before the strip', async () => {
+      renderAt('?tab=executions&view=matrix&pairTest=a0000000-1234-4abc-8def-000000000001&pairHost=org-1%7CHOST-01');
+      await screen.findByRole('button', { name: /^Nov 16/ });
+
+      pickRange('7d');
+
+      await waitFor(() => expect(address().get('date')).toBe('7d'));
+      expect(address().get('pairTest')).toBe('a0000000-1234-4abc-8def-000000000001');
+      expect(address().get('pairHost')).toBe('org-1|HOST-01');
+    });
+  });
+
+  describe('a bucket in the address that nothing on screen could show', () => {
+    it('narrows nothing where the server has no strip', async () => {
+      withStrip(false);
+      renderAt(`?tab=executions&${IN_ADDRESS}`);
+      await screen.findByText('No results in this window');
+      await waitFor(() => expect(matrix()).toHaveBeenCalled());
+
+      // A link from another install: with no strip there is no chip to say so, or to clear it.
+      expect(matrix().mock.calls.every((c) => c[0].from === 'now-30d')).toBe(true);
+    });
+
+    it('can still be cleared when the bars could not be loaded', async () => {
+      vi.spyOn(console, 'error').mockImplementation(() => {});
+      activity().mockRejectedValue(new Error('boom'));
+      renderAt(`?tab=executions&${IN_ADDRESS}`);
+      await waitFor(() => expect(matrix()).toHaveBeenCalled());
+
+      fireEvent.click(await screen.findByRole('button', { name: /^Clear the selected/ }));
+
+      await waitFor(() => expect(address().has('bucketFrom')).toBe(false));
+      await waitFor(() => expect(lastOf(matrix()).from).toBe('now-30d'));
+    });
+  });
+
   it('keeps the bucket when another filter changes', async () => {
     renderAt(`?tab=executions&${IN_ADDRESS}&hostnames=HOST-01`);
     await screen.findByRole('button', { name: /^Nov 16/ });
@@ -1216,6 +1333,20 @@ describe('All Executions: the activity strip', () => {
     await screen.findByRole('button', { name: /^Nov 16/ });
 
     expect(screen.getByText('Outcome filters narrow the list, not the bars.')).toBeInTheDocument();
+  });
+
+  it('says it of the version filter too, which only the list is asked with', async () => {
+    mocks.caps = { outcomeBreakdown: true, loaded: true, coverageMatrix: true, activityStrip: true, testVersions: true } as typeof mocks.caps;
+    renderAt('?tab=executions&view=list&versionState=older');
+    await screen.findByRole('button', { name: /^Nov 16/ });
+    expect(screen.getByText('The version filter narrows the list, not the bars.')).toBeInTheDocument();
+  });
+
+  it('names both when both narrow the list', async () => {
+    mocks.caps = { outcomeBreakdown: true, loaded: true, coverageMatrix: true, activityStrip: true, testVersions: true } as typeof mocks.caps;
+    renderAt('?tab=executions&view=list&versionState=older&result=unprotected');
+    await screen.findByRole('button', { name: /^Nov 16/ });
+    expect(screen.getByText('Outcome and version filters narrow the list, not the bars.')).toBeInTheDocument();
   });
 
   it('leaves that to the matrix\'s own line in the matrix view', async () => {

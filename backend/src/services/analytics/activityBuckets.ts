@@ -39,7 +39,7 @@ const SEARCH_STEP_MS: Record<ActivityInterval, number> = {
   week: 7 * DAY_MS + 3 * HOUR_MS,
 };
 
-/** More buckets than any window can have (365 days of weeks, 62 days, 48 hours, with their clipped ends). */
+/** More buckets than any window can have (365 days of weeks, 62 days, 48 hours, plus the partly covered first and last). */
 const MAX_BUCKETS = 400;
 
 const WEEKDAY_FROM_MONDAY: Record<string, number> = { Mon: 0, Tue: 1, Wed: 2, Thu: 3, Fri: 4, Sat: 5, Sun: 6 };

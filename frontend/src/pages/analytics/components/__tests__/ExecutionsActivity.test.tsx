@@ -210,12 +210,12 @@ describe('answers that arrive late', () => {
 });
 
 describe('the lines under the bars', () => {
-  it('says the bars ignore the outcome filters, when the page says one narrows the list', async () => {
+  it('writes the line the page gives it about filters the bars do not follow', async () => {
     const { rerenderWith } = setup();
     await screen.findByRole('group', { name: 'Runs over time' });
-    expect(screen.queryByText(/Outcome filters/)).not.toBeInTheDocument();
+    expect(screen.queryByText(/narrow the list/)).not.toBeInTheDocument();
 
-    rerenderWith({ outcomeFiltered: true });
+    rerenderWith({ listOnlyNote: 'Outcome filters narrow the list, not the bars.' });
     expect(screen.getByText('Outcome filters narrow the list, not the bars.')).toBeInTheDocument();
   });
 

@@ -150,22 +150,29 @@ export function ActivityStrip({ buckets, interval, unit = 'run', selected, onSel
                 onClick={() => toggle(i)}
                 onFocus={() => { setFocused(i); setHint(name(i)); }}
                 onBlur={() => setHint('')}
-                style={{ height: heights[i].bar }}
-                className={cn(
-                  'flex w-full min-w-0 flex-col-reverse overflow-hidden rounded-t-[2px] outline-offset-1 hover:outline hover:outline-1 hover:outline-foreground focus-visible:outline focus-visible:outline-2 focus-visible:outline-accent',
-                  selected && i !== selectedIndex && 'opacity-40',
-                  i === selectedIndex && 'outline outline-2 outline-accent',
-                )}
+                // The button is the whole slot, the coloured column only its lower part:
+                // a day with one run is a 4 px bar, and must not be a 4 px target.
+                className="group flex h-full w-full min-w-0 items-end rounded-t-[2px] outline-offset-1 focus-visible:outline focus-visible:outline-2 focus-visible:outline-accent"
               >
-                {bucket.segments.map((segment, s) => heights[i].segments[s] > 0 && (
-                  <span
-                    key={segment.key}
-                    data-testid="activity-segment"
-                    data-segment={segment.key}
-                    className={cn('block w-full shrink-0', MARK_BG[segment.tone])}
-                    style={{ height: heights[i].segments[s] }}
-                  />
-                ))}
+                <span
+                  data-testid="activity-column"
+                  style={{ height: heights[i].bar }}
+                  className={cn(
+                    'flex w-full min-w-0 flex-col-reverse overflow-hidden rounded-t-[2px] outline-offset-1 group-hover:outline group-hover:outline-1 group-hover:outline-foreground',
+                    selected && i !== selectedIndex && 'opacity-40',
+                    i === selectedIndex && 'outline outline-2 outline-accent',
+                  )}
+                >
+                  {bucket.segments.map((segment, s) => heights[i].segments[s] > 0 && (
+                    <span
+                      key={segment.key}
+                      data-testid="activity-segment"
+                      data-segment={segment.key}
+                      className={cn('block w-full shrink-0', MARK_BG[segment.tone])}
+                      style={{ height: heights[i].segments[s] }}
+                    />
+                  ))}
+                </span>
               </button>
             )}
           </div>

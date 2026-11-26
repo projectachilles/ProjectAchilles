@@ -12,8 +12,8 @@ interface ExecutionsActivityProps {
   /** The bucket the page is narrowed to. */
   selected: BucketRef | null;
   onSelect: (bucket: BucketRef | null) => void;
-  /** An outcome filter narrows the list under the strip: the bars do not follow it, and say so. */
-  outcomeFiltered?: boolean;
+  /** A filter narrows the list under the strip and not the bars (an outcome filter, the version filter): the line that says so. */
+  listOnlyNote?: string | null;
 }
 
 const browserTimeZone = () => Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC';
@@ -24,7 +24,7 @@ const browserTimeZone = () => Intl.DateTimeFormat().resolvedOptions().timeZone |
  * counts are the server's (the Dashboard cadence card's rules); this only
  * orders and tones them.
  */
-export function ExecutionsActivity({ params, reloadToken, selected, onSelect, outcomeFiltered = false }: ExecutionsActivityProps) {
+export function ExecutionsActivity({ params, reloadToken, selected, onSelect, listOnlyNote }: ExecutionsActivityProps) {
   const [data, setData] = useState<ExecutionsActivityResponse | null>(null);
   const [loading, setLoading] = useState(true);
   const request = useRef(0);
@@ -72,11 +72,13 @@ export function ExecutionsActivity({ params, reloadToken, selected, onSelect, ou
 
   if (!data) {
     // Holds the bars' place until the first answer, so the views under it do not jump on a busy install.
-    return loading ? <div data-testid="activity-loading" aria-hidden="true" style={{ height: STRIP_HEIGHT_PX }} /> : null;
+    if (loading) return <div data-testid="activity-loading" aria-hidden="true" style={{ height: STRIP_HEIGHT_PX }} />;
+    // No bars to draw (the request failed). A page narrowed to a bucket still needs to say so, and the way out.
+    return selected ? <ActivityStrip buckets={[]} interval="day" selected={selected} onSelect={onSelect} /> : null;
   }
 
   const notes = [
-    outcomeFiltered && 'Outcome filters narrow the list, not the bars.',
+    listOnlyNote,
     data.truncated && 'Too many runs to count them all: the bars are a lower bound.',
     data.capped && 'The bars cover the last 365 days of this window.',
   ].filter((line): line is string => Boolean(line));
