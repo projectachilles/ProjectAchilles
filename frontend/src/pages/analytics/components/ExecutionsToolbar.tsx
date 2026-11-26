@@ -10,15 +10,19 @@ interface ExecutionsToolbarProps {
   /** SB-format compliance report export (server-generated for the current window). */
   onExportSbReport?: () => Promise<void>;
   sbReportExporting?: boolean;
-  onArchiveByDate?: (before: string) => Promise<void>;
+  /** Archives every execution before the date. Resolves to `false` when it did not go through. */
+  onArchiveByDate?: (before: string) => Promise<boolean | void>;
   archiving?: boolean;
   /** Controls of the view itself, shown before the shared ones (the list's sorting). */
   children?: ReactNode;
 }
 
 /**
- * Export and "Archive by date" for All Executions. Both act on the filters,
- * not on a view, so the list and the matrix show the same controls.
+ * Export and "Archive by date" for All Executions: neither belongs to a view,
+ * so the list and the matrix show the same controls. They differ in what they
+ * cover. Export follows the filter bar. Archive by date sends the date alone
+ * and archives every execution before it, whatever the filters; its dialog
+ * says so, because above a view filtered to one host that is easy to misread.
  */
 export function ExecutionsToolbar({ exportState, reportHref, onExportSbReport, sbReportExporting, onArchiveByDate, archiving, children }: ExecutionsToolbarProps) {
   const [showDatePurge, setShowDatePurge] = useState(false);
@@ -27,7 +31,8 @@ export function ExecutionsToolbar({ exportState, reportHref, onExportSbReport, s
 
   const handleDatePurgeConfirm = async () => {
     if (!purgeDate || !onArchiveByDate) return;
-    await onArchiveByDate(purgeDate);
+    // A failed archive leaves the question open, with its date: the page has said why.
+    if ((await onArchiveByDate(purgeDate)) === false) return;
     setShowDatePurge(false);
     setPurgeDate('');
   };
@@ -108,6 +113,7 @@ export function ExecutionsToolbar({ exportState, reportHref, onExportSbReport, s
                 onChange={(e) => setPurgeDate(e.target.value)}
                 className="w-full rounded-md border border-border bg-raised px-3 py-2 text-sm outline-none focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-accent"
               />
+              <p className="mt-2 text-xs text-warning">Every execution before this date is archived, whatever the filters above.</p>
             </div>
             <div className="flex justify-end gap-3">
               <Button variant="ghost" onClick={() => { setShowDatePurge(false); setPurgeDate(''); }} disabled={archiving}>

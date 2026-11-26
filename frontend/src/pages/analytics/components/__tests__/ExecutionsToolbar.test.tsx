@@ -105,6 +105,44 @@ describe('export', () => {
     expect(downloaded).toHaveLength(0);
   });
 
+  it('quotes a value that holds a quote or a line break', async () => {
+    const onFetchAllExecutions = vi.fn().mockResolvedValue({ executions: [exec({ test_name: 'Says "hi"' }), exec({ test_name: 'two\nlines' })], total: 2 });
+    const { user } = setup({ onFetchAllExecutions });
+
+    await user.click(screen.getByRole('button', { name: 'Export CSV' }));
+
+    await waitFor(() => expect(downloaded).toHaveLength(1));
+    expect(downloaded[0].text).toContain('"Says ""hi"""');
+    expect(downloaded[0].text).toContain('"two\nlines"');
+  });
+
+  it('says it is exporting while the results load, and takes no second click meanwhile', async () => {
+    let resolve!: (v: { executions: EnrichedTestExecution[]; total: number }) => void;
+    const onFetchAllExecutions = vi.fn().mockReturnValue(new Promise((r) => { resolve = r; }));
+    const { user } = setup({ onFetchAllExecutions });
+
+    await user.click(screen.getByRole('button', { name: 'Export CSV' }));
+
+    const busy = screen.getAllByRole('button', { name: 'Exporting…' });
+    expect(busy).toHaveLength(2);
+    for (const button of busy) expect(button).toBeDisabled();
+    resolve({ executions: [exec()], total: 1 });
+    expect(await screen.findByRole('button', { name: 'Export CSV' })).toBeEnabled();
+  });
+
+  it('drops the note of an earlier export when a new one starts', async () => {
+    const onFetchAllExecutions = vi.fn()
+      .mockResolvedValueOnce({ executions: [exec()], total: 9 })
+      .mockResolvedValueOnce({ executions: [exec()], total: 1 });
+    const { user } = setup({ onFetchAllExecutions });
+    await user.click(screen.getByRole('button', { name: 'Export CSV' }));
+    await screen.findByRole('status');
+
+    await user.click(screen.getByRole('button', { name: 'Export CSV' }));
+
+    await waitFor(() => expect(screen.queryByRole('status')).not.toBeInTheDocument());
+  });
+
   it('adds the version columns only where versions are shown', async () => {
     const fetchAll = () => vi.fn().mockResolvedValue({ executions: [exec()], total: 1 });
     const first = setup({ onFetchAllExecutions: fetchAll(), showVersions: true });
@@ -152,6 +190,35 @@ describe('archive by date', () => {
     // The next time it starts without a date: the one just used must not be one click from being used again.
     await user.click(screen.getByRole('button', { name: /Archive by date/ }));
     expect(screen.getByLabelText('Archive all executions before:')).toHaveValue('');
+  });
+
+  it('says that it archives everything before the date, whatever the filters', async () => {
+    // It sends the date alone. Above a view filtered to one host, a user must not think it archives that host only.
+    const { user } = setup({}, { onArchiveByDate: vi.fn() });
+    await user.click(screen.getByRole('button', { name: /Archive by date/ }));
+
+    expect(screen.getByText('Every execution before this date is archived, whatever the filters above.')).toBeInTheDocument();
+  });
+
+  it('stays open, with its date, when the archive did not go through', async () => {
+    const onArchiveByDate = vi.fn().mockResolvedValue(false);
+    const { user } = setup({}, { onArchiveByDate });
+    await user.click(screen.getByRole('button', { name: /Archive by date/ }));
+    await user.type(screen.getByLabelText('Archive all executions before:'), '2026-01-15');
+
+    await user.click(screen.getByRole('button', { name: 'Archive' }));
+
+    await waitFor(() => expect(onArchiveByDate).toHaveBeenCalledTimes(1));
+    expect(screen.getByLabelText('Archive all executions before:')).toHaveValue('2026-01-15');
+  });
+
+  it('cannot be confirmed or dismissed while the archive runs', async () => {
+    const { user } = setup({}, { onArchiveByDate: vi.fn(), archiving: true });
+    await user.click(screen.getByRole('button', { name: /Archive by date/ }));
+    await user.type(screen.getByLabelText('Archive all executions before:'), '2026-01-15');
+
+    expect(screen.getByRole('button', { name: 'Archive' })).toBeDisabled();
+    expect(screen.getByRole('button', { name: 'Cancel' })).toBeDisabled();
   });
 
   it('archives nothing on Cancel, and starts without a date the next time', async () => {

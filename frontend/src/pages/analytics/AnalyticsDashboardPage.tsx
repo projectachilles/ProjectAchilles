@@ -746,6 +746,8 @@ export default function AnalyticsDashboardPage() {
       const detail = (error as { message?: string })?.message || 'Unknown error';
       console.error('Failed to archive executions by date:', error);
       setArchiveToast({ message: `Archive failed: ${detail}`, variant: 'destructive' });
+      // The question stays open, and the matrix is not read again.
+      return false;
     } finally {
       setArchiving(false);
     }

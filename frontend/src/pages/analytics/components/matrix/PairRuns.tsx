@@ -55,6 +55,8 @@ export function PairRuns({ scope, pair, testName, hostname, org, selectedRunKey,
   const [total, setTotal] = useState(0);
   const [loading, setLoading] = useState(true);
   const [failed, setFailed] = useState(false);
+  /** A further page is on its way: its button stays, so the focus does. */
+  const [loadingMore, setLoadingMore] = useState(false);
   const [attempt, setAttempt] = useState(0);
   const request = useRef(0);
   const shownQuery = useRef<string | null>(null);
@@ -89,10 +91,12 @@ export function PairRuns({ scope, pair, testName, hostname, org, selectedRunKey,
     }
     shownQuery.current = query;
     setLoading(true);
+    setLoadingMore(false);
     setFailed(false);
     (async () => {
       const all: DisplayRow[] = [];
       let count = 0;
+      let filled = 0;
       for (let page = 1; page <= pages.current; page++) {
         const response = await fetchPage(page);
         if (id !== request.current) return;
@@ -100,7 +104,10 @@ export function PairRuns({ scope, pair, testName, hostname, org, selectedRunKey,
         all.push(...next.filter((r) => !all.some((p) => p.key === r.key)));
         count = response.pagination?.totalGroups ?? all.length;
         if (next.length === 0) break;
+        filled = page;
       }
+      // Pages that no longer exist (runs archived since) are not asked for again.
+      pages.current = Math.max(1, filled);
       setTotal(count);
       show(all);
     })()
@@ -111,9 +118,10 @@ export function PairRuns({ scope, pair, testName, hostname, org, selectedRunKey,
         if (id === request.current) setLoading(false);
       });
     // An answer that arrives after this pair was closed, or replaced, is nobody's:
-    // reporting it would open a run of a pair that is no longer the open one.
+    // reporting it would open a run of a pair that is no longer the open one. That
+    // goes for a further page asked for meanwhile too, so whatever is in flight is voided.
     return () => {
-      if (request.current === id) request.current++;
+      request.current++;
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [query, reloadToken, attempt]);
@@ -122,6 +130,7 @@ export function PairRuns({ scope, pair, testName, hostname, org, selectedRunKey,
     const id = ++request.current;
     const page = pages.current + 1;
     setLoading(true);
+    setLoadingMore(true);
     setFailed(false);
     fetchPage(page)
       .then((response) => {
@@ -135,7 +144,9 @@ export function PairRuns({ scope, pair, testName, hostname, org, selectedRunKey,
         if (id === request.current) setFailed(true);
       })
       .finally(() => {
-        if (id === request.current) setLoading(false);
+        if (id !== request.current) return;
+        setLoading(false);
+        setLoadingMore(false);
       });
   };
 
@@ -197,8 +208,9 @@ export function PairRuns({ scope, pair, testName, hostname, org, selectedRunKey,
         })}
       </ul>
 
-      {!failed && !loading && remaining > 0 && (
-        <Button variant="ghost" size="sm" className="mt-1" onClick={showMore}>
+      {!failed && remaining > 0 && (!loading || loadingMore) && (
+        <Button variant="ghost" size="sm" className="mt-1" aria-disabled={loadingMore} onClick={loadingMore ? undefined : showMore}>
+          {loadingMore && <Loader2 className="animate-spin" />}
           Show {remaining} more
         </Button>
       )}

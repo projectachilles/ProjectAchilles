@@ -140,6 +140,64 @@ describe('rows of hosts', () => {
     expect(within(rowOf('HOST-1')).queryByText(/runs of/)).not.toBeInTheDocument();
   });
 
+  it('hands the open pair\'s own test to the runs, not the first test of the row', async () => {
+    const renderPair = vi.fn<Props['renderPair']>((_pair, test, h) => <p>runs of {test.name} on {h.hostname}</p>);
+    setup({ openPair: { testUuid: 't2', hostKey: 'org-1|HOST-2' }, renderPair });
+    await screen.findByRole('heading', { name: 'HOST-2' });
+
+    expect(within(rowOf('HOST-2')).getByText('runs of Solo test on HOST-2')).toBeInTheDocument();
+  });
+
+  it('shows the runs above the rows when the open pair\'s host is not on a loaded page', async () => {
+    const renderPair = vi.fn<Props['renderPair']>((_pair, test, h) => <p>runs of {test.name} on {h.hostname} ({h.org})</p>);
+    setup({ openPair: { testUuid: 'c1', hostKey: 'org-1|HOST-77' }, renderPair });
+    await screen.findByRole('heading', { name: 'HOST-1' });
+
+    const stray = screen.getByText('runs of Chain A on HOST-77 (org-1)');
+    expect(stray.compareDocumentPosition(screen.getByRole('heading', { name: 'HOST-1' })) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(stray.closest('[data-matrix-row]')).toBeNull();
+  });
+
+  it('keeps "Show more" in place while its page loads, and takes no second click', async () => {
+    const user = userEvent.setup();
+    let resolveMore!: (v: CoverageMatrixHostsResponse) => void;
+    getHosts
+      .mockResolvedValueOnce(answer(FIRST.hosts, { hostCount: 3 }))
+      .mockReturnValueOnce(new Promise((r) => { resolveMore = r; }));
+    setup();
+    await screen.findByRole('heading', { name: 'HOST-2' });
+    const more = screen.getByRole('button', { name: 'Show 1 more' });
+
+    await user.click(more);
+    await user.click(more);
+
+    expect(more).toBeInTheDocument();
+    expect(more).toHaveAttribute('aria-disabled', 'true');
+    expect(more).toHaveFocus();
+    expect(getHosts).toHaveBeenCalledTimes(2);
+    await act(async () => resolveMore(answer([host(3, [])], { hostCount: 3, page: 2 })));
+    expect(screen.getByRole('heading', { name: 'HOST-3' })).toBeInTheDocument();
+  });
+
+  it('says when a further page could not be loaded, keeps the rows, and tries that page again', async () => {
+    const user = userEvent.setup();
+    getHosts
+      .mockResolvedValueOnce(answer(FIRST.hosts, { hostCount: 3 }))
+      .mockRejectedValueOnce(new Error('boom'))
+      .mockResolvedValueOnce(answer([host(3, [])], { hostCount: 3, page: 2 }));
+    setup();
+    await screen.findByRole('heading', { name: 'HOST-2' });
+
+    await user.click(screen.getByRole('button', { name: 'Show 1 more' }));
+
+    expect(await screen.findByRole('alert')).toHaveTextContent('More hosts could not be loaded.');
+    expect(screen.getByRole('heading', { name: 'HOST-1' })).toBeInTheDocument();
+    await user.click(screen.getByRole('button', { name: 'Try again' }));
+    expect(await screen.findByRole('heading', { name: 'HOST-3' })).toBeInTheDocument();
+    expect(getHosts.mock.calls.map((c) => c[1].page)).toEqual([1, 2, 2]);
+    expect(screen.queryByRole('alert')).not.toBeInTheDocument();
+  });
+
   it('loads the next page on request and keeps the hosts it has', async () => {
     const user = userEvent.setup();
     getHosts
@@ -276,6 +334,9 @@ describe('rows of hosts', () => {
     expect(h2solo).toHaveFocus();
     await user.keyboard('{ArrowUp}'); // HOST-1 never ran the solo test: stays
     expect(h2solo).toHaveFocus();
+    h1baseline.focus();
+    await user.keyboard('{ArrowRight}'); // the end of HOST-1's row: it does not run on into HOST-2's
+    expect(h1baseline).toHaveFocus();
   });
 
   it('writes out the mark under the focus where marks are too small to carry text', async () => {

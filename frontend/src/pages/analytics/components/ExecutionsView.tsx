@@ -96,7 +96,10 @@ export default function ExecutionsView({ filterParams, reloadToken, forceList, o
   // Read once: after that the address says which view, so a click changes the view
   // and the address in the same step (the list writes `expanded=` as soon as it shows).
   const [remembered] = useState(storedView);
-  const [rememberedRows] = useState(storedRows);
+  // Kept in state: going to the list drops `rows` from the address, and coming back must find the choice.
+  const [rememberedRows, setRememberedRows] = useState(storedRows);
+  /** Archives by date made from the toolbar above the matrix: the matrix is read again after each. */
+  const [archivedByDate, setArchivedByDate] = useState(0);
   const rows: MatrixRows = rowsInUrl ?? rememberedRows ?? 'tests';
 
   const ready = capabilities.loaded !== false;
@@ -125,8 +128,15 @@ export default function ExecutionsView({ filterParams, reloadToken, forceList, o
   }
   if (!hasMatrix) return <ExecutionsDataTable {...table} />;
 
+  const onArchiveByDate = table.onArchiveByDate;
+  const archiveByDate = onArchiveByDate && (async (before: string) => {
+    const done = await onArchiveByDate(before);
+    if (done !== false) setArchivedByDate((n) => n + 1);
+    return done;
+  });
   const turn = (next: MatrixRows) => {
     remember(ROWS_STORAGE_KEY, next);
+    setRememberedRows(next);
     setRows(next);
   };
   const choose = (next: ExecutionsViewName) => {
@@ -147,7 +157,7 @@ export default function ExecutionsView({ filterParams, reloadToken, forceList, o
             reportHref={table.reportHref}
             onExportSbReport={table.onExportSbReport}
             sbReportExporting={table.sbReportExporting}
-            onArchiveByDate={table.onArchiveByDate}
+            onArchiveByDate={archiveByDate}
             archiving={table.archiving}
           />
         )}
@@ -158,7 +168,7 @@ export default function ExecutionsView({ filterParams, reloadToken, forceList, o
         <MatrixView
           rows={rows}
           filterParams={filterParams}
-          reloadToken={reloadToken}
+          reloadToken={reloadToken + archivedByDate}
           onAcceptRisk={table.onAcceptRisk}
           onRevokeRisk={table.onRevokeRisk}
           onArchive={table.onArchive}

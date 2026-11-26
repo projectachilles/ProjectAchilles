@@ -917,6 +917,33 @@ describe('All Executions: matrix or list', () => {
     expect(screen.getByRole('heading', { name: 'Archive Executions' })).toBeInTheDocument();
   });
 
+  it('keeps the archive-by-date question open when the archive fails', async () => {
+    mocks.analytics.api.archiveExecutionsByDate.mockRejectedValue(new Error('index is read-only'));
+    vi.spyOn(console, 'error').mockImplementation(() => {});
+    renderAt('?tab=executions');
+    await screen.findByText('No results in this window');
+
+    fireEvent.click(screen.getByRole('button', { name: /Archive by date/ }));
+    fireEvent.change(screen.getByLabelText('Archive all executions before:'), { target: { value: '2026-01-15' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Archive' }));
+
+    expect(await screen.findByText('Archive failed: index is read-only')).toBeInTheDocument();
+    expect(screen.getByLabelText('Archive all executions before:')).toHaveValue('2026-01-15');
+    expect(matrix()).toHaveBeenCalledTimes(1);
+  });
+
+  it('reads the matrix again after an archive by date went through', async () => {
+    mocks.analytics.api.archiveExecutionsByDate.mockResolvedValue({ archived: 4 });
+    renderAt('?tab=executions');
+    await screen.findByText('No results in this window');
+
+    fireEvent.click(screen.getByRole('button', { name: /Archive by date/ }));
+    fireEvent.change(screen.getByLabelText('Archive all executions before:'), { target: { value: '2026-01-15' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Archive' }));
+
+    await waitFor(() => expect(matrix()).toHaveBeenCalledTimes(2));
+  });
+
   it('does not ask for the matrix on the dashboard tab', async () => {
     renderAt('');
     await screen.findByText('Outcome breakdown');

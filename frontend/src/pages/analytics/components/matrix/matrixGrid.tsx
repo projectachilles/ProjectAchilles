@@ -68,8 +68,8 @@ export function useMarkGrid() {
 }
 
 /** The line above squares and small tiles that names the mark under the focus or the pointer. A screen reader has each mark's own name. */
-export function MarkHint({ form, hintRef }: { form: MatrixForm; hintRef: React.RefObject<HTMLParagraphElement | null> }) {
-  if (form !== 'squares' && form !== 'small') return null;
+export function MarkHint({ form, hintRef, always = false }: { form: MatrixForm; hintRef: React.RefObject<HTMLParagraphElement | null>; always?: boolean }) {
+  if (!always && form !== 'squares' && form !== 'small') return null;
   return <p ref={hintRef} data-testid="matrix-hint" aria-hidden="true" className="mb-1 min-h-4 truncate font-mono text-[11px] text-muted" />;
 }
 

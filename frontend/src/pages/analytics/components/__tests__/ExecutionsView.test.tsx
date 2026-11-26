@@ -304,6 +304,41 @@ describe('export and archive by date', () => {
     expect(screen.getByRole('button', { name: /Archive by date/ })).toBeInTheDocument();
   });
 
+  it('reads the matrix again after an archive by date, and not when it failed', async () => {
+    const user = userEvent.setup();
+    const onArchiveByDate = vi.fn().mockResolvedValueOnce(false).mockResolvedValueOnce(undefined);
+    setup({ onArchiveByDate });
+    await screen.findByRole('heading', { name: 'Solo test' });
+    const archive = async () => {
+      if (!screen.queryByLabelText('Archive all executions before:')) await user.click(screen.getByRole('button', { name: /Archive by date/ }));
+      const date = screen.getByLabelText('Archive all executions before:');
+      await user.clear(date);
+      await user.type(date, '2026-01-15');
+      await user.click(screen.getByRole('button', { name: 'Archive' }));
+    };
+
+    await archive();
+    await waitFor(() => expect(onArchiveByDate).toHaveBeenCalledTimes(1));
+    await new Promise((r) => setTimeout(r, 30));
+    expect(api.getCoverageMatrix).toHaveBeenCalledTimes(1);
+
+    await archive();
+    await waitFor(() => expect(api.getCoverageMatrix).toHaveBeenCalledTimes(2));
+  });
+
+  it('passes the SB export, with its busy state, to the toolbar above the matrix', async () => {
+    const user = userEvent.setup();
+    const onExportSbReport = vi.fn().mockResolvedValue(undefined);
+    const { rerenderWith } = setup({ onExportSbReport });
+    await screen.findByRole('heading', { name: 'Solo test' });
+
+    await user.click(screen.getByRole('button', { name: 'SB Export' }));
+    expect(onExportSbReport).toHaveBeenCalledTimes(1);
+
+    rerenderWith({ onExportSbReport, sbReportExporting: true });
+    expect(screen.getByRole('button', { name: 'Exporting SB Export…' })).toBeDisabled();
+  });
+
   it('are the list\'s own in the list view: one toolbar, never two', async () => {
     const user = userEvent.setup();
     setup({ onFetchAllExecutions: vi.fn(), onArchiveByDate: vi.fn() });

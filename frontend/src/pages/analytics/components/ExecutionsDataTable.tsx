@@ -47,7 +47,8 @@ export interface ExecutionsDataTableProps {
   sortOrder?: 'asc' | 'desc';
   /** Resolves to `false` when the archive did not go through. */
   onArchive?: (groupKeys: string[]) => Promise<boolean | void>;
-  onArchiveByDate?: (before: string) => Promise<void>;
+  /** Resolves to `false` when the archive did not go through. */
+  onArchiveByDate?: (before: string) => Promise<boolean | void>;
   archiving?: boolean;
   onAcceptRisk?: (items: AcceptRiskItem[], justification: string) => Promise<void>;
   onRevokeRisk?: (acceptanceId: string, reason: string) => Promise<void>;
