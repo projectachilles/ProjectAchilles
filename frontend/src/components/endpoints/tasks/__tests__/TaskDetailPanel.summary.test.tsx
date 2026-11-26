@@ -156,6 +156,62 @@ describe('TaskDetailPanel with a light result from the list', () => {
     expect(screen.queryByRole('status')).not.toBeInTheDocument();
   });
 
+  it('shows loading, not an old failure, when a task whose output once failed is selected again', async () => {
+    getTask.mockRejectedValueOnce(new Error('network'));
+    const { rerender } = render(<TaskDetailPanel task={task()} />);
+    await screen.findByText(/could not be loaded/i);
+
+    // Another task: its output is loading, and the first task's failure is not shown on it.
+    getTask.mockReturnValueOnce(pending().promise);
+    rerender(<TaskDetailPanel task={task({ id: 't2', agent_hostname: 'HOST-2' })} />);
+    expect(screen.getByRole('status')).toHaveTextContent('Loading output');
+    expect(screen.queryByText(/could not be loaded/i)).not.toBeInTheDocument();
+
+    // Back to the first: it is fetched again, and says so.
+    getTask.mockReturnValueOnce(pending().promise);
+    rerender(<TaskDetailPanel task={task()} />);
+    await waitFor(() => expect(getTask).toHaveBeenCalledTimes(3));
+    await waitFor(() => expect(screen.getByRole('status')).toHaveTextContent('Loading output'));
+    expect(screen.queryByText(/could not be loaded/i)).not.toBeInTheDocument();
+  });
+
+  it('shows loading while Try again is fetching', async () => {
+    getTask.mockRejectedValueOnce(new Error('network'));
+    render(<TaskDetailPanel task={task()} />);
+    await screen.findByText(/could not be loaded/i);
+
+    getTask.mockReturnValueOnce(pending().promise);
+    await userEvent.click(screen.getByRole('button', { name: 'Try again' }));
+
+    expect(await screen.findByRole('status')).toHaveTextContent('Loading output');
+    expect(screen.queryByText(/could not be loaded/i)).not.toBeInTheDocument();
+  });
+
+  it('drops the output when retention removes it from a task that is open', async () => {
+    getTask.mockResolvedValueOnce(task({ result: whole }));
+    const { rerender } = render(<TaskDetailPanel task={task()} />);
+    await screen.findByText('the whole output');
+
+    // The next refresh of the list: the retention job has removed this task's output.
+    const compacted_at = '2026-11-25T12:00:00Z';
+    getTask.mockResolvedValueOnce(task({ result: { ...whole, stdout: '', stderr: '', compacted_at } }));
+    rerender(<TaskDetailPanel task={task({ result: { ...light(), compacted_at } })} />);
+
+    expect(screen.getByTestId('output-compacted-notice')).toBeInTheDocument();
+    await waitFor(() => expect(screen.queryByText('the whole output')).not.toBeInTheDocument());
+    expect(getTask).toHaveBeenCalledTimes(2);
+  });
+
+  it('opens the fetched output in the expanded viewer', async () => {
+    getTask.mockResolvedValue(task({ result: whole }));
+    render(<TaskDetailPanel task={task()} />);
+
+    await userEvent.click(await screen.findByText('the whole output'));
+
+    const dialog = await screen.findByRole('dialog');
+    expect(dialog).toHaveTextContent('the whole output');
+  });
+
   it('fetches again when a running task it showed finishes', async () => {
     getTask.mockResolvedValue(task({ result: whole }));
     const { rerender } = render(<TaskDetailPanel task={task({ status: 'executing', result: null, completed_at: null })} />);

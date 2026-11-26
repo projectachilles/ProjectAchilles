@@ -48,7 +48,7 @@ function lightOf(whole: TaskResult): TaskResult {
   return light as unknown as TaskResult;
 }
 
-/** The controls the backend's test counts as 6 evaluated, 3 compliant (taskResultSummary.test.ts). */
+/** The controls the backend's test counts as 7 evaluated, 4 compliant (taskResultSummary.test.ts). An "exit code only" rule would count 3. */
 const COUNTED = [
   stage('CH-1', 126, { compliant: true }),
   stage('CH-2', 101, { compliant: false }),
@@ -57,6 +57,7 @@ const COUNTED = [
   stage('CH-5', 126, { compliant: undefined }),
   stage('CH-6', 101, { compliant: null }),
   stage('CH-7', 126, { compliant: false }),
+  stage('CH-8', 0, { compliant: true }),
 ];
 
 const CASES: [string, Partial<AgentTask>][] = [
@@ -95,9 +96,9 @@ describe('verdicts from a light result', () => {
 
   it('reads the counts of a cyber-hygiene bundle: the same sentence as from its controls', () => {
     const whole = { type: 'execute_test', status: 'completed', result: result({ exit_code: 101, bundle_results: { bundle_category: 'cyber-hygiene', controls: COUNTED } }) } as AgentTask;
-    const light = { ...whole, result: { summary: true, exit_code: 101, execution_duration_ms: 1, bundle_results: { bundle_category: 'cyber-hygiene', control_counts: { evaluated: 6, compliant: 3 } } } } as AgentTask;
+    const light = { ...whole, result: { summary: true, exit_code: 101, execution_duration_ms: 1, bundle_results: { bundle_category: 'cyber-hygiene', control_counts: { evaluated: 7, compliant: 4 } } } } as AgentTask;
 
-    expect(testOutcome(whole)!.title).toMatch(/^3 of 6 controls compliant\./);
+    expect(testOutcome(whole)!.title).toMatch(/^4 of 7 controls compliant\./);
     expect(testOutcome(light)).toEqual(testOutcome(whole));
     expect(lightOf(whole.result!)).toEqual(light.result);
   });
@@ -106,4 +107,19 @@ describe('verdicts from a light result', () => {
     const light = { type: 'execute_test', status: 'completed', result: { summary: true, exit_code: 126, bundle_results: { bundle_category: 'cyber-hygiene', control_counts: { evaluated: 2, compliant: 2 } } } } as AgentTask;
     expect(stageMarks(light)).toBeNull();
   });
+
+  it('reads counts only from a light result: a whole result is judged as before', () => {
+    const counts = { evaluated: 3, compliant: 2 };
+    const whole = { type: 'execute_test', status: 'completed', result: result({ exit_code: 126, bundle_results: { bundle_category: 'cyber-hygiene', control_counts: counts } }) } as AgentTask;
+    expect(testOutcome(whole)!.title).toBe('Exit 126: execution prevented.');
+    expect(testOutcome({ ...whole, result: { ...whole.result!, summary: true } })!.title).toMatch(/^2 of 3 controls compliant\./);
+  });
+
+  it('ignores counts that are not numbers', () => {
+    for (const control_counts of [{ evaluated: '3', compliant: 2 }, { evaluated: 3 }, 'nope', null]) {
+      const light = { type: 'execute_test', status: 'completed', result: { summary: true, exit_code: 126, bundle_results: { bundle_category: 'cyber-hygiene', control_counts } } } as unknown as AgentTask;
+      expect(testOutcome(light)!.title).toBe('Exit 126: execution prevented.');
+    }
+  });
 });
+

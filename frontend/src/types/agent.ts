@@ -83,11 +83,11 @@ export interface TaskResult {
    * `GET /tasks/:id` returns the whole result.
    */
   summary?: boolean;
+  execution_duration_ms?: number;
   /** Not in a light result. */
   started_at?: string;
   completed_at?: string;
   hostname?: string;
-  execution_duration_ms?: number;
   error?: string;
   /** Set by the EDR reconciliation pass on a watchdog-failed run the EDR killed (counts as Protected). */
   edr_terminated?: { vendors: string[]; alert_ids: string[]; killed_at?: string; reconciled_at?: string; bundle_name?: string };

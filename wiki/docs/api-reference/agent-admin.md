@@ -262,7 +262,7 @@ Besides the usual status, type, search and paging filters it accepts:
 | Query | Notes |
 |-------|-------|
 | `breakdown` | Only tasks whose finished outcome matches one key of the 7-day breakdown. Implies `execute_test` tasks and the last 7 days. An unknown shape returns `400 — Invalid breakdown` |
-| `detail` | `full` (the default) returns whole tasks. `summary` returns light tasks, below. Any other value returns `400 — Invalid detail` |
+| `detail` | `full` (the default, also when the value is empty) returns whole tasks. `summary` returns light tasks, below. Any other value, or the parameter given more than once, returns `400 — Invalid detail` |
 
 Breakdown keys:
 
@@ -295,8 +295,8 @@ which are cut down to what a list draws:
 |-------|------|
 | `payload` | `test_uuid`, `test_name`, `binary_name`, `execution_timeout`, and `command` for a command task |
 | `result` | `summary: true`, `exit_code`, `execution_duration_ms`, and when present `error`, `edr_terminated`, `compacted_at`, `bundle_results` |
-| `result.bundle_results`, multi-stage test | `bundle_category` and `controls`: each stage's `control_id`, `exit_code` and `skipped`, in order |
-| `result.bundle_results`, cyber-hygiene bundle | `bundle_category` and `control_counts`: `evaluated` (controls not skipped) and `compliant` (by the control's own `compliant` flag, or by exit code 105, 126 or 127 when it has none) |
+| `result.bundle_results`, any category but `cyber-hygiene` | `bundle_category` and `controls`: each stage's `control_id`, `exit_code` and `skipped`, in order. An entry without a text `control_id` and a numeric `exit_code` is left out |
+| `result.bundle_results`, category `cyber-hygiene` | `bundle_category` and `control_counts`: `evaluated` (controls not skipped) and `compliant` (by the control's own `compliant` flag, or by exit code 105, 126 or 127 when it has none). Entries without a text `control_id` and a numeric `exit_code` are not counted. Neither `controls` nor `control_counts` is sent for a bundle with no controls |
 
 `result` stays `null` for a task without one. Group-level fields are the same in both forms.
 `summary: true` tells a light result from one whose output is empty or was removed by

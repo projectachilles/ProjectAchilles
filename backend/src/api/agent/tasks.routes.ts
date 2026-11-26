@@ -49,9 +49,10 @@ import type {
   CreateTaskRequest,
   CreateCommandTaskRequest,
   TaskStatus,
-  TaskResult,
   ListTasksRequest,
   TaskType,
+  Task,
+  TaskResult,
 } from '../../types/agent.js';
 
 // ============================================================================
@@ -473,7 +474,8 @@ adminTasksRouter.get(
     // Strip env_vars from admin responses
     for (const group of result.groups) {
       group.tasks = group.tasks.map((t) => ({
-        ...(detail === 'summary' ? summarizeTask(t) : sanitizeTaskForAdmin(t)),
+        // A light task is not a Task (no output, a short payload); it only goes out as JSON.
+        ...(detail === 'summary' ? (summarizeTask(t) as unknown as Task) : sanitizeTaskForAdmin(t)),
         created_by_label: requesterLabel(t),
       }));
       group.payload = { ...group.payload, env_vars: undefined };

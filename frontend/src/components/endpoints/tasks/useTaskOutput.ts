@@ -16,9 +16,10 @@ export type TaskOutput =
  */
 export function useTaskOutput(task: AgentTask): TaskOutput {
   const needed = task.result?.summary === true;
-  // One fetch per finished run of a task: the list refreshes with new objects
-  // for the same task, and a result does not change once it is in.
-  const key = `${task.id}|${task.completed_at ?? ''}`;
+  // One fetch per task: the list refreshes with new objects for the same task.
+  // A task's output is written once and changes only when the retention job
+  // removes it, which sets compacted_at: then it is fetched again.
+  const key = `${task.id}|${task.result?.compacted_at ?? ''}`;
   const [loaded, setLoaded] = useState<{ key: string; stdout: string; stderr: string } | null>(null);
   const [failedKey, setFailedKey] = useState<string | null>(null);
   const [attempt, setAttempt] = useState(0);
@@ -37,6 +38,9 @@ export function useTaskOutput(task: AgentTask): TaskOutput {
     );
     return () => {
       current = false;
+      // A failure is not remembered once another task is shown or a new
+      // attempt starts: coming back fetches again, and says "loading".
+      setFailedKey(null);
     };
   }, [needed, key, task.id, attempt]);
 

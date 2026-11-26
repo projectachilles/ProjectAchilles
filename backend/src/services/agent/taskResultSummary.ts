@@ -1,8 +1,9 @@
 import type { Task, TaskPayload, TaskResult } from '../../types/agent.js';
 
 /**
- * The light form of a task, for lists of many tasks: exactly what a list
- * draws, and nothing else.
+ * The light form of a task, for lists of many tasks: of its payload and its
+ * result, what a list draws (plus the payload's short identity fields, which
+ * the frontend's task type requires). Every other field of the task is kept.
  *
  * A page of the grouped task list was up to 12.8 MB. Most of it was per-control
  * detail of cyber-hygiene bundles (name, expected, actual, tactics; 50 to 150
@@ -106,11 +107,16 @@ export function summarizeTaskPayload(payload: TaskPayload): TaskPayloadSummary {
   return pick(payload ?? {}, PAYLOAD_FIELDS) as unknown as TaskPayloadSummary;
 }
 
-/** A task as a list needs it. Typed as a Task for the callers that pass tasks on; the light form goes out as JSON only. */
-export function summarizeTask<T extends Task>(task: T): T {
+export type TaskSummary<T extends Task = Task> = Omit<T, 'payload' | 'result'> & {
+  payload: TaskPayloadSummary;
+  result: TaskResultSummary | null;
+};
+
+/** A task as a list needs it. */
+export function summarizeTask<T extends Task>(task: T): TaskSummary<T> {
   return {
     ...task,
-    payload: summarizeTaskPayload(task.payload) as unknown as TaskPayload,
-    result: summarizeTaskResult(task.result) as unknown as TaskResult | null,
+    payload: summarizeTaskPayload(task.payload),
+    result: summarizeTaskResult(task.result),
   };
 }

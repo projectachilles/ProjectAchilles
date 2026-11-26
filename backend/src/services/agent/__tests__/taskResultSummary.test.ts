@@ -83,11 +83,13 @@ describe('summarizeTaskResult', () => {
       control('CH-5', { exit_code: 126, compliant: undefined }), // no flag: a protected exit code counts
       control('CH-6', { exit_code: 101, compliant: null }),
       control('CH-7', { exit_code: 126, compliant: false }), // an explicit false stays false
+      // CH-4 and CH-7 alone cancel out under an "exit code only" rule; this one does not.
+      control('CH-8', { exit_code: 0, compliant: true }),
     ];
     const result = full({ bundle_results: bundle('cyber-hygiene', controls) });
     expect(summarizeTaskResult(result)!.bundle_results).toEqual({
       bundle_category: 'cyber-hygiene',
-      control_counts: { evaluated: 6, compliant: 3 },
+      control_counts: { evaluated: 7, compliant: 4 },
     });
   });
 

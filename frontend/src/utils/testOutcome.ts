@@ -80,7 +80,8 @@ function stagesOf(result: AgentTask['result']): Stages | null {
   if (Array.isArray(controls) && controls.length > 0) {
     return { category, controls: controls.filter((c) => typeof c?.control_id === 'string' && typeof c?.exit_code === 'number') };
   }
-  const counts = bundle?.control_counts;
+  // Only a light result carries counts; a whole result is judged from its controls.
+  const counts = result?.summary === true ? bundle?.control_counts : undefined;
   if (counts && typeof counts.evaluated === 'number' && typeof counts.compliant === 'number') {
     return { category, controls: [], counts };
   }
