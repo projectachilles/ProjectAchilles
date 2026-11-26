@@ -502,3 +502,100 @@ export interface OutcomeBreakdownResponse {
   riskAccepted: number;   // pairs hidden by risk acceptance
   windowLabel: string;
 }
+
+// ── Coverage matrix (GET /analytics/coverage-matrix) ───────────────────────
+// The latest result per test and host: the Defense Score's latest-basis,
+// any-stage pairs, drawn one cell per pair instead of summed.
+
+/** What a cell shows. "Caught" is protected + detected. */
+export type MatrixVerdict = 'protected' | 'detected' | 'unprotected' | 'no_verdict' | 'risk_accepted';
+
+export const MATRIX_VERDICTS: readonly MatrixVerdict[] = ['protected', 'detected', 'unprotected', 'no_verdict', 'risk_accepted'];
+
+/** A cyber-hygiene bundle on one host (or summed): its controls' latest results. */
+export interface MatrixRatio {
+  /** Controls whose latest conclusive result is compliant. */
+  compliant: number;
+  /** Controls with a conclusive result. */
+  evaluated: number;
+  /** Controls that ran and never had a conclusive result in the window. */
+  notAssessed: number;
+  /** Controls hidden by a risk acceptance. */
+  accepted: number;
+}
+
+export interface MatrixCell {
+  /** Index into `hosts` (rows = tests) or into `tests` (rows = hosts). */
+  i: number;
+  /** Absent on a cell that has `ratio`. */
+  verdict?: MatrixVerdict;
+  /** A cyber-hygiene bundle's controls on this host. */
+  ratio?: MatrixRatio;
+  /** Time of the result shown; for a ratio, of its newest control result. */
+  at: string;
+  /** Attack cells: the pair's earlier conclusive verdicts, one per day, newest first, at most 6. */
+  earlier?: MatrixVerdict[];
+}
+
+/** Cells of a row (or column) by what they show; a ratio cell is counted in none of the verdicts. */
+export interface MatrixCounts {
+  protected: number;
+  detected: number;
+  unprotected: number;
+  noVerdict: number;
+  riskAccepted: number;
+  /** rows = tests: hosts on the axis with no cell for this test. On a host: tests with no cell for it. */
+  neverRun: number;
+}
+
+export interface MatrixHost {
+  /** `<organization id>|<hostname>`: one hostname in two organizations is two hosts. */
+  key: string;
+  hostname: string;
+  org: string | null;
+  counts: MatrixCounts;
+  /** Sum of this host's cyber-hygiene bundle cells. */
+  ratio: MatrixRatio;
+}
+
+export interface MatrixTest {
+  /** The test or bundle UUID. */
+  key: string;
+  testUuid: string;
+  name: string;
+  /** A standalone test, a multi-stage attack chain, or a cyber-hygiene bundle (ratio cells). */
+  kind: 'test' | 'chain' | 'controls';
+  category?: string;
+  counts: MatrixCounts;
+  /** kind 'controls': sum over the hosts. */
+  ratio?: MatrixRatio;
+}
+
+export interface CoverageMatrixTestsResponse {
+  rows: 'tests';
+  windowLabel: string;
+  /** Every host with a result in the window, most exposed first; the same order in every row. */
+  hosts: MatrixHost[];
+  hostCount: number;
+  /** `cells` is null when `cellsIncluded` is false. */
+  tests: (MatrixTest & { cells: MatrixCell[] | null })[];
+  testCount: number;
+  /** False above the host limit: the counts are complete, the cells are left out. */
+  cellsIncluded: boolean;
+  /** True when more tests exist than are listed. */
+  truncated: boolean;
+}
+
+export interface CoverageMatrixHostsResponse {
+  rows: 'hosts';
+  windowLabel: string;
+  tests: MatrixTest[];
+  testCount: number;
+  /** One page of hosts, in the order of rows = tests. */
+  hosts: (MatrixHost & { cells: MatrixCell[] })[];
+  /** Hosts matching the request, over all pages. */
+  hostCount: number;
+  page: number;
+  pageSize: number;
+  truncated: boolean;
+}

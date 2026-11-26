@@ -20,6 +20,7 @@ import type { OutcomeFilters, PairRun, PostureWindow } from './posture.js';
 import type { OutcomeRun } from './outcomeBreakdown.js';
 import { countPairOutcomes } from './outcomeBreakdown.js';
 import { summarizeStageCoverage } from './stageCoverage.js';
+import { pairControlId, pairTestUuid } from './pairKeys.js';
 import { TtlPromiseCache } from './postureCache.js';
 import type { TtlCacheOptions } from './postureCache.js';
 import {
@@ -186,19 +187,8 @@ function bundlePairKey(oid: unknown, bundleId: string, hostname: string): string
   return `${oid ?? ''}|bundle:${bundleId}|${hostname}`;
 }
 
-/**
- * Test (or bundle) UUID behind a pair key: plain `oid|<uuid>|host`, any-stage
- * bundle `oid|bundle:<id>|host`, cyber-hygiene control `oid|<bundle>::<control>|host`.
- */
-export function pairTestUuid(pairKey: string): string {
-  const id = pairKey.split('|')[1] ?? '';
-  return (id.startsWith('bundle:') ? id.slice('bundle:'.length) : id).split('::')[0];
-}
-
-/** Control (or stage) id of a per-stage pair `oid|<bundle>::<control>|host`; undefined for plain and `bundle:` keys. */
-export function pairControlId(pairKey: string): string | undefined {
-  return (pairKey.split('|')[1] ?? '').split('::')[1];
-}
+// The readers of a pair key live in pairKeys.ts; re-exported for the modules that import them from here.
+export { pairTestUuid, pairControlId };
 
 /**
  * Everything that shapes a basis=latest fetch, resolved once per request so
