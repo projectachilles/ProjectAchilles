@@ -723,14 +723,6 @@ function migrateExecuteCommandType(database: Database.Database): void {
 }
 
 /**
- * `tasks.test_uuid`: the test a task runs, copied out of the JSON payload so
- * the run-recency queries (testRunHistory.ts) read an index instead of
- * parsing every task's payload on each request.
- *
- * Runs last in initializeTables(), on every start: a table-recreate migration
- * (DROP TABLE) silently drops triggers and indexes, and this puts them back.
- */
-/**
  * `tasks.schedule_run`: the scheduled run that created a task, as
  * "<schedule id>:<local date of the slot>" (see scheduleRun.ts). The scheduler
  * writes it and retries inherit it; the task list groups by it, so a run that
@@ -738,31 +730,62 @@ function migrateExecuteCommandType(database: Database.Database): void {
  * Listed in migrateExecuteCommandType's optionalCols and index recreation.
  */
 function migrateTaskScheduleRun(database: Database.Database): void {
-  const cols = database.prepare('PRAGMA table_info(tasks)').all() as { name: string }[];
-  const added = !cols.some((c) => c.name === 'schedule_run');
-  if (added) {
-    database.exec('ALTER TABLE tasks ADD COLUMN schedule_run TEXT DEFAULT NULL');
-  }
-  // Partial: most tasks on most installs have no schedule.
-  database.exec(
-    'CREATE INDEX IF NOT EXISTS idx_tasks_schedule_run ON tasks(schedule_run) WHERE schedule_run IS NOT NULL',
-  );
-  if (!added) return;
+  const hasColumn = () =>
+    (database.prepare('PRAGMA table_info(tasks)').all() as { name: string }[]).some((c) => c.name === 'schedule_run');
 
-  // Only here, when the column is new: attribute the tasks schedules created
-  // before it existed. Running it again later would pull tasks started by hand
-  // into a recurring schedule's window (see scheduleRunBackfill.ts). A failure
-  // must not stop the server from starting; those tasks just stay ungrouped.
-  try {
-    const r = backfillScheduleRuns(database);
-    if (r.attributed > 0 || r.ambiguous > 0 || r.retries > 0) {
-      console.log(`[Schedule-Run-Backfill] attributed=${r.attributed} ambiguous=${r.ambiguous} retries=${r.retries}`);
+  if (!hasColumn()) {
+    // The column and the attribution of earlier tasks go in together, in one
+    // transaction that takes the write lock first:
+    //   - a crash or a kill in between rolls the column back, so the next
+    //     start does both again (never the column without the attribution);
+    //   - another process writing meanwhile waits its turn. Without the lock,
+    //     its commit between this pass's read and its first write ends the
+    //     pass with SQLITE_BUSY_SNAPSHOT, and it could never be retried.
+    // The attribution runs only here. Run again on a database that already
+    // has the column, it would pull tasks started by hand into a recurring
+    // schedule's window (see scheduleRunBackfill.ts).
+    try {
+      database.transaction(() => {
+        if (hasColumn()) return; // another process did all of this while we waited for the lock
+        database.exec('ALTER TABLE tasks ADD COLUMN schedule_run TEXT DEFAULT NULL');
+        const r = backfillScheduleRuns(database);
+        if (r.attributed > 0 || r.ambiguous > 0 || r.retries > 0) {
+          console.log(`[Schedule-Run-Backfill] attributed=${r.attributed} ambiguous=${r.ambiguous} retries=${r.retries}`);
+        }
+      }).immediate();
+    } catch (err) {
+      // The server needs the column whatever happened to the attribution:
+      // task creation and the task list both use it. Earlier scheduled runs
+      // then stay one entry per agent; nothing else is affected.
+      console.warn(
+        '[Schedule-Run-Backfill] skipped, earlier scheduled runs stay ungrouped:',
+        err instanceof Error ? err.message : String(err),
+      );
+      try {
+        if (!hasColumn()) database.exec('ALTER TABLE tasks ADD COLUMN schedule_run TEXT DEFAULT NULL');
+      } catch (alterErr) {
+        // Most likely another process is adding it right now; it is checked again below.
+        console.warn('[Schedule-Run-Backfill] column not added by this process:', alterErr instanceof Error ? alterErr.message : String(alterErr));
+      }
     }
-  } catch (err) {
-    console.warn('[Schedule-Run-Backfill] skipped:', err instanceof Error ? err.message : String(err));
+  }
+
+  // Partial: most tasks on most installs have no schedule.
+  if (hasColumn()) {
+    database.exec(
+      'CREATE INDEX IF NOT EXISTS idx_tasks_schedule_run ON tasks(schedule_run) WHERE schedule_run IS NOT NULL',
+    );
   }
 }
 
+/**
+ * `tasks.test_uuid`: the test a task runs, copied out of the JSON payload so
+ * the run-recency queries (testRunHistory.ts) read an index instead of
+ * parsing every task's payload on each request.
+ *
+ * Runs last in initializeTables(), on every start: a table-recreate migration
+ * (DROP TABLE) silently drops triggers and indexes, and this puts them back.
+ */
 function migrateTaskTestUuid(database: Database.Database): void {
   const cols = database.prepare(`PRAGMA table_info(tasks)`).all() as { name: string }[];
   if (!cols.some((c) => c.name === 'test_uuid')) {

@@ -252,6 +252,7 @@ Each group carries:
 | `batch_ids` | Every batch with a task in the run, newest first |
 | `created_at` | The batch's time; for a run of several batches, its newest task's (with a filter, its newest matching task's) |
 | `agent_count`, `status_counts` | Describe the whole run, also under a `breakdown` filter |
+| `tasks[].schedule_run` | `<schedule id>:<date>` when a schedule created the task (the date is the local day of its slot), else `null` |
 
 `run_id` and `batch_ids` are not sent by the Vercel backend, which has no notices: there a
 run is always a batch.

@@ -9,21 +9,26 @@
  *
  * It is inference, kept narrow on purpose:
  *   - only `execute_test` tasks with no notice (those already group by it),
- *     no `schedule_run` and no `original_task_id`;
+ *     no campaign run (a schedule never creates those), no `schedule_run`
+ *     and no `original_task_id`;
  *   - only schedules that give each machine its own time and have fired;
  *   - same organization, creator, test and agent, and the task was created
- *     between the schedule's creation and its last run (a minute of slack);
+ *     between the schedule's creation and its last run (a minute of slack
+ *     after the last run; none before the creation, because a test tried by
+ *     hand just before scheduling it is not the schedule's);
  *   - a task that matches two schedules is left alone.
- * Retries then take the run of their original. One known error remains: a
+ * Retries then take the run of their original. Known errors that remain: a
  * test started by hand on one of the schedule's agents inside that window is
- * attributed to the schedule's run.
+ * attributed to the schedule's run (for a recurring schedule the window is
+ * its whole life so far); and a past task takes the day it was created, not
+ * the day of its slot, so a slot caught up after midnight lands a day late.
  *
  * It must run once only. A later run would pull tasks started by hand into a
  * recurring schedule's window, which keeps growing.
  */
 import type Database from 'better-sqlite3';
 import type { ScheduleConfig } from '../../types/agent.js';
-import { scheduleRunKey } from './scheduleRun.js';
+import { scheduleRunKey, utcMs } from './scheduleRun.js';
 import { resolveRandomizeMode } from './scheduleTime.js';
 
 export interface ScheduleRunBackfillResult {
@@ -36,13 +41,6 @@ export interface ScheduleRunBackfillResult {
 }
 
 const GRACE_MS = 60_000;
-
-/** SQLite `datetime('now')` text and ISO strings, both read as UTC. */
-function utcMs(value: string | null): number {
-  if (!value) return NaN;
-  const iso = value.includes('T') ? value : value.replace(' ', 'T');
-  return Date.parse(/[zZ]|[+-]\d{2}:?\d{2}$/.test(iso) ? iso : `${iso}Z`);
-}
 
 interface ScheduleRow {
   id: string; org_id: string; created_by: string; test_uuid: string; agent_ids: string;
@@ -64,7 +62,7 @@ export function backfillScheduleRuns(db: Database.Database): ScheduleRunBackfill
     try {
       const config = JSON.parse(row.schedule_config) as ScheduleConfig;
       if (resolveRandomizeMode(config) !== 'per_machine') return [];
-      const from = utcMs(row.created_at) - GRACE_MS;
+      const from = utcMs(row.created_at);
       const to = utcMs(row.last_run_at) + GRACE_MS;
       if (!Number.isFinite(from) || !Number.isFinite(to)) return [];
       return [{ ...row, agents: new Set(JSON.parse(row.agent_ids) as string[]), from, to }];
@@ -82,6 +80,7 @@ export function backfillScheduleRuns(db: Database.Database): ScheduleRunBackfill
       SELECT id, agent_id, org_id, created_by, created_at, ${testOfTask} AS test_uuid
       FROM tasks
       WHERE type = 'execute_test' AND notice_id IS NULL AND schedule_run IS NULL AND original_task_id IS NULL
+        AND campaign_run_id IS NULL
         AND ${testOfTask} IN (${tests.map(() => '?').join(', ')})
     `).all(...tests) as Candidate[];
 

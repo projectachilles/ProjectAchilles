@@ -3,7 +3,7 @@ import { getDatabase } from './database.js';
 import { createTasks } from './tasks.service.js';
 import { createSchedulerTick } from '../notices/notices.service.js';
 import { toUTCDate, todayInTimezone, dayOfWeekInTimezone, randomTimeForDate, randomInstantInWindow, addDays, daysInMonth, resolveRandomizeMode } from './scheduleTime.js';
-import { scheduleRunKey } from './scheduleRun.js';
+import { scheduleRunKey, utcMs } from './scheduleRun.js';
 
 export { resolveRandomizeMode } from './scheduleTime.js';
 import { AppError } from '../../middleware/error.middleware.js';
@@ -683,6 +683,12 @@ export function processSchedules(clock?: Date): { processed: number; errors: str
       );
     } else {
       try {
+        // The run of the day this occurrence was planned for: a run caught up
+        // after midnight is still that day's, as on the per-machine path.
+        const plannedMs = utcMs(schedule.next_run_at);
+        const fleetRun = scheduleRunKey(
+          schedule.id, schedule.timezone, Number.isFinite(plannedMs) ? new Date(plannedMs) : now,
+        );
         const noticeId = tick.runNoticeFor(schedule.id, schedule.timezone, schedule.created_by, schedule.org_id);
         createTasks(
           {
@@ -697,7 +703,7 @@ export function processSchedules(clock?: Date): { processed: number; errors: str
           },
           schedule.org_id,
           schedule.created_by,
-          { noticeId, scheduleRunFor: () => scheduleRunKey(schedule.id, schedule.timezone, now) },
+          { noticeId, scheduleRunFor: () => fleetRun },
         );
         // Listed on the shared notice only once its tasks exist, so a failed
         // schedule never appears in the trigger text or blocks its next run.

@@ -240,6 +240,8 @@ export interface Task {
   last_ingest_attempt_at: string | null;
   /** Pre-execution notice gating this task; null for ungated (legacy) tasks */
   notice_id: string | null;
+  /** The scheduled run that created the task (`<schedule id>:<local date of the slot>`), or null/absent when no schedule did. */
+  schedule_run?: string | null;
   /** Admin views: who requested it ("Name (email)", "API key · name"); set by the grouped list route. */
   created_by_label?: string | null;
 }

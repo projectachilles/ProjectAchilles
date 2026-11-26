@@ -841,11 +841,23 @@ describe('schedules.service', () => {
       expect(scheduleRunFor?.('agent-002')).toBe(`${schedule.id}:2026-02-10`);
     });
 
-    it('whole fleet: every task belongs to the run of the day the schedule fired', () => {
+    it('whole fleet: every task belongs to the run of the day the schedule was planned for', () => {
       vi.useFakeTimers();
       vi.setSystemTime(new Date('2026-02-09T08:00:00Z'));
       const schedule = createSchedule(baseScheduleRequest({ schedule_config: { time: '07:00' } }), 'user-001');
-      testDb.prepare("UPDATE schedules SET next_run_at = datetime('now', '-1 hour') WHERE id = ?").run(schedule.id);
+      testDb.prepare('UPDATE schedules SET next_run_at = ? WHERE id = ?').run('2026-02-09T07:00:00.000Z', schedule.id);
+
+      processSchedules();
+
+      expect(optionsOf(0).scheduleRunFor?.('agent-001')).toBe(`${schedule.id}:2026-02-09`);
+    });
+
+    it('whole fleet: a run caught up after midnight belongs to the day it was planned for', () => {
+      vi.useFakeTimers();
+      // Planned for 22:00 on the 9th; the server was down and fires it at 00:30 on the 10th.
+      vi.setSystemTime(new Date('2026-02-10T00:30:00Z'));
+      const schedule = createSchedule(baseScheduleRequest({ schedule_config: { time: '22:00' } }), 'user-001');
+      testDb.prepare('UPDATE schedules SET next_run_at = ? WHERE id = ?').run('2026-02-09T22:00:00.000Z', schedule.id);
 
       processSchedules();
 
@@ -854,10 +866,10 @@ describe('schedules.service', () => {
 
     it('uses the local date of the schedule timezone, not the UTC date', () => {
       vi.useFakeTimers();
-      // 02:30 UTC on the 10th is still the 9th in New York.
+      // Planned for 01:30 UTC on the 10th, which is still the 9th in New York.
       vi.setSystemTime(new Date('2026-02-10T02:30:00Z'));
       const schedule = createSchedule(baseScheduleRequest({ timezone: 'America/New_York', schedule_config: { time: '07:00' } }), 'user-001');
-      testDb.prepare("UPDATE schedules SET next_run_at = datetime('now', '-1 hour') WHERE id = ?").run(schedule.id);
+      testDb.prepare('UPDATE schedules SET next_run_at = ? WHERE id = ?').run('2026-02-10T01:30:00.000Z', schedule.id);
 
       processSchedules();
 

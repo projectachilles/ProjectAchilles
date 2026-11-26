@@ -1,5 +1,8 @@
-import { describe, it, expect, beforeEach, vi } from 'vitest';
-import type Database from 'better-sqlite3';
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
+import Database from 'better-sqlite3';
+import fs from 'node:fs';
+import os from 'node:os';
+import path from 'node:path';
 import { createTestDatabase, insertTestAgent, insertTestTask } from '../../../__tests__/helpers/db.js';
 import { initializeTables } from '../database.js';
 import { backfillScheduleRuns } from '../scheduleRunBackfill.js';
@@ -33,11 +36,11 @@ function schedule({
 
 interface TaskSeed {
   id: string; agent?: string; org?: string; creator?: string; test?: string; created?: string; type?: string;
-  notice?: string | null; original?: string | null; run?: string | null;
+  notice?: string | null; original?: string | null; run?: string | null; campaign?: string | null;
 }
-function task({ id, agent = 'agent-001', org = 'org-001', creator = 'user-1', test = TEST, created = '2026-11-18 14:00:00', type = 'execute_test', notice = null, original = null, run = null }: TaskSeed) {
+function task({ id, agent = 'agent-001', org = 'org-001', creator = 'user-1', test = TEST, created = '2026-11-18 14:00:00', type = 'execute_test', notice = null, original = null, run = null, campaign = null }: TaskSeed) {
   insertTestTask(db, { id, agent_id: agent, org_id: org, created_by: creator, created_at: created, type, batch_id: `batch-${id}`, payload: payload(test) });
-  db.prepare('UPDATE tasks SET notice_id = ?, original_task_id = ?, schedule_run = ? WHERE id = ?').run(notice, original, run, id);
+  db.prepare('UPDATE tasks SET notice_id = ?, original_task_id = ?, schedule_run = ?, campaign_run_id = ? WHERE id = ?').run(notice, original, run, campaign, id);
 }
 const runOf = (id: string) => (db.prepare('SELECT schedule_run FROM tasks WHERE id = ?').get(id) as { schedule_run: string | null }).schedule_run;
 
@@ -88,6 +91,7 @@ describe('backfillScheduleRuns', () => {
 
   it.each([
     ['announced by a notice (it already groups by that)', { notice: 'n1' }],
+    ['of a campaign run (a schedule never creates those)', { campaign: 'camp-run-1' }],
     ['created by someone else', { creator: 'user-2' }],
     ['for an agent the schedule does not cover', { agent: 'agent-004' }],
     ['of another test', { test: 'test-uuid-other' }],
@@ -106,11 +110,15 @@ describe('backfillScheduleRuns', () => {
     expect(runOf('no')).toBe('run' in overrides ? 'other:2026-11-18' : null);
   });
 
-  it('allows a minute of slack at both ends of the window', () => {
+  it('allows a minute of slack after the last run, and none before the schedule existed', () => {
+    // "Run it once by hand, then schedule it" is a real sequence: that first run is not the schedule's.
     schedule();
-    task({ id: 'early', agent: 'agent-001', created: '2026-11-17 11:59:30' });
+    task({ id: 'tried-first', agent: 'agent-001', created: '2026-11-17 11:59:30' });
     task({ id: 'late', agent: 'agent-002', created: '2026-11-18 20:00:40' });
-    expect(backfillScheduleRuns(db).attributed).toBe(2);
+
+    expect(backfillScheduleRuns(db).attributed).toBe(1);
+    expect(runOf('tried-first')).toBeNull();
+    expect(runOf('late')).toBe('sch1:2026-11-18');
   });
 
   it.each([
@@ -182,5 +190,102 @@ describe('the attribution runs once, when the column is added', () => {
     initializeTables(db);
 
     expect(runOf('manual-later')).toBeNull();
+  });
+});
+
+describe('the attribution and the column are added together', () => {
+  let dir: string;
+  let file: Database.Database;
+  let other: Database.Database | undefined;
+
+  const openFile = () => {
+    const d = new Database(path.join(dir, 'agents.db'));
+    d.pragma('journal_mode = WAL');
+    d.pragma('foreign_keys = ON');
+    return d;
+  };
+
+  beforeEach(() => {
+    dir = fs.mkdtempSync(path.join(os.tmpdir(), 'schedule-run-'));
+    file = openFile();
+    initializeTables(file);
+    file.exec('DROP INDEX idx_tasks_schedule_run; ALTER TABLE tasks DROP COLUMN schedule_run;');
+    db = file; // the seed helpers write to `db`
+    insertTestAgent(db, { id: 'agent-001', hostname: 'host-1' });
+    schedule();
+    insertTestTask(db, { id: 't1', agent_id: 'agent-001', org_id: 'org-001', created_by: 'user-1', created_at: '2026-11-18 14:00:00', batch_id: 'b1', payload: payload() });
+  });
+
+  afterEach(() => {
+    vi.restoreAllMocks();
+    other?.close();
+    other = undefined;
+    file.close();
+    fs.rmSync(dir, { recursive: true, force: true });
+  });
+
+  const hasColumn = (d: Database.Database) =>
+    (d.prepare('PRAGMA table_info(tasks)').all() as { name: string }[]).some((c) => c.name === 'schedule_run');
+  const isCandidateQuery = (sql: string) => sql.includes("WHERE type = 'execute_test' AND notice_id IS NULL");
+
+  it('is not lost when another process writes while it runs', () => {
+    // A second server process on the same file, writing at the worst moment:
+    // right after this one has read which tasks to stamp.
+    other = openFile();
+    other.pragma('busy_timeout = 0');
+    let otherWrote: string | null = null;
+    const prepare = file.prepare.bind(file);
+    vi.spyOn(file, 'prepare').mockImplementation(((sql: string) => {
+      const stmt = prepare(sql);
+      if (!isCandidateQuery(sql)) return stmt;
+      return {
+        all: (...args: unknown[]) => {
+          const rows = stmt.all(...args);
+          try {
+            other!.prepare("UPDATE agents SET hostname = 'renamed' WHERE id = 'agent-001'").run();
+            otherWrote = 'committed';
+          } catch (err) {
+            otherWrote = (err as { code?: string }).code ?? 'failed';
+          }
+          return rows;
+        },
+      } as never;
+    }) as never);
+    vi.spyOn(console, 'log').mockImplementation(() => {});
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+
+    initializeTables(file);
+
+    // The other process had to wait its turn; this one finished its work.
+    expect(otherWrote).toBe('SQLITE_BUSY');
+    expect(runOf('t1')).toBe('sch1:2026-11-18');
+    expect(warn).not.toHaveBeenCalled();
+  });
+
+  it('still gives the server its column when the attribution fails, and says the attribution was skipped', () => {
+    const prepare = file.prepare.bind(file);
+    vi.spyOn(file, 'prepare').mockImplementation(((sql: string) => {
+      if (isCandidateQuery(sql)) throw new Error('disk I/O error');
+      return prepare(sql);
+    }) as never);
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+
+    expect(() => initializeTables(file)).not.toThrow();
+
+    expect(hasColumn(file)).toBe(true);
+    expect(runOf('t1')).toBeNull();
+    expect(warn.mock.calls.flat().join(' ')).toMatch(/\[Schedule-Run-Backfill\] skipped.*disk I\/O error/);
+  });
+
+  it('does nothing when another process added the column while this one waited', () => {
+    // This process decided the column was missing, then another finished the whole migration.
+    other = openFile();
+    initializeTables(other);
+    expect(runOf('t1')).toBe('sch1:2026-11-18');
+    const log = vi.spyOn(console, 'log').mockImplementation(() => {});
+
+    expect(() => initializeTables(file)).not.toThrow();
+
+    expect(log.mock.calls.flat().join(' ')).not.toContain('[Schedule-Run-Backfill]');
   });
 });
