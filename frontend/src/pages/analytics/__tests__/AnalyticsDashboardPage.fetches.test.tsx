@@ -951,3 +951,223 @@ describe('All Executions: matrix or list', () => {
     expect(matrix()).not.toHaveBeenCalled();
   });
 });
+
+describe('All Executions: the activity strip', () => {
+  const emptyRuns = { groups: [], pagination: { page: 1, pageSize: 25, totalGroups: 0, totalDocuments: 0, totalPages: 0, hasNext: false, hasPrevious: false } };
+  const emptyMatrix = { rows: 'tests', windowLabel: '30d', hosts: [], hostCount: 0, tests: [], testCount: 0, cellsIncluded: true, truncated: false };
+  const DAY = 86_400_000;
+  const START = Date.parse('2026-11-10T00:00:00.000Z');
+  const BUCKETS = Array.from({ length: 14 }, (_, i) => ({
+    from: new Date(START + i * DAY).toISOString(),
+    to: new Date(START + (i + 1) * DAY - 1).toISOString(),
+    protected: [1, 3, 6, 8].includes(i) ? 5 : 0,
+    unprotected: i === 6 ? 2 : 0,
+    noVerdict: 0,
+  }));
+  const NOV16 = BUCKETS[6];
+  const IN_ADDRESS = `bucketFrom=${encodeURIComponent(NOV16.from)}&bucketTo=${encodeURIComponent(NOV16.to)}`;
+  const activity = () => mocks.analytics.api.getExecutionsActivity;
+  const matrix = () => mocks.analytics.api.getCoverageMatrix;
+  const list = () => mocks.analytics.api.getGroupedPaginatedExecutions;
+  const withStrip = (on: boolean) => {
+    mocks.caps = { outcomeBreakdown: true, loaded: true, coverageMatrix: true, ...(on ? { activityStrip: true } : {}) } as typeof mocks.caps;
+  };
+  const renderAt = (search: string) =>
+    render(
+      <MemoryRouter initialEntries={[`/analytics${search}`]}>
+        <AnalyticsDashboardPage />
+        <LocationProbe />
+      </MemoryRouter>,
+    );
+  const address = () => new URLSearchParams(screen.getByTestId('loc').textContent ?? '');
+  const lastOf = (fn: ReturnType<typeof vi.fn>) => fn.mock.calls[fn.mock.calls.length - 1][0];
+
+  beforeEach(() => {
+    localStorage.clear();
+    withStrip(true);
+    mocks.analytics.reset({
+      getOutcomeBreakdown: { pairCount: 10, protected: 4, prevented: 2, detected: 1, silent: 3, noConclusive: 0, riskAccepted: 0, windowLabel: '30d' },
+      getGroupedPaginatedExecutions: emptyRuns,
+      getCoverageMatrix: emptyMatrix,
+      getCoverageMatrixHosts: { rows: 'hosts', windowLabel: '30d', tests: [], testCount: 0, hosts: [], hostCount: 0, page: 1, pageSize: 25, truncated: false },
+      getExecutionsActivity: { interval: 'day', timeZone: 'UTC', buckets: BUCKETS },
+      archiveExecutionsByDate: { archived: 3 },
+      getDefenseScore: { score: 50, totalExecutions: 0, protectedCount: 0 },
+      getUniqueHostnames: 0,
+      getUniqueTests: 0,
+      getChainDepth: null,
+      getPaginatedExecutions: { data: [], pagination: { totalItems: 0 } },
+      getErrorRate: { errorRate: 0 },
+      getCanonicalTestCount: { count: 0 },
+      listAcceptances: { total: 0 },
+      getFilterOptions: { tests: [], techniques: [], hostnames: [], categories: [], threatActors: [], tags: [], errorNames: [], errorCodes: [], bundleNames: [] },
+    });
+    mocks.defender.reset({ getSecureScore: null });
+    mocks.crowdstrike.reset({ getZtaScore: null });
+  });
+
+  it('asks once, with the filter bar\'s window, and draws the bars above the matrix', async () => {
+    renderAt('?tab=executions&hostnames=HOST-01');
+
+    const bar = await screen.findByRole('button', { name: 'Nov 16: 7 runs, 2 unprotected, 5 protected' });
+    expect(activity()).toHaveBeenCalledTimes(1);
+    // The filter bar sends a preset as a relative start, with no end.
+    expect(activity().mock.calls[0][0]).toMatchObject({ hostnames: 'HOST-01', from: 'now-30d' });
+    expect(activity().mock.calls[0][1]).toBe(Intl.DateTimeFormat().resolvedOptions().timeZone);
+    // Above the views, under the switches.
+    const matrixEmpty = await screen.findByText('No results in this window');
+    expect(bar.compareDocumentPosition(matrixEmpty) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(screen.getByRole('button', { name: 'Matrix' }).compareDocumentPosition(bar) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+  });
+
+  it('asks nothing and draws nothing where the server has no activity endpoint', async () => {
+    withStrip(false);
+    renderAt('?tab=executions');
+    await screen.findByText('No results in this window');
+    await new Promise((r) => setTimeout(r, 30));
+
+    expect(activity()).not.toHaveBeenCalled();
+    expect(screen.queryByRole('group', { name: 'Runs over time' })).toBeNull();
+  });
+
+  it('asks nothing on the dashboard tab', async () => {
+    mocks.caps = { outcomeBreakdown: true, loaded: true, coverageMatrix: true, activityStrip: true } as typeof mocks.caps;
+    renderAt('');
+    await screen.findByText('Outcome breakdown');
+    await new Promise((r) => setTimeout(r, 30));
+
+    expect(activity()).not.toHaveBeenCalled();
+  });
+
+  it('a click on a bar narrows the matrix to its bucket, and the strip is not read again', async () => {
+    renderAt('?tab=executions');
+    const bar = await screen.findByRole('button', { name: /^Nov 16/ });
+    await waitFor(() => expect(matrix()).toHaveBeenCalledTimes(1));
+    expect(matrix().mock.calls[0][0].from).toBe('now-30d');
+
+    fireEvent.click(bar);
+
+    await waitFor(() => expect(matrix()).toHaveBeenCalledTimes(2));
+    expect(lastOf(matrix())).toMatchObject({ from: NOV16.from, to: NOV16.to });
+    expect(address().get('bucketFrom')).toBe(NOV16.from);
+    expect(address().get('bucketTo')).toBe(NOV16.to);
+    expect(screen.getByRole('button', { name: /^Nov 16/ })).toHaveAttribute('aria-pressed', 'true');
+    await new Promise((r) => setTimeout(r, 30));
+    // The strip keeps the whole window: it was asked once, with the filter bar's range.
+    expect(activity()).toHaveBeenCalledTimes(1);
+    expect(activity().mock.calls[0][0].from).toBe('now-30d');
+    expect(activity().mock.calls[0][0]).not.toHaveProperty('to');
+  });
+
+  it('a link with a bucket narrows the matrix from the start, and the strip still asks for the window', async () => {
+    renderAt(`?tab=executions&${IN_ADDRESS}`);
+
+    await waitFor(() => expect(matrix()).toHaveBeenCalled());
+    expect(matrix().mock.calls.every((c) => c[0].from === NOV16.from && c[0].to === NOV16.to)).toBe(true);
+    await waitFor(() => expect(activity()).toHaveBeenCalledTimes(1));
+    expect(activity().mock.calls[0][0].from).not.toBe(NOV16.from);
+    expect(await screen.findByRole('button', { name: /^Nov 16/ })).toHaveAttribute('aria-pressed', 'true');
+  });
+
+  it('narrows the list too, from its first page', async () => {
+    renderAt('?tab=executions&view=list');
+    const bar = await screen.findByRole('button', { name: /^Nov 16/ });
+    await waitFor(() => expect(list()).toHaveBeenCalled());
+    expect(lastOf(list()).from).not.toBe(NOV16.from);
+
+    fireEvent.click(bar);
+
+    await waitFor(() => expect(lastOf(list())).toMatchObject({ from: NOV16.from, to: NOV16.to, page: 1 }));
+  });
+
+  it('clearing the bucket reads the window again', async () => {
+    renderAt(`?tab=executions&${IN_ADDRESS}`);
+    await waitFor(() => expect(matrix()).toHaveBeenCalled());
+
+    fireEvent.click(await screen.findByRole('button', { name: 'Clear the selected Nov 16' }));
+
+    await waitFor(() => expect(lastOf(matrix()).from).not.toBe(NOV16.from));
+    expect(address().has('bucketFrom')).toBe(false);
+    expect(address().has('bucketTo')).toBe(false);
+  });
+
+  it('the export carries the bucket', async () => {
+    URL.createObjectURL = vi.fn(() => 'blob:x');
+    URL.revokeObjectURL = vi.fn();
+    vi.spyOn(HTMLAnchorElement.prototype, 'click').mockImplementation(() => {});
+    renderAt(`?tab=executions&${IN_ADDRESS}`);
+    await screen.findByRole('button', { name: /^Nov 16/ });
+    list().mockClear();
+
+    fireEvent.click(screen.getByRole('button', { name: 'Export CSV' }));
+
+    await waitFor(() => expect(list()).toHaveBeenCalled());
+    expect(list().mock.calls[0][0]).toMatchObject({ from: NOV16.from, to: NOV16.to });
+  });
+
+  it('archive by date still sends the date alone', async () => {
+    renderAt(`?tab=executions&${IN_ADDRESS}`);
+    await screen.findByRole('button', { name: /^Nov 16/ });
+
+    fireEvent.click(screen.getByRole('button', { name: /Archive by date/ }));
+    fireEvent.change(screen.getByLabelText('Archive all executions before:'), { target: { value: '2026-01-15' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Archive' }));
+
+    await waitFor(() => expect(mocks.analytics.api.archiveExecutionsByDate).toHaveBeenCalledWith('2026-01-15'));
+    // And the bars are read again: what was archived is no longer counted.
+    await waitFor(() => expect(activity()).toHaveBeenCalledTimes(2));
+  });
+
+  it('reads the bars again on Refresh', async () => {
+    renderAt('?tab=executions');
+    await screen.findByRole('button', { name: /^Nov 16/ });
+
+    fireEvent.click(screen.getByRole('button', { name: /Refresh/ }));
+
+    await waitFor(() => expect(activity()).toHaveBeenCalledTimes(2));
+  });
+
+  it('drops the bucket when the date range changes: it was a bucket of the old range', async () => {
+    renderAt(`?tab=executions&${IN_ADDRESS}`);
+    await screen.findByRole('button', { name: /^Nov 16/ });
+    const range = screen.getAllByRole('combobox').find((el) => [...(el as HTMLSelectElement).options].some((o) => o.value === '7d')) as HTMLSelectElement;
+
+    fireEvent.change(range, { target: { value: '7d' } });
+
+    await waitFor(() => expect(address().has('bucketFrom')).toBe(false));
+    await waitFor(() => expect(activity()).toHaveBeenCalledTimes(2));
+    expect(lastOf(matrix()).from).not.toBe(NOV16.from);
+  });
+
+  it('keeps the bucket when another filter changes', async () => {
+    renderAt(`?tab=executions&${IN_ADDRESS}&hostnames=HOST-01`);
+    await screen.findByRole('button', { name: /^Nov 16/ });
+    await new Promise((r) => setTimeout(r, 30));
+
+    expect(address().get('bucketFrom')).toBe(NOV16.from);
+  });
+
+  it('leaves the bucket out of the address on another tab', async () => {
+    renderAt(`?tab=executions&${IN_ADDRESS}`);
+    await screen.findByRole('button', { name: /^Nov 16/ });
+
+    fireEvent.click(screen.getByRole('button', { name: 'Dashboard' }));
+
+    await waitFor(() => expect(address().has('bucketFrom')).toBe(false));
+    expect(address().has('bucketTo')).toBe(false);
+  });
+
+  it('says in the list that outcome filters do not narrow the bars', async () => {
+    renderAt('?tab=executions&view=list&result=unprotected');
+    await screen.findByRole('button', { name: /^Nov 16/ });
+
+    expect(screen.getByText('Outcome filters narrow the list, not the bars.')).toBeInTheDocument();
+  });
+
+  it('leaves that to the matrix\'s own line in the matrix view', async () => {
+    renderAt('?tab=executions&result=unprotected');
+    await screen.findByRole('button', { name: /^Nov 16/ });
+
+    expect(screen.queryByText('Outcome filters narrow the list, not the bars.')).toBeNull();
+  });
+});

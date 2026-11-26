@@ -392,6 +392,27 @@ export interface ExtendedFilterParams {
   scoringMode?: 'all-stages' | 'any-stage';
 }
 
+/** One time bucket of the activity strip: its two instants (both inclusive) and its runs by outcome. */
+export interface ExecutionsActivityBucket {
+  from: string;
+  to: string;
+  protected: number;
+  unprotected: number;
+  noVerdict: number;
+}
+
+export interface ExecutionsActivityResponse {
+  interval: 'hour' | 'day' | 'week';
+  /** The IANA zone the buckets were cut in. */
+  timeZone: string;
+  /** Oldest first, zero-filled. */
+  buckets: ExecutionsActivityBucket[];
+  /** The window was longer than 365 days: only its last 365 are here. */
+  capped?: true;
+  /** The bundle-run limit was reached: the counts are a lower bound. */
+  truncated?: true;
+}
+
 /** Verdict filter for the executions table (latest-basis outcome breakdown rows). */
 export type ExecutionVerdict = 'protected' | 'prevented' | 'detected' | 'silent';
 
@@ -880,6 +901,18 @@ export const analyticsApi = {
     view: { page: number; pageSize: number; test?: string; state?: MatrixVerdict },
   ): Promise<CoverageMatrixHostsResponse> {
     const response = await apiClient.get('/analytics/coverage-matrix', { params: { ...params, rows: 'hosts', ...view } });
+    return response.data;
+  },
+
+  /**
+   * Runs per time bucket over the filter window, for the strip above All
+   * Executions. `tz` is the IANA zone the buckets are cut in. The outcome
+   * filters and the scoring mode are not sent: the server ignores them here,
+   * and leaving them out keeps one request per scope.
+   */
+  async getExecutionsActivity(params: ExtendedFilterParams | undefined, tz: string): Promise<ExecutionsActivityResponse> {
+    const { result: _result, errorNames: _errorNames, errorCodes: _errorCodes, scoringMode: _scoringMode, ...scope } = params ?? {};
+    const response = await apiClient.get('/analytics/executions/activity', { params: { ...scope, tz } });
     return response.data;
   },
 

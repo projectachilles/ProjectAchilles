@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useRef, useState , type ReactNode } from 'react';
 import { Loader2 } from 'lucide-react';
 import { analyticsApi } from '@/services/api/analytics';
 import type { ExtendedFilterParams, RiskAcceptance } from '@/services/api/analytics';
@@ -83,6 +83,8 @@ export interface ExecutionsViewProps extends ExecutionsDataTableProps {
    * The page loads the list's runs only while the list is shown.
    */
   onViewChange?: (view: ExecutionsViewName | null) => void;
+  /** Drawn above whichever view is shown, under the switches: the activity strip. */
+  strip?: ReactNode;
 }
 
 /**
@@ -90,7 +92,7 @@ export interface ExecutionsViewProps extends ExecutionsDataTableProps {
  * or today's list. The matrix is the default where the server has it
  * (capability `coverageMatrix`); elsewhere there is no switch and only the list.
  */
-export default function ExecutionsView({ filterParams, reloadToken, forceList, onReleaseList, onViewChange, ...table }: ExecutionsViewProps) {
+export default function ExecutionsView({ filterParams, reloadToken, forceList, onReleaseList, onViewChange, strip, ...table }: ExecutionsViewProps) {
   const capabilities = useCapabilities();
   const { view: viewInUrl, pair: pairInUrl, setView, rows: rowsInUrl, setRows } = useMatrixUrlState();
   // Read once: after that the address says which view, so a click changes the view
@@ -126,7 +128,15 @@ export default function ExecutionsView({ filterParams, reloadToken, forceList, o
       </Card>
     );
   }
-  if (!hasMatrix) return <ExecutionsDataTable {...table} />;
+  if (!hasMatrix) {
+    if (!strip) return <ExecutionsDataTable {...table} />;
+    return (
+      <div className="flex flex-col gap-3">
+        {strip}
+        <ExecutionsDataTable {...table} />
+      </div>
+    );
+  }
 
   const onArchiveByDate = table.onArchiveByDate;
   const archiveByDate = onArchiveByDate && (async (before: string) => {
@@ -162,6 +172,7 @@ export default function ExecutionsView({ filterParams, reloadToken, forceList, o
           />
         )}
       </div>
+      {strip}
       {view === 'list' ? (
         <ExecutionsDataTable {...table} />
       ) : (

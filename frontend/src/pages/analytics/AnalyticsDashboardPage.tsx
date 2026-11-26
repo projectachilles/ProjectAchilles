@@ -23,6 +23,8 @@ import StageCoverageCard from './components/StageCoverageCard';
 import TestActivityCard from './components/TestActivityCard';
 import { mapGroupsToDisplayRows, type DisplayRow } from './components/executions/shared';
 import ExecutionsView from './components/ExecutionsView';
+import { ExecutionsActivity } from './components/ExecutionsActivity';
+import { useActivityBucket } from './components/executions/useActivityBucket';
 import { Toast } from '@/components/shared/ui/Alert';
 import RiskAcceptancesTab from './components/RiskAcceptancesTab';
 import DefenderTab from './components/DefenderTab';
@@ -169,7 +171,7 @@ export default function AnalyticsDashboardPage() {
     const newParams = new URLSearchParams(searchParams);
     // What the matrix view keeps in the address means nothing on another tab,
     // and would reopen a pair on the way back.
-    if (tab !== 'executions') for (const key of ['view', 'rows', 'pairTest', 'pairHost', 'run']) newParams.delete(key);
+    if (tab !== 'executions') for (const key of ['view', 'rows', 'pairTest', 'pairHost', 'run', 'bucketFrom', 'bucketTo']) newParams.delete(key);
     if (tab === 'dashboard') {
       newParams.delete('tab');
     } else {
@@ -203,7 +205,32 @@ export default function AnalyticsDashboardPage() {
 
   // The matrix view of All Executions reads the same filters; it sends their scope only.
   const { getApiParams } = filterState;
-  const matrixParams = useMemo(() => getApiParams(), [getApiParams]);
+  // The activity strip of All Executions reads the filter bar's whole window. The views under it
+  // (the matrix, the list, the export) read the bucket selected on the strip, when there is one:
+  // its two instants replace the window's. The bucket is not a filter of the filter bar.
+  const { bucket: activityBucket, setBucket: setActivityBucket } = useActivityBucket();
+  const stripParams = useMemo(() => getApiParams(), [getApiParams]);
+  const matrixParams = useMemo(
+    () => (activityBucket ? { ...stripParams, from: activityBucket.from, to: activityBucket.to } : stripParams),
+    [stripParams, activityBucket],
+  );
+  /** Archives made on this page: the strip's bars are read again after each. */
+  const [archivedCount, setArchivedCount] = useState(0);
+  const selectActivityBucket = useCallback((next: { from: string; to: string } | null) => {
+    setActivityBucket(next);
+    // Another stretch of time: its runs start at the first page.
+    setExecutionsPage(1);
+  }, [setActivityBucket]);
+
+  // A bucket belongs to the date range it was picked in: a new range drops it.
+  const { preset: rangePreset, from: rangeFrom, to: rangeTo } = filterState.filters.dateRange;
+  const rangeKey = `${rangePreset}|${rangeFrom ?? ''}|${rangeTo ?? ''}`;
+  const rangeSeen = useRef(rangeKey);
+  useEffect(() => {
+    if (rangeSeen.current === rangeKey) return;
+    rangeSeen.current = rangeKey;
+    setActivityBucket(null);
+  }, [rangeKey, setActivityBucket]);
   const capabilities = useCapabilities();
   // Sent to the Executions endpoints only; never without the capability, even from a stale URL
   const versionStateParam = useMemo(
@@ -415,7 +442,7 @@ export default function AnalyticsDashboardPage() {
     if (activeTab === 'executions' && executionsView === 'list') {
       loadExecutionsData();
     }
-  }, [filterState.filters, activeTab, executionsView, executionsPage, executionsPageSize, executionsSortField, executionsSortOrder, executionsVerdict, versionStateParam, settingsVersion]);
+  }, [filterState.filters, activityBucket, activeTab, executionsView, executionsPage, executionsPageSize, executionsSortField, executionsSortOrder, executionsVerdict, versionStateParam, settingsVersion]);
 
   // Load filter dropdown options
   async function loadFilterOptions() {
@@ -654,7 +681,7 @@ export default function AnalyticsDashboardPage() {
     const requestId = ++executionsRequestRef.current;
     const isLatest = () => requestId === executionsRequestRef.current;
     setLoadingExecutions(true);
-    const params = filterState.getApiParams();
+    const params = { ...filterState.getApiParams(), ...(activityBucket ? { from: activityBucket.from, to: activityBucket.to } : {}) };
     const versionParam = versionStateParam;
     setExecutionsError(null);
 
@@ -679,7 +706,7 @@ export default function AnalyticsDashboardPage() {
     } finally {
       if (isLatest()) setLoadingExecutions(false);
     }
-  }, [filterState, executionsPage, executionsPageSize, executionsSortField, executionsSortOrder, executionsVerdict, versionStateParam]);
+  }, [filterState, activityBucket, executionsPage, executionsPageSize, executionsSortField, executionsSortOrder, executionsVerdict, versionStateParam]);
 
   // Keep ref in sync with latest loadExecutionsData
   loadExecutionsDataRef.current = loadExecutionsData;
@@ -687,7 +714,8 @@ export default function AnalyticsDashboardPage() {
   // CSV/JSON export: every result matching the table's filters, sort and
   // verdict, newest groups first, up to EXPORT_MAX_DOCS (the SB export's cap).
   const fetchExecutionsForExport = useCallback(async () => {
-    const params = filterState.getApiParams();
+    // Export follows what is on screen: the filters, and the strip's bucket when one is selected.
+    const params = { ...filterState.getApiParams(), ...(activityBucket ? { from: activityBucket.from, to: activityBucket.to } : {}) };
     const executions: EnrichedTestExecution[] = [];
     for (let page = 1; ; page++) {
       const res = await analyticsApi.getGroupedPaginatedExecutions({
@@ -704,13 +732,14 @@ export default function AnalyticsDashboardPage() {
         return { executions: executions.slice(0, EXPORT_MAX_DOCS), total: res.pagination.totalDocuments };
       }
     }
-  }, [filterState, executionsSortField, executionsSortOrder, executionsVerdict, versionStateParam]);
+  }, [activityBucket, filterState, executionsSortField, executionsSortOrder, executionsVerdict, versionStateParam]);
 
   // Archive handlers
   const handleArchive = useCallback(async (groupKeys: string[]) => {
     setArchiving(true);
     try {
       const result = await analyticsApi.archiveExecutions(groupKeys);
+      setArchivedCount((n) => n + 1);
       await loadExecutionsDataRef.current?.();
       setArchiveToast({
         message: result.archived === 0
@@ -735,6 +764,7 @@ export default function AnalyticsDashboardPage() {
     setArchiving(true);
     try {
       const result = await analyticsApi.archiveExecutionsByDate(before);
+      setArchivedCount((n) => n + 1);
       await loadExecutionsDataRef.current?.();
       setArchiveToast({
         message: result.archived === 0
@@ -1256,6 +1286,16 @@ export default function AnalyticsDashboardPage() {
               sbReportExporting={sbReportExporting}
               reportHref={reportHref}
               onFetchAllExecutions={fetchExecutionsForExport}
+              strip={capabilities.activityStrip ? (
+                <ExecutionsActivity
+                  params={stripParams}
+                  reloadToken={settingsVersion + refreshCount + archivedCount}
+                  selected={activityBucket}
+                  onSelect={selectActivityBucket}
+                  // In the matrix view the matrix says so itself, about its own marks.
+                  outcomeFiltered={executionsView === 'list' && (executionsVerdict !== null || Boolean(stripParams.result || stripParams.errorCodes || stripParams.errorNames))}
+                />
+              ) : undefined}
             />
           </div>
         )}
