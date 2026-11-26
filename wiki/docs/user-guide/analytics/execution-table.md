@@ -13,6 +13,20 @@ The Execution Table is the **All Executions** tab of Analytics. It has two views
 
 The matrix is the default, and your last choice is remembered in your browser. A link to one run (`?expanded=<id>`) and a click on the dashboard's Outcome breakdown card open the List, because both select or filter runs, not pairs. Clicking **Matrix** from there drops that selection or filter.
 
+## Activity strip
+
+Above both views, a short row of bars shows **when the runs happened**: one bar per stretch of time, as tall as its runs are many, coloured by outcome. Red is unprotected (at the bottom), grey is no verdict, green is protected. A run is one test on one host; a multi-stage test counts once, with the verdict of its whole chain.
+
+- **Buckets follow the date range:** hours for 48 hours or less, days up to 62 days, weeks (from Monday) beyond. They are cut in your browser's time zone. A range longer than a year shows its last 365 days.
+- **Click a bar to narrow the page to it.** The matrix, the list and the export then read only that hour, day or week. The strip keeps showing the whole range with the bar marked, so the next day is one click away. Click the bar again, or the chip beside the strip, to clear it.
+- **The bars are whole hours, days or weeks.** With "Last 30 days" the first bar is the full first day, so it can include runs from a few hours before the range starts.
+- **Keyboard:** the strip is one stop for Tab; the left and right arrows move between the bars, Enter selects. The line under the strip writes out the bar under the focus or the pointer ("Nov 18: 42 runs, 10 unprotected, 2 no verdict, 30 protected").
+- **A quiet range has no bars.** With fewer than three hours, days or weeks holding runs, the strip is one line that names them ("Runs on 2 days in this window: Nov 16 · 12 runs, Nov 23 · 4 runs"), each a button that narrows the page the same way. With no run at all there is no strip.
+- **What the strip follows:** the date range and every filter of the filter bar except the outcome filters (result, error name, error code, the Outcome chip). It shows the split by outcome itself, so with an outcome filter set a bar can count more runs than the list shows; the list says so.
+- The selected bar is in the address (`bucketFrom`, `bucketTo`), so a link narrows the same way. It is dropped when you change the date range or leave the tab. **Archive by date ignores it**, as it ignores every filter.
+
+The counts are the same runs, by the same rules, as the Dashboard's test cadence card. The strip is not shown on a server that does not provide it (`backend-serverless`).
+
 ## Matrix view
 
 Each row is one test, with its name written once and one mark per host. Hosts keep the same order in every row, most exposed first, so a weak host is a column and a hard test is a row.
