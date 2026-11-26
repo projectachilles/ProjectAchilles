@@ -2,6 +2,7 @@ import Database from 'better-sqlite3';
 import path from 'path';
 import os from 'os';
 import fs from 'fs';
+import { backfillScheduleRuns } from './scheduleRunBackfill.js';
 
 const DATA_DIR = path.join(os.homedir(), '.projectachilles');
 const DB_PATH = path.join(DATA_DIR, 'agents.db');
@@ -738,13 +739,28 @@ function migrateExecuteCommandType(database: Database.Database): void {
  */
 function migrateTaskScheduleRun(database: Database.Database): void {
   const cols = database.prepare('PRAGMA table_info(tasks)').all() as { name: string }[];
-  if (!cols.some((c) => c.name === 'schedule_run')) {
+  const added = !cols.some((c) => c.name === 'schedule_run');
+  if (added) {
     database.exec('ALTER TABLE tasks ADD COLUMN schedule_run TEXT DEFAULT NULL');
   }
   // Partial: most tasks on most installs have no schedule.
   database.exec(
     'CREATE INDEX IF NOT EXISTS idx_tasks_schedule_run ON tasks(schedule_run) WHERE schedule_run IS NOT NULL',
   );
+  if (!added) return;
+
+  // Only here, when the column is new: attribute the tasks schedules created
+  // before it existed. Running it again later would pull tasks started by hand
+  // into a recurring schedule's window (see scheduleRunBackfill.ts). A failure
+  // must not stop the server from starting; those tasks just stay ungrouped.
+  try {
+    const r = backfillScheduleRuns(database);
+    if (r.attributed > 0 || r.ambiguous > 0 || r.retries > 0) {
+      console.log(`[Schedule-Run-Backfill] attributed=${r.attributed} ambiguous=${r.ambiguous} retries=${r.retries}`);
+    }
+  } catch (err) {
+    console.warn('[Schedule-Run-Backfill] skipped:', err instanceof Error ? err.message : String(err));
+  }
 }
 
 function migrateTaskTestUuid(database: Database.Database): void {
