@@ -62,10 +62,10 @@ function agent(n: number): string {
   return id;
 }
 
-interface Seed { id: string; batch: string; agentNo: number; notice?: string | null; test?: string; created?: string; status?: string; result?: string | null }
-function seed({ id, batch, agentNo, notice = null, test = 'test-a', created = at(0), status = 'completed', result = null }: Seed) {
+interface Seed { id: string; batch: string; agentNo: number; notice?: string | null; test?: string; created?: string; status?: string; result?: string | null; run?: string | null }
+function seed({ id, batch, agentNo, notice = null, test = 'test-a', created = at(0), status = 'completed', result = null, run = null }: Seed) {
   insertTestTask(testDb, { id, agent_id: agent(agentNo), batch_id: batch, created_at: created, status, payload: payloadFor(test) });
-  testDb.prepare('UPDATE tasks SET notice_id = ?, result = ? WHERE id = ?').run(notice, result, id);
+  testDb.prepare('UPDATE tasks SET notice_id = ?, result = ?, schedule_run = ? WHERE id = ?').run(notice, result, run, id);
 }
 
 const ids = (g: { tasks: Array<{ id: string }> }) => g.tasks.map((t) => t.id).sort();
@@ -258,5 +258,112 @@ describe('listTasksGrouped groups by announced run', () => {
     expect(out.groups[0].batch_id).toBe('b1');
     expect(out.groups[0].batch_ids).toEqual(['b1']);
     expect(out.groups[0].agent_count).toBe(2);
+  });
+});
+
+describe('listTasksGrouped groups by scheduled run', () => {
+  const DAY1 = 'sch1:2026-10-23';
+
+  beforeEach(() => {
+    testDb = createTestDatabase();
+  });
+
+  it('makes one group of a scheduled run that reached its agents one by one, with no notice at all', () => {
+    seed({ id: 't1', batch: 'b1', agentNo: 1, run: DAY1, created: at(1) });
+    seed({ id: 't2', batch: 'b2', agentNo: 2, run: DAY1, created: at(20) });
+    seed({ id: 't3', batch: 'b3', agentNo: 3, run: DAY1, created: at(45) });
+
+    const out = listTasksGrouped({}, ALL);
+
+    expect(out.total).toBe(1);
+    expect(ids(out.groups[0])).toEqual(['t1', 't2', 't3']);
+    expect(out.groups[0].run_id.startsWith(`s:${DAY1}|`)).toBe(true);
+    expect([...out.groups[0].batch_ids].sort()).toEqual(['b1', 'b2', 'b3']);
+    expect(out.groups[0].agent_count).toBe(3);
+    expect(out.groups[0].notices).toBeUndefined();
+  });
+
+  it('keeps two schedules of one test on one day apart', () => {
+    seed({ id: 'a', batch: 'b1', agentNo: 1, run: 'sch1:2026-10-23' });
+    seed({ id: 'b', batch: 'b2', agentNo: 2, run: 'sch2:2026-10-23' });
+
+    const out = listTasksGrouped({}, ALL);
+
+    expect(out.total).toBe(2);
+    expect(out.groups.map(ids)).toEqual(expect.arrayContaining([['a'], ['b']]));
+  });
+
+  it('gives a daily schedule one run per day, not one run for ever', () => {
+    for (let day = 10; day < 24; day++) {
+      seed({ id: `d${day}-1`, batch: `b${day}-1`, agentNo: 1, run: `sch1:2026-10-${day}`, created: `2026-10-${day} 09:00:00` });
+      seed({ id: `d${day}-2`, batch: `b${day}-2`, agentNo: 2, run: `sch1:2026-10-${day}`, created: `2026-10-${day} 11:30:00` });
+    }
+
+    const out = listTasksGrouped({ limit: 50 }, ALL);
+
+    expect(out.total).toBe(14);
+    expect(out.groups.every((g) => g.tasks.length === 2)).toBe(true);
+  });
+
+  it('keeps a scheduled run together when two notices announced it (a late tail)', () => {
+    insertNotice('day');
+    insertNotice('tail');
+    seed({ id: 't1', batch: 'b1', agentNo: 1, run: DAY1, notice: 'day', created: at(1) });
+    seed({ id: 't2', batch: 'b2', agentNo: 2, run: DAY1, notice: 'tail', created: at(50) });
+
+    const out = listTasksGrouped({}, ALL);
+
+    expect(out.total).toBe(1);
+    expect(ids(out.groups[0])).toEqual(['t1', 't2']);
+    expect(Object.keys(out.groups[0].notices ?? {}).sort()).toEqual(['day', 'tail']);
+  });
+
+  it('keeps a retry in its scheduled run even though a notice of its own announced it', () => {
+    insertNotice('n1');
+    insertNotice('n2');
+    seed({ id: 'first', batch: 'b1', agentNo: 1, run: DAY1, notice: 'n1', created: at(1), status: 'failed' });
+    seed({ id: 'other', batch: 'b2', agentNo: 2, run: DAY1, notice: 'n1', created: at(5) });
+    seed({ id: 'retry', batch: 'b1', agentNo: 1, run: DAY1, notice: 'n2', created: at(40) });
+
+    const out = listTasksGrouped({}, ALL);
+
+    expect(out.total).toBe(1);
+    expect(ids(out.groups[0])).toEqual(['first', 'other', 'retry']);
+    expect(out.groups[0].agent_count).toBe(2);
+  });
+
+  it('still groups an announced run that no schedule created by its notice', () => {
+    insertNotice('n1');
+    seed({ id: 't1', batch: 'b1', agentNo: 1, notice: 'n1' });
+    seed({ id: 't2', batch: 'b2', agentNo: 2, notice: 'n1' });
+    seed({ id: 's1', batch: 'b3', agentNo: 3, run: DAY1, notice: 'n1' });
+
+    const out = listTasksGrouped({}, ALL);
+
+    expect(out.total).toBe(2);
+    expect(out.groups.map(ids)).toEqual(expect.arrayContaining([['t1', 't2'], ['s1']]));
+  });
+
+  it('never puts two organizations in one scheduled run', () => {
+    seed({ id: 'mine', batch: 'b1', agentNo: 1, run: DAY1 });
+    seed({ id: 'theirs', batch: 'b2', agentNo: 2, run: DAY1 });
+    testDb.prepare("UPDATE tasks SET org_id = 'org-002' WHERE id = 'theirs'").run();
+
+    const mine = listTasksGrouped({ org_id: 'org-001' }, { kind: 'org', orgId: 'org-001' });
+    expect(mine.groups.map(ids)).toEqual([['mine']]);
+    expect(listTasksGrouped({}, ALL).total).toBe(2);
+  });
+
+  it('lists a scheduled run whole when a filter matches one of its tasks, and pages by run', () => {
+    for (let i = 1; i <= 30; i++) seed({ id: `r${i}`, batch: `rb${i}`, agentNo: i, run: DAY1, created: at(i), status: i === 7 ? 'failed' : 'completed' });
+    seed({ id: 'plain', batch: 'pb', agentNo: 40, created: at(50) });
+
+    const page = listTasksGrouped({ limit: 25 }, ALL);
+    expect(page.total).toBe(2);
+    expect(page.groups.map((g) => g.tasks.length)).toEqual([1, 30]);
+
+    const failed = listTasksGrouped({ status: 'failed' }, ALL);
+    expect(failed.total).toBe(1);
+    expect(failed.groups[0].tasks).toHaveLength(30);
   });
 });

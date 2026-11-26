@@ -2,6 +2,7 @@ import Database from 'better-sqlite3';
 import path from 'path';
 import os from 'os';
 import fs from 'fs';
+import { backfillScheduleRuns } from './scheduleRunBackfill.js';
 
 const DATA_DIR = path.join(os.homedir(), '.projectachilles');
 const DB_PATH = path.join(DATA_DIR, 'agents.db');
@@ -526,6 +527,10 @@ export function initializeTables(database: Database.Database): void {
   // Hot path for the retry worker: filter by status + ingestion flag.
   database.prepare(`CREATE INDEX IF NOT EXISTS idx_tasks_es_ingested ON tasks(status, es_ingested)`).run();
 
+  // Migration: tasks.schedule_run (which scheduled run created a task). After
+  // the retry columns above, which it reads; it never recreates the table.
+  migrateTaskScheduleRun(database);
+
   // Migration: tasks.test_uuid + its triggers and indexes. Keep this last: it
   // needs es_ingested, and restores what a table-recreate migration dropped.
   migrateTaskTestUuid(database);
@@ -700,6 +705,7 @@ function recreateTasksTable(database: Database.Database): void {
     colSet.has('campaign_run_id') ? 'campaign_run_id TEXT DEFAULT NULL' : null,
     colSet.has('result_compacted_at') ? 'result_compacted_at TEXT DEFAULT NULL' : null,
     colSet.has('test_uuid') ? 'test_uuid TEXT DEFAULT NULL' : null,
+    colSet.has('schedule_run') ? 'schedule_run TEXT DEFAULT NULL' : null,
   ].filter(Boolean);
 
   database.exec(`DROP TABLE IF EXISTS tasks_new`);
@@ -732,10 +738,67 @@ function recreateTasksTable(database: Database.Database): void {
     ${colSet.has('notice_id') ? 'CREATE INDEX IF NOT EXISTS idx_tasks_notice ON tasks(notice_id);' : ''}
     ${colSet.has('campaign_run_id') ? 'CREATE INDEX IF NOT EXISTS idx_tasks_campaign_run ON tasks(campaign_run_id);' : ''}
     ${colSet.has('result_compacted_at') ? 'CREATE INDEX IF NOT EXISTS idx_tasks_compactable ON tasks(completed_at) WHERE result_compacted_at IS NULL;' : ''}
+    ${colSet.has('schedule_run') ? 'CREATE INDEX IF NOT EXISTS idx_tasks_schedule_run ON tasks(schedule_run) WHERE schedule_run IS NOT NULL;' : ''}
   `);
   // DROP TABLE also dropped the test_uuid indexes and triggers; put them back.
   if (colSet.has('test_uuid') && colSet.has('es_ingested')) {
     ensureTaskTestUuidObjects(database);
+  }
+}
+
+/**
+ * `tasks.schedule_run`: the scheduled run that created a task, as
+ * "<schedule id>:<local date of the slot>" (see scheduleRun.ts). The scheduler
+ * writes it and retries inherit it; the task list groups by it, so a run that
+ * reaches its agents one at a time is one entry with or without notices.
+ * Listed in migrateExecuteCommandType's optionalCols and index recreation.
+ */
+function migrateTaskScheduleRun(database: Database.Database): void {
+  const hasColumn = () =>
+    (database.prepare('PRAGMA table_info(tasks)').all() as { name: string }[]).some((c) => c.name === 'schedule_run');
+
+  if (!hasColumn()) {
+    // The column and the attribution of earlier tasks go in together, in one
+    // transaction that takes the write lock first:
+    //   - a crash or a kill in between rolls the column back, so the next
+    //     start does both again (never the column without the attribution);
+    //   - another process writing meanwhile waits its turn. Without the lock,
+    //     its commit between this pass's read and its first write ends the
+    //     pass with SQLITE_BUSY_SNAPSHOT, and it could never be retried.
+    // The attribution runs only here. Run again on a database that already
+    // has the column, it would pull tasks started by hand into a recurring
+    // schedule's window (see scheduleRunBackfill.ts).
+    try {
+      database.transaction(() => {
+        if (hasColumn()) return; // another process did all of this while we waited for the lock
+        database.exec('ALTER TABLE tasks ADD COLUMN schedule_run TEXT DEFAULT NULL');
+        const r = backfillScheduleRuns(database);
+        if (r.attributed > 0 || r.ambiguous > 0 || r.retries > 0) {
+          console.log(`[Schedule-Run-Backfill] attributed=${r.attributed} ambiguous=${r.ambiguous} retries=${r.retries}`);
+        }
+      }).immediate();
+    } catch (err) {
+      // The server needs the column whatever happened to the attribution:
+      // task creation and the task list both use it. Earlier scheduled runs
+      // then stay one entry per agent; nothing else is affected.
+      console.warn(
+        '[Schedule-Run-Backfill] skipped, earlier scheduled runs stay ungrouped:',
+        err instanceof Error ? err.message : String(err),
+      );
+      try {
+        if (!hasColumn()) database.exec('ALTER TABLE tasks ADD COLUMN schedule_run TEXT DEFAULT NULL');
+      } catch (alterErr) {
+        // Most likely another process is adding it right now; it is checked again below.
+        console.warn('[Schedule-Run-Backfill] column not added by this process:', alterErr instanceof Error ? alterErr.message : String(alterErr));
+      }
+    }
+  }
+
+  // Partial: most tasks on most installs have no schedule.
+  if (hasColumn()) {
+    database.exec(
+      'CREATE INDEX IF NOT EXISTS idx_tasks_schedule_run ON tasks(schedule_run) WHERE schedule_run IS NOT NULL',
+    );
   }
 }
 

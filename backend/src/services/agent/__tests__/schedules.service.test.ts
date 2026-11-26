@@ -815,6 +815,68 @@ describe('schedules.service', () => {
     });
   });
 
+  describe('processSchedules stamps the scheduled run', () => {
+    const optionsOf = (call: number) => mockCreateTasks.mock.calls[call][3] as { scheduleRunFor?: (agentId: string) => string | null };
+
+    it('per machine: each task belongs to the run of its own slot, also when it is dispatched after midnight', () => {
+      vi.useFakeTimers();
+      // 00:05 on the 10th: two agents are due, one from a slot late on the 9th (a catch-up).
+      vi.setSystemTime(new Date('2026-02-10T00:05:00Z'));
+      insertTestAgent(testDb, { id: 'agent-002' });
+      const schedule = createSchedule(baseScheduleRequest({
+        agent_ids: ['agent-001', 'agent-002'],
+        schedule_config: { time: '10:00', randomize_mode: 'per_machine' },
+      }), 'user-001');
+      testDb.prepare('UPDATE schedules SET agent_next_runs = ?, next_run_at = ? WHERE id = ?').run(
+        JSON.stringify({ 'agent-001': '2026-02-09T23:50:00.000Z', 'agent-002': '2026-02-10T00:02:00.000Z' }),
+        '2026-02-09T23:50:00.000Z',
+        schedule.id,
+      );
+
+      processSchedules();
+
+      expect(mockCreateTasks).toHaveBeenCalledTimes(1);
+      const { scheduleRunFor } = optionsOf(0);
+      expect(scheduleRunFor?.('agent-001')).toBe(`${schedule.id}:2026-02-09`);
+      expect(scheduleRunFor?.('agent-002')).toBe(`${schedule.id}:2026-02-10`);
+    });
+
+    it('whole fleet: every task belongs to the run of the day the schedule was planned for', () => {
+      vi.useFakeTimers();
+      vi.setSystemTime(new Date('2026-02-09T08:00:00Z'));
+      const schedule = createSchedule(baseScheduleRequest({ schedule_config: { time: '07:00' } }), 'user-001');
+      testDb.prepare('UPDATE schedules SET next_run_at = ? WHERE id = ?').run('2026-02-09T07:00:00.000Z', schedule.id);
+
+      processSchedules();
+
+      expect(optionsOf(0).scheduleRunFor?.('agent-001')).toBe(`${schedule.id}:2026-02-09`);
+    });
+
+    it('whole fleet: a run caught up after midnight belongs to the day it was planned for', () => {
+      vi.useFakeTimers();
+      // Planned for 22:00 on the 9th; the server was down and fires it at 00:30 on the 10th.
+      vi.setSystemTime(new Date('2026-02-10T00:30:00Z'));
+      const schedule = createSchedule(baseScheduleRequest({ schedule_config: { time: '22:00' } }), 'user-001');
+      testDb.prepare('UPDATE schedules SET next_run_at = ? WHERE id = ?').run('2026-02-09T22:00:00.000Z', schedule.id);
+
+      processSchedules();
+
+      expect(optionsOf(0).scheduleRunFor?.('agent-001')).toBe(`${schedule.id}:2026-02-09`);
+    });
+
+    it('uses the local date of the schedule timezone, not the UTC date', () => {
+      vi.useFakeTimers();
+      // Planned for 01:30 UTC on the 10th, which is still the 9th in New York.
+      vi.setSystemTime(new Date('2026-02-10T02:30:00Z'));
+      const schedule = createSchedule(baseScheduleRequest({ timezone: 'America/New_York', schedule_config: { time: '07:00' } }), 'user-001');
+      testDb.prepare('UPDATE schedules SET next_run_at = ? WHERE id = ?').run('2026-02-10T01:30:00.000Z', schedule.id);
+
+      processSchedules();
+
+      expect(optionsOf(0).scheduleRunFor?.('agent-001')).toBe(`${schedule.id}:2026-02-09`);
+    });
+  });
+
   describe('updateSchedule (per_machine reconciliation)', () => {
     it('adds map entries for newly added agents and drops removed ones', () => {
       vi.useFakeTimers();

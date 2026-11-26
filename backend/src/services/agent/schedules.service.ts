@@ -3,6 +3,7 @@ import { getDatabase } from './database.js';
 import { createTasks } from './tasks.service.js';
 import { createSchedulerTick } from '../notices/notices.service.js';
 import { toUTCDate, todayInTimezone, dayOfWeekInTimezone, randomTimeForDate, randomInstantInWindow, addDays, daysInMonth, resolveRandomizeMode } from './scheduleTime.js';
+import { scheduleRunKey, utcMs } from './scheduleRun.js';
 
 export { resolveRandomizeMode } from './scheduleTime.js';
 import { AppError } from '../../middleware/error.middleware.js';
@@ -596,12 +597,24 @@ export function processSchedules(clock?: Date): { processed: number; errors: str
           metadata: schedule.metadata,
           target_index: schedule.target_index ?? undefined,
         };
+        // Each task belongs to the run of its own slot's day: a slot late on
+        // one day that is dispatched just after midnight is still that day's run.
+        // Worked out now: the slots in `map` are advanced to their next occurrence below.
+        const runByAgent = new Map(
+          request.agent_ids.map((agentId) => {
+            const slotMs = Date.parse(map[agentId] ?? '');
+            const slot = Number.isFinite(slotMs) ? new Date(slotMs) : now;
+            return [agentId, scheduleRunKey(schedule.id, schedule.timezone, slot)] as const;
+          }),
+        );
+        const scheduleRunFor = (agentId: string) =>
+          runByAgent.get(agentId) ?? scheduleRunKey(schedule.id, schedule.timezone, now);
         try {
           if (closed) {
             // Same flow as the fleet path below, minus the pending-notice skip:
             // these per-machine runs are already due.
             const noticeId = tick.runNoticeFor(schedule.id, schedule.timezone, schedule.created_by, schedule.org_id);
-            createTasks(request, schedule.org_id, schedule.created_by, { noticeId });
+            createTasks(request, schedule.org_id, schedule.created_by, { noticeId, scheduleRunFor });
             tick.confirmRunSchedule(schedule.id, schedule.org_id);
             // Only on success: a failed tail keeps its slots and retries then.
             for (const id of tail) fired.add(id);
@@ -610,7 +623,7 @@ export function processSchedules(clock?: Date): { processed: number; errors: str
             // left behind with no tasks (it would block the day and alarm).
             db.transaction(() => {
               const noticeId = tick.dayNoticeFor({ ...schedule, agent_next_runs: map });
-              createTasks(request, schedule.org_id, schedule.created_by, { noticeId });
+              createTasks(request, schedule.org_id, schedule.created_by, { noticeId, scheduleRunFor });
             })();
           }
           processed++;
@@ -670,6 +683,12 @@ export function processSchedules(clock?: Date): { processed: number; errors: str
       );
     } else {
       try {
+        // The run of the day this occurrence was planned for: a run caught up
+        // after midnight is still that day's, as on the per-machine path.
+        const plannedMs = utcMs(schedule.next_run_at);
+        const fleetRun = scheduleRunKey(
+          schedule.id, schedule.timezone, Number.isFinite(plannedMs) ? new Date(plannedMs) : now,
+        );
         const noticeId = tick.runNoticeFor(schedule.id, schedule.timezone, schedule.created_by, schedule.org_id);
         createTasks(
           {
@@ -684,7 +703,7 @@ export function processSchedules(clock?: Date): { processed: number; errors: str
           },
           schedule.org_id,
           schedule.created_by,
-          { noticeId },
+          { noticeId, scheduleRunFor: () => fleetRun },
         );
         // Listed on the shared notice only once its tasks exist, so a failed
         // schedule never appears in the trigger text or blocks its next run.

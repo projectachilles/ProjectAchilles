@@ -240,14 +240,16 @@ export interface Task {
   last_ingest_attempt_at: string | null;
   /** Pre-execution notice gating this task; null for ungated (legacy) tasks */
   notice_id: string | null;
+  /** The scheduled run that created the task (`<schedule id>:<local date of the slot>`), or null/absent when no schedule did. */
+  schedule_run?: string | null;
   /** Admin views: who requested it ("Name (email)", "API key · name"); set by the grouped list route. */
   created_by_label?: string | null;
 }
 
 export interface TaskGroup {
   /**
-   * The run this group is: `b:<batch id>` for a batch, or
-   * `n:<notice id>|<org id>|<type>|<test uuid>` for the batches of one announced run of one test.
+   * The run this group is, an opaque id: `s:…` for a scheduled run, `n:…` for
+   * the batches of one announced run of one test, `b:<batch id>` for a batch.
    */
   run_id: string;
   /** The run's batch, or its newest batch when the run spans several. */
@@ -366,6 +368,12 @@ export interface CreateTaskOptions {
   noticeId?: string | null;
   /** Campaign run these tasks belong to; NULL/absent = not part of a campaign. */
   campaignRunId?: string | null;
+  /**
+   * The scheduled run each agent's task belongs to (see scheduleRunKey), when a
+   * schedule creates the tasks. Per agent, because a per-machine schedule can
+   * dispatch slots of two days in one tick. Absent = no schedule created them.
+   */
+  scheduleRunFor?: (agentId: string) => string | null;
 }
 
 export interface CreateTaskRequest {
