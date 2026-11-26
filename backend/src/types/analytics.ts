@@ -477,6 +477,23 @@ export interface ExecutionActivityResponse {
   truncated?: true;                // present when the bundle-run page cap was reached: counts are a lower bound
 }
 
+/** One time bucket of the strip above All Executions. */
+export interface ExecutionsActivityBucket {
+  from: string;         // ISO instant, inclusive
+  to: string;           // ISO instant, inclusive: the next bucket starts 1 ms later
+  protected: number;    // runs blocked or detected (same rules as ExecutionActivityDay)
+  unprotected: number;  // runs with a conclusive result and no block/detection
+  noVerdict: number;    // runs with no conclusive result
+}
+
+export interface ExecutionsActivityResponse {
+  interval: 'hour' | 'day' | 'week';
+  timeZone: string;                     // the IANA zone the buckets were cut in
+  buckets: ExecutionsActivityBucket[];  // oldest first, zero-filled; the first and last are clipped to the window
+  capped?: true;                        // the window was longer than 365 days: only its last 365 are here
+  truncated?: true;                     // the bundle-run page cap was reached: counts are a lower bound
+}
+
 // Error rate trend data point (rolling window)
 export interface ErrorRateTrendDataPoint {
   timestamp: string;
