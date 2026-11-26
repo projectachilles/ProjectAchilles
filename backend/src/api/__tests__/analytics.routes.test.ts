@@ -605,9 +605,9 @@ describe('analytics routes', () => {
       ]);
     });
 
-    it('passes one test and one verdict to rows = hosts only', async () => {
-      await get(`?rows=hosts&test=${TEST}&verdict=unprotected`);
-      await get(`?rows=tests&test=${TEST}&verdict=unprotected`);
+    it('passes one test and one state to rows = hosts only', async () => {
+      await get(`?rows=hosts&test=${TEST}&state=unprotected`);
+      await get(`?rows=tests&test=${TEST}&state=unprotected`);
 
       expect(mockCoverageMatrix.mock.calls.map((c) => c[1])).toEqual([
         { rows: 'hosts', page: 1, pageSize: 25, testUuid: TEST, verdict: 'unprotected' },
@@ -617,13 +617,16 @@ describe('analytics routes', () => {
 
     it.each([
       ['?rows=bogus', 'Invalid rows'],
-      ['?rows=hosts&verdict=silent', 'Invalid verdict'],
-      ['?verdict=bogus', 'Invalid verdict'],
+      ['?rows=hosts&state=silent', 'Invalid state'],
+      ['?state=bogus', 'Invalid state'],
+      ['?rows=hosts&state=protected&state=detected', 'Invalid state'],
       ['?rows=hosts&test=../etc', 'Invalid test'],
       ['?rows=hosts&test=a&test=b', 'Invalid test'],
       ['?rows=hosts&page=0', 'Invalid page'],
       ['?rows=hosts&page=abc', 'Invalid page'],
       ['?rows=hosts&page=1.5', 'Invalid page'],
+      ['?rows=hosts&page=1&page=2', 'Invalid page'],
+      [`?rows=hosts&page=${'9'.repeat(30)}`, 'Invalid page'],
       ['?rows=hosts&pageSize=abc', 'Invalid pageSize'],
     ])('refuses %s with 400 and asks Elasticsearch nothing', async (query, error) => {
       const res = await get(query);
@@ -631,6 +634,15 @@ describe('analytics routes', () => {
       expect(res.status).toBe(400);
       expect(res.body).toEqual({ success: false, error });
       expect(mockCoverageMatrix).not.toHaveBeenCalled();
+    });
+
+    it('ignores the executions list\'s verdict filter, which the page sends with every request', async () => {
+      // `verdict` belongs to /executions/paginated (protected, prevented, detected, silent); the matrix's own is `state`.
+      for (const verdict of ['silent', 'prevented', 'bogus']) {
+        const res = await get(`?rows=hosts&verdict=${verdict}`);
+        expect(res.status).toBe(200);
+      }
+      expect(mockCoverageMatrix.mock.calls.map((c) => c[1])).toEqual(Array(3).fill({ rows: 'hosts', page: 1, pageSize: 25 }));
     });
 
     it('ignores basis and scoring mode, whatever they say', async () => {

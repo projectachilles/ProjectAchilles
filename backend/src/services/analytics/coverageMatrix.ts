@@ -316,14 +316,18 @@ function toCell(i: number, cell: ModelCell): MatrixCell {
   };
 }
 
-/** Rows = tests: the host axis once, and per test its counts and (up to the host limit) its cells. */
+/**
+ * Rows = tests: the host axis once, and per test its counts and its cells.
+ * Above the host limit neither the cells nor the axis they index are sent:
+ * the counts draw the bars, and rows = hosts pages through the hosts.
+ */
 export function testsView(model: CoverageModel, windowLabel: string): CoverageMatrixTestsResponse {
   const cellsIncluded = model.hosts.length <= MATRIX_CELL_HOST_LIMIT;
   const listed = model.tests.slice(0, MATRIX_MAX_ROWS);
   return {
     rows: 'tests',
     windowLabel,
-    hosts: model.hosts,
+    hosts: cellsIncluded ? model.hosts : [],
     hostCount: model.hosts.length,
     tests: listed.map((test, t) => ({
       ...test,

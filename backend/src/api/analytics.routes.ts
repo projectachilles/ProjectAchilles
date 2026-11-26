@@ -50,7 +50,7 @@ function parseTestUuid(value: unknown, error: string): string | undefined {
 /** A whole number from the query string, at least `min`; `fallback` when absent. */
 function parseCount(value: unknown, fallback: number, min: number, error: string): number {
   if (value === undefined || value === '') return fallback;
-  if (typeof value !== 'string' || !/^\d+$/.test(value) || Number(value) < min) throw new AppError(error, 400);
+  if (typeof value !== 'string' || !/^\d{1,9}$/.test(value) || Number(value) < min) throw new AppError(error, 400);
   return Number(value);
 }
 
@@ -741,14 +741,15 @@ router.get('/stage-coverage', asyncHandler(async (req, res) => {
 
 // GET /api/analytics/coverage-matrix - The latest result per test and host.
 // rows=tests (default): the host axis and, per test, its counts and cells.
-// rows=hosts: one page of hosts, most exposed first; `test` (and `verdict`)
+// rows=hosts: one page of hosts, most exposed first; `test` (and `state`)
 // narrow it to the hosts of one test (in one state).
 // Always latest-result posture, any-stage: basis and scoringMode are ignored,
-// and so are the outcome filters (by the service).
+// and so are the outcome filters, among them the executions list's `verdict`,
+// which the page sends along with the filter bar. Hence `state`, not `verdict`.
 router.get('/coverage-matrix', asyncHandler(async (req, res) => {
-  const { basis: _basis, scoringMode: _scoringMode, rows, page, pageSize, test, verdict, ...query } = req.query;
+  const { basis: _basis, scoringMode: _scoringMode, rows, page, pageSize, test, state, ...query } = req.query;
   if (rows !== undefined && rows !== 'tests' && rows !== 'hosts') throw new AppError('Invalid rows', 400);
-  if (verdict !== undefined && !MATRIX_VERDICTS.includes(verdict as MatrixVerdict)) throw new AppError('Invalid verdict', 400);
+  if (state !== undefined && !MATRIX_VERDICTS.includes(state as MatrixVerdict)) throw new AppError('Invalid state', 400);
   const testUuid = parseTestUuid(test, 'Invalid test');
   const pageNumber = parseCount(page, 1, 1, 'Invalid page');
   const size = Math.min(Math.max(parseCount(pageSize, 25, 0, 'Invalid pageSize'), 1), MATRIX_MAX_PAGE_SIZE);
@@ -762,7 +763,7 @@ router.get('/coverage-matrix', asyncHandler(async (req, res) => {
           page: pageNumber,
           pageSize: size,
           ...(testUuid ? { testUuid } : {}),
-          ...(verdict ? { verdict: verdict as MatrixVerdict } : {}),
+          ...(state ? { verdict: state as MatrixVerdict } : {}),
         }
       : { rows: 'tests' },
   );

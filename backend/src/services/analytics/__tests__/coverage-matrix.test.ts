@@ -323,6 +323,44 @@ describe('getCoverageMatrix', () => {
     });
   });
 
+  describe('one service, several scopes', () => {
+    const OTHER = 'a0000000-1234-4abc-8def-000000000003';
+    const docs = [
+      single(T0, FAILS, 999, { name: 'Fails in A' }),
+      single(T0, OTHER, 999, { name: 'Fails in B', org: 'org-b', host: 'host-9' }),
+    ];
+    const names = (view: CoverageMatrixTestsResponse) => view.tests.map((t) => [t.name, t.counts.noVerdict, t.counts.riskAccepted]);
+
+    it('never answers one organization with another\'s pairs without a verdict', async () => {
+      const es = createService();
+
+      const a = await matrix(docs, { ...RANGE, org: 'org-a' }, es);
+      const b = await matrix(docs, { ...RANGE, org: 'org-b' }, es);
+
+      expect(names(a)).toEqual([['Fails in A', 1, 0]]);
+      expect(names(b)).toEqual([['Fails in B', 1, 0]]);
+      expect(b.hosts.map((h) => h.key)).toEqual(['org-b|host-9']);
+    });
+
+    it('reads again when the host filter or the risk acceptances change', async () => {
+      const es = createService();
+      expect(names(await matrix(docs, RANGE, es))).toEqual([['Fails in A', 1, 0], ['Fails in B', 1, 0]]);
+
+      expect(names(await matrix(docs, { ...RANGE, hostnames: 'host-9' }, es))).toEqual([['Fails in B', 1, 0]]);
+
+      mockExclusion.mockResolvedValue({ bool: { must_not: [{ term: { 'f0rtika.test_name': 'Fails in A' } }] } });
+      expect(names(await matrix(docs, RANGE, es))).toEqual([['Fails in A', 0, 1], ['Fails in B', 1, 0]]);
+    });
+
+    it('leaves an accepted pair out of the outcome breakdown card\'s "no conclusive result"', async () => {
+      useIndex(docs);
+      expect((await createService().getOutcomeBreakdown(RANGE)).noConclusive).toBe(2);
+
+      mockExclusion.mockResolvedValue({ bool: { must_not: [{ term: { 'f0rtika.test_name': 'Fails in A' } }] } });
+      expect((await createService().getOutcomeBreakdown(RANGE)).noConclusive).toBe(1);
+    });
+  });
+
   describe('bounded work', () => {
     const fleet = (hosts: number): Doc[] =>
       Array.from({ length: hosts }, (_, i) => [
@@ -382,7 +420,7 @@ describe('getCoverageMatrix', () => {
       expect(view.hosts[0].cells.map((c) => [c.i, c.verdict ?? 'ratio'])).toEqual([[0, 'unprotected'], [1, 'detected'], [2, 'ratio']]);
     });
 
-    it('for one test and verdict, reads only that test and lists the hosts of that segment', async () => {
+    it('lists the hosts of one state of one test', async () => {
       useIndex(FLEET);
 
       const view = (await createService().getCoverageMatrix(RANGE, {
@@ -392,19 +430,21 @@ describe('getCoverageMatrix', () => {
       expect(view.tests.map((t) => t.testUuid)).toEqual([SOLO]);
       expect(view.hosts.map((h) => h.hostname)).toEqual(['host-2']);
       expect(view.hostCount).toBe(1);
-      // Every search was scoped to the test (or bundle) id.
-      const scoped = { bool: { should: [{ term: { 'f0rtika.test_uuid': SOLO } }, { term: { 'f0rtika.bundle_id': SOLO } }], minimum_should_match: 1 } };
-      for (const [req] of mockSearch.mock.calls) expect(req.query.bool.filter).toContainEqual(scoped);
     });
 
-    it('finds a chain by its bundle id', async () => {
-      useIndex(FLEET);
+    it('for one test, keeps the matrix\'s host order, counts and test, from the same cached read', async () => {
+      const es = createService();
+      const whole = await matrix(FLEET, RANGE, es);
+      mockSearch.mockClear();
 
-      const view = (await createService().getCoverageMatrix(RANGE, { rows: 'hosts', page: 1, pageSize: 25, testUuid: CHAIN })) as CoverageMatrixHostsResponse;
+      const view = (await es.getCoverageMatrix(RANGE, { rows: 'hosts', page: 1, pageSize: 25, testUuid: CHAIN })) as CoverageMatrixHostsResponse;
 
-      expect(view.tests.map((t) => [t.testUuid, t.kind])).toEqual([[CHAIN, 'chain']]);
-      // Only the chain is read, and neither host is unprotected on it: hosts by name.
-      expect(view.hosts.map((h) => [h.hostname, h.cells[0].verdict])).toEqual([['host-1', 'protected'], ['host-2', 'detected']]);
+      expect(mockSearch).not.toHaveBeenCalled();
+      // host-2 comes first for its unprotected standalone test, which this list does not show.
+      expect(view.hosts.map((h) => [h.hostname, h.cells[0].verdict])).toEqual([['host-2', 'detected'], ['host-1', 'protected']]);
+      expect(view.hosts.map(({ cells: _cells, ...host }) => host)).toEqual(whole.hosts);
+      const { cells: _cells, ...chainRow } = whole.tests.find((t) => t.testUuid === CHAIN)!;
+      expect(view.tests).toEqual([chainRow]);
     });
   });
 });

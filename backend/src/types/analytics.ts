@@ -576,8 +576,12 @@ export interface MatrixTest {
 export interface CoverageMatrixTestsResponse {
   rows: 'tests';
   windowLabel: string;
-  /** Every host with a result in the window, most exposed first; the same order in every row. */
+  /**
+   * Every host with a result in the window, most exposed first; the same order
+   * in every row. Empty when `cellsIncluded` is false: page through rows = hosts.
+   */
   hosts: MatrixHost[];
+  /** Hosts with a result in the window, also when `hosts` is not sent. */
   hostCount: number;
   /** `cells` is null when `cellsIncluded` is false. */
   tests: (MatrixTest & { cells: MatrixCell[] | null })[];

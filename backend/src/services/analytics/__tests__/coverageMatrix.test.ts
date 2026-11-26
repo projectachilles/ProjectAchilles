@@ -263,6 +263,16 @@ describe('earlier runs of an attack cell', () => {
     expect(cell(view, 'b1', 'h1')).toEqual({ i: 0, verdict: 'protected', at: iso(10, 15), earlier: ['detected', 'unprotected'] });
   });
 
+  it('lists them as the risk acceptance leaves them, like the cell', () => {
+    // Without the accepted stage both runs are unprotected; the unfiltered runs say protected.
+    const view = tests({
+      runs: [chain('b1', 'h1', { day: 10 }), chain('b1', 'h1', { day: 5 })],
+      rawRuns: [chain('b1', 'h1', { day: 10, v: 'protected' }), chain('b1', 'h1', { day: 5, v: 'protected' })],
+    });
+
+    expect(cell(view, 'b1', 'h1')).toEqual({ i: 0, verdict: 'unprotected', at: iso(10), earlier: ['unprotected'] });
+  });
+
   it('lists at most six', () => {
     const runs = Array.from({ length: 9 }, (_, i) => plain('t1', 'h1', { day: 2 + i, v: i === 1 ? 'protected' : 'silent' }));
 
@@ -380,7 +390,8 @@ describe('limits', () => {
     const view = tests({ runs: [...fleet(MATRIX_CELL_HOST_LIMIT + 1), plain('t2', 'h0000', { v: 'detected' })] });
 
     expect(view).toMatchObject({ cellsIncluded: false, hostCount: 151 });
-    expect(view.hosts).toHaveLength(151);
+    // No cell points at the axis, so it is not sent: rows = hosts pages through it.
+    expect(view.hosts).toEqual([]);
     expect(view.tests.map((t) => t.cells)).toEqual([null, null]);
     // 151 hosts, every third protected (0, 3, ... 150): 51.
     expect(view.tests.find((t) => t.testUuid === 't1')!.counts).toEqual({
@@ -398,6 +409,11 @@ describe('limits', () => {
     expect(view).toMatchObject({ truncated: true, testCount: MATRIX_MAX_ROWS + 3 });
     // The host's counts cover every test, also those not listed.
     expect(view.hosts[0].counts.unprotected).toBe(MATRIX_MAX_ROWS + 3);
+
+    const byHost = hostsView(buildCoverageModel(input({ runs })), W.label, { page: 1, pageSize: 25 });
+    expect(byHost.tests).toHaveLength(MATRIX_MAX_ROWS);
+    expect(byHost).toMatchObject({ truncated: true, testCount: MATRIX_MAX_ROWS + 3 });
+    expect(byHost.hosts[0].cells).toHaveLength(MATRIX_MAX_ROWS);
   });
 
   it('is not truncated at the limit', () => {

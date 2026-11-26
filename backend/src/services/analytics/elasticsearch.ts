@@ -2038,8 +2038,9 @@ export class ElasticsearchService {
    * outcome breakdown card; basis and scoring mode are fixed. The pivot and
    * its limits are in coverageMatrix.ts.
    *
-   * With `view.testUuid` only that test (or bundle) is read, for the host
-   * list of one of its segments.
+   * Every view is cut from the same whole model, also the host list of one
+   * test (`view.testUuid`): its host order and counts are the matrix's, and it
+   * is normally answered from the snapshot the matrix just cached.
    */
   async getCoverageMatrix(
     params: AnalyticsQueryParams & Partial<ExtendedAnalyticsQueryParams>,
@@ -2050,7 +2051,6 @@ export class ElasticsearchService {
     const scope = await this.resolvePostureScope({
       ...params,
       scoringMode: 'any-stage',
-      ...(view.rows === 'hosts' && view.testUuid ? { testUuid: view.testUuid } : {}),
     });
     const [{ window, runs, rawRuns }, noVerdict] = await Promise.all([
       this.latestPostureFor(scope, 'matrix'),
