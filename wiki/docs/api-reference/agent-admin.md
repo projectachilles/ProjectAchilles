@@ -237,16 +237,17 @@ Not available on the Vercel backend (`testRunRecency` is absent from `/api/capab
 GET /api/agent/admin/tasks/grouped
 ```
 
-Returns tasks grouped by run, newest first, for the Tasks page. A run is a batch, or, for
-tasks announced by a pre-execution notice, every task of that notice and test whatever
-its batch (a run with a randomized start per machine creates one batch per agent). `limit`, `offset`
+Returns tasks grouped by run, newest first, for the Tasks page. A run is, in this order:
+every task one schedule created for one day (a schedule with a time per machine creates
+one batch per agent); else every task one pre-execution notice announced for one test;
+else a batch. `limit`, `offset`
 and `total` count runs. A group is listed whole when any of its tasks matches the filters.
 
 Each group carries:
 
 | Field | Notes |
 |-------|-------|
-| `run_id` | `b:<batch id>` for a batch, `n:…` for an announced run. Treat it as an opaque id |
+| `run_id` | `s:…` for a scheduled run, `n:…` for an announced run, `b:<batch id>` for a batch. Treat it as an opaque id |
 | `batch_id` | The run's batch; for a run of several batches, the newest one |
 | `batch_ids` | Every batch with a task in the run, newest first |
 | `created_at` | The batch's time; for a run of several batches, its newest task's (with a filter, its newest matching task's) |
