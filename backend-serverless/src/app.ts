@@ -152,6 +152,7 @@ app.get('/api/capabilities', (_req, res) => {
     outcomeBreakdown: false,
     stageCoverage: false,
     coverageMatrix: false,
+    scoreMovement: false,
     sentinelone: false,
     sophos: false,
     alerting: false,

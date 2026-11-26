@@ -68,6 +68,7 @@ const mockGetRecentExecutions = vi.fn();
 const mockGetGroupedPaginatedExecutions = vi.fn();
 const mockHostTestMatrix = vi.fn();
 const mockCoverageMatrix = vi.fn();
+const mockScoreMovement = vi.fn();
 vi.mock('../../services/analytics/elasticsearch.js', () => ({
   ElasticsearchService: class MockElasticsearchService {
     testConnection = mockTestConnection;
@@ -100,6 +101,7 @@ vi.mock('../../services/analytics/elasticsearch.js', () => ({
     getGroupedPaginatedExecutions = mockGetGroupedPaginatedExecutions;
     getHostTestMatrix = mockHostTestMatrix;
     getCoverageMatrix = mockCoverageMatrix;
+    getScoreMovement = mockScoreMovement;
   },
 }));
 
@@ -658,6 +660,35 @@ describe('analytics routes', () => {
       const fs = await import('fs');
       expect(fs.readFileSync(new URL('../../server.ts', import.meta.url), 'utf8')).toMatch(/coverageMatrix:\s*true/);
       expect(fs.readFileSync(new URL('../../../../backend-serverless/src/app.ts', import.meta.url), 'utf8')).toMatch(/coverageMatrix:\s*false/);
+    });
+  });
+
+  describe('score movement', () => {
+    const get = (query = '') => request(createApp()).get(`/api/analytics/score-movement${query}`);
+
+    beforeEach(() => {
+      mockGetSettings.mockReturnValue({ configured: true, connectionType: 'direct', node: 'http://localhost:9200' });
+      mockScoreMovement.mockResolvedValue({ failures: { total: 0 } });
+    });
+
+    it('returns the service result', async () => {
+      const res = await get('?from=now-30d&to=now');
+      expect(res.status).toBe(200);
+      expect(res.body).toEqual({ failures: { total: 0 } });
+    });
+
+    it('drops basis, keeps scoringMode at any-stage and passes the filter bar', async () => {
+      await get('?basis=executions&scoringMode=all-stages&hostnames=h1');
+      const params = mockScoreMovement.mock.calls[0][0];
+      expect(params).toMatchObject({ hostnames: 'h1' });
+      expect(params.basis).toBeUndefined();
+      expect(params.scoringMode).toBe('any-stage');
+    });
+
+    it('advertises scoreMovement: true on the backend and false on serverless', async () => {
+      const fs = await import('fs');
+      expect(fs.readFileSync(new URL('../../server.ts', import.meta.url), 'utf8')).toMatch(/scoreMovement:\s*true/);
+      expect(fs.readFileSync(new URL('../../../../backend-serverless/src/app.ts', import.meta.url), 'utf8')).toMatch(/scoreMovement:\s*false/);
     });
   });
 

@@ -396,6 +396,77 @@ A pair's runs come from [`/executions/paginated`](#paginated-executions) with `t
 
 Everywhere else the cells add up to the any-stage, latest-result Defense Score of the same filters: `protected` + `detected` cells plus `compliant` controls are its protected pairs.
 
+### Score Movement
+
+```
+GET /api/analytics/score-movement
+```
+
+What became of the failures in the selected range, and how new attack tests did on their first run. A failure is a test on an endpoint whose result the Defense Score counts as unprotected. The unit is one test on one endpoint: a multi-stage test and a run of the same test that ended before any stage count as one item. A cyber-hygiene control on an endpoint is its own item. It takes the same parameters as [`/defense-score`](#defense-score) (`from`, `to`, `org` and the shared filter parameters). `basis`, `scoringMode` and the outcome filters are ignored: it always reads the latest result per item, any-stage, with the same window cap of 365 days. An invalid range is a 400 `Invalid date range`. Not available on `backend-serverless` (`scoreMovement: false` in `/api/capabilities`).
+
+A failure is in play when it was failing at the start of the range (and in the score then), was an older failure that was re-tested in the range, or failed at some point in the range. Each one has an origin, decided at its first failing moment, and an outcome, from its latest result at the end of the range.
+
+| `origin` | Meaning |
+|----------|---------|
+| `open_at_start` | Its result before the range was failing and was in the score at the start. |
+| `older_retested` | Its result before the range was failing but older than the score window at the start; it was re-tested in the range. |
+| `regression` | A protected result came before its first failing result in the range. |
+| `new_test` | Its first-ever result is failing, in the range, and the test is new (an attack test the organization had no result of in the 365 days before the range). |
+| `first_on_endpoint` | Its first-ever result is failing, in the range, and it is not a `new_test`: a known test on a new endpoint, or any cyber-hygiene control. |
+
+| Outcome (list) | Meaning |
+|----------------|---------|
+| `fixed` | The latest result is protected. |
+| `stillFailing` | The latest result is failing, and the unbroken run of failing results ending with it has two or more results: it was re-tested and still gets through. |
+| `notRetested` | The latest result is failing, in the range, and it is the only result of that failing run. |
+| `leftUntested` | No result in the range: it left the score without being re-run. Only `open_at_start` failures can be here. |
+
+```json
+{
+  "window": { "from": "2026-10-27T00:00:00.000Z", "to": "2026-11-26T00:00:00.000Z", "label": "30d" },
+  "pairs": { "start": 120, "end": 132 },
+  "failing": { "start": 30, "end": 22 },
+  "scoreDifference": { "fixedButCounted": 1, "countedTwice": 0 },
+  "failures": {
+    "total": 24, "fixed": 12, "stillFailing": 4, "notRetested": 7, "leftUntested": 1, "fixRate": 0.5,
+    "origins": { "openAtStart": 20, "olderRetested": 1, "regression": 2, "newTest": 1, "firstOnEndpoint": 0 }
+  },
+  "newTests": { "tests": 3, "pairs": 15, "stopped": 12, "gotThrough": 3, "rate": 0.8, "gotThroughFixed": 1, "gotThroughOpen": 2 },
+  "regressed": { "total": 2, "fixed": 1 },
+  "firstOnEndpoint": { "pairs": 4, "stopped": 3 },
+  "riskAccepted": null,
+  "lists": {
+    "fixed": { "total": 12, "rows": [
+      { "testUuid": "7659eeba-…", "testName": "Chain A", "hostname": "HOST-02", "origin": "open_at_start",
+        "failingSince": null, "openBeforePeriod": true, "fixedAt": "2026-11-14T09:00:00.000Z", "lastResultAt": "2026-11-14T09:00:00.000Z" } ] },
+    "stillFailing": { "total": 4, "rows": [] },
+    "notRetested": { "total": 7, "rows": [] },
+    "leftUntested": { "total": 1, "rows": [] },
+    "newStopped": { "total": 12, "rows": [] },
+    "newGotThrough": { "total": 3, "rows": [] }
+  }
+}
+```
+
+| Field | Description |
+|-------|-------------|
+| `window` | The range as resolved (`from`, `to`, `label`). |
+| `pairs` | Items in the Defense Score at the start and at the end of the range. |
+| `failing` | Unprotected items in the score at the start and at the end: the score's own counts. |
+| `scoreDifference` | The two reasons `failing.end` can exceed the open failures below: `fixedButCounted` (fixed items whose older chain failure the score still counts) and `countedTwice` (open items the score counts as two pairs). |
+| `failures` | `total` failures in play, split by outcome (`fixed`, `stillFailing`, `notRetested`, `leftUntested`; they add up to `total`), `fixRate` (`fixed` divided by `total`, `null` when there are none) and `origins`, the count per origin. |
+| `newTests` | The first result in the range of every item of a new attack test (cyber-hygiene is left out): `tests` and `pairs` counted, `stopped` and `gotThrough` on the first run, `rate` (`stopped` divided by `pairs`, `null` when none), and of those that got through, how many are fixed since (`gotThroughFixed`) and how many are still open (`gotThroughOpen`). |
+| `regressed` | Items with origin `regression`, and how many of them are `fixed` since. |
+| `firstOnEndpoint` | Items with no earlier result that are not new-test items: `pairs`, and how many were `stopped` on their first run. |
+| `riskAccepted` | Open failures that a risk acceptance removes entirely; `null` when no risk acceptance applies. |
+| `lists` | The items behind each figure: `fixed`, `stillFailing`, `notRetested`, `leftUntested`, and the first-run lists `newStopped` and `newGotThrough`. Each is `{ total, rows }` with at most 200 rows; `total` is the full count. |
+
+The figures reconcile with the Defense Score: `failing.end` = `stillFailing` + `notRetested` + `scoreDifference.fixedButCounted` + `scoreDifference.countedTwice`.
+
+A list row has `testUuid`, `testName` (the bundle name for a bundle), `controlId` (cyber-hygiene controls), `hostname`, `origin` (not on `newStopped` rows), `failingSince` (when the failing run began; `null` when it began before the range, with `openBeforePeriod: true`), `fixedAt` (the first protected result after the failing run, on fixed rows) and `lastResultAt`.
+
+A few properties to keep in mind. An item that flaps (fails, passes, fails) counts once, by where it ended. For standalone tests and controls the range is read as the first and last result per UTC day, so a result in the middle of a day is not seen; chain runs are all read. "First run" is per item, so when a new test runs on 3 endpoints and then on 40 more, the 40 later first runs count too. A test with no result in the 365 days before the range reads as new.
+
 ### Test Results
 
 ```
