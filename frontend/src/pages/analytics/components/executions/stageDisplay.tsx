@@ -2,6 +2,7 @@ import { Ban } from 'lucide-react';
 import type { EnrichedTestExecution } from '@/services/api/analytics';
 import { attackTechniqueUrl, techniqueName } from '@/lib/attackTechnique';
 import { cn } from '@/lib/utils';
+import type { MarkTone } from '@/components/shared/marks/markTone';
 import { ExecResultLabel } from './shared';
 import { stageKind, type StageKind } from './stageVerdict';
 
@@ -19,6 +20,31 @@ export const STAGE_TONES: Record<StageKind, { label: string; text: string; dim: 
   'not-run': { label: 'Stage not run', text: 'text-info', dim: 'bg-info-dim', border: 'border-info/40' },
   skipped: { label: 'Skipped', text: 'text-faint', dim: 'bg-raised', border: 'border-border' },
 };
+
+/**
+ * The same outcomes as small squares (a run's stages in one strip). Inconclusive
+ * is grey here: beside a detected stage's amber it must not read as one.
+ */
+export const STAGE_MARK_TONE: Record<StageKind, MarkTone> = {
+  protected: 'accent',
+  prevented: 'accent',
+  detected: 'warning',
+  unprotected: 'danger',
+  inconclusive: 'muted',
+  'not-run': 'info',
+  skipped: 'hollow',
+};
+
+/** A run's stages as marks for StageSquares, in stage order. */
+export function stageSquareMarks(controls: EnrichedTestExecution[]): Array<{ tone: MarkTone; label: string }> {
+  return controls
+    .map((exec, index) => ({ exec, n: stageNumber(exec, index) }))
+    .sort((a, b) => a.n - b.n)
+    .map(({ exec }) => {
+      const kind = stageKind(exec);
+      return { tone: STAGE_MARK_TONE[kind], label: STAGE_TONES[kind].label.toLowerCase() };
+    });
+}
 
 export function stageTone(exec: EnrichedTestExecution) {
   return STAGE_TONES[stageKind(exec)];
