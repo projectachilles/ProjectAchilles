@@ -22,7 +22,7 @@ import ChainDepthCard from './components/ChainDepthCard';
 import StageCoverageCard from './components/StageCoverageCard';
 import TestActivityCard from './components/TestActivityCard';
 import { mapGroupsToDisplayRows, type DisplayRow } from './components/executions/shared';
-import ExecutionsDataTable from './components/ExecutionsDataTable';
+import ExecutionsView from './components/ExecutionsView';
 import { Toast } from '@/components/shared/ui/Alert';
 import RiskAcceptancesTab from './components/RiskAcceptancesTab';
 import DefenderTab from './components/DefenderTab';
@@ -197,6 +197,10 @@ export default function AnalyticsDashboardPage() {
 
   // Watch for settings changes (e.g., index pattern change)
   const { settingsVersion } = useAnalyticsAuth();
+
+  // The matrix view of All Executions reads the same filters; it sends their scope only.
+  const { getApiParams } = filterState;
+  const matrixParams = useMemo(() => getApiParams(), [getApiParams]);
   const capabilities = useCapabilities();
   // Sent to the Executions endpoints only; never without the capability, even from a stale URL
   const versionStateParam = useMemo(
@@ -268,6 +272,10 @@ export default function AnalyticsDashboardPage() {
 
   // Executions tab data
   const [executionsData, setExecutionsData] = useState<GroupedPaginatedResponse | null>(null);
+  /** Which view All Executions shows, as ExecutionsView reports it; null until it has. */
+  const [executionsView, setExecutionsView] = useState<'matrix' | 'list' | null>(null);
+  /** Bumped by Refresh on the executions tab, for the matrix view. */
+  const [refreshCount, setRefreshCount] = useState(0);
   const [executionsPage, setExecutionsPage] = useState(1);
   // Page state set by the Outcome breakdown card; not a filter, not in the URL
   const [executionsVerdict, setExecutionsVerdict] = useState<ExecutionVerdict | null>(null);
@@ -400,10 +408,11 @@ export default function AnalyticsDashboardPage() {
 
   // Load executions data when tab/filters/pagination/settings change
   useEffect(() => {
-    if (activeTab === 'executions') {
+    // Only while the list is on screen: the matrix view reads its own data.
+    if (activeTab === 'executions' && executionsView === 'list') {
       loadExecutionsData();
     }
-  }, [filterState.filters, activeTab, executionsPage, executionsPageSize, executionsSortField, executionsSortOrder, executionsVerdict, versionStateParam, settingsVersion]);
+  }, [filterState.filters, activeTab, executionsView, executionsPage, executionsPageSize, executionsSortField, executionsSortOrder, executionsVerdict, versionStateParam, settingsVersion]);
 
   // Load filter dropdown options
   async function loadFilterOptions() {
@@ -880,10 +889,12 @@ export default function AnalyticsDashboardPage() {
         loadSophosSummary(),
       ]);
     } else {
-      await loadExecutionsData();
+      // The matrix view reads its own data: tell it to read again.
+      setRefreshCount((n) => n + 1);
+      if (executionsView === 'list') await loadExecutionsData();
     }
     setIsRefreshing(false);
-  }, [activeTab, loadDashboardData, loadBaselineTests, loadEnrolledAgents, loadStageCoverage, capabilities.loaded, capabilities.stageCoverage, loadDefenderSummary, loadCrowdStrikeSummary, loadSentinelOneSummary, loadSophosSummary, loadExecutionsData]);
+  }, [activeTab, loadDashboardData, loadBaselineTests, loadEnrolledAgents, loadStageCoverage, capabilities.loaded, capabilities.stageCoverage, loadDefenderSummary, loadCrowdStrikeSummary, loadSentinelOneSummary, loadSophosSummary, loadExecutionsData, executionsView]);
 
   // Handle sort change
   const handleSort = (field: string, order: 'asc' | 'desc') => {
@@ -1211,7 +1222,13 @@ export default function AnalyticsDashboardPage() {
                 {executionsError}
               </div>
             )}
-            <ExecutionsDataTable
+            <ExecutionsView
+              filterParams={matrixParams}
+              reloadToken={settingsVersion + refreshCount}
+              // The list is the view for a deep-linked run and for the Outcome card's filter.
+              forceList={Boolean(expandedFromUrl) || executionsVerdict !== null}
+              onReleaseList={() => { setExecutionsVerdict(null); setExecutionsPage(1); }}
+              onViewChange={setExecutionsView}
               data={executionsData}
               loading={loadingExecutions}
               onPageChange={handlePageChange}

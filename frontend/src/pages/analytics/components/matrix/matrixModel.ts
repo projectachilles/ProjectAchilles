@@ -1,0 +1,198 @@
+/**
+ * Drawing rules of the coverage matrix. The server decides every state, count
+ * and order (GET /analytics/coverage-matrix); this file only says which form
+ * fits the width, what a state is called and how a mark reads aloud.
+ */
+import type { BarSegment } from '@/components/shared/marks/VerdictBar';
+import type { MarkTone } from '@/components/shared/marks/markTone';
+import type {
+  ExtendedFilterParams,
+  MatrixCell,
+  MatrixHost,
+  MatrixRatio,
+  MatrixTest,
+  MatrixVerdict,
+} from '@/services/api/analytics';
+
+/** Width a host needs for a tile with glyph, age and earlier-run dots. */
+export const TILE_MIN_PX = 64;
+/** Width a host needs for a small tile with a glyph. */
+export const SMALL_MIN_PX = 26;
+/** Width a host needs for a square. */
+export const SQUARE_MIN_PX = 9;
+
+export type MatrixForm = 'tile' | 'small' | 'squares' | 'bar';
+
+/**
+ * The form a row's marks take, from the width each host gets. `stripWidth` is
+ * the width left for the marks, 0 until it has been measured.
+ */
+export function matrixForm(stripWidth: number, hostCount: number, cellsIncluded: boolean): MatrixForm {
+  if (!cellsIncluded) return 'bar';
+  if (hostCount === 0) return 'tile';
+  if (stripWidth <= 0) return 'squares';
+  const each = stripWidth / hostCount;
+  if (each >= TILE_MIN_PX) return 'tile';
+  if (each >= SMALL_MIN_PX) return 'small';
+  return each >= SQUARE_MIN_PX ? 'squares' : 'bar';
+}
+
+/**
+ * A change of width smaller than this never changes the form. Small tiles
+ * make the page taller than squares do; where the browser draws a scrollbar
+ * in the page, that alone narrows the strip by 15 to 17 px, and without slack
+ * the two forms would alternate for ever at a width near a threshold.
+ */
+export const FORM_SLACK_PX = 24;
+
+export interface SettledForm {
+  form: MatrixForm;
+  /** The last width whose own form was the one shown. */
+  width: number;
+  /** The fleet it was chosen for. */
+  key: string;
+}
+
+/** The form to draw now, given the one drawn before: `matrixForm`, held steady across small changes of width. */
+export function settleForm(previous: SettledForm | null, stripWidth: number, hostCount: number, cellsIncluded: boolean): SettledForm {
+  const key = `${hostCount}|${cellsIncluded}`;
+  const form = matrixForm(stripWidth, hostCount, cellsIncluded);
+  if (!previous || previous.key !== key || previous.width <= 0) return { form, width: stripWidth, key };
+  // A change is measured from the last width that agreed with the form on screen,
+  // so the width may wander within one form without wearing the slack away.
+  if (form === previous.form) return stripWidth === previous.width ? previous : { form, width: stripWidth, key };
+  return Math.abs(stripWidth - previous.width) > FORM_SLACK_PX ? { form, width: stripWidth, key } : previous;
+}
+
+/**
+ * Word, colour and glyph of each state. The tones are the Tasks page's for
+ * the same results; the glyph carries the state where colour cannot.
+ */
+export const VERDICT_META: Record<MatrixVerdict, { label: string; tone: MarkTone; glyph: string }> = {
+  protected: { label: 'protected', tone: 'accent', glyph: '✓' },
+  detected: { label: 'detected', tone: 'warning', glyph: '▲' },
+  unprotected: { label: 'unprotected', tone: 'danger', glyph: '✕' },
+  no_verdict: { label: 'no verdict', tone: 'muted', glyph: '?' },
+  risk_accepted: { label: 'risk accepted', tone: 'info', glyph: '⊘' },
+};
+
+/** Worst first: what needs a decision, then what says nothing, then what is fine. */
+export const VERDICT_ORDER: readonly MatrixVerdict[] = ['unprotected', 'no_verdict', 'risk_accepted', 'detected', 'protected'];
+
+const MINUTE = 60_000;
+const HOUR = 60 * MINUTE;
+const DAY = 24 * HOUR;
+
+/** [amount, unit] of a time's age, null when it cannot be read; under a minute is [0, 'now']. */
+function age(iso: string, now: number): [number, 'now' | 'minute' | 'hour' | 'day' | 'week'] | null {
+  const at = Date.parse(iso);
+  if (Number.isNaN(at)) return null;
+  const ms = now - at;
+  if (ms < MINUTE) return [0, 'now'];
+  if (ms < HOUR) return [Math.floor(ms / MINUTE), 'minute'];
+  if (ms < DAY) return [Math.floor(ms / HOUR), 'hour'];
+  if (ms < 14 * DAY) return [Math.floor(ms / DAY), 'day'];
+  return [Math.floor(ms / (7 * DAY)), 'week'];
+}
+
+/** A result's age in a tile: "now", "12m", "5h", "3d", "6w". */
+export function ageText(iso: string, now: number): string {
+  const a = age(iso, now);
+  if (!a) return '';
+  return a[1] === 'now' ? 'now' : `${a[0]}${a[1][0]}`;
+}
+
+/** A result's age in words: "just now", "5 hours ago". */
+export function agoText(iso: string, now: number): string {
+  const a = age(iso, now);
+  if (!a) return '';
+  return a[1] === 'now' ? 'just now' : `${a[0]} ${a[1]}${a[0] === 1 ? '' : 's'} ago`;
+}
+
+function ratioText(r: MatrixRatio): string {
+  const parts = [r.evaluated > 0 ? `${r.compliant} of ${r.evaluated} controls compliant` : 'no control assessed'];
+  if (r.notAssessed > 0) parts.push(`${r.notAssessed} not assessed`);
+  if (r.accepted > 0) parts.push(`${r.accepted} risk accepted`);
+  return parts.join(', ');
+}
+
+/** The accessible name of one mark: host, what it shows, how old it is. */
+export function cellLabel(host: Pick<MatrixHost, 'hostname'>, cell: MatrixCell | undefined, now: number): string {
+  if (!cell) return `${host.hostname}: never run`;
+  const what = cell.ratio ? ratioText(cell.ratio) : cell.verdict ? VERDICT_META[cell.verdict].label : 'no result';
+  const when = agoText(cell.at, now);
+  const earlier = cell.earlier?.length ? `; earlier: ${cell.earlier.map((v) => VERDICT_META[v].label).join(', ')}` : '';
+  return `${host.hostname}: ${what}${when ? `, ${when}` : ''}${earlier}`;
+}
+
+const COUNT_OF: Record<MatrixVerdict, keyof MatrixTest['counts']> = {
+  protected: 'protected',
+  detected: 'detected',
+  unprotected: 'unprotected',
+  no_verdict: 'noVerdict',
+  risk_accepted: 'riskAccepted',
+};
+
+/** How many of a test's hosts are in a state. */
+export function verdictCount(test: Pick<MatrixTest, 'counts'>, verdict: MatrixVerdict): number {
+  return test.counts[COUNT_OF[verdict]];
+}
+
+/**
+ * A row as one bar. An attack row counts hosts per state, worst first, then
+ * the hosts that never ran it; the keys are the states (and 'never_run'). A
+ * bundle row counts controls: a bundle has no state per host.
+ */
+export function rowSegments(test: MatrixTest): BarSegment[] {
+  if (test.kind === 'controls' && test.ratio) {
+    const r = test.ratio;
+    return [
+      { key: 'not_compliant', label: 'not compliant', tone: 'danger' as const, count: r.evaluated - r.compliant },
+      { key: 'not_assessed', label: 'not assessed', tone: 'muted' as const, count: r.notAssessed },
+      { key: 'accepted', label: 'risk accepted', tone: 'info' as const, count: r.accepted },
+      { key: 'compliant', label: 'compliant', tone: 'accent' as const, count: r.compliant },
+    ].filter((s) => s.count > 0);
+  }
+  const segments: BarSegment[] = VERDICT_ORDER.map((v) => ({
+    key: v,
+    label: VERDICT_META[v].label,
+    tone: VERDICT_META[v].tone,
+    count: test.counts[COUNT_OF[v]],
+  }));
+  segments.push({ key: 'never_run', label: 'never run', tone: 'hollow', count: test.counts.neverRun });
+  return segments.filter((s) => s.count > 0);
+}
+
+/** The line under a row's name: how much of it was caught. */
+export function caughtLine(test: MatrixTest): string {
+  if (test.kind === 'controls') {
+    const r = test.ratio;
+    return r && r.evaluated > 0 ? `${r.compliant} of ${r.evaluated} controls compliant` : 'no control assessed';
+  }
+  const caught = test.counts.protected + test.counts.detected;
+  const judged = caught + test.counts.unprotected;
+  if (judged === 0) return 'no host with a verdict';
+  return `caught on ${caught} of ${judged} host${judged === 1 ? '' : 's'}`;
+}
+
+/** Organization and hostname of a host key (`<organization id>|<hostname>`; a hostname may hold a `|`, an id does not). */
+export function parseHostKey(hostKey: string): { org: string | null; hostname: string } {
+  const at = hostKey.indexOf('|');
+  if (at < 0) return { org: null, hostname: hostKey };
+  return { org: hostKey.slice(0, at) || null, hostname: hostKey.slice(at + 1) };
+}
+
+/** How full a bundle's gauge is: the compliant share of its evaluated controls, null when none was. */
+export function gaugePercent(ratio: MatrixRatio): number | null {
+  return ratio.evaluated > 0 ? (ratio.compliant / ratio.evaluated) * 100 : null;
+}
+
+/**
+ * The filters that decide what the matrix covers. The outcome filters and the
+ * scoring mode only narrow the list: the server ignores them here, and
+ * leaving them out keeps one request per scope.
+ */
+export function matrixScope(params: ExtendedFilterParams): ExtendedFilterParams {
+  const { result: _result, errorNames: _errorNames, errorCodes: _errorCodes, scoringMode: _scoringMode, ...scope } = params;
+  return scope;
+}

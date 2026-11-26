@@ -28,6 +28,8 @@ export interface Capabilities {
   stageCoverage: boolean;
   /** "What moved the score" card (/api/analytics/score-movement; backend-only; backend-serverless has none) */
   scoreMovement: boolean;
+  /** Coverage matrix of All Executions (/api/analytics/coverage-matrix; backend-only; backend-serverless has none) */
+  coverageMatrix: boolean;
   /** Per-agent last run of a test (/api/agent/admin/tasks/test-recency; backend-only) */
   testRunRecency: boolean;
   /** About dialog (/api/about: running release, notes, official agent version; backend-only) */
@@ -60,6 +62,7 @@ const DEFAULT_CAPABILITIES: Capabilities = {
   testFleet: false,
   stageCoverage: false,
   scoreMovement: false,
+  coverageMatrix: false,
   testRunRecency: false,
   about: false,
   testVersions: false,

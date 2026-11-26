@@ -735,3 +735,150 @@ describe('Executions requests: only the latest applies', () => {
     expect(api().mock.calls[0][0]).not.toHaveProperty('versionState');
   });
 });
+
+describe('All Executions: matrix or list', () => {
+  const emptyRuns = { groups: [], pagination: { page: 1, pageSize: 25, totalGroups: 0, totalDocuments: 0, totalPages: 0, hasNext: false, hasPrevious: false } };
+  const emptyMatrix = { rows: 'tests', windowLabel: '30d', hosts: [], hostCount: 0, tests: [], testCount: 0, cellsIncluded: true, truncated: false };
+  const matrix = () => mocks.analytics.api.getCoverageMatrix;
+  const withMatrix = (on: boolean) => {
+    mocks.caps = { outcomeBreakdown: true, loaded: true, ...(on ? { coverageMatrix: true } : {}) } as typeof mocks.caps;
+  };
+  const renderAt = (search: string) =>
+    render(
+      <MemoryRouter initialEntries={[`/analytics${search}`]}>
+        <AnalyticsDashboardPage />
+        <LocationProbe />
+      </MemoryRouter>,
+    );
+
+  beforeEach(() => {
+    localStorage.clear();
+    withMatrix(true);
+    mocks.analytics.reset({
+      getOutcomeBreakdown: { pairCount: 10, protected: 4, prevented: 2, detected: 1, silent: 3, noConclusive: 0, riskAccepted: 0, windowLabel: '30d' },
+      getGroupedPaginatedExecutions: emptyRuns,
+      getCoverageMatrix: emptyMatrix,
+      getDefenseScore: { score: 50, totalExecutions: 0, protectedCount: 0 },
+      getUniqueHostnames: 0,
+      getUniqueTests: 0,
+      getChainDepth: null,
+      getPaginatedExecutions: { data: [], pagination: { totalItems: 0 } },
+      getErrorRate: { errorRate: 0 },
+      getCanonicalTestCount: { count: 0 },
+      listAcceptances: { total: 0 },
+      getFilterOptions: { tests: [], techniques: [], hostnames: [], categories: [], threatActors: [], tags: [], errorNames: [], errorCodes: [], bundleNames: [] },
+    });
+    mocks.defender.reset({ getSecureScore: null });
+    mocks.crowdstrike.reset({ getZtaScore: null });
+  });
+
+  it('opens on the matrix with the tab\'s filters, where the server has it', async () => {
+    renderAt('?tab=executions&hostnames=HOST-01');
+
+    await waitFor(() => expect(matrix()).toHaveBeenCalledTimes(1));
+    expect(matrix().mock.calls[0][0]).toMatchObject({ hostnames: 'HOST-01', from: expect.any(String) });
+    expect(await screen.findByText('No results in this window')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Matrix' })).toHaveAttribute('aria-pressed', 'true');
+  });
+
+  it('shows the list alone and never asks for the matrix where the server has none', async () => {
+    withMatrix(false);
+    renderAt('?tab=executions');
+
+    expect(await screen.findByText('No executions found')).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Matrix' })).toBeNull();
+    expect(matrix()).not.toHaveBeenCalled();
+  });
+
+  it('opens a link to one run on the list, and the Matrix button drops the link\'s selection', async () => {
+    renderAt('?tab=executions&expanded=some-run');
+
+    expect(await screen.findByText('No executions found')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'List' })).toHaveAttribute('aria-pressed', 'true');
+    expect(matrix()).not.toHaveBeenCalled();
+
+    fireEvent.click(screen.getByRole('button', { name: 'Matrix' }));
+
+    expect(await screen.findByText('No results in this window')).toBeInTheDocument();
+    expect(screen.getByTestId('loc').textContent).not.toContain('expanded');
+    expect(screen.getByTestId('loc').textContent).toContain('view=matrix');
+  });
+
+  it('opens the Outcome card\'s filter on the list, and the Matrix button removes the filter', async () => {
+    renderAt('');
+    const silent = await screen.findByText('Silent');
+
+    fireEvent.click(silent.closest('button') ?? silent);
+
+    expect(await screen.findByText(/Outcome: Silent/)).toBeInTheDocument();
+    expect(await screen.findByText('No executions found')).toBeInTheDocument();
+    expect(matrix()).not.toHaveBeenCalled();
+
+    fireEvent.click(screen.getByRole('button', { name: 'Matrix' }));
+
+    expect(await screen.findByText('No results in this window')).toBeInTheDocument();
+    expect(screen.queryByText(/Outcome: Silent/)).toBeNull();
+  });
+
+  it('reads the matrix again on Refresh', async () => {
+    renderAt('?tab=executions');
+    await waitFor(() => expect(matrix()).toHaveBeenCalledTimes(1));
+
+    fireEvent.click(screen.getByRole('button', { name: /Refresh/ }));
+
+    await waitFor(() => expect(matrix()).toHaveBeenCalledTimes(2));
+  });
+
+  it('downloads the list\'s runs only while the list is shown', async () => {
+    const list = mocks.analytics.api.getGroupedPaginatedExecutions;
+    renderAt('?tab=executions');
+    await screen.findByText('No results in this window');
+    await new Promise((r) => setTimeout(r, 30));
+    expect(list).not.toHaveBeenCalled();
+
+    fireEvent.click(screen.getByRole('button', { name: /Refresh/ }));
+    await waitFor(() => expect(matrix()).toHaveBeenCalledTimes(2));
+    expect(list).not.toHaveBeenCalled();
+
+    fireEvent.click(screen.getByRole('button', { name: 'List' }));
+    await waitFor(() => expect(list).toHaveBeenCalledTimes(1));
+
+    fireEvent.click(screen.getByRole('button', { name: 'Matrix' }));
+    await screen.findByText('No results in this window');
+    fireEvent.click(screen.getByRole('button', { name: /Refresh/ }));
+    await waitFor(() => expect(matrix()).toHaveBeenCalledTimes(4));
+    expect(list).toHaveBeenCalledTimes(1);
+  });
+
+  it('keeps "view=list" in the address when the list selects its first run as it appears', async () => {
+    // The list writes `expanded=` the moment it shows; that must not undo the click that showed it.
+    const run = {
+      test_uuid: 'a0000000-1234-4abc-8def-000000000001', test_name: 'Solo test', hostname: 'HOST-01', org: 'org-1',
+      timestamp: '2026-01-10T09:00:00.000Z', error_code: 101, is_protected: false, techniques: [],
+    };
+    mocks.analytics.reset({
+      getGroupedPaginatedExecutions: {
+        groups: [{ groupKey: 'run-1', type: 'standalone', representative: run, members: [run], protectedCount: 0, unprotectedCount: 1, totalCount: 1 }],
+        pagination: { page: 1, pageSize: 25, totalGroups: 1, totalDocuments: 1, totalPages: 1, hasNext: false, hasPrevious: false },
+      },
+      getCoverageMatrix: emptyMatrix,
+      getFilterOptions: { tests: [], techniques: [], hostnames: [], categories: [], threatActors: [], tags: [], errorNames: [], errorCodes: [], bundleNames: [] },
+      lookupAcceptances: {},
+    });
+    renderAt('?tab=executions');
+    await screen.findByText('No results in this window');
+
+    fireEvent.click(screen.getByRole('button', { name: 'List' }));
+
+    await waitFor(() => expect(screen.getByTestId('loc').textContent).toContain('expanded=run-1'));
+    expect(screen.getByTestId('loc').textContent).toContain('view=list');
+    expect(screen.getByRole('button', { name: 'List' })).toHaveAttribute('aria-pressed', 'true');
+  });
+
+  it('does not ask for the matrix on the dashboard tab', async () => {
+    renderAt('');
+    await screen.findByText('Outcome breakdown');
+
+    expect(matrix()).not.toHaveBeenCalled();
+  });
+});
