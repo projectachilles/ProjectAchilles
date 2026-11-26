@@ -17,26 +17,56 @@ import { PairRuns } from './matrix/PairRuns';
 import { SegmentHosts } from './matrix/SegmentHosts';
 import { RunDrawer } from './matrix/RunDrawer';
 import { parseHostKey } from './matrix/matrixModel';
-import { useMatrixUrlState, type ExecutionsViewName } from './matrix/useMatrixUrlState';
+import { HostRows } from './matrix/HostRows';
+import { useMatrixUrlState, type ExecutionsViewName, type MatrixRows } from './matrix/useMatrixUrlState';
 
-/** Where the last chosen view is kept, per browser. */
+/** Where the last chosen view, and the way the matrix was turned, are kept per browser. */
 const VIEW_STORAGE_KEY = 'achilles.executions.view';
+const ROWS_STORAGE_KEY = 'achilles.executions.rows';
 
-function storedView(): ExecutionsViewName | null {
+function stored<T extends string>(key: string, allowed: readonly T[]): T | null {
   try {
-    const value = localStorage.getItem(VIEW_STORAGE_KEY);
-    return value === 'matrix' || value === 'list' ? value : null;
+    const value = localStorage.getItem(key);
+    return allowed.includes(value as T) ? (value as T) : null;
   } catch {
-    return null; // storage refused: the default view
+    return null; // storage refused: the default
   }
 }
 
-function rememberView(view: ExecutionsViewName): void {
+function remember(key: string, value: string): void {
   try {
-    localStorage.setItem(VIEW_STORAGE_KEY, view);
+    localStorage.setItem(key, value);
   } catch {
     // storage refused: the choice lasts for this visit, in the address
   }
+}
+
+const storedView = () => stored<ExecutionsViewName>(VIEW_STORAGE_KEY, ['matrix', 'list']);
+const storedRows = () => stored<MatrixRows>(ROWS_STORAGE_KEY, ['tests', 'hosts']);
+
+/** A two-way switch: the pressed side is the current one. */
+function Switch<T extends string>({ label, options, value, onChange }: { label: string; options: ReadonlyArray<readonly [T, string]>; value: T; onChange: (next: T) => void }) {
+  return (
+    <div role="group" aria-label={label} className="flex items-center gap-2">
+      <span className="text-[12px] text-muted">{label}</span>
+      <span className="inline-flex overflow-hidden rounded-md border border-border">
+        {options.map(([name, text]) => (
+          <button
+            key={name}
+            type="button"
+            aria-pressed={value === name}
+            onClick={() => onChange(name)}
+            className={cn(
+              'px-3 py-1 text-xs font-medium transition-colors first:border-r first:border-border',
+              value === name ? 'bg-accent-dim text-accent' : 'text-muted hover:bg-raised hover:text-foreground',
+            )}
+          >
+            {text}
+          </button>
+        ))}
+      </span>
+    </div>
+  );
 }
 
 export interface ExecutionsViewProps extends ExecutionsDataTableProps {
@@ -62,10 +92,12 @@ export interface ExecutionsViewProps extends ExecutionsDataTableProps {
  */
 export default function ExecutionsView({ filterParams, reloadToken, forceList, onReleaseList, onViewChange, ...table }: ExecutionsViewProps) {
   const capabilities = useCapabilities();
-  const { view: viewInUrl, pair: pairInUrl, setView } = useMatrixUrlState();
+  const { view: viewInUrl, pair: pairInUrl, setView, rows: rowsInUrl, setRows } = useMatrixUrlState();
   // Read once: after that the address says which view, so a click changes the view
   // and the address in the same step (the list writes `expanded=` as soon as it shows).
   const [remembered] = useState(storedView);
+  const [rememberedRows] = useState(storedRows);
+  const rows: MatrixRows = rowsInUrl ?? rememberedRows ?? 'tests';
 
   const ready = capabilities.loaded !== false;
   const hasMatrix = ready && Boolean(capabilities.coverageMatrix);
@@ -93,8 +125,12 @@ export default function ExecutionsView({ filterParams, reloadToken, forceList, o
   }
   if (!hasMatrix) return <ExecutionsDataTable {...table} />;
 
+  const turn = (next: MatrixRows) => {
+    remember(ROWS_STORAGE_KEY, next);
+    setRows(next);
+  };
   const choose = (next: ExecutionsViewName) => {
-    rememberView(next);
+    remember(VIEW_STORAGE_KEY, next);
     if (next === 'matrix' && forceList) onReleaseList();
     setView(next);
   };
@@ -102,25 +138,8 @@ export default function ExecutionsView({ filterParams, reloadToken, forceList, o
   return (
     <div className="flex flex-col gap-3">
       <div className="flex flex-wrap items-center gap-2">
-        <div role="group" aria-label="View" className="flex items-center gap-2">
-          <span className="text-[12px] text-muted">View</span>
-          <span className="inline-flex overflow-hidden rounded-md border border-border">
-            {(['matrix', 'list'] as const).map((name) => (
-              <button
-                key={name}
-                type="button"
-                aria-pressed={view === name}
-                onClick={() => choose(name)}
-                className={cn(
-                  'px-3 py-1 text-xs font-medium transition-colors first:border-r first:border-border',
-                  view === name ? 'bg-accent-dim text-accent' : 'text-muted hover:bg-raised hover:text-foreground',
-                )}
-              >
-                {name === 'matrix' ? 'Matrix' : 'List'}
-              </button>
-            ))}
-          </span>
-        </div>
+        <Switch label="View" options={[['matrix', 'Matrix'], ['list', 'List']] as const} value={view} onChange={choose} />
+        {view === 'matrix' && <Switch label="Rows" options={[['tests', 'Tests'], ['hosts', 'Hosts']] as const} value={rows} onChange={turn} />}
         {/* The list draws these in its own header, next to its sorting. */}
         {view === 'matrix' && (
           <ExecutionsToolbar
@@ -137,6 +156,7 @@ export default function ExecutionsView({ filterParams, reloadToken, forceList, o
         <ExecutionsDataTable {...table} />
       ) : (
         <MatrixView
+          rows={rows}
           filterParams={filterParams}
           reloadToken={reloadToken}
           onAcceptRisk={table.onAcceptRisk}
@@ -150,13 +170,16 @@ export default function ExecutionsView({ filterParams, reloadToken, forceList, o
   );
 }
 
-type MatrixViewProps = Pick<ExecutionsViewProps, 'filterParams' | 'reloadToken' | 'onAcceptRisk' | 'onRevokeRisk' | 'onArchive' | 'acceptingRisk' | 'archiving'>;
+type MatrixViewProps = Pick<ExecutionsViewProps, 'filterParams' | 'reloadToken' | 'onAcceptRisk' | 'onRevokeRisk' | 'onArchive' | 'acceptingRisk' | 'archiving'> & {
+  /** A row per test (the default), or a row per host. */
+  rows: MatrixRows;
+};
 
 const runTitle = (row: DisplayRow) =>
   row.type === 'bundle' ? `${row.bundle_name} on ${row.hostname}` : `${row.execution.test_name} on ${row.execution.hostname}`;
 
 /** The matrix, the open pair's runs under its row, and the selected run's detail in a drawer. */
-function MatrixView({ filterParams, reloadToken, onAcceptRisk, onRevokeRisk, onArchive, acceptingRisk, archiving }: MatrixViewProps) {
+function MatrixView({ rows, filterParams, reloadToken, onAcceptRisk, onRevokeRisk, onArchive, acceptingRisk, archiving }: MatrixViewProps) {
   const { pair, setPair, runKey, setRunKey } = useMatrixUrlState();
   const detail = useRunDetail();
   const { prime, collapseControls } = detail;
@@ -248,33 +271,43 @@ function MatrixView({ filterParams, reloadToken, onAcceptRisk, onRevokeRisk, onA
     },
   });
 
+  const runsOf = (open: PairRef, testName: string, host: { hostname: string; org: string | null }) => (
+    <PairRuns
+      scope={filterParams}
+      pair={open}
+      testName={testName}
+      hostname={host.hostname}
+      org={host.org}
+      selectedRunKey={selectedKey}
+      onSelectRun={selectRun}
+      onRunsLoaded={runsLoaded}
+      onClose={() => openPair(null)}
+      reloadToken={token}
+      showVersions={detail.panelProps.showVersions}
+    />
+  );
+
   return (
     <>
-      <CoverageMatrix
-        params={filterParams}
-        reloadToken={token}
-        openPair={pair}
-        onOpenPair={openPair}
-        renderPair={(open, test, host) => {
-          const fromKey = parseHostKey(open.hostKey);
-          return (
-            <PairRuns
-              scope={filterParams}
-              pair={open}
-              testName={test.name}
-              hostname={host?.hostname ?? fromKey.hostname}
-              org={host ? host.org : fromKey.org}
-              selectedRunKey={selectedKey}
-              onSelectRun={selectRun}
-              onRunsLoaded={runsLoaded}
-              onClose={() => openPair(null)}
-              reloadToken={token}
-              showVersions={detail.panelProps.showVersions}
-            />
-          );
-        }}
-        renderSegment={(test, state) => <SegmentHosts params={filterParams} test={test} state={state ?? undefined} onOpenPair={openPair} reloadToken={token} />}
-      />
+      {rows === 'hosts' ? (
+        <HostRows
+          params={filterParams}
+          reloadToken={token}
+          openPair={pair}
+          onOpenPair={openPair}
+          renderPair={(open, test, host) => runsOf(open, test.name, host)}
+        />
+      ) : (
+        <CoverageMatrix
+          params={filterParams}
+          reloadToken={token}
+          openPair={pair}
+          onOpenPair={openPair}
+          // In the bar form the host is not on the axis: its key names it.
+          renderPair={(open, test, host) => runsOf(open, test.name, host ?? parseHostKey(open.hostKey))}
+          renderSegment={(test, state) => <SegmentHosts params={filterParams} test={test} state={state ?? undefined} onOpenPair={openPair} reloadToken={token} />}
+        />
+      )}
       <RunDrawer
         open={selectedRow !== null}
         title={selectedRow ? runTitle(selectedRow) : ''}

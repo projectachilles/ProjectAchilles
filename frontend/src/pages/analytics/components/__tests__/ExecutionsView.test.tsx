@@ -12,7 +12,7 @@ import type { RunDetailPanelProps } from '../executions/detailParts';
 
 const { caps, api, prime, store } = vi.hoisted(() => ({
   caps: { coverageMatrix: true, testVersions: false, loaded: true as boolean },
-  api: { getCoverageMatrix: vi.fn(), getGroupedPaginatedExecutions: vi.fn(), lookupAcceptances: vi.fn() },
+  api: { getCoverageMatrix: vi.fn(), getCoverageMatrixHosts: vi.fn(), getGroupedPaginatedExecutions: vi.fn(), lookupAcceptances: vi.fn() },
   prime: vi.fn(),
   store: { fail: false },
 }));
@@ -109,6 +109,14 @@ beforeEach(() => {
   api.getCoverageMatrix.mockResolvedValue(MATRIX);
   api.getGroupedPaginatedExecutions.mockResolvedValue(runs(['run-2', 'run-1']));
   api.lookupAcceptances.mockResolvedValue({});
+  api.getCoverageMatrixHosts.mockResolvedValue({
+    rows: 'hosts', windowLabel: '30d', testCount: 1, hostCount: 2, page: 1, pageSize: 25, truncated: false,
+    tests: [{ key: T1, testUuid: T1, name: 'Solo test', kind: 'test', counts }],
+    hosts: [
+      { ...MATRIX.hosts[0], cells: [{ i: 0, verdict: 'unprotected', at: '2026-01-12T09:00:00.000Z' }] },
+      { ...MATRIX.hosts[1], cells: [{ i: 0, verdict: 'protected', at: '2026-01-11T09:00:00.000Z' }] },
+    ],
+  });
 });
 
 describe('which view', () => {
@@ -198,6 +206,87 @@ describe('which view', () => {
     expect(screen.getByTestId('list')).toBeInTheDocument();
     get.mockRestore();
     set.mockRestore();
+  });
+});
+
+describe('rows of tests or rows of hosts', () => {
+  const rowsSwitch = () => within(screen.getByRole('group', { name: 'Rows' }));
+
+  it('starts as rows of tests and turns to rows of hosts, in the address and for next time', async () => {
+    const user = userEvent.setup();
+    const first = setup();
+    await screen.findByRole('heading', { name: 'Solo test' });
+    expect(rowsSwitch().getByRole('button', { name: 'Tests' })).toHaveAttribute('aria-pressed', 'true');
+    expect(api.getCoverageMatrixHosts).not.toHaveBeenCalled();
+
+    await user.click(rowsSwitch().getByRole('button', { name: 'Hosts' }));
+
+    expect(await screen.findByRole('heading', { name: 'HOST-01' })).toBeInTheDocument();
+    expect(screen.queryByRole('heading', { name: 'Solo test' })).not.toBeInTheDocument();
+    expect(api.getCoverageMatrixHosts).toHaveBeenCalledWith({ from: 'now-30d', to: 'now' }, { page: 1, pageSize: 25 });
+    expect(url()).toContain('rows=hosts');
+    expect(localStorage.getItem('achilles.executions.rows')).toBe('hosts');
+
+    first.unmount();
+    setup();
+    expect(await screen.findByRole('heading', { name: 'HOST-01' })).toBeInTheDocument();
+  });
+
+  it('follows the address over the remembered choice', async () => {
+    localStorage.setItem('achilles.executions.rows', 'hosts');
+    setup({}, '?tab=executions&rows=tests');
+
+    expect(await screen.findByRole('heading', { name: 'Solo test' })).toBeInTheDocument();
+  });
+
+  it('has no Rows switch in the list view', async () => {
+    const user = userEvent.setup();
+    setup();
+    await screen.findByRole('heading', { name: 'Solo test' });
+
+    await user.click(screen.getByRole('button', { name: 'List' }));
+
+    expect(screen.queryByRole('group', { name: 'Rows' })).not.toBeInTheDocument();
+  });
+
+  it('opens a pair from a host\'s row: its runs under the row, the run in the drawer', async () => {
+    const user = userEvent.setup();
+    setup({}, '?tab=executions&rows=hosts');
+
+    await user.click(await screen.findByRole('button', { name: /^Solo test: unprotected/ }));
+
+    const row = screen.getByRole('heading', { name: 'HOST-01' }).closest('[data-matrix-row]') as HTMLElement;
+    expect(await within(row).findByRole('group', { name: 'Runs of Solo test on HOST-01' })).toBeInTheDocument();
+    expect(within(await drawer()).getByTestId('detail')).toHaveTextContent('detail of run-2');
+    expect(api.getGroupedPaginatedExecutions).toHaveBeenCalledWith(expect.objectContaining({ testUuid: T1, hostnames: 'HOST-01', org: 'org-1' }));
+  });
+
+  it('closes the open pair when the matrix is turned', async () => {
+    const user = userEvent.setup();
+    setup();
+    await user.click(await mark('HOST-01'));
+    await drawer();
+    await user.keyboard('{Escape}');
+
+    await user.click(rowsSwitch().getByRole('button', { name: 'Hosts' }));
+
+    await screen.findByRole('heading', { name: 'HOST-01' });
+    expect(screen.queryByRole('group', { name: /Runs of/ })).not.toBeInTheDocument();
+    expect(url()).not.toContain('pairTest');
+  });
+
+  it('reads the hosts again after a risk is accepted from the drawer', async () => {
+    const user = userEvent.setup();
+    setup({}, '?tab=executions&rows=hosts');
+    await user.click(await screen.findByRole('button', { name: /^Solo test: unprotected/ }));
+    const panel = await drawer();
+    expect(api.getCoverageMatrixHosts).toHaveBeenCalledTimes(1);
+
+    await user.click(within(panel).getByRole('button', { name: 'accept' }));
+    await user.type(screen.getByPlaceholderText(/why this risk is being accepted/), 'not applicable on this host');
+    await user.click(screen.getByRole('button', { name: 'Accept Risk' }));
+
+    await waitFor(() => expect(api.getCoverageMatrixHosts).toHaveBeenCalledTimes(2));
   });
 });
 

@@ -116,13 +116,29 @@ function ratioText(r: MatrixRatio): string {
   return parts.join(', ');
 }
 
-/** The accessible name of one mark: host, what it shows, how old it is. */
-export function cellLabel(host: Pick<MatrixHost, 'hostname'>, cell: MatrixCell | undefined, now: number): string {
-  if (!cell) return `${host.hostname}: never run`;
+/**
+ * The accessible name of one mark: what it stands for (a host in a row of one
+ * test, a test in a row of one host), what it shows, how old it is.
+ */
+export function markLabel(subject: string, cell: MatrixCell | undefined, now: number): string {
+  if (!cell) return `${subject}: never run`;
   const what = cell.ratio ? ratioText(cell.ratio) : cell.verdict ? VERDICT_META[cell.verdict].label : 'no result';
   const when = agoText(cell.at, now);
   const earlier = cell.earlier?.length ? `; earlier: ${cell.earlier.map((v) => VERDICT_META[v].label).join(', ')}` : '';
-  return `${host.hostname}: ${what}${when ? `, ${when}` : ''}${earlier}`;
+  return `${subject}: ${what}${when ? `, ${when}` : ''}${earlier}`;
+}
+
+/** A mark's name in a row of one test: the host it stands for. */
+export function cellLabel(host: Pick<MatrixHost, 'hostname'>, cell: MatrixCell | undefined, now: number): string {
+  return markLabel(host.hostname, cell, now);
+}
+
+/** The line under a host's name: how many of its tests were caught, among those with a verdict. */
+export function hostCaughtLine(host: Pick<MatrixHost, 'counts'>): string {
+  const caught = host.counts.protected + host.counts.detected;
+  const judged = caught + host.counts.unprotected;
+  if (judged === 0) return 'no test with a verdict';
+  return `caught on ${caught} of ${judged} test${judged === 1 ? '' : 's'}`;
 }
 
 const COUNT_OF: Record<MatrixVerdict, keyof MatrixTest['counts']> = {
