@@ -9,6 +9,9 @@
  * same hour, day or week. That makes the buckets contiguous by construction on
  * a day the clocks change: a day is then 23 or 25 hours, and the hour that
  * happens twice is one bucket of two hours.
+ *
+ * Whoever counts by these buckets must count each one whole (see
+ * activityBuckets): the first and last reach past the window.
  */
 
 export type ActivityInterval = 'hour' | 'day' | 'week';
@@ -91,9 +94,27 @@ function nextBoundary(format: Intl.DateTimeFormat, interval: ActivityInterval, s
   return hi;
 }
 
+/** The first instant of the bucket the wall clock is in at `t`. */
+function bucketStart(format: Intl.DateTimeFormat, interval: ActivityInterval, t: number): number {
+  const key = bucketKey(format, interval, t);
+  let hi = t;
+  let lo = t - SEARCH_STEP_MS[interval];
+  for (let guard = 0; guard < 8 && bucketKey(format, interval, lo) === key; guard++) lo -= SEARCH_STEP_MS[interval];
+  while (hi - lo > 1) {
+    const mid = lo + Math.floor((hi - lo) / 2);
+    if (bucketKey(format, interval, mid) === key) hi = mid;
+    else lo = mid;
+  }
+  return hi;
+}
+
 /**
- * The buckets of a window. The first and last are clipped to the window, so a
- * bucket never covers time the window does not. A window longer than a year
+ * The buckets that cover a window: whole hours, days or weeks, so the first
+ * starts at or before the window and the last ends at or after it. They are
+ * not clipped to the window on purpose. A bucket is identified by its two
+ * instants (the page narrows to them, and keeps them in the address), and a
+ * window like "the last 30 days" moves with every request: clipped, today's
+ * bucket would be another bucket a minute later. A window longer than a year
  * keeps its last 365 days (`capped`).
  */
 export function activityBuckets(
@@ -110,10 +131,10 @@ export function activityBuckets(
   const interval = chooseInterval(toMs - from);
 
   const buckets: BucketBounds[] = [];
-  let start = from;
+  let start = bucketStart(format, interval, from);
   while (start <= toMs && buckets.length < MAX_BUCKETS) {
     const next = nextBoundary(format, interval, start);
-    buckets.push({ from: start, to: Math.min(next - 1, toMs) });
+    buckets.push({ from: start, to: next - 1 });
     start = next;
   }
   return { interval, buckets, capped };

@@ -457,14 +457,14 @@ Test runs per time bucket over the filter window, for the strip above **All Exec
   "interval": "day",
   "timeZone": "America/Santo_Domingo",
   "buckets": [
-    { "from": "2026-11-10T12:00:00.000Z", "to": "2026-11-11T03:59:59.999Z", "protected": 3, "unprotected": 2, "noVerdict": 1 },
+    { "from": "2026-11-10T04:00:00.000Z", "to": "2026-11-11T03:59:59.999Z", "protected": 3, "unprotected": 2, "noVerdict": 1 },
     { "from": "2026-11-11T04:00:00.000Z", "to": "2026-11-12T03:59:59.999Z", "protected": 0, "unprotected": 0, "noVerdict": 0 }
   ]
 }
 ```
 
 - **`interval`** follows the window's length: `hour` up to 48 hours, `day` up to 62 days, `week` (starting Monday) beyond. A window longer than 365 days is cut to its last 365 days and the response carries `capped: true`.
-- **`buckets`** are oldest first and zero-filled. A bucket is the time during which the zone's clock shows the same hour, day or week, so a day is 23 or 25 hours when the clocks change. The first and last buckets are clipped to the window.
+- **`buckets`** are oldest first and zero-filled. A bucket is the time during which the zone's clock shows the same hour, day or week, so a day is 23 or 25 hours when the clocks change. **Every bucket is whole:** the first starts at or before the window and the last ends at or after it, and each is counted in full. That keeps a bucket's two instants the same from one request to the next when the window is relative (`from=now-30d`), so they can be stored and compared.
 - **`from` and `to` are both inclusive.** Passing a bucket's `from` and `to` to [`/executions/paginated`](#paginated-executions) or the coverage matrix reads exactly the results the bucket counted (given the same other filters and no outcome filter).
 - **What is counted:** the same runs, by the same rules, as [Execution Activity](#execution-activity): a standalone result is one run, a bundle run is one run with its chain-level verdict, a cyber-hygiene run is protected only when every control passed; upload confirmations and Skipped stages are left out. `noVerdict` is that endpoint's `inconclusive`. Results under a risk acceptance are counted, by their verdict.
 - **`truncated: true`** means the limit of 200,000 bundle runs in the window was reached and the counts are a lower bound.

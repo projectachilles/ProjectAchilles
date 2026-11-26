@@ -38,7 +38,7 @@ const TZ = 'America/Santo_Domingo';
 const FROM = '2026-11-10T12:00:00.000Z';
 const TO = '2026-11-13T12:00:00.000Z';
 const WINDOW = { from: FROM, to: TO };
-/** Four day buckets: local midnight is 04:00 UTC. */
+/** Four whole days: local midnight is 04:00 UTC. The first and last reach past the window. */
 const BOUNDS = activityBuckets(Date.parse(FROM), Date.parse(TO), TZ).buckets;
 
 const rangeBucket = (index: number, p: number, u: number, i: number) => ({
@@ -93,10 +93,10 @@ describe('getExecutionsActivity', () => {
       interval: 'day',
       timeZone: TZ,
       buckets: [
-        { from: '2026-11-10T12:00:00.000Z', to: '2026-11-11T03:59:59.999Z', protected: 3, unprotected: 2, noVerdict: 1 },
+        { from: '2026-11-10T04:00:00.000Z', to: '2026-11-11T03:59:59.999Z', protected: 3, unprotected: 2, noVerdict: 1 },
         { from: '2026-11-11T04:00:00.000Z', to: '2026-11-12T03:59:59.999Z', protected: 0, unprotected: 0, noVerdict: 0 },
         { from: '2026-11-12T04:00:00.000Z', to: '2026-11-13T03:59:59.999Z', protected: 5, unprotected: 0, noVerdict: 0 },
-        { from: '2026-11-13T04:00:00.000Z', to: '2026-11-13T12:00:00.000Z', protected: 0, unprotected: 0, noVerdict: 0 },
+        { from: '2026-11-13T04:00:00.000Z', to: '2026-11-14T03:59:59.999Z', protected: 0, unprotected: 0, noVerdict: 0 },
       ],
     });
   });
@@ -112,11 +112,12 @@ describe('getExecutionsActivity', () => {
     expect(agg.format).toBe('epoch_millis');
   });
 
-  it('reads only the window, in both searches', async () => {
+  it('reads every bucket whole, in both searches: a bar must equal what its click lists', async () => {
     route();
     await createService().getExecutionsActivity(WINDOW, TZ);
 
-    const range = { range: { 'routing.event_time': { gte: FROM, lte: TO } } };
+    // Not the window's own instants: the first and the last day are counted from midnight to midnight.
+    const range = { range: { 'routing.event_time': { gte: '2026-11-10T04:00:00.000Z', lte: '2026-11-14T03:59:59.999Z' } } };
     expect(standaloneSearch().query.bool.filter).toContainEqual(range);
     expect(runSearch().query.bool.filter).toContainEqual(range);
     expect(runSearch().query.bool.filter).toContainEqual({ exists: { field: 'f0rtika.bundle_id' } });
@@ -217,10 +218,13 @@ describe('getExecutionsActivity', () => {
 
     expect(result.capped).toBe(true);
     expect(result.interval).toBe('week');
-    expect(result.buckets[0].from).toBe(new Date(Date.parse(TO) - 365 * 86_400_000).toISOString());
+    // The week that holds the instant 365 days back, from its Monday.
+    const yearBack = Date.parse(TO) - 365 * 86_400_000;
+    expect(Date.parse(result.buckets[0].from)).toBeLessThanOrEqual(yearBack);
+    expect(Date.parse(result.buckets[0].to)).toBeGreaterThanOrEqual(yearBack);
     // What is not drawn is not read either.
     expect(standaloneSearch().query.bool.filter).toContainEqual({
-      range: { 'routing.event_time': { gte: result.buckets[0].from, lte: TO } },
+      range: { 'routing.event_time': { gte: result.buckets[0].from, lte: result.buckets[result.buckets.length - 1].to } },
     });
   });
 
@@ -238,8 +242,9 @@ describe('getExecutionsActivity', () => {
       const result = await createService().getExecutionsActivity({}, 'UTC');
 
       expect(result.interval).toBe('day');
-      expect(result.buckets[0].from).toBe('2026-11-19T15:00:00.000Z');
-      expect(result.buckets[result.buckets.length - 1].to).toBe('2026-11-26T15:00:00.000Z');
+      expect(result.buckets[0].from).toBe('2026-11-19T00:00:00.000Z');
+      expect(result.buckets[result.buckets.length - 1].to).toBe('2026-11-26T23:59:59.999Z');
+      expect(result.buckets).toHaveLength(8);
     });
 
     it('accepts the relative form the filter bar can send', async () => {
@@ -249,6 +254,15 @@ describe('getExecutionsActivity', () => {
       expect(result.interval).toBe('hour');
       expect(result.buckets[0].from).toBe('2026-11-25T15:00:00.000Z');
       expect(result.buckets).toHaveLength(25);
+    });
+
+    it('answers the same buckets a minute later: a selected bucket keeps matching its bar', async () => {
+      route();
+      const first = await createService().getExecutionsActivity({ from: 'now-30d' }, TZ);
+      vi.setSystemTime(Date.parse('2026-11-26T15:01:00.000Z'));
+      const later = await createService().getExecutionsActivity({ from: 'now-30d' }, TZ);
+
+      expect(later.buckets.map((b) => [b.from, b.to])).toEqual(first.buckets.map((b) => [b.from, b.to]));
     });
   });
 

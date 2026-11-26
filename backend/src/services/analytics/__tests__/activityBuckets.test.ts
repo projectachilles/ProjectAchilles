@@ -42,7 +42,7 @@ describe('assertTimeZone', () => {
 });
 
 describe('activityBuckets', () => {
-  it('cuts days at local midnight, and clips the first and last to the window', () => {
+  it('cuts days at local midnight, whole days: the first and last reach past the window', () => {
     // UTC-4 all year: local midnight is 04:00 UTC.
     const from = ms('2026-11-10T12:00:00.000Z');
     const to = ms('2026-11-13T12:00:00.000Z');
@@ -51,11 +51,21 @@ describe('activityBuckets', () => {
     expect(interval).toBe('day');
     expect(capped).toBe(false);
     expect(buckets.map((b) => [iso(b.from), iso(b.to)])).toEqual([
-      ['2026-11-10T12:00:00.000Z', '2026-11-11T03:59:59.999Z'],
+      ['2026-11-10T04:00:00.000Z', '2026-11-11T03:59:59.999Z'],
       ['2026-11-11T04:00:00.000Z', '2026-11-12T03:59:59.999Z'],
       ['2026-11-12T04:00:00.000Z', '2026-11-13T03:59:59.999Z'],
-      ['2026-11-13T04:00:00.000Z', '2026-11-13T12:00:00.000Z'],
+      ['2026-11-13T04:00:00.000Z', '2026-11-14T03:59:59.999Z'],
     ]);
+  });
+
+  it('gives a bucket the same two instants whenever it is asked for', () => {
+    // "Last 30 days" is asked again a minute later: the window moved, today's bucket must not.
+    // A bucket is selected by its instants; clipped to the window they would change with every request.
+    const to = ms('2026-11-13T12:00:00.000Z');
+    const first = activityBuckets(to - 30 * DAY, to, 'America/Santo_Domingo').buckets;
+    const later = activityBuckets(to - 30 * DAY + 60_000, to + 60_000, 'America/Santo_Domingo').buckets;
+
+    expect(later).toEqual(first);
   });
 
   it('gives a day 25 hours when the clocks go back', () => {
@@ -88,8 +98,11 @@ describe('activityBuckets', () => {
     const to = ms(b);
     const { buckets } = activityBuckets(from, to, tz);
 
-    expect(buckets[0].from).toBe(from);
-    expect(buckets[buckets.length - 1].to).toBe(to);
+    // Whole buckets: they cover the window and reach at most one bucket past each end.
+    expect(buckets[0].from).toBeLessThanOrEqual(from);
+    expect(buckets[0].to).toBeGreaterThanOrEqual(from);
+    expect(buckets[buckets.length - 1].from).toBeLessThanOrEqual(to);
+    expect(buckets[buckets.length - 1].to).toBeGreaterThanOrEqual(to);
     for (let i = 0; i + 1 < buckets.length; i++) {
       expect(buckets[i].to + 1).toBe(buckets[i + 1].from);
       expect(buckets[i].from).toBeLessThanOrEqual(buckets[i].to);
@@ -104,18 +117,19 @@ describe('activityBuckets', () => {
     }
   });
 
-  it('starts every week but the first on a Monday', () => {
+  it('starts every week on a Monday', () => {
     const from = ms('2026-08-28T10:00:00.000Z');
     const { interval, buckets } = activityBuckets(from, from + 90 * DAY, 'UTC');
 
     expect(interval).toBe('week');
     expect(buckets.length).toBeGreaterThanOrEqual(13);
-    for (const b of buckets.slice(1)) {
+    for (const b of buckets) {
       const start = new Date(b.from);
       expect(start.getUTCDay()).toBe(1);
       expect(iso(b.from).slice(11)).toBe('00:00:00.000Z');
     }
-    // 28 August 2026 is a Friday: the first, clipped week ends on the Sunday.
+    // 28 August 2026 is a Friday: its week started on Monday the 24th.
+    expect(iso(buckets[0].from)).toBe('2026-08-24T00:00:00.000Z');
     expect(iso(buckets[0].to)).toBe('2026-08-30T23:59:59.999Z');
   });
 
@@ -131,6 +145,7 @@ describe('activityBuckets', () => {
 
     expect(interval).toBe('hour');
     // UTC+5:30: local hours start at :30 UTC.
+    expect(iso(buckets[0].from)).toBe('2026-11-26T02:30:00.000Z');
     expect(iso(buckets[1].from)).toBe('2026-11-26T03:30:00.000Z');
     expect(iso(buckets[2].from)).toBe('2026-11-26T04:30:00.000Z');
     expect(buckets).toHaveLength(7);
@@ -142,7 +157,10 @@ describe('activityBuckets', () => {
 
     expect(capped).toBe(true);
     expect(interval).toBe('week');
-    expect(buckets[0].from).toBe(to - ACTIVITY_MAX_SPAN_MS);
+    // The week that holds the instant 365 days back.
+    expect(buckets[0].from).toBeLessThanOrEqual(to - ACTIVITY_MAX_SPAN_MS);
+    expect(buckets[0].to).toBeGreaterThanOrEqual(to - ACTIVITY_MAX_SPAN_MS);
+    expect(new Date(buckets[0].from).getUTCDay()).toBe(1);
     expect(buckets.length).toBeLessThanOrEqual(54);
   });
 

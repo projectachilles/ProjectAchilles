@@ -489,7 +489,7 @@ export interface ExecutionsActivityBucket {
 export interface ExecutionsActivityResponse {
   interval: 'hour' | 'day' | 'week';
   timeZone: string;                     // the IANA zone the buckets were cut in
-  buckets: ExecutionsActivityBucket[];  // oldest first, zero-filled; the first and last are clipped to the window
+  buckets: ExecutionsActivityBucket[];  // oldest first, zero-filled; whole hours/days/weeks, so the first and last reach past the window
   capped?: true;                        // the window was longer than 365 days: only its last 365 are here
   truncated?: true;                     // the bundle-run page cap was reached: counts are a lower bound
 }

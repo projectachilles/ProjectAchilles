@@ -4315,7 +4315,8 @@ export class ElasticsearchService {
 
     const rules = this.activityRules();
     const filters: any[] = [
-      // Only what is drawn is read: a window longer than a year is cut to its last 365 days.
+      // Every bucket is read whole (the first and last reach past the window), so a bar equals what its
+      // click lists. Only what is drawn is read: a window longer than a year is cut to its last 365 days.
       { range: { 'routing.event_time': { gte: new Date(bounds[0].from).toISOString(), lte: new Date(bounds[bounds.length - 1].to).toISOString() } } },
       this.activityCountedFilter(params.org),
       ...this.buildFilterBarClauses(params, { excludeOutcome: true }),
