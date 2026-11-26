@@ -114,7 +114,7 @@ describe('rows', () => {
     expect(await screen.findByText('3 hosts · 2 tests · latest result in 30d')).toBeInTheDocument();
     const legend = screen.getByRole('list', { name: 'States' });
     expect(within(legend).getAllByRole('listitem').map((li) => li.textContent)).toEqual([
-      '✓protected', '◐detected', '✕unprotected', '?no verdict', '⊘risk accepted',
+      '✓protected', '▲detected', '✕unprotected', '?no verdict', '⊘risk accepted',
     ]);
   });
 

@@ -43,7 +43,7 @@ export function matrixForm(stripWidth: number, hostCount: number, cellsIncluded:
  */
 export const VERDICT_META: Record<MatrixVerdict, { label: string; tone: MarkTone; glyph: string }> = {
   protected: { label: 'protected', tone: 'accent', glyph: '✓' },
-  detected: { label: 'detected', tone: 'warning', glyph: '◐' },
+  detected: { label: 'detected', tone: 'warning', glyph: '▲' },
   unprotected: { label: 'unprotected', tone: 'danger', glyph: '✕' },
   no_verdict: { label: 'no verdict', tone: 'muted', glyph: '?' },
   risk_accepted: { label: 'risk accepted', tone: 'info', glyph: '⊘' },
