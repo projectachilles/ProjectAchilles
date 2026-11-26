@@ -596,6 +596,111 @@ describe('tasks routes', () => {
     });
   });
 
+  describe('GET /admin/tasks/grouped results', () => {
+    const controls = Array.from({ length: 60 }, (_, i) => ({
+      control_id: `CH-${i}`,
+      control_name: `Control ${i}`,
+      validator: 'v',
+      exit_code: i % 2 ? 126 : 101,
+      compliant: i % 2 === 1,
+      severity: 'high',
+      category: 'c',
+      subcategory: 's',
+      techniques: ['T1059'],
+      tactics: ['execution'],
+      expected: 'expected '.repeat(30),
+      actual: 'actual '.repeat(30),
+      details: 'details '.repeat(30),
+      skipped: false,
+      error_message: '',
+    }));
+    const stored = {
+      task_id: 'task-done',
+      test_uuid: 'test-uuid-001',
+      exit_code: 101,
+      stdout: 'line of output\n'.repeat(400),
+      stderr: 'a warning\n',
+      started_at: '2026-11-25T10:00:00.000Z',
+      completed_at: '2026-11-25T10:00:09.000Z',
+      execution_duration_ms: 9000,
+      binary_sha256: 'abc',
+      hostname: 'test-host',
+      os: 'linux',
+      arch: 'amd64',
+      bundle_results: { schema_version: '1', bundle_id: 'test-uuid-001', bundle_name: 'Bundle', bundle_category: 'cyber-hygiene', total_controls: 60, controls },
+    };
+
+    beforeEach(() => {
+      insertTestTask(testDb, { id: 'task-done', status: 'completed', batch_id: 'b-done' });
+      testDb.prepare('UPDATE tasks SET result = ?, completed_at = ? WHERE id = ?').run(JSON.stringify(stored), '2026-11-25 10:00:09', 'task-done');
+      insertTestTask(testDb, { id: 'task-waiting', batch_id: 'b-waiting' });
+    });
+
+    type Body = { data: { groups: { batch_id: string; tasks: { id: string; payload: Record<string, unknown>; result: Record<string, unknown> | null }[] }[] } };
+    const taskIn = (body: Body, id: string) => body.data.groups.flatMap((g) => g.tasks).find((t) => t.id === id)!;
+
+    it('returns whole tasks unless asked otherwise', async () => {
+      const res = await request(createApp()).get('/admin/tasks/grouped');
+      expect(res.status).toBe(200);
+      expect(taskIn(res.body, 'task-done').result).toEqual(stored);
+      expect(taskIn(res.body, 'task-done').payload).toHaveProperty('metadata');
+
+      const explicit = await request(createApp()).get('/admin/tasks/grouped?detail=full');
+      expect(explicit.body).toEqual(res.body);
+    });
+
+    it('returns light tasks with detail=summary', async () => {
+      const res = await request(createApp()).get('/admin/tasks/grouped?detail=summary');
+      expect(res.status).toBe(200);
+      const task = taskIn(res.body, 'task-done');
+
+      expect(task.result).toEqual({
+        summary: true,
+        exit_code: 101,
+        execution_duration_ms: 9000,
+        bundle_results: { bundle_category: 'cyber-hygiene', control_counts: { evaluated: 60, compliant: 30 } },
+      });
+      expect(task.payload).toEqual({ test_uuid: 'test-uuid-001', test_name: 'Test Name', binary_name: 'test.exe', execution_timeout: 300 });
+      expect(taskIn(res.body, 'task-waiting').result).toBeNull();
+    });
+
+    it('changes nothing but the payload and result of each task', async () => {
+      const whole = await request(createApp()).get('/admin/tasks/grouped');
+      const light = await request(createApp()).get('/admin/tasks/grouped?detail=summary');
+      const tasksWithout = (body: Body) =>
+        body.data.groups.map((g) => ({ ...g, tasks: g.tasks.map(({ payload: _p, result: _r, ...rest }) => rest) }));
+      expect(tasksWithout(light.body)).toEqual(tasksWithout(whole.body));
+      expect({ ...light.body.data, groups: null }).toEqual({ ...whole.body.data, groups: null });
+    });
+
+    it('never sends environment variables, light or whole', async () => {
+      const payload = JSON.stringify({ test_uuid: 'test-uuid-001', test_name: 'Test Name', binary_name: 'test.exe', execution_timeout: 300, env_vars: { SECRET: 'do-not-send' } });
+      testDb.prepare('UPDATE tasks SET payload = ? WHERE id = ?').run(payload, 'task-waiting');
+      for (const query of ['', '?detail=summary']) {
+        const res = await request(createApp()).get(`/admin/tasks/grouped${query}`);
+        expect(res.text).not.toContain('do-not-send');
+      }
+    });
+
+    it('is a small fraction of the size for a run of bundle results', async () => {
+      const whole = await request(createApp()).get('/admin/tasks/grouped');
+      const light = await request(createApp()).get('/admin/tasks/grouped?detail=summary');
+      expect(light.text.length).toBeLessThan(whole.text.length / 20);
+    });
+
+    it('rejects an unknown value', async () => {
+      const res = await request(createApp()).get('/admin/tasks/grouped?detail=tiny');
+      expect(res.status).toBe(400);
+      expect(res.body.error).toBe('Invalid detail');
+    });
+
+    it('the single-task route still returns the whole result, which the detail panel fetches', async () => {
+      const res = await request(createApp()).get('/admin/tasks/task-done');
+      expect(res.status).toBe(200);
+      expect(res.body.data.result).toEqual(stored);
+    });
+  });
+
   describe('GET /admin/tasks/grouped requester', () => {
     it('names who requested each task instead of returning the raw id', async () => {
       testDb.prepare(

@@ -25,6 +25,7 @@ import {
   markIngestionFailed,
   TerminalStateRejection,
 } from '../../services/agent/tasks.service.js';
+import { summarizeTask } from '../../services/agent/taskResultSummary.js';
 import { runWithNotice } from '../../services/notices/notices.service.js';
 import { redactNoticeSummaries } from '../../services/notices/redact.js';
 import { ingestResult } from '../../services/agent/results.service.js';
@@ -414,6 +415,10 @@ const GROUPED_TASK_TYPES: ReadonlySet<string> = new Set<TaskType>(['execute_test
  * GET /admin/tasks/grouped
  * List tasks grouped by run (a batch, or the batches of one announced run of one
  * test) with server-side pagination. limit, offset and total count runs.
+ *
+ * `detail=summary` returns each task in its light form: what a list draws of
+ * its payload and result, no output and no per-control detail (summarizeTask).
+ * GET /tasks/:id has the whole task. Without it the response is unchanged.
  */
 adminTasksRouter.get(
   '/tasks/grouped',
@@ -427,6 +432,9 @@ adminTasksRouter.get(
 
     const breakdown = typeof req.query.breakdown === 'string' && req.query.breakdown ? req.query.breakdown : undefined;
     if (breakdown !== undefined && !TASK_BREAKDOWN_KEY_RE.test(breakdown)) throw new AppError('Invalid breakdown', 400);
+
+    const detail = req.query.detail === undefined || req.query.detail === '' ? 'full' : req.query.detail;
+    if (detail !== 'full' && detail !== 'summary') throw new AppError('Invalid detail', 400);
 
     const filters: ListTasksRequest = {
       agent_id: req.query.agent_id as string | undefined,
@@ -464,7 +472,10 @@ adminTasksRouter.get(
 
     // Strip env_vars from admin responses
     for (const group of result.groups) {
-      group.tasks = group.tasks.map((t) => ({ ...sanitizeTaskForAdmin(t), created_by_label: requesterLabel(t) }));
+      group.tasks = group.tasks.map((t) => ({
+        ...(detail === 'summary' ? summarizeTask(t) : sanitizeTaskForAdmin(t)),
+        created_by_label: requesterLabel(t),
+      }));
       group.payload = { ...group.payload, env_vars: undefined };
       if (group.notices && !fullNoticeErrors) group.notices = redactNoticeSummaries(group.notices);
     }

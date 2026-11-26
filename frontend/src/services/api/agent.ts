@@ -168,7 +168,11 @@ export const agentApi = {
     params?: ListTasksRequest,
   ): Promise<{ groups: TaskGroup[]; total: number; typeCounts?: Partial<Record<TaskType, number>> }> {
     const { types, ...rest } = params ?? {};
-    const query = types?.length ? { ...rest, type: types.join(',') } : rest;
+    // Light tasks: a list draws no output and no per-control detail, and a page
+    // of whole tasks ran to megabytes. The detail panel fetches the one task it
+    // shows (useTaskOutput). A backend that does not know the parameter sends
+    // whole tasks.
+    const query = { ...(types?.length ? { ...rest, type: types.join(',') } : rest), detail: 'summary' };
     const response = await apiClient.get('/agent/admin/tasks/grouped', { params: query });
     const data = response.data.data;
     // type_counts: per-type task counts for the type pills (backend/ only).

@@ -66,13 +66,25 @@ interface StageResult {
   compliant?: boolean;
 }
 
-function stagesOf(result: AgentTask['result']): { category: string | null; controls: StageResult[] } | null {
-  const controls = result?.bundle_results?.controls;
-  if (!Array.isArray(controls) || controls.length === 0) return null;
-  return {
-    category: result?.bundle_results?.bundle_category ?? null,
-    controls: controls.filter((c) => typeof c?.control_id === 'string' && typeof c?.exit_code === 'number'),
-  };
+interface Stages {
+  category: string | null;
+  controls: StageResult[];
+  /** From a light result of a cyber-hygiene bundle, which carries counts in place of its controls. */
+  counts?: { evaluated: number; compliant: number };
+}
+
+function stagesOf(result: AgentTask['result']): Stages | null {
+  const bundle = result?.bundle_results;
+  const category = bundle?.bundle_category ?? null;
+  const controls = bundle?.controls;
+  if (Array.isArray(controls) && controls.length > 0) {
+    return { category, controls: controls.filter((c) => typeof c?.control_id === 'string' && typeof c?.exit_code === 'number') };
+  }
+  const counts = bundle?.control_counts;
+  if (counts && typeof counts.evaluated === 'number' && typeof counts.compliant === 'number') {
+    return { category, controls: [], counts };
+  }
+  return null;
 }
 
 const describeExit = (code: number) => `Exit ${code}: ${EXIT_MEANING[code] ?? 'unrecognised exit code'}.`;
@@ -103,9 +115,13 @@ export function testOutcome(task: Pick<AgentTask, 'type' | 'status' | 'result'>)
   const code = task.result.exit_code;
   const bundle = stagesOf(task.result);
   if (bundle && bundle.category === 'cyber-hygiene') {
+    // The backend counts a light result by this same rule (taskResultSummary.ts): change both.
     const evaluated = bundle.controls.filter((c) => !c.skipped);
-    const ok = evaluated.filter((c) => c.compliant ?? PROTECTED_CODES.has(c.exit_code)).length;
-    return outcome(exitKind(code), `${ok} of ${evaluated.length} controls compliant. ${describeExit(code)}`);
+    const counts = bundle.counts ?? {
+      evaluated: evaluated.length,
+      compliant: evaluated.filter((c) => c.compliant ?? PROTECTED_CODES.has(c.exit_code)).length,
+    };
+    return outcome(exitKind(code), `${counts.compliant} of ${counts.evaluated} controls compliant. ${describeExit(code)}`);
   }
   if (bundle) {
     const blocked = bundle.controls.findIndex((c) => !c.skipped && PROTECTED_CODES.has(c.exit_code));
