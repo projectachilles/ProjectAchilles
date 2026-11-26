@@ -68,6 +68,7 @@ const mockGetRecentExecutions = vi.fn();
 const mockGetGroupedPaginatedExecutions = vi.fn();
 const mockHostTestMatrix = vi.fn();
 const mockCoverageMatrix = vi.fn();
+const mockExecutionsActivity = vi.fn();
 vi.mock('../../services/analytics/elasticsearch.js', () => ({
   ElasticsearchService: class MockElasticsearchService {
     testConnection = mockTestConnection;
@@ -100,6 +101,7 @@ vi.mock('../../services/analytics/elasticsearch.js', () => ({
     getGroupedPaginatedExecutions = mockGetGroupedPaginatedExecutions;
     getHostTestMatrix = mockHostTestMatrix;
     getCoverageMatrix = mockCoverageMatrix;
+    getExecutionsActivity = mockExecutionsActivity;
   },
 }));
 
@@ -569,6 +571,53 @@ describe('analytics routes', () => {
       const fs = await import('fs');
       expect(fs.readFileSync(new URL('../../server.ts', import.meta.url), 'utf8')).toMatch(/stageCoverage:\s*true/);
       expect(fs.readFileSync(new URL('../../../../backend-serverless/src/app.ts', import.meta.url), 'utf8')).toMatch(/stageCoverage:\s*false/);
+    });
+  });
+
+  describe('executions activity', () => {
+    const body = { interval: 'day', timeZone: 'UTC', buckets: [] };
+    const get = (query = '') => request(createApp()).get(`/api/analytics/executions/activity${query}`);
+
+    beforeEach(() => {
+      mockGetSettings.mockReturnValue({ configured: true, connectionType: 'direct', node: 'http://localhost:9200' });
+      mockExecutionsActivity.mockReset();
+      mockExecutionsActivity.mockResolvedValue(body);
+    });
+
+    it('answers the buckets for the filter bar scope, in the caller\'s time zone', async () => {
+      const res = await get('?from=now-30d&org=o1&hostnames=h1&tz=America/Santo_Domingo');
+
+      expect(res.status).toBe(200);
+      expect(res.body).toEqual(body);
+      expect(mockExecutionsActivity).toHaveBeenCalledWith(
+        expect.objectContaining({ from: 'now-30d', org: 'o1', hostnames: 'h1' }),
+        'America/Santo_Domingo',
+      );
+    });
+
+    it('cuts the buckets in UTC when no time zone is given', async () => {
+      await get('?from=now-7d');
+      expect(mockExecutionsActivity).toHaveBeenCalledWith(expect.objectContaining({ from: 'now-7d' }), 'UTC');
+    });
+
+    it.each([
+      ['a zone the runtime does not know', '?tz=Mars/Olympus'],
+      ['an empty one', '?tz='],
+      ['one given twice', '?tz=UTC&tz=UTC'],
+      ['one too long to be a zone', `?tz=${'A'.repeat(65)}`],
+    ])('refuses %s', async (_name, query) => {
+      const res = await get(query);
+
+      expect(res.status).toBe(400);
+      expect(res.body).toEqual({ success: false, error: 'Invalid tz' });
+      expect(mockExecutionsActivity).not.toHaveBeenCalled();
+    });
+
+    it('is not taken for a parameter of another executions route', async () => {
+      const res = await get('?tz=UTC');
+      expect(res.status).toBe(200);
+      expect(mockGetPaginatedExecutions).not.toHaveBeenCalled();
+      expect(mockGetGroupedPaginatedExecutions).not.toHaveBeenCalled();
     });
   });
 

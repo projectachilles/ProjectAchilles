@@ -150,7 +150,7 @@ A caller without an organization (a single-organization install) sees everything
 
 ### Capabilities
 
-`GET /api/capabilities` needs no authentication and returns one boolean per optional feature plus `platform`. The console hides what a backend does not have. On the Docker backend every flag is `true`: `build`, `buildUpload`, `certGenerate`, `certUpload`, `gitSync`, `agentBuild`, `preExecutionNotices`, `campaigns`, `consoleIdentity`, `outcomeBreakdown`, `sentinelone`, `sophos`, `alerting`, `randomizedOnce`, `testFleet`, `stageCoverage`, `coverageMatrix`, `testRunRecency`. The Vercel backend reports `false` (or omits the flag) for the features it lacks.
+`GET /api/capabilities` needs no authentication and returns one boolean per optional feature plus `platform`. The console hides what a backend does not have. On the Docker backend every flag is `true`: `build`, `buildUpload`, `certGenerate`, `certUpload`, `gitSync`, `agentBuild`, `preExecutionNotices`, `campaigns`, `consoleIdentity`, `outcomeBreakdown`, `sentinelone`, `sophos`, `alerting`, `randomizedOnce`, `testFleet`, `stageCoverage`, `coverageMatrix`, `activityStrip`, `testRunRecency`. The Vercel backend reports `false` (or omits the flag) for the features it lacks.
 
 ### Routes without their own page
 

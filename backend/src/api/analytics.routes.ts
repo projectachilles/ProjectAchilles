@@ -18,6 +18,7 @@ import { TestUuidSchema } from '../schemas/admin.schemas.js';
 import type { CurrentTestVersion, ResultVersionState } from '../types/testVersion.js';
 import { RESULT_VERSION_STATES, MAX_VERSION_FILTER_TESTS } from '../services/analytics/testVersionState.js';
 import { currentFingerprintMap } from '../services/browser/currentFingerprints.js';
+import { assertTimeZone } from '../services/analytics/activityBuckets.js';
 
 const router = Router();
 
@@ -44,6 +45,19 @@ function parseScoringMode(value: unknown): 'all-stages' | 'any-stage' {
 function parseTestUuid(value: unknown, error: string): string | undefined {
   if (value === undefined || value === '') return undefined;
   if (typeof value !== 'string' || !TestUuidSchema.safeParse(value).success) throw new AppError(error, 400);
+  return value;
+}
+
+/** The `tz` of the activity endpoints: an IANA zone the runtime knows; UTC when absent. */
+function parseTimeZone(value: unknown): string {
+  if (value === undefined) return 'UTC';
+  // Length first: the value never reaches Intl unless it could be a zone's name.
+  if (typeof value !== 'string' || value.length === 0 || value.length > 64) throw new AppError('Invalid tz', 400);
+  try {
+    assertTimeZone(value);
+  } catch {
+    throw new AppError('Invalid tz', 400);
+  }
   return value;
 }
 
@@ -737,6 +751,18 @@ router.get('/stage-coverage', asyncHandler(async (req, res) => {
   const { basis: _basis, ...query } = req.query;
   const result = await es.getStageCoverage(extractFilterParams(query));
   res.json(result);
+}));
+
+// GET /api/analytics/executions/activity - Runs per time bucket for the strip
+// above All Executions: the filter bar's window cut into hours, days or weeks of
+// the caller's time zone (`tz`, an IANA name; UTC when absent), each with its
+// runs counted as the Dashboard's cadence card counts them. It follows the
+// filter bar except its outcome filters, like the coverage matrix.
+router.get('/executions/activity', asyncHandler(async (req, res) => {
+  const { tz, basis: _basis, scoringMode: _scoringMode, ...query } = req.query;
+  const timeZone = parseTimeZone(tz);
+  const es = await getEsService();
+  res.json(await es.getExecutionsActivity(extractFilterParams(query), timeZone));
 }));
 
 // GET /api/analytics/coverage-matrix - The latest result per test and host.

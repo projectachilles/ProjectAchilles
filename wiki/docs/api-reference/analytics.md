@@ -439,6 +439,39 @@ The answer is kept for 30 seconds per organization and `days`, so repeated calls
 
 Only real test results are counted: upload confirmations (exit 200) and Skipped bundle stages (exit 0 on a bundle-control document) are left out everywhere, including `lastExecutionAt`. Protected means conclusive and blocked or detected; got through means conclusive and not protected; anything else is inconclusive. The `*7d` numbers cover the last 7 UTC days including today, the same days as the last seven bars.
 
+### Executions Activity
+
+```
+GET /api/analytics/executions/activity
+```
+
+Test runs per time bucket over the filter window, for the strip above **All Executions**. Not available on `backend-serverless` (`activityStrip` capability).
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| shared filters | | The [shared filter parameters](#shared-filter-parameters), except the outcome filters: `result`, `errorNames` and `errorCodes` are ignored, as by the [coverage matrix](#coverage-matrix). The response already splits each bucket by outcome. `basis` and `scoringMode` are ignored. |
+| `tz` | string | The IANA time zone the buckets are cut in, for example `America/Santo_Domingo`. Default `UTC`. 400 `Invalid tz` for a zone the server does not know. |
+
+```json
+{
+  "interval": "day",
+  "timeZone": "America/Santo_Domingo",
+  "buckets": [
+    { "from": "2026-11-10T12:00:00.000Z", "to": "2026-11-11T03:59:59.999Z", "protected": 3, "unprotected": 2, "noVerdict": 1 },
+    { "from": "2026-11-11T04:00:00.000Z", "to": "2026-11-12T03:59:59.999Z", "protected": 0, "unprotected": 0, "noVerdict": 0 }
+  ]
+}
+```
+
+- **`interval`** follows the window's length: `hour` up to 48 hours, `day` up to 62 days, `week` (starting Monday) beyond. A window longer than 365 days is cut to its last 365 days and the response carries `capped: true`.
+- **`buckets`** are oldest first and zero-filled. A bucket is the time during which the zone's clock shows the same hour, day or week, so a day is 23 or 25 hours when the clocks change. The first and last buckets are clipped to the window.
+- **`from` and `to` are both inclusive.** Passing a bucket's `from` and `to` to [`/executions/paginated`](#paginated-executions) or the coverage matrix reads exactly the results the bucket counted (given the same other filters and no outcome filter).
+- **What is counted:** the same runs, by the same rules, as [Execution Activity](#execution-activity): a standalone result is one run, a bundle run is one run with its chain-level verdict, a cyber-hygiene run is protected only when every control passed; upload confirmations and Skipped stages are left out. `noVerdict` is that endpoint's `inconclusive`. Results under a risk acceptance are counted, by their verdict.
+- **`truncated: true`** means the limit of 200,000 bundle runs in the window was reached and the counts are a lower bound.
+- A window with no `from` is the last 7 days. An unreadable `from` or `to` is a 400 `Invalid date range`.
+
+The answer is not cached.
+
 ### Counts and Catalogs
 
 ```
