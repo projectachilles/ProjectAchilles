@@ -151,6 +151,7 @@ app.get('/api/capabilities', (_req, res) => {
     consoleIdentity: false,
     outcomeBreakdown: false,
     stageCoverage: false,
+    coverageMatrix: false,
     sentinelone: false,
     sophos: false,
     alerting: false,

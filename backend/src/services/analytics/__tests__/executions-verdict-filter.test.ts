@@ -80,3 +80,21 @@ describe('executions verdict filter (buildExtendedFilters)', () => {
     expect(filters).toContainEqual({ bool: { must_not: DET() } });
   });
 });
+
+describe('executions exact test filter (buildExtendedFilters)', () => {
+  const TEST = 'a0000000-1234-4abc-8def-000000000001';
+  const clause = (uuid: string) => ({
+    bool: { should: [{ term: { 'f0rtika.test_uuid': uuid } }, { term: { 'f0rtika.bundle_id': uuid } }], minimum_should_match: 1 },
+  });
+
+  it('matches the test by its id, or a bundle by its id (its controls carry <bundle>::<control>)', () => {
+    expect(service.buildExtendedFilters({ ...base, testUuid: TEST })).toContainEqual(clause(TEST));
+  });
+
+  it('adds nothing without one', () => {
+    const count = (filters: unknown[]) => filters.filter((f) => JSON.stringify(f).includes('f0rtika.bundle_id')).length;
+
+    expect(count(service.buildExtendedFilters(base))).toBe(0);
+    expect(count(service.buildExtendedFilters({ ...base, testUuid: TEST }))).toBe(1);
+  });
+});

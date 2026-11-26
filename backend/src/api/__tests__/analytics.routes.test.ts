@@ -67,6 +67,7 @@ const mockGetPaginatedExecutions = vi.fn();
 const mockGetRecentExecutions = vi.fn();
 const mockGetGroupedPaginatedExecutions = vi.fn();
 const mockHostTestMatrix = vi.fn();
+const mockCoverageMatrix = vi.fn();
 vi.mock('../../services/analytics/elasticsearch.js', () => ({
   ElasticsearchService: class MockElasticsearchService {
     testConnection = mockTestConnection;
@@ -98,6 +99,7 @@ vi.mock('../../services/analytics/elasticsearch.js', () => ({
     getRecentExecutions = mockGetRecentExecutions;
     getGroupedPaginatedExecutions = mockGetGroupedPaginatedExecutions;
     getHostTestMatrix = mockHostTestMatrix;
+    getCoverageMatrix = mockCoverageMatrix;
   },
 }));
 
@@ -567,6 +569,120 @@ describe('analytics routes', () => {
       const fs = await import('fs');
       expect(fs.readFileSync(new URL('../../server.ts', import.meta.url), 'utf8')).toMatch(/stageCoverage:\s*true/);
       expect(fs.readFileSync(new URL('../../../../backend-serverless/src/app.ts', import.meta.url), 'utf8')).toMatch(/stageCoverage:\s*false/);
+    });
+  });
+
+  describe('coverage matrix', () => {
+    const TEST = 'a0000000-1234-4abc-8def-000000000001';
+    const body = { rows: 'tests', windowLabel: '30d', hosts: [], hostCount: 0, tests: [], testCount: 0, cellsIncluded: true, truncated: false };
+    const get = (query = '') => request(createApp()).get(`/api/analytics/coverage-matrix${query}`);
+
+    beforeEach(() => {
+      mockGetSettings.mockReturnValue({ configured: true, connectionType: 'direct', node: 'http://localhost:9200' });
+      mockCoverageMatrix.mockResolvedValue(body);
+    });
+
+    it('returns rows = tests by default, with the filter bar scope', async () => {
+      const res = await get('?from=now-30d&org=o1&hostnames=h1&threatActors=APT29');
+
+      expect(res.status).toBe(200);
+      expect(res.body).toEqual(body);
+      expect(mockCoverageMatrix).toHaveBeenCalledWith(
+        expect.objectContaining({ from: 'now-30d', org: 'o1', hostnames: 'h1', threatActors: 'APT29' }),
+        { rows: 'tests' },
+      );
+    });
+
+    it('pages rows = hosts: 25 a page by default, 100 at most, 1 at least', async () => {
+      await get('?rows=hosts');
+      await get('?rows=hosts&page=2&pageSize=500');
+      await get('?rows=hosts&pageSize=0');
+
+      expect(mockCoverageMatrix.mock.calls.map((c) => c[1])).toEqual([
+        { rows: 'hosts', page: 1, pageSize: 25 },
+        { rows: 'hosts', page: 2, pageSize: 100 },
+        { rows: 'hosts', page: 1, pageSize: 1 },
+      ]);
+    });
+
+    it('passes one test and one verdict to rows = hosts only', async () => {
+      await get(`?rows=hosts&test=${TEST}&verdict=unprotected`);
+      await get(`?rows=tests&test=${TEST}&verdict=unprotected`);
+
+      expect(mockCoverageMatrix.mock.calls.map((c) => c[1])).toEqual([
+        { rows: 'hosts', page: 1, pageSize: 25, testUuid: TEST, verdict: 'unprotected' },
+        { rows: 'tests' },
+      ]);
+    });
+
+    it.each([
+      ['?rows=bogus', 'Invalid rows'],
+      ['?rows=hosts&verdict=silent', 'Invalid verdict'],
+      ['?verdict=bogus', 'Invalid verdict'],
+      ['?rows=hosts&test=../etc', 'Invalid test'],
+      ['?rows=hosts&test=a&test=b', 'Invalid test'],
+      ['?rows=hosts&page=0', 'Invalid page'],
+      ['?rows=hosts&page=abc', 'Invalid page'],
+      ['?rows=hosts&page=1.5', 'Invalid page'],
+      ['?rows=hosts&pageSize=abc', 'Invalid pageSize'],
+    ])('refuses %s with 400 and asks Elasticsearch nothing', async (query, error) => {
+      const res = await get(query);
+
+      expect(res.status).toBe(400);
+      expect(res.body).toEqual({ success: false, error });
+      expect(mockCoverageMatrix).not.toHaveBeenCalled();
+    });
+
+    it('ignores basis and scoring mode, whatever they say', async () => {
+      const res = await get('?basis=bogus&scoringMode=bogus');
+
+      expect(res.status).toBe(200);
+      const arg = mockCoverageMatrix.mock.calls[0][0];
+      expect(arg.basis).toBeUndefined();
+      expect(arg.scoringMode).toBe('any-stage');
+    });
+
+    it('advertises coverageMatrix: true on the backend and false on serverless', async () => {
+      const fs = await import('fs');
+      expect(fs.readFileSync(new URL('../../server.ts', import.meta.url), 'utf8')).toMatch(/coverageMatrix:\s*true/);
+      expect(fs.readFileSync(new URL('../../../../backend-serverless/src/app.ts', import.meta.url), 'utf8')).toMatch(/coverageMatrix:\s*false/);
+    });
+  });
+
+  describe('executions exact test filter', () => {
+    const TEST = 'a0000000-1234-4abc-8def-000000000001';
+
+    beforeEach(() => {
+      mockGetSettings.mockReturnValue({ configured: true, connectionType: 'direct', node: 'http://localhost:9200' });
+      mockGetPaginatedExecutions.mockResolvedValue({ data: [] });
+      mockGetGroupedPaginatedExecutions.mockResolvedValue({ groups: [] });
+    });
+
+    it('passes testUuid to the flat and the grouped list', async () => {
+      await request(createApp()).get(`/api/analytics/executions/paginated?testUuid=${TEST}&hostnames=h1`);
+      await request(createApp()).get(`/api/analytics/executions/paginated?testUuid=${TEST}&grouped=true`);
+
+      expect(mockGetPaginatedExecutions).toHaveBeenCalledWith(expect.objectContaining({ testUuid: TEST, hostnames: 'h1' }));
+      expect(mockGetGroupedPaginatedExecutions).toHaveBeenCalledWith(expect.objectContaining({ testUuid: TEST }));
+    });
+
+    it.each(['../etc', 'not-a-uuid', ''])('refuses testUuid=%s unless it is absent', async (value) => {
+      const res = await request(createApp()).get(`/api/analytics/executions/paginated?testUuid=${encodeURIComponent(value)}`);
+
+      if (value === '') {
+        expect(res.status).toBe(200);
+        expect(mockGetPaginatedExecutions.mock.calls[0][0].testUuid).toBeUndefined();
+      } else {
+        expect(res.status).toBe(400);
+        expect(res.body).toEqual({ success: false, error: 'Invalid testUuid' });
+        expect(mockGetPaginatedExecutions).not.toHaveBeenCalled();
+      }
+    });
+
+    it('leaves testUuid undefined when absent', async () => {
+      await request(createApp()).get('/api/analytics/executions/paginated');
+
+      expect(mockGetPaginatedExecutions.mock.calls[0][0].testUuid).toBeUndefined();
     });
   });
 

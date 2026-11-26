@@ -276,6 +276,8 @@ export interface PaginatedExecutionsParams extends ExtendedAnalyticsQueryParams,
   versionState?: ResultVersionState;
   /** Current version of each test (uuid -> fingerprint and library commit), built by the route; labels rows and backs `versionState`. */
   currentFingerprints?: Map<string, CurrentTestVersion>;
+  /** Only this test: its id, or a bundle's id (matches its stages and controls). `tests` matches by name. */
+  testUuid?: string;
 }
 
 // Grouped execution result (one per collapsed display row)

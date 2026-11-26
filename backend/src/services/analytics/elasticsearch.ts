@@ -1774,6 +1774,16 @@ export class ElasticsearchService {
     return this.latestPostureFor(await this.resolvePostureScope(params), shape);
   }
 
+  /** One test by id, or every stage and control of the bundle with that id (they carry `<bundle>::<control>`). */
+  private testUuidClause(uuid: string): any {
+    return {
+      bool: {
+        should: [{ term: { 'f0rtika.test_uuid': uuid } }, { term: { 'f0rtika.bundle_id': uuid } }],
+        minimum_should_match: 1,
+      },
+    };
+  }
+
   /** Window, filter-bar clauses and risk-acceptance exclusion of a latest-basis request. */
   private async resolvePostureScope(
     params: AnalyticsQueryParams & Partial<ExtendedAnalyticsQueryParams> & TechniqueScopeOption,
@@ -1791,14 +1801,7 @@ export class ElasticsearchService {
     // as its own `oid|<bundle>|host` pair no later real run would replace it.
     // Standalone kill docs stay: there the kill doc is the test's only doc.
     else if (!isAnyStage) clauses.push({ bool: { must_not: [this.STAGELESS_BUNDLE_DOC] } });
-    if (params.testUuid) {
-      clauses.push({
-        bool: {
-          should: [{ term: { 'f0rtika.test_uuid': params.testUuid } }, { term: { 'f0rtika.bundle_id': params.testUuid } }],
-          minimum_should_match: 1,
-        },
-      });
-    }
+    if (params.testUuid) clauses.push(this.testUuidClause(params.testUuid));
     const exclusionFilter: unknown = (await this.getRiskAcceptanceService().buildExclusionFilter(params.org)) ?? null;
     return {
       window,
@@ -2858,6 +2861,7 @@ export class ElasticsearchService {
     verdict?: ExecutionVerdict;
     versionState?: ResultVersionState;
     currentFingerprints?: Map<string, CurrentTestVersion>;
+    testUuid?: string;
   }): any[] {
     const filters: any[] = [
       this.buildTestDataFilter(),
@@ -2868,6 +2872,9 @@ export class ElasticsearchService {
     if (orgFilter) filters.push(orgFilter);
 
     filters.push(...this.buildFilterBarClauses(params));
+
+    // The runs of one coverage-matrix pair (with `hostnames`).
+    if (params.testUuid) filters.push(this.testUuidClause(params.testUuid));
 
     if (params.verdict) {
       // Same population as the Outcome breakdown card: attack tests only.
