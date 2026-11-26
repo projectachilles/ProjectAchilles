@@ -222,11 +222,17 @@ export function HostRows({ params, reloadToken, openPair, onOpenPair, renderPair
         <div {...gridProps} data-testid="matrix" data-form={form}>
           {/* In every form here: a tile shows about ten letters of a test's name. */}
           <MarkHint form={form} hintRef={hintRef} always />
+          {/* The width the marks have to share is measured here, outside the rows that may scroll:
+              measured inside, widening the rows to scroll would itself change the form, and back, without end. */}
+          <div className={ROW_GRID} aria-hidden="true">
+            <span />
+            <div ref={ruler} className="min-w-0" />
+          </div>
           <div ref={scroller} className={scrolls ? 'overflow-x-auto' : undefined}>
            <div style={scrolled}>
             <div className={`${ROW_GRID} items-end pb-1`}>
               <span className={stuck} />
-              <div ref={ruler} className="min-w-0">
+              <div className="min-w-0">
                 <ColumnHeader columns={tests.map((t) => ({ key: t.key, label: t.name }))} form={form} testId="matrix-column" long />
               </div>
             </div>
