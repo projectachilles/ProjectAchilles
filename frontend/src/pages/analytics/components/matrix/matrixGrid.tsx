@@ -79,13 +79,15 @@ interface ColumnHeaderProps {
   testId: string;
   /** Hostnames are set in the monospace face; test names are not. */
   mono?: boolean;
+  /** Angled names get more room before they are cut: a test's name says more than a hostname in its first letters. */
+  long?: boolean;
 }
 
 /** Names of the columns: across for tiles, angled and cut at a fixed length for small tiles, none for squares. */
-export function ColumnHeader({ columns, form, testId, mono = false }: ColumnHeaderProps) {
+export function ColumnHeader({ columns, form, testId, mono = false, long = false }: ColumnHeaderProps) {
   if (form !== 'tile' && form !== 'small') return null;
   return (
-    <div style={stripColumns(columns.length, form)} className={cn('min-w-0', form === 'small' && 'h-[76px]')}>
+    <div style={stripColumns(columns.length, form)} className={cn('min-w-0', form === 'small' && (long ? 'h-[108px]' : 'h-[76px]'))}>
       {columns.map((column) =>
         form === 'tile' ? (
           <span key={column.key} data-testid={testId} title={column.label} className={cn('truncate text-center text-[11px] text-muted', mono && 'font-mono')}>
@@ -98,7 +100,8 @@ export function ColumnHeader({ columns, form, testId, mono = false }: ColumnHead
               data-testid={testId}
               title={column.label}
               className={cn(
-                'absolute bottom-0.5 right-1/2 max-w-[5.5rem] origin-bottom-right rotate-[48deg] truncate whitespace-nowrap text-[10px] text-muted',
+                'absolute bottom-0.5 right-1/2 origin-bottom-right rotate-[48deg] truncate whitespace-nowrap text-[10px] text-muted',
+                long ? 'max-w-[8.5rem]' : 'max-w-[5.5rem]',
                 mono && 'font-mono',
               )}
             >

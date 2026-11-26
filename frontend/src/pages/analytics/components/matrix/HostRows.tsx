@@ -173,7 +173,7 @@ export function HostRows({ params, reloadToken, openPair, onOpenPair, renderPair
             <div className={`${ROW_GRID} items-end pb-1`}>
               <span />
               <div ref={ruler} className="min-w-0">
-                <ColumnHeader columns={tests.map((t) => ({ key: t.key, label: t.name }))} form={form} testId="matrix-column" />
+                <ColumnHeader columns={tests.map((t) => ({ key: t.key, label: t.name }))} form={form} testId="matrix-column" long />
               </div>
             </div>
             {hosts.map((host, index) => {
