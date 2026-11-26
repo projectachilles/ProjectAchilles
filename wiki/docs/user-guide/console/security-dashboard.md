@@ -88,6 +88,14 @@ fixed recent window and ignores the range selector.
 - The next scheduled run. It is hidden for roles that cannot read schedules,
   and schedules whose next run time has already passed are ignored
 
+**What moved the score**: follows the shared range and shows which part of a
+change in the Defense Score is real. Every failure in the range is sorted into
+fixed, still failing, not re-tested and left the score untested, and the first
+run of every new attack test into stopped or got through. Each count that is
+not zero opens the list of tests and endpoints behind it. Not available on the
+serverless (Vercel) deployment. See
+[What moved the score](../analytics/defense-score#what-moved-the-score).
+
 **Threat actor readiness** — follows the shared range. For each adversary it
 shows the share of protected test × endpoint pairs (latest result, any-stage,
 like the Defense Score). The worst actors come first, as many as fit the card

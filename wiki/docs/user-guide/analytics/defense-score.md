@@ -59,7 +59,7 @@ The execution-count formula above still applies where noted: the PDF execution r
 
 ## What moved the score
 
-The score can rise without anything being fixed. The **What moved the score** card on the Dashboard shows which part of a change is real. It appears when your backend supports it and Analytics is configured, and it follows the Dashboard's time range.
+The score can rise without anything being fixed. The **What moved the score** card on the Dashboard shows which part of a change is real. It appears when Analytics is configured, and it follows the Dashboard's time range. The card is not available on the serverless (Vercel) deployment.
 
 **Why the score can rise without a fix**
 
@@ -84,7 +84,7 @@ The line under the rows explains where the failures came from: failures already 
 
 The **New tests · first run** panel covers tests the organization had never run before the range. It counts each test on each endpoint by its first result in the range: **Stopped on the first run** or **Got through on the first run**. A new test that got through and was fixed later still counts as got through here and as fixed in the other panel. Cyber-hygiene bundles are left out of this panel: their controls count under **Failures dealt with** if they fail, and their first results are counted under first time on an endpoint, never under new tests.
 
-Each number has a **view** link that opens the list of tests and endpoints behind it, with the origin of each failure, when it started failing, when it was fixed and the date of its last result. A list shows at most 200 rows and says "Showing 200 of N" when there are more. **Still failing** and **Not re-tested** are the work lists.
+Each number that is not zero has a **view** link that opens the list of tests and endpoints behind it, with the origin of each failure, when it started failing, when it was fixed and the date of its last result. A list shows at most 200 rows and says "Showing 200 of N" when there are more. **Still failing** and **Not re-tested** are the work lists.
 
 The footer shows, only when they are not zero: pairs that regressed and how many of them are fixed since; pairs seen for the first time on an endpoint (an existing test run for the first time on a machine, or the first result of any cyber-hygiene control, counted apart from new tests; deploying a new cyber-hygiene bundle makes this figure large); failing pairs hidden by risk acceptances; and the two lines below.
 
