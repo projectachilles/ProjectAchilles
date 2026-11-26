@@ -67,11 +67,30 @@ describe('useMatrixUrlState', () => {
     expect(params()).toMatchObject({ pairTest: 't1', run: 'run-1' });
   });
 
+  it('reads which way the matrix is turned, and takes anything else as not said', () => {
+    expect(setup('?rows=hosts').result.current.state.rows).toBe('hosts');
+    expect(setup('?rows=tests').result.current.state.rows).toBe('tests');
+    expect(setup('?rows=sideways').result.current.state.rows).toBeNull();
+    expect(setup('').result.current.state.rows).toBeNull();
+  });
+
+  it('turning the matrix writes it, names the view, and closes the open pair', () => {
+    const { result, params } = setup('?tab=executions&pairTest=t1&pairHost=h&run=run-1');
+
+    act(() => result.current.state.setRows('hosts'));
+
+    expect(params()).toEqual({ tab: 'executions', view: 'matrix', rows: 'hosts' });
+  });
+
   it('going to the list drops the matrix\'s pair and run; going to the matrix drops the list\'s selection', () => {
     const { result, params } = setup('?tab=executions&pairTest=t1&pairHost=h&run=run-1');
 
     act(() => result.current.state.setView('list'));
     expect(params()).toEqual({ tab: 'executions', view: 'list' });
+
+    const turned = setup('?tab=executions&rows=hosts');
+    act(() => turned.result.current.state.setView('list'));
+    expect(turned.params()).toEqual({ tab: 'executions', view: 'list' });
 
     const other = setup('?tab=executions&view=list&expanded=some-run');
     act(() => other.result.current.state.setView('matrix'));

@@ -212,6 +212,18 @@ describe('archiving', () => {
     await waitFor(() => expect(options.onArchive).toHaveBeenCalledWith(['run-9']));
   });
 
+  it('stays open, and reports nothing, when the archive did not go through', async () => {
+    // The page answers false after it has told the user why (a toast).
+    const { user, options } = setup({ onArchive: vi.fn().mockResolvedValue(false) });
+    await user.click(screen.getByRole('button', { name: 'ask archive' }));
+    await user.click(screen.getByRole('button', { name: 'Archive' }));
+
+    await waitFor(() => expect(options.onArchive).toHaveBeenCalledTimes(1));
+    expect(options.onArchived).not.toHaveBeenCalled();
+    expect(screen.getByText(/to the archive/)).toBeInTheDocument();
+    expect(state().anyOpen).toBe(true);
+  });
+
   it('archives nothing on Cancel', async () => {
     const { user, options } = setup();
     await user.click(screen.getByRole('button', { name: 'ask archive' }));

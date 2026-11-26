@@ -1,7 +1,7 @@
 import { cn } from '@/lib/utils';
 import { MARK_BG, type MarkTone } from '@/components/shared/marks/markTone';
-import type { MatrixCell, MatrixHost, MatrixRatio } from '@/services/api/analytics';
-import { VERDICT_META, ageText, cellLabel, gaugePercent } from './matrixModel';
+import type { MatrixCell, MatrixRatio } from '@/services/api/analytics';
+import { VERDICT_META, ageText, gaugePercent, markLabel } from './matrixModel';
 
 /** The three forms that draw one mark per host; a bar draws the row as a whole. */
 export type MarkForm = 'tile' | 'small' | 'squares';
@@ -38,13 +38,14 @@ function Gauge({ ratio, className }: { ratio: MatrixRatio; className?: string })
 
 interface MatrixCellMarkProps {
   form: MarkForm;
-  host: MatrixHost;
+  /** What the mark stands for in its row: the hostname in a row of one test, the test's name in a row of one host. */
+  subject: string;
   /** Absent: the test never ran on this host in the window. */
   cell: MatrixCell | undefined;
   /** This pair's runs are shown under the row. */
   open: boolean;
   onToggle: () => void;
-  /** Position in the matrix, for the arrow keys: the test's row and the host's column. */
+  /** Position in the matrix, for the arrow keys. */
   row: number;
   col: number;
   now: number;
@@ -56,8 +57,8 @@ interface MatrixCellMarkProps {
  * keys move inside it (CoverageMatrix sets which mark is the stop), so a mark
  * is out of the tab order on its own.
  */
-export function MatrixCellMark({ form, host, cell, open, onToggle, row, col, now }: MatrixCellMarkProps) {
-  const label = cellLabel(host, cell, now);
+export function MatrixCellMark({ form, subject, cell, open, onToggle, row, col, now }: MatrixCellMarkProps) {
+  const label = markLabel(subject, cell, now);
 
   if (!cell) {
     return (

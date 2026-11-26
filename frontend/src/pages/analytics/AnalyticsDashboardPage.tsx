@@ -167,6 +167,9 @@ export default function AnalyticsDashboardPage() {
     setActiveTab(tab);
     if (tab !== 'executions') setExecutionsVerdict(null);
     const newParams = new URLSearchParams(searchParams);
+    // What the matrix view keeps in the address means nothing on another tab,
+    // and would reopen a pair on the way back.
+    if (tab !== 'executions') for (const key of ['view', 'rows', 'pairTest', 'pairHost', 'run']) newParams.delete(key);
     if (tab === 'dashboard') {
       newParams.delete('tab');
     } else {
@@ -721,6 +724,8 @@ export default function AnalyticsDashboardPage() {
       const detail = (error as { message?: string })?.message || 'Unknown error';
       console.error('Failed to archive executions:', error);
       setArchiveToast({ message: `Archive failed: ${detail}`, variant: 'destructive' });
+      // The confirmation stays open, and a drawer on that run stays too.
+      return false;
     } finally {
       setArchiving(false);
     }
@@ -741,6 +746,8 @@ export default function AnalyticsDashboardPage() {
       const detail = (error as { message?: string })?.message || 'Unknown error';
       console.error('Failed to archive executions by date:', error);
       setArchiveToast({ message: `Archive failed: ${detail}`, variant: 'destructive' });
+      // The question stays open, and the matrix is not read again.
+      return false;
     } finally {
       setArchiving(false);
     }

@@ -10,10 +10,11 @@ interface RunDetailDialogsOptions {
   riskAcceptances?: Map<string, RiskAcceptance[]>;
   onAcceptRisk?: (items: AcceptRiskItem[], justification: string) => Promise<void>;
   onRevokeRisk?: (acceptanceId: string, reason: string) => Promise<void>;
-  onArchive?: (groupKeys: string[]) => Promise<void>;
+  /** Resolves to `false` when the archive did not go through (the page has already said why). */
+  onArchive?: (groupKeys: string[]) => Promise<boolean | void>;
   acceptingRisk?: boolean;
   archiving?: boolean;
-  /** After an archive the user confirmed went through. */
+  /** After an archive the user confirmed, unless `onArchive` answered `false`. */
   onArchived?: () => void;
 }
 
@@ -60,7 +61,8 @@ export function useRunDetailDialogs({
 
   const handleArchiveConfirm = async () => {
     if (!confirmArchiveKeys || !onArchive) return;
-    await onArchive(confirmArchiveKeys);
+    // A failed archive leaves the confirmation open: nothing was archived, and the caller must not act as if it was.
+    if ((await onArchive(confirmArchiveKeys)) === false) return;
     setConfirmArchiveKeys(null);
     onArchived?.();
   };

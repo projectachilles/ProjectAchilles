@@ -97,7 +97,7 @@ export function MatrixRow({ test, index, hosts, form, openHostKey, onToggleHost,
                 <MatrixCellMark
                   key={host.key}
                   form={form}
-                  host={host}
+                  subject={host.hostname}
                   cell={cell}
                   open={openHostKey === host.key}
                   onToggle={() => cell && onToggleHost(host.key, cell.at)}

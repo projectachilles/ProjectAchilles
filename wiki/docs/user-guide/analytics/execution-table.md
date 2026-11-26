@@ -38,7 +38,9 @@ The states are the Defense Score's: the same latest result per test and host, co
 
 **Filters.** The filter bar's scope applies (organization, date range, tests, hosts, techniques, categories, tags, threat actors, bundles). Outcome filters (result, error name, error code, the Outcome chip, the Version filter) narrow the List only; the matrix says so when a result or error filter is set. A machine with no result in the window is not a column.
 
-**Export, sorting, bulk accept-risk and archive, and Archive by date** are in the List view.
+**Rows of hosts.** The **Rows** switch turns the matrix: one row per host, most exposed first, with one mark per test under the tests' names, and "caught on x of y tests" under each hostname. It answers "what is this host exposed to", and it is the way to read marks on a fleet too large for rows of tests, which become bars. Hosts are listed 25 at a time, with **Show more**. Where a host's tests do not fit as squares, the rows scroll sideways inside the card and the hostnames stay in view. A click on a mark opens the same runs and panel; a link to a pair whose host is further down the list shows its runs above the rows. Turning the matrix closes the open pair. The choice is kept in the address and remembered in your browser.
+
+**Export and Archive by date** are above both views. Export follows the filter bar: every matching result, newest first, including the outcome filters the matrix itself ignores. **Archive by date does not follow the filters:** it archives every execution before the date you pick, and its dialog says so. After it the matrix is read again. **Sorting and bulk accept-risk and archive** are in the List view.
 
 :::note
 The screenshot below shows the List view. A screenshot of the Matrix view will be added.

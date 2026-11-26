@@ -10,6 +10,8 @@ import {
   gaugePercent,
   matrixScope,
   parseHostKey,
+  hostCaughtLine,
+  markLabel,
   settleForm,
   FORM_SLACK_PX,
   TILE_MIN_PX,
@@ -166,6 +168,20 @@ describe('cellLabel', () => {
 
   it('says a pair never ran', () => {
     expect(cellLabel(host, undefined, NOW)).toBe('HOST-01: never run');
+  });
+});
+
+describe('markLabel and hostCaughtLine (rows of hosts)', () => {
+  it('names a mark by what it stands for: a test, in a row of one host', () => {
+    expect(markLabel('Chain A', { i: 0, verdict: 'detected', at: ago(3 * DAY) }, NOW)).toBe('Chain A: detected, 3 days ago');
+    expect(markLabel('Chain A', undefined, NOW)).toBe('Chain A: never run');
+    expect(cellLabel(host, { i: 0, verdict: 'detected', at: ago(3 * DAY) }, NOW)).toBe(markLabel('HOST-01', { i: 0, verdict: 'detected', at: ago(3 * DAY) }, NOW));
+  });
+
+  it('counts the tests caught on a host among those with a verdict', () => {
+    expect(hostCaughtLine({ ...host, counts: counts({ protected: 3, detected: 1, unprotected: 2, noVerdict: 1, riskAccepted: 1, neverRun: 4 }) })).toBe('caught on 4 of 6 tests');
+    expect(hostCaughtLine({ ...host, counts: counts({ unprotected: 1 }) })).toBe('caught on 0 of 1 test');
+    expect(hostCaughtLine({ ...host, counts: counts({ noVerdict: 2 }) })).toBe('no test with a verdict');
   });
 });
 
