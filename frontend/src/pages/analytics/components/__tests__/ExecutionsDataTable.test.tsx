@@ -1546,3 +1546,27 @@ describe('ExecutionsDataTable — test versions', () => {
     expect(screen.queryByText('7be01d3')).toBeNull();
   });
 });
+
+describe('ExecutionsDataTable: selecting another run', () => {
+  it('closes the stage that was open, so the run reopens on its stage list', async () => {
+    getAlertsForTestMock.mockResolvedValue({ alerts: [], matchedTechniques: [], total: 0 });
+    const stage = makeStage({});
+    const first = makeData([stage], { defenderDetected: false });
+    const second = makeData([makeStage({ hostname: 'LAP-OTHER', timestamp: '2026-05-11T12:00:00.000Z' })], { defenderDetected: false });
+    renderTable({
+      ...first,
+      groups: [first.groups[0], { ...second.groups[0], groupKey: `bundle::${BUNDLE_UUID}::LAP-OTHER` }],
+      pagination: { ...first.pagination, totalGroups: 2 },
+    });
+    const stages = () => screen.getByRole('list', { name: 'Stages' });
+
+    await openStageRow(stage.test_name);
+    expect(within(stages()).getByRole('button', { expanded: true })).toBeInTheDocument();
+
+    const runs = screen.getAllByRole('option');
+    await userEvent.click(runs[1]);
+    await userEvent.click(runs[0]);
+
+    expect(within(stages()).queryByRole('button', { expanded: true })).not.toBeInTheDocument();
+  });
+});
