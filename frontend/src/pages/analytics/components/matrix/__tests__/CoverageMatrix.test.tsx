@@ -469,7 +469,8 @@ describe('opening a pair', () => {
     const buttons = screen.getAllByTestId('matrix-mark').filter((m) => m.tagName === 'BUTTON');
     const stops = () => buttons.map((b) => b.getAttribute('tabindex'));
 
-    expect(stops()).toEqual(['0', '-1', '-1']);
+    // The stop is set in an effect after the marks are drawn: wait for it, the heading can be seen first.
+    await waitFor(() => expect(stops()).toEqual(['0', '-1', '-1']));
     buttons[0].focus();
     await user.keyboard('{ArrowRight}');
     expect(stops()).toEqual(['-1', '0', '-1']);
