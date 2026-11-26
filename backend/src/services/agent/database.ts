@@ -84,7 +84,8 @@ export function initializeTables(database: Database.Database): void {
 
     -- 'execute_command' is included in the CHECK so fresh installs don't
     -- trigger migrateExecuteCommandType() table recreation. The migration
-    -- still runs on legacy DBs whose CHECK predates this entry.
+    -- still runs on legacy DBs whose CHECK predates this entry (it reads
+    -- this definition from sqlite_master to tell).
     CREATE TABLE IF NOT EXISTS tasks (
       id TEXT PRIMARY KEY,
       agent_id TEXT NOT NULL,
@@ -635,25 +636,50 @@ function migrateDarwinConstraint(database: Database.Database): void {
   database.pragma('foreign_keys = ON');
 }
 
+/**
+ * True when the tasks table's CHECK on `type` predates 'execute_command'.
+ *
+ * Read from the table's definition. The earlier probe inserted a test row,
+ * which always failed on the agent foreign key, so every database looked
+ * out of date and the table was recreated on every start.
+ */
+function tasksTypeCheckIsOutdated(database: Database.Database): boolean {
+  const row = database
+    .prepare(`SELECT sql FROM sqlite_master WHERE type = 'table' AND name = 'tasks'`)
+    .get() as { sql: string | null } | undefined;
+  if (!row?.sql) return false;
+  const check = /\btype\s+TEXT\b[^,]*?CHECK\s*\(\s*type\s+IN\s*\(([^)]*)\)/i.exec(row.sql);
+  // No CHECK on `type` to widen: nothing this migration can do.
+  return check !== null && !check[1].includes("'execute_command'");
+}
+
+/**
+ * Widens the tasks table's CHECK to accept 'execute_command', which SQLite
+ * can only do by recreating the table.
+ *
+ * All or nothing, and one process at a time: the recreation runs in one
+ * transaction that takes the write lock first, and looks again once it has
+ * the lock. As separate statements, two processes starting together could
+ * interleave (one dropping the table the other had just renamed into place)
+ * and lose the table, and a failure after the drop lost every row.
+ */
 function migrateExecuteCommandType(database: Database.Database): void {
-  // Probe: check if tasks table already accepts 'execute_command'
-  let needsMigration = false;
-  try {
-    database.exec(`SAVEPOINT cmd_type_check`);
-    database.exec(`INSERT INTO tasks (id, agent_id, org_id, type, payload, created_by)
-                    VALUES ('__cmd_check__', '__test__', '__test__', 'execute_command', '{}', '__test__')`);
-    database.exec(`DELETE FROM tasks WHERE id = '__cmd_check__'`);
-    database.exec(`RELEASE cmd_type_check`);
-  } catch {
-    database.exec(`ROLLBACK TO cmd_type_check`);
-    database.exec(`RELEASE cmd_type_check`);
-    needsMigration = true;
-  }
+  if (!tasksTypeCheckIsOutdated(database)) return;
 
-  if (!needsMigration) return;
-
+  // Only outside a transaction: SQLite ignores this pragma inside one.
   database.pragma('foreign_keys = OFF');
+  try {
+    database.transaction(() => {
+      // Another process may have done it while this one waited for the lock.
+      if (tasksTypeCheckIsOutdated(database)) recreateTasksTable(database);
+    }).immediate();
+  } finally {
+    database.pragma('foreign_keys = ON');
+  }
+}
 
+/** The recreation itself. Call inside a transaction, with foreign keys off. */
+function recreateTasksTable(database: Database.Database): void {
   const cols = database.prepare(`PRAGMA table_info(tasks)`).all() as { name: string }[];
   const selectCols = cols.map((c) => c.name).join(', ');
   const colSet = new Set(cols.map((c) => c.name));
@@ -711,8 +737,6 @@ function migrateExecuteCommandType(database: Database.Database): void {
   if (colSet.has('test_uuid') && colSet.has('es_ingested')) {
     ensureTaskTestUuidObjects(database);
   }
-
-  database.pragma('foreign_keys = ON');
 }
 
 /**
