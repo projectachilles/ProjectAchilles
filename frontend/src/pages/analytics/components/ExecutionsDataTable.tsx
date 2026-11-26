@@ -45,7 +45,8 @@ export interface ExecutionsDataTableProps {
   onSort: (field: string, order: 'asc' | 'desc') => void;
   sortField?: string;
   sortOrder?: 'asc' | 'desc';
-  onArchive?: (groupKeys: string[]) => Promise<void>;
+  /** Resolves to `false` when the archive did not go through. */
+  onArchive?: (groupKeys: string[]) => Promise<boolean | void>;
   onArchiveByDate?: (before: string) => Promise<void>;
   archiving?: boolean;
   onAcceptRisk?: (items: AcceptRiskItem[], justification: string) => Promise<void>;

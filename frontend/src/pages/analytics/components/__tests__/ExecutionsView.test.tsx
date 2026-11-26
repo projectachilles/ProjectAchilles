@@ -528,6 +528,22 @@ describe('acting on a run from the drawer', () => {
     expect(url()).not.toContain('run=');
   });
 
+  it('keeps the drawer open and reads nothing again when the archive failed', async () => {
+    const user = userEvent.setup();
+    const { props } = setup({ onArchive: vi.fn().mockResolvedValue(false) });
+    await user.click(await mark('HOST-01'));
+    const panel = await drawer();
+
+    await user.click(within(panel).getByRole('button', { name: 'archive' }));
+    await user.click(screen.getByRole('button', { name: 'Archive' }));
+
+    await waitFor(() => expect(props.onArchive).toHaveBeenCalledWith(['run-2']));
+    await new Promise((r) => setTimeout(r, 30));
+    expect(screen.getByRole('dialog', { name: 'Solo test on HOST-01', hidden: true })).toBeInTheDocument();
+    expect(api.getCoverageMatrix).toHaveBeenCalledTimes(1);
+    expect(url()).toContain('run=run-2');
+  });
+
   it('reads the matrix again when the page asks (Refresh)', async () => {
     const { rerenderWith } = setup();
     await screen.findByRole('heading', { name: 'Solo test' });

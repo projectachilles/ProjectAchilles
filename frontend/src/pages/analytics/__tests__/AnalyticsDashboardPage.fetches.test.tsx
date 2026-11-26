@@ -758,6 +758,7 @@ describe('All Executions: matrix or list', () => {
       getOutcomeBreakdown: { pairCount: 10, protected: 4, prevented: 2, detected: 1, silent: 3, noConclusive: 0, riskAccepted: 0, windowLabel: '30d' },
       getGroupedPaginatedExecutions: emptyRuns,
       getCoverageMatrix: emptyMatrix,
+      getCoverageMatrixHosts: { rows: 'hosts', windowLabel: '30d', tests: [], testCount: 0, hosts: [], hostCount: 0, page: 1, pageSize: 25, truncated: false },
       getDefenseScore: { score: 50, totalExecutions: 0, protectedCount: 0 },
       getUniqueHostnames: 0,
       getUniqueTests: 0,
@@ -873,6 +874,19 @@ describe('All Executions: matrix or list', () => {
     await waitFor(() => expect(screen.getByTestId('loc').textContent).toContain('expanded=run-1'));
     expect(screen.getByTestId('loc').textContent).toContain('view=list');
     expect(screen.getByRole('button', { name: 'List' })).toHaveAttribute('aria-pressed', 'true');
+  });
+
+  it('leaves the matrix\'s view, rows, pair and run out of the address on another tab', async () => {
+    renderAt('?tab=executions&view=matrix&rows=hosts&pairTest=a0000000-1234-4abc-8def-000000000001&pairHost=org-1%7CHOST-01&run=run-2&hostnames=HOST-01');
+    await waitFor(() => expect(mocks.analytics.api.getCoverageMatrixHosts).toHaveBeenCalled());
+
+    fireEvent.click(screen.getByRole('button', { name: /Dashboard/ }));
+
+    await screen.findByText('Outcome breakdown');
+    const address = decodeURIComponent(screen.getByTestId('loc').textContent ?? '');
+    for (const param of ['view=', 'rows=', 'pairTest=', 'pairHost=', 'run=']) expect(address).not.toContain(param);
+    // The filter bar's own parameters stay: they are the dashboard's too.
+    expect(address).toContain('hostnames=HOST-01');
   });
 
   it('does not ask for the matrix on the dashboard tab', async () => {
