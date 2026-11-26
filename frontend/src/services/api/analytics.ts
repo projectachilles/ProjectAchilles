@@ -906,13 +906,11 @@ export const analyticsApi = {
 
   /**
    * Runs per time bucket over the filter window, for the strip above All
-   * Executions. `tz` is the IANA zone the buckets are cut in. The outcome
-   * filters and the scoring mode are not sent: the server ignores them here,
-   * and leaving them out keeps one request per scope.
+   * Executions. `tz` is the IANA zone the buckets are cut in. The server
+   * ignores the outcome filters here, as for the coverage matrix.
    */
   async getExecutionsActivity(params: ExtendedFilterParams | undefined, tz: string): Promise<ExecutionsActivityResponse> {
-    const { result: _result, errorNames: _errorNames, errorCodes: _errorCodes, scoringMode: _scoringMode, ...scope } = params ?? {};
-    const response = await apiClient.get('/analytics/executions/activity', { params: { ...scope, tz } });
+    const response = await apiClient.get('/analytics/executions/activity', { params: { ...params, tz } });
     return response.data;
   },
 

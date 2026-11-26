@@ -45,7 +45,6 @@ const MAX_BUCKETS = 400;
 const WEEKDAY_FROM_MONDAY: Record<string, number> = { Mon: 0, Tue: 1, Wed: 2, Thu: 3, Fri: 4, Sat: 5, Sun: 6 };
 
 function zoneFormat(tz: string): Intl.DateTimeFormat {
-  if (!tz) throw new RangeError('Invalid time zone');
   return new Intl.DateTimeFormat('en-US', {
     timeZone: tz,
     hourCycle: 'h23',

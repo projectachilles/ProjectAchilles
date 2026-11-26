@@ -47,12 +47,11 @@ export function bucketTotal(bucket: StripBucket): number {
 function segmentHeights(bar: number, counts: number[]): number[] {
   const total = counts.reduce((a, b) => a + b, 0);
   if (bar === 0 || total === 0) return counts.map(() => 0);
-  const present = counts.filter((c) => c > 0).length;
-  const min = present * SEGMENT_MIN_PX <= bar ? SEGMENT_MIN_PX : 1;
-  const heights = counts.map((c) => (c > 0 ? Math.max(min, Math.round((bar * c) / total)) : 0));
+  const heights = counts.map((c) => (c > 0 ? Math.max(SEGMENT_MIN_PX, Math.round((bar * c) / total)) : 0));
   const largest = counts.indexOf(Math.max(...counts));
   let sum = heights.reduce((a, b) => a + b, 0);
-  // Rounding and the minimum can leave the sum off by a pixel or two: the largest outcome absorbs it.
+  // Rounding and the minimum can leave the sum off by a few pixels: the largest outcome gives or takes them.
+  // (A bar too short for every minimum, 4 px with three outcomes, ends at 1 px for some.)
   while (sum < bar) {
     heights[largest]++;
     sum++;

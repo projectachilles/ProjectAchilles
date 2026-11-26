@@ -77,6 +77,14 @@ describe('barHeights', () => {
     expect(h.segments.every((s) => s >= 1)).toBe(true);
   });
 
+  it('gives every outcome its minimum where the bar has room', () => {
+    // 6 px for three outcomes of very different size: none is squeezed out.
+    const heights = barHeights([day(1, [0, 0, 1000]), day(2, [1, 1, 20])]);
+    const h = heights[1];
+    expect(h.bar).toBe(6);
+    expect(h.segments).toEqual([2, 2, 2]);
+  });
+
   it('has nothing to draw for no bucket, or none with a run', () => {
     expect(barHeights([])).toEqual([]);
     expect(barHeights([day(1), day(2)])).toEqual([

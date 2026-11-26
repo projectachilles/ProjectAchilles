@@ -96,7 +96,8 @@ export function ActivityStrip({ buckets, interval, unit = 'run', selected, onSel
               {bucketLabel(buckets[i], interval, timeZone)} · {bucketCount(buckets[i], unit)}
             </button>
           ))}
-          {selectedIndex === -1 && chip}
+          {/* A selection that is none of the buttons above (an empty bucket, or one of another window) needs its own way out. */}
+          {!active.includes(selectedIndex) && chip}
         </div>
         {note}
       </div>
@@ -176,7 +177,19 @@ export function ActivityStrip({ buckets, interval, unit = 'run', selected, onSel
       </div>
       <div className="flex min-h-6 items-center justify-between gap-3">
         {/* The colours in words, for the bucket under the focus or the pointer. */}
-        <p data-testid="activity-hint" className="min-w-0 truncate text-[12px] text-muted">{hint}</p>
+        <p data-testid="activity-hint" className="min-w-0 truncate text-[12px] text-muted empty:hidden">{hint}</p>
+        {/* Otherwise the line says what a bar counts and what each colour is. */}
+        {!hint && (
+          <p data-testid="activity-legend" className="flex min-w-0 flex-wrap items-center gap-x-3 gap-y-0.5 text-[11px] text-faint">
+            <span>{units} per {interval}</span>
+            {buckets[0].segments.map((segment) => (
+              <span key={segment.key} className="inline-flex items-center gap-1">
+                <span data-testid="activity-swatch" aria-hidden="true" className={cn('h-2 w-2 rounded-[2px]', MARK_BG[segment.tone])} />
+                {segment.label}
+              </span>
+            ))}
+          </p>
+        )}
         {chip}
       </div>
       {note}

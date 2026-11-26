@@ -1,5 +1,5 @@
 import { describe, it, expect, vi } from 'vitest';
-import { act, render, screen, within } from '@testing-library/react';
+import { act, fireEvent, render, screen, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { ActivityStrip } from '../ActivityStrip';
 import { barHeights, type BucketRef, type StripBucket } from '../activityModel';
@@ -174,6 +174,8 @@ describe('the keyboard', () => {
     expect(bar(/^Nov 18/)).toHaveFocus();
     await user.keyboard('{ArrowLeft}{ArrowLeft}');
     expect(bar(/^Nov 13/)).toHaveFocus();
+    // The stop follows the focus, so Tab comes back to where the user was.
+    expect(bars().filter((b) => b.tabIndex === 0)).toEqual([bar(/^Nov 13/)]);
     await user.keyboard('{Home}');
     expect(bar(/^Nov 11/)).toHaveFocus();
     await user.keyboard('{ArrowLeft}');
@@ -182,8 +184,15 @@ describe('the keyboard', () => {
     expect(bar(/^Nov 22/)).toHaveFocus();
     await user.keyboard('{ArrowRight}');
     expect(bar(/^Nov 22/)).toHaveFocus();
-    // The stop follows the focus, so Tab comes back to where the user was.
-    expect(bars().filter((b) => b.tabIndex === 0)).toEqual([bar(/^Nov 22/)]);
+  });
+
+  it('keeps the page still under the keys it handles, and lets every other key through', () => {
+    setup();
+    // fireEvent answers false when the handler called preventDefault.
+    expect(fireEvent.keyDown(bar(/^Nov 16/), { key: 'ArrowRight' })).toBe(false);
+    expect(fireEvent.keyDown(bar(/^Nov 16/), { key: 'End' })).toBe(false);
+    expect(fireEvent.keyDown(bar(/^Nov 16/), { key: 'PageDown' })).toBe(true);
+    expect(fireEvent.keyDown(bar(/^Nov 16/), { key: 'a' })).toBe(true);
   });
 
   it('selects with Enter', async () => {
@@ -194,6 +203,39 @@ describe('the keyboard', () => {
     await user.keyboard('{Enter}');
 
     expect(onSelect).toHaveBeenCalledWith(ref(BUSY[3]));
+  });
+});
+
+describe('the legend', () => {
+  it('says what a bar counts and what each colour is, while no bucket is pointed at', () => {
+    setup();
+    const legend = screen.getByTestId('activity-legend');
+
+    expect(legend).toHaveTextContent('Runs per day');
+    const swatches = within(legend).getAllByTestId('activity-swatch');
+    expect(swatches.map((s) => s.parentElement?.textContent)).toEqual(['unprotected', 'no verdict', 'protected']);
+    expect(swatches[0]).toHaveClass('bg-danger');
+    expect(swatches[2]).toHaveClass('bg-accent');
+  });
+
+  it('speaks of hours and weeks, and of the page\'s unit', () => {
+    const { rerenderWith } = setup({ interval: 'hour' });
+    expect(screen.getByTestId('activity-legend')).toHaveTextContent('Runs per hour');
+    rerenderWith({ interval: 'week', unit: 'task' });
+    expect(screen.getByTestId('activity-legend')).toHaveTextContent('Tasks per week');
+  });
+
+  it('gives its place to the bucket pointed at, and comes back', async () => {
+    const user = userEvent.setup();
+    setup();
+
+    await user.hover(bar(/^Nov 16/));
+    expect(screen.queryByTestId('activity-legend')).not.toBeInTheDocument();
+    expect(screen.getByTestId('activity-hint')).toHaveTextContent('Nov 16: 42 runs');
+
+    await user.unhover(screen.getByTestId('activity-bars'));
+    expect(screen.getByTestId('activity-legend')).toBeInTheDocument();
+    expect(screen.getByTestId('activity-hint')).toHaveTextContent('');
   });
 });
 
@@ -209,6 +251,17 @@ describe('the line under the strip', () => {
 
     await user.hover(bar(/^Nov 11/));
     expect(hint).toHaveTextContent('Nov 11: 12 runs, 2 unprotected, 10 protected');
+  });
+
+  it('goes back to the legend when the focus leaves the strip', () => {
+    setup();
+    act(() => bar(/^Nov 16/).focus());
+    expect(screen.getByTestId('activity-hint')).toHaveTextContent('Nov 16: 42 runs');
+
+    act(() => bar(/^Nov 16/).blur());
+
+    expect(screen.getByTestId('activity-hint')).toHaveTextContent('');
+    expect(screen.getByTestId('activity-legend')).toBeInTheDocument();
   });
 
   it('says so for a quiet bucket too', async () => {
@@ -257,6 +310,19 @@ describe('a quiet window', () => {
     expect(screen.getByRole('button', { name: /^Nov 23/ })).toHaveAttribute('aria-pressed', 'true');
     await user.click(screen.getByRole('button', { name: /^Nov 23/ }));
     expect(onSelect).toHaveBeenLastCalledWith(null);
+  });
+
+  it('has no separate way to clear a selection that is one of the listed buckets: its own button clears it', () => {
+    setup({ buckets: QUIET, selected: ref(QUIET[13]) });
+    expect(screen.queryByRole('button', { name: /^Clear the selected/ })).not.toBeInTheDocument();
+  });
+
+  it('shows the way out of a selection that is none of the listed buckets', async () => {
+    const user = userEvent.setup();
+    const { onSelect } = setup({ buckets: QUIET, selected: ref(QUIET[2]) });
+
+    await user.click(screen.getByRole('button', { name: 'Clear the selected Nov 12' }));
+    expect(onSelect).toHaveBeenCalledWith(null);
   });
 
   it('draws bars from three buckets with runs', () => {

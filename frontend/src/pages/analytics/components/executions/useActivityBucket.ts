@@ -17,7 +17,8 @@ export function useActivityBucket(): { bucket: BucketRef | null; setBucket: (nex
   const [params, setParams] = useSearchParams();
   const from = params.get('bucketFrom');
   const to = params.get('bucketTo');
-  const valid = Boolean(from && to) && Date.parse(from as string) < Date.parse(to as string);
+  // A missing or unreadable instant parses to NaN, and no comparison with NaN holds.
+  const valid = Date.parse(from ?? '') < Date.parse(to ?? '');
   const bucket = useMemo<BucketRef | null>(() => (valid ? { from: from as string, to: to as string } : null), [valid, from, to]);
 
   const stray = !valid && (from !== null || to !== null);

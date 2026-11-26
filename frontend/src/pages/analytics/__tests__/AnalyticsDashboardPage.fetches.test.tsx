@@ -1080,6 +1080,60 @@ describe('All Executions: the activity strip', () => {
     await waitFor(() => expect(lastOf(list())).toMatchObject({ from: NOV16.from, to: NOV16.to, page: 1 }));
   });
 
+  it('starts the list at its first page when a bucket is selected from a later one', async () => {
+    const row = (page: number) => ({
+      groups: [{
+        groupKey: `run-${page}`, type: 'standalone',
+        representative: { test_uuid: 'u-1', test_name: 'Row', hostname: 'h1', is_protected: false, org: 'o', timestamp: '2026-11-12T12:47:49Z', error_code: 101 },
+        members: [], protectedCount: 0, unprotectedCount: 1, totalCount: 1,
+      }],
+      pagination: { page, pageSize: 25, totalGroups: 5, totalDocuments: 5, totalPages: 5, hasNext: page < 5, hasPrevious: page > 1 },
+    });
+    list().mockImplementation(async (p: { page?: number }) => row(p.page ?? 1));
+    renderAt('?tab=executions&view=list');
+    fireEvent.click((await screen.findByText('Page 1 of 5')).nextElementSibling as HTMLElement);
+    await screen.findByText('Page 2 of 5');
+    await waitFor(() => expect(lastOf(list())).toMatchObject({ page: 2 }));
+
+    fireEvent.click(await screen.findByRole('button', { name: /^Nov 16/ }));
+
+    await waitFor(() => expect(lastOf(list())).toMatchObject({ from: NOV16.from, page: 1 }), { timeout: 3000 });
+    // Never the second page of the bucket: it may not have one.
+    expect(list().mock.calls.some((c) => c[0].from === NOV16.from && c[0].page === 2)).toBe(false);
+  });
+
+  it('reads the bars again after a run is archived', async () => {
+    const run = {
+      test_uuid: 'a0000000-1234-4abc-8def-000000000001', test_name: 'Solo test', hostname: 'HOST-01', org: 'org-1',
+      timestamp: '2026-11-12T09:00:00.000Z', error_code: 101, is_protected: false, techniques: [],
+    };
+    list().mockResolvedValue({
+      groups: [{ groupKey: 'run-1', type: 'standalone', representative: run, members: [run], protectedCount: 0, unprotectedCount: 1, totalCount: 1 }],
+      pagination: { page: 1, pageSize: 25, totalGroups: 1, totalDocuments: 1, totalPages: 1, hasNext: false, hasPrevious: false },
+    });
+    mocks.analytics.api.lookupAcceptances.mockResolvedValue({});
+    mocks.analytics.api.archiveExecutions.mockResolvedValue({ archived: 1 });
+    renderAt('?tab=executions&view=list');
+    await screen.findByRole('button', { name: /^Nov 16/ });
+    expect(activity()).toHaveBeenCalledTimes(1);
+
+    fireEvent.click(await screen.findByRole('button', { name: 'Archive' }));
+    await screen.findByRole('heading', { name: 'Archive Executions' });
+    fireEvent.click(screen.getAllByRole('button', { name: 'Archive' }).at(-1)!);
+
+    await waitFor(() => expect(activity()).toHaveBeenCalledTimes(2));
+  });
+
+  it('says the same when the Outcome card\'s filter narrows the list', async () => {
+    renderAt('');
+    const silent = await screen.findByText('Silent');
+    fireEvent.click(silent.closest('button') ?? silent);
+    await screen.findByText(/Outcome: Silent/);
+
+    await screen.findByRole('button', { name: /^Nov 16/ });
+    expect(screen.getByText('Outcome filters narrow the list, not the bars.')).toBeInTheDocument();
+  });
+
   it('clearing the bucket reads the window again', async () => {
     renderAt(`?tab=executions&${IN_ADDRESS}`);
     await waitFor(() => expect(matrix()).toHaveBeenCalled());

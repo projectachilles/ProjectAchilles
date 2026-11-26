@@ -177,6 +177,24 @@ describe('answers that arrive late', () => {
     expect(screen.getByRole('button', { name: 'Nov 20: 7 runs, 7 protected' })).toBeInTheDocument();
   });
 
+  it('keeps the bars when the request of replaced filters fails late', async () => {
+    const errors = vi.spyOn(console, 'error').mockImplementation(() => {});
+    let rejectFirst!: (e: Error) => void;
+    getActivity
+      .mockReturnValueOnce(new Promise((_r, reject) => { rejectFirst = reject; }))
+      .mockResolvedValueOnce(BUSY);
+    const { rerenderWith } = setup();
+
+    rerenderWith({ params: { ...PARAMS, hostnames: 'HOST-02' } });
+    await screen.findByRole('button', { name: /^Nov 16/ });
+    await act(async () => rejectFirst(new Error('late')));
+
+    // Not this scope's failure: nothing is wiped and nothing is logged.
+    expect(screen.getAllByTestId('activity-bar')).toHaveLength(4);
+    expect(errors).not.toHaveBeenCalled();
+    errors.mockRestore();
+  });
+
   it('sets nothing after it is gone', async () => {
     const errors = vi.spyOn(console, 'error').mockImplementation(() => {});
     let resolve!: (v: ExecutionsActivityResponse) => void;
