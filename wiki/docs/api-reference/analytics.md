@@ -425,13 +425,13 @@ A failure is in play when it was failing at the start of the range (and in the s
 {
   "window": { "from": "2026-10-27T00:00:00.000Z", "to": "2026-11-26T00:00:00.000Z", "label": "30d" },
   "pairs": { "start": 120, "end": 132 },
-  "failing": { "start": 30, "end": 22 },
+  "failing": { "start": 30, "end": 12 },
   "scoreDifference": { "fixedButCounted": 1, "countedTwice": 0 },
   "failures": {
-    "total": 24, "fixed": 12, "stillFailing": 4, "notRetested": 7, "leftUntested": 1, "fixRate": 0.5,
-    "origins": { "openAtStart": 20, "olderRetested": 1, "regression": 2, "newTest": 1, "firstOnEndpoint": 0 }
+    "total": 24, "fixed": 12, "stillFailing": 4, "notRetested": 7, "leftUntested": 1, "fixRate": 50,
+    "origins": { "openAtStart": 17, "olderRetested": 1, "regression": 2, "newTest": 3, "firstOnEndpoint": 1 }
   },
-  "newTests": { "tests": 3, "pairs": 15, "stopped": 12, "gotThrough": 3, "rate": 0.8, "gotThroughFixed": 1, "gotThroughOpen": 2 },
+  "newTests": { "tests": 3, "pairs": 15, "stopped": 12, "gotThrough": 3, "rate": 80, "gotThroughFixed": 1, "gotThroughOpen": 2 },
   "regressed": { "total": 2, "fixed": 1 },
   "firstOnEndpoint": { "pairs": 4, "stopped": 3 },
   "riskAccepted": null,
@@ -454,8 +454,8 @@ A failure is in play when it was failing at the start of the range (and in the s
 | `pairs` | Items in the Defense Score at the start and at the end of the range. |
 | `failing` | Unprotected items in the score at the start and at the end: the score's own counts. |
 | `scoreDifference` | The two reasons `failing.end` can exceed the open failures below: `fixedButCounted` (fixed items whose older chain failure the score still counts) and `countedTwice` (open items the score counts as two pairs). |
-| `failures` | `total` failures in play, split by outcome (`fixed`, `stillFailing`, `notRetested`, `leftUntested`; they add up to `total`), `fixRate` (`fixed` divided by `total`, `null` when there are none) and `origins`, the count per origin. |
-| `newTests` | The first result in the range of every item of a new attack test (cyber-hygiene is left out): `tests` and `pairs` counted, `stopped` and `gotThrough` on the first run, `rate` (`stopped` divided by `pairs`, `null` when none), and of those that got through, how many are fixed since (`gotThroughFixed`) and how many are still open (`gotThroughOpen`). |
+| `failures` | `total` failures in play, split by outcome (`fixed`, `stillFailing`, `notRetested`, `leftUntested`; they add up to `total`), `fixRate` (`fixed` divided by `total` as a percentage with two decimals, `null` when there are none) and `origins`, the count per origin. |
+| `newTests` | The first result in the range of every item of a new attack test (cyber-hygiene is left out): `tests` and `pairs` counted, `stopped` and `gotThrough` on the first run, `rate` (`stopped` divided by `pairs` as a percentage with two decimals, `null` when none), and of those that got through, how many are fixed since (`gotThroughFixed`) and how many are still open (`gotThroughOpen`). |
 | `regressed` | Items with origin `regression`, and how many of them are `fixed` since. |
 | `firstOnEndpoint` | Items with no earlier result that are not new-test items: `pairs`, and how many were `stopped` on their first run. |
 | `riskAccepted` | Open failures that a risk acceptance removes entirely; `null` when no risk acceptance applies. |
