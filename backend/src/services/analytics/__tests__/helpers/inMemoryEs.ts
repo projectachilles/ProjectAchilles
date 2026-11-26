@@ -101,7 +101,9 @@ function runAgg(def: any, docs: Doc[]): any {
     return { buckets: [...groups.values()].map(g => ({ key: g.key, doc_count: g.docs.length, ...runAggs(def.aggs, g.docs) })) };
   }
   if (def.top_metrics) {
-    const top = [...docs].sort(byTimeDesc)[0];
+    // Newest first unless the sort asks for the oldest (`{ 'routing.event_time': 'asc' }`).
+    const oldestFirst = def.top_metrics.sort?.['routing.event_time'] === 'asc';
+    const top = [...docs].sort(oldestFirst ? (a, b) => byTimeDesc(b, a) : byTimeDesc)[0];
     if (!top) return { top: [] };
     const metrics = Object.fromEntries(def.top_metrics.metrics.map((m: { field: string }) => [m.field, metricValue(top[m.field])]));
     return { top: [{ sort: [top['routing.event_time']], metrics }] };
