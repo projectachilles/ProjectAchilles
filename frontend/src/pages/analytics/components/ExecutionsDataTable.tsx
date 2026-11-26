@@ -1,4 +1,4 @@
-import { useState, useMemo, useEffect, useRef, useCallback } from 'react';
+import { useState, useMemo, useEffect, useCallback } from 'react';
 import {
   Loader2,
   ChevronDown,
@@ -13,14 +13,12 @@ import {
   Calendar,
   X,
   ShieldOff,
-  ShieldAlert,
 } from 'lucide-react';
 import type {
   EnrichedTestExecution,
   GroupedPaginatedResponse,
   RiskAcceptance,
 } from '@/services/api/analytics';
-import { findAcceptanceForExec } from '../utils/riskAcceptanceLookup';
 import { Card } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Checkbox } from '@/components/ui/checkbox';
@@ -31,17 +29,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select';
-import { browserApi } from '@/services/api/browser';
-import { defenderApi, type RelatedAlertsResponse } from '@/services/api/defender';
-import type { RelatedCrowdStrikeAlertsResponse } from '@/services/api/crowdstrike';
-import type { AlertsForTestItem } from '@/services/api/alertsForTests';
 import { useCapabilities } from '@/hooks/useCapabilities';
-import { useDefenderConfig } from '@/hooks/useDefenderConfig';
-import { useCrowdStrikeConfig } from '@/hooks/useCrowdStrikeConfig';
-import { useSentinelOneConfig } from '@/hooks/useSentinelOneConfig';
-import { useSophosConfig } from '@/hooks/useSophosConfig';
-import { ENDPOINT_VENDOR_IDS, VENDORS, type EndpointVendorId } from './integrations/vendorConfig';
-import TestInfoModal from './TestInfoModal';
 import {
   exportColumns,
   SORT_FIELDS,
@@ -49,12 +37,9 @@ import {
   mapGroupsToDisplayRows,
 } from './executions/shared';
 import { RunList } from './executions/RunList';
-import { stageAlertsKey, type EndpointAlertState } from './executions/detailParts';
-import {
-  RunDetailPanel,
-  type AcceptRiskItem,
-  type InfoModalRequest,
-} from './executions/RunDetailPanel';
+import { RunDetailPanel, type AcceptRiskItem } from './executions/RunDetailPanel';
+import { useRunDetail } from './executions/useRunDetail';
+import { useRunDetailDialogs } from './executions/RunDetailDialogs';
 
 interface ExecutionsDataTableProps {
   data: GroupedPaginatedResponse | null;
@@ -86,13 +71,6 @@ interface ExecutionsDataTableProps {
   onFetchAllExecutions?: () => Promise<{ executions: EnrichedTestExecution[]; total: number }>;
 }
 
-function emptyCaches(): Record<EndpointVendorId, Map<string, RelatedCrowdStrikeAlertsResponse | null>> {
-  return Object.fromEntries(ENDPOINT_VENDOR_IDS.map((id) => [id, new Map()])) as Record<
-    EndpointVendorId,
-    Map<string, RelatedCrowdStrikeAlertsResponse | null>
-  >;
-}
-
 export default function ExecutionsDataTable({
   data,
   loading,
@@ -116,10 +94,6 @@ export default function ExecutionsDataTable({
   onFetchAllExecutions,
 }: ExecutionsDataTableProps) {
   const { testVersions: showVersions } = useCapabilities();
-  const { configured: defenderConfigured } = useDefenderConfig();
-  const { configured: crowdstrikeConfigured } = useCrowdStrikeConfig();
-  const { configured: sentineloneConfigured } = useSentinelOneConfig();
-  const { configured: sophosConfigured } = useSophosConfig();
 
   // Master-detail selection (controlled when the parent passes props)
   const [internalSelectedKey, setInternalSelectedKey] = useState<string | null>(null);
@@ -131,185 +105,28 @@ export default function ExecutionsDataTable({
     },
     [onSelectedKeyChange],
   );
-  const [expandedControlIndex, setExpandedControlIndex] = useState<number | null>(null);
 
   // Bulk selection state
   const [selectedKeys, setSelectedKeys] = useState<Set<string>>(new Set());
 
   // Dialog state
-  const [confirmArchiveKeys, setConfirmArchiveKeys] = useState<string[] | null>(null);
   const [showDatePurge, setShowDatePurge] = useState(false);
   const [purgeDate, setPurgeDate] = useState('');
 
-  // Description cache: cacheKey → { description, hasInfoCard, hasReadme }
-  interface DescriptionData { description: string | null; hasInfoCard: boolean; hasReadme: boolean }
-  const descriptionCache = useRef<Map<string, DescriptionData | null>>(new Map());
-  const [descriptionLoading, setDescriptionLoading] = useState<string | null>(null);
-  const [descriptionMap, setDescriptionMap] = useState<Map<string, DescriptionData | null>>(new Map());
+  // What the detail panel shows beyond the row, and the dialogs it opens:
+  // shared with the coverage matrix's drawer.
+  const detail = useRunDetail();
+  const { prime, collapseControls } = detail;
+  const dialogs = useRunDetailDialogs({
+    riskAcceptances,
+    onAcceptRisk,
+    onRevokeRisk,
+    onArchive,
+    acceptingRisk,
+    archiving,
+    onArchived: () => setSelectedKeys(new Set()),
+  });
 
-  // Info modal state
-  const [infoModal, setInfoModal] = useState<(InfoModalRequest & { open: boolean }) | null>(null);
-
-  const fetchDescription = useCallback(async (exec: EnrichedTestExecution) => {
-    const isBundleCtrl = exec.is_bundle_control && exec.bundle_id;
-    const cacheKey = isBundleCtrl
-      ? `${exec.bundle_id}::${exec.control_validator ?? ''}`
-      : exec.test_uuid;
-
-    if (descriptionCache.current.has(cacheKey)) {
-      return;
-    }
-
-    setDescriptionLoading(cacheKey);
-    try {
-      const uuid = isBundleCtrl ? exec.bundle_id! : exec.test_uuid;
-      const validator = isBundleCtrl ? exec.control_validator : undefined;
-      const result = await browserApi.getTestDescription(uuid, validator);
-      descriptionCache.current.set(cacheKey, result);
-      setDescriptionMap(prev => new Map(prev).set(cacheKey, result));
-    } catch {
-      descriptionCache.current.set(cacheKey, null);
-      setDescriptionMap(prev => new Map(prev).set(cacheKey, null));
-    } finally {
-      setDescriptionLoading(null);
-    }
-  }, []);
-
-  // Related Defender alerts cache (mirrors descriptionCache pattern).
-  // Keyed PER STAGE so each stage queries with its own timestamp + techniques.
-  // alertsLoading is a Set to track concurrent in-flight fetches across stages.
-  const alertsCache = useRef<Map<string, RelatedAlertsResponse | null>>(new Map());
-  const [alertsLoading, setAlertsLoading] = useState<Set<string>>(new Set());
-  const [alertsMap, setAlertsMap] = useState<Map<string, RelatedAlertsResponse | null>>(new Map());
-
-  // Per-stage cache key. Each stage queries with its own routing.event_time +
-  // techniques; the bundle-level callout aggregates `attribution === 'bundle'`
-  // alerts across every stage cache and dedupes by alert_id.
-  const stageAlertsCacheKey = stageAlertsKey;
-
-  // Related-alert lookup for one execution: its techniques, host and the
-  // bundle binary `<uuid>.exe` (bundle controls carry `<uuid>::<control>`).
-  // null when the execution has no techniques to correlate on.
-  const alertsItemFor = useCallback((exec: EnrichedTestExecution): AlertsForTestItem | null => {
-    if (!exec.techniques || exec.techniques.length === 0) return null;
-    const baseUuid = exec.test_uuid.includes('::') ? exec.test_uuid.split('::')[0] : exec.test_uuid;
-    return {
-      techniques: exec.techniques,
-      timestamp: exec.timestamp,
-      ...(exec.run_started_at ? { runStartedAt: exec.run_started_at } : {}),
-      windowMinutes: 30,
-      hostname: exec.hostname,
-      binaryName: `${baseUuid}.exe`,
-      bundleName: exec.bundle_name,
-    };
-  }, []);
-
-  // Defender alerts for every given execution (a row's stages) in one
-  // request: the batch endpoint runs one msearch per fallback tier instead of
-  // one request and up to three sequential searches per stage.
-  const fetchRelatedAlerts = useCallback(async (execs: EnrichedTestExecution[]) => {
-    if (!defenderConfigured) return;
-    const todo = new Map<string, AlertsForTestItem>();
-    for (const exec of execs) {
-      const key = stageAlertsCacheKey(exec);
-      const item = alertsItemFor(exec);
-      if (item && !alertsCache.current.has(key)) todo.set(key, item);
-    }
-    if (todo.size === 0) return;
-    const keys = [...todo.keys()];
-
-    setAlertsLoading(prev => new Set([...prev, ...keys]));
-    let results: Array<RelatedAlertsResponse | null>;
-    try {
-      results = await defenderApi.getAlertsForTests([...todo.values()]);
-    } catch {
-      results = keys.map(() => null);
-    }
-    // Cache successes only: a failed lookup (null) shows as an error and is
-    // asked again the next time the run or stage is opened.
-    keys.forEach((key, i) => { if (results[i]) alertsCache.current.set(key, results[i]); });
-    setAlertsMap(prev => {
-      const next = new Map(prev);
-      keys.forEach((key, i) => next.set(key, results[i] ?? null));
-      return next;
-    });
-    setAlertsLoading(prev => {
-      const next = new Set(prev);
-      for (const key of keys) next.delete(key);
-      return next;
-    });
-  }, [defenderConfigured, stageAlertsCacheKey, alertsItemFor]);
-
-  // Related endpoint-EDR alerts (CrowdStrike, SentinelOne, Sophos): same
-  // per-stage cache key for every vendor, one map/loading set per vendor.
-  const endpointConfigured: Record<EndpointVendorId, boolean> = {
-    crowdstrike: crowdstrikeConfigured,
-    sentinelone: sentineloneConfigured,
-    sophos: sophosConfigured,
-  };
-  const endpointCacheRef = useRef<Record<EndpointVendorId, Map<string, RelatedCrowdStrikeAlertsResponse | null>> | null>(null);
-  if (endpointCacheRef.current === null) endpointCacheRef.current = emptyCaches();
-  const endpointCache = endpointCacheRef as { current: Record<EndpointVendorId, Map<string, RelatedCrowdStrikeAlertsResponse | null>> };
-  const [endpointLoading, setEndpointLoading] = useState<Record<EndpointVendorId, Set<string>>>(
-    () => Object.fromEntries(ENDPOINT_VENDOR_IDS.map((id) => [id, new Set<string>()])) as Record<EndpointVendorId, Set<string>>,
-  );
-  const [endpointMaps, setEndpointMaps] = useState<Record<EndpointVendorId, Map<string, RelatedCrowdStrikeAlertsResponse | null>>>(
-    emptyCaches,
-  );
-
-  const endpointAlerts = useMemo<EndpointAlertState>(
-    () =>
-      Object.fromEntries(
-        ENDPOINT_VENDOR_IDS.map((id) => [
-          id,
-          { configured: endpointConfigured[id], map: endpointMaps[id], loading: endpointLoading[id] },
-        ]),
-      ) as EndpointAlertState,
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-    [crowdstrikeConfigured, sentineloneConfigured, sophosConfigured, endpointMaps, endpointLoading],
-  );
-
-  const fetchRelatedEndpointAlerts = useCallback(async (execs: EnrichedTestExecution[]) => {
-    await Promise.all(ENDPOINT_VENDOR_IDS.map(async (id) => {
-      const api = VENDORS[id].api;
-      if (!endpointConfigured[id] || !api.getAlertsForTest) return;
-      const todo = new Map<string, AlertsForTestItem>();
-      for (const exec of execs) {
-        const key = stageAlertsCacheKey(exec);
-        const item = alertsItemFor(exec);
-        if (item && !endpointCache.current[id].has(key)) todo.set(key, item);
-      }
-      if (todo.size === 0) return;
-      const keys = [...todo.keys()];
-      const items = [...todo.values()];
-      const single = api.getAlertsForTest;
-
-      setEndpointLoading(prev => ({ ...prev, [id]: new Set([...prev[id], ...keys]) }));
-      let results: Array<RelatedCrowdStrikeAlertsResponse | null>;
-      try {
-        results = api.getAlertsForTests
-          ? await api.getAlertsForTests(items)
-          : await Promise.all(items.map((it) =>
-              single(it.techniques, it.timestamp, it.windowMinutes, it.hostname, it.binaryName, it.bundleName)
-                .catch(() => null)));
-      } catch {
-        results = keys.map(() => null);
-      }
-      // Cache successes only (see fetchRelatedAlerts): failures are retried.
-      keys.forEach((key, i) => { if (results[i]) endpointCache.current[id].set(key, results[i]); });
-      setEndpointMaps(prev => {
-        const next = new Map(prev[id]);
-        keys.forEach((key, i) => next.set(key, results[i] ?? null));
-        return { ...prev, [id]: next };
-      });
-      setEndpointLoading(prev => {
-        const next = new Set(prev[id]);
-        for (const key of keys) next.delete(key);
-        return { ...prev, [id]: next };
-      });
-    }));
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [crowdstrikeConfigured, sentineloneConfigured, sophosConfigured, stageAlertsCacheKey, alertsItemFor]);
 
   const groups = data?.groups || [];
   const pagination = data?.pagination;
@@ -335,27 +152,18 @@ export default function ExecutionsDataTable({
   const primeRow = useCallback(
     (key: string) => {
       const row = displayRows.find((r) => r.key === key);
-      if (!row) return;
-      if (row.type === 'standalone') {
-        void fetchDescription(row.execution);
-        void fetchRelatedAlerts([row.execution]);
-        void fetchRelatedEndpointAlerts([row.execution]);
-      } else {
-        // One request per vendor for every stage of the row.
-        void fetchRelatedAlerts(row.controls);
-        void fetchRelatedEndpointAlerts(row.controls);
-      }
+      if (row) prime(row);
     },
-    [displayRows, fetchDescription, fetchRelatedAlerts, fetchRelatedEndpointAlerts],
+    [displayRows, prime],
   );
 
   const handleSelect = useCallback(
     (key: string) => {
       setSelectedKey(key);
-      setExpandedControlIndex(null);
+      collapseControls();
       primeRow(key);
     },
-    [setSelectedKey, primeRow],
+    [setSelectedKey, collapseControls, primeRow],
   );
 
   // Auto-select: honor a deep-linked key when it exists on this page,
@@ -372,18 +180,6 @@ export default function ExecutionsDataTable({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [displayRows]);
 
-  const handleToggleControl = useCallback(
-    (index: number, ctrl: EnrichedTestExecution) => {
-      setExpandedControlIndex((prev) => {
-        if (prev === index) return null;
-        void fetchDescription(ctrl);
-        void fetchRelatedAlerts([ctrl]);
-        void fetchRelatedEndpointAlerts([ctrl]);
-        return index;
-      });
-    },
-    [fetchDescription, fetchRelatedAlerts, fetchRelatedEndpointAlerts],
-  );
 
   // Bulk selection helpers
   const toggleSelect = (key: string) => {
@@ -407,12 +203,6 @@ export default function ExecutionsDataTable({
 
   const archiveEnabled = !!onArchive;
 
-  const handleArchiveConfirm = async () => {
-    if (!confirmArchiveKeys || !onArchive) return;
-    await onArchive(confirmArchiveKeys);
-    setConfirmArchiveKeys(null);
-    setSelectedKeys(new Set());
-  };
 
   const handleDatePurgeConfirm = async () => {
     if (!purgeDate || !onArchiveByDate) return;
@@ -421,43 +211,7 @@ export default function ExecutionsDataTable({
     setPurgeDate('');
   };
 
-  // ── Risk Acceptance state ────────────────────────────────────────
-  const [riskAcceptItems, setRiskAcceptItems] = useState<AcceptRiskItem[] | null>(null);
-  const [riskJustification, setRiskJustification] = useState('');
-  const [riskScope, setRiskScope] = useState<'host' | 'global'>('global');
-  const [revokeTarget, setRevokeTarget] = useState<{ id: string; testName: string } | null>(null);
-  const [revokeReason, setRevokeReason] = useState('');
-
   const riskEnabled = !!onAcceptRisk;
-
-  /** Look up active risk acceptance for a given execution. */
-  const getAcceptanceForExec = useCallback(
-    (exec: EnrichedTestExecution): RiskAcceptance | undefined =>
-      findAcceptanceForExec(exec, riskAcceptances ?? null),
-    [riskAcceptances],
-  );
-
-  const handleAcceptRiskConfirm = async () => {
-    if (!riskAcceptItems || !onAcceptRisk || riskJustification.trim().length < 10) return;
-    // When scope is 'global', drop hostname so the persisted record is unambiguously
-    // org-wide. Storing both fields confused readers that didn't honor `scope`.
-    const itemsWithScope = riskAcceptItems.map(item => ({
-      ...item,
-      scope: riskScope,
-      hostname: riskScope === 'host' ? item.hostname : undefined,
-    }));
-    await onAcceptRisk(itemsWithScope, riskJustification.trim());
-    setRiskAcceptItems(null);
-    setRiskJustification('');
-    setRiskScope('global');
-  };
-
-  const handleRevokeConfirm = async () => {
-    if (!revokeTarget || !onRevokeRisk || revokeReason.trim().length < 10) return;
-    await onRevokeRisk(revokeTarget.id, revokeReason.trim());
-    setRevokeTarget(null);
-    setRevokeReason('');
-  };
 
   // Bulk risk accept: collect items from checked groups
   const handleBulkAcceptRisk = () => {
@@ -473,7 +227,7 @@ export default function ExecutionsDataTable({
         }
       }
     }
-    if (items.length > 0) setRiskAcceptItems(items);
+    if (items.length > 0) dialogs.requestAcceptRisk(items);
   };
 
   // ── Export ───────────────────────────────────────────────────────
@@ -670,7 +424,7 @@ export default function ExecutionsDataTable({
               variant="outline"
               size="sm"
               disabled={archiving}
-              onClick={() => setConfirmArchiveKeys([...selectedKeys])}
+              onClick={() => dialogs.requestArchive([...selectedKeys])}
               className="border-danger/40 text-danger hover:bg-danger-dim"
             >
               {archiving ? <Loader2 className="animate-spin" /> : <Archive />}
@@ -703,26 +457,7 @@ export default function ExecutionsDataTable({
               showVersions={showVersions}
             />
           </Card>
-          <RunDetailPanel
-            row={selectedRow}
-            showVersions={showVersions}
-            defenderConfigured={defenderConfigured}
-            endpointAlerts={endpointAlerts}
-            descriptionMap={descriptionMap}
-            descriptionLoadingKey={descriptionLoading}
-            alertsMap={alertsMap}
-            alertsLoading={alertsLoading}
-            stageAlertsCacheKey={stageAlertsCacheKey}
-            getAcceptanceForExec={getAcceptanceForExec}
-            riskEnabled={riskEnabled}
-            archiveEnabled={archiveEnabled}
-            onRequestAcceptRisk={setRiskAcceptItems}
-            onRequestRevoke={setRevokeTarget}
-            onRequestArchive={setConfirmArchiveKeys}
-            onOpenInfo={(request) => setInfoModal({ ...request, open: true })}
-            expandedControlIndex={expandedControlIndex}
-            onToggleControl={handleToggleControl}
-          />
+          <RunDetailPanel row={selectedRow} {...detail.panelProps} {...dialogs.panelProps} />
         </div>
       )}
 
@@ -768,31 +503,6 @@ export default function ExecutionsDataTable({
         </div>
       )}
 
-      {/* Confirmation Dialog (individual + bulk archive) */}
-      {confirmArchiveKeys && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-background/70" onClick={() => !archiving && setConfirmArchiveKeys(null)}>
-          <div className="mx-4 w-full max-w-md rounded-[10px] border border-border-strong bg-surface p-6 shadow-[0_24px_60px_rgba(0,0,0,0.55)]" onClick={(e) => e.stopPropagation()}>
-            <div className="mb-4 flex items-center justify-between">
-              <h3 className="text-sm font-semibold tracking-tight">Archive Executions</h3>
-              <button onClick={() => !archiving && setConfirmArchiveKeys(null)} className="text-muted hover:text-foreground">
-                <X className="h-5 w-5" />
-              </button>
-            </div>
-            <p className="mb-6 text-sm text-muted">
-              This will move <span className="font-medium text-foreground">{confirmArchiveKeys.length}</span> execution group{confirmArchiveKeys.length !== 1 ? 's' : ''} to the archive. This is reversible.
-            </p>
-            <div className="flex justify-end gap-3">
-              <Button variant="ghost" onClick={() => setConfirmArchiveKeys(null)} disabled={archiving}>
-                Cancel
-              </Button>
-              <Button variant="destructive" onClick={handleArchiveConfirm} disabled={archiving}>
-                {archiving && <Loader2 className="animate-spin" />}
-                Archive
-              </Button>
-            </div>
-          </div>
-        </div>
-      )}
 
       {/* Date Purge Dialog */}
       {showDatePurge && (
@@ -828,152 +538,8 @@ export default function ExecutionsDataTable({
         </div>
       )}
 
-      {/* Risk Acceptance Dialog */}
-      {riskAcceptItems && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-background/70" onClick={() => !acceptingRisk && setRiskAcceptItems(null)}>
-          <div className="mx-4 w-full max-w-md rounded-[10px] border border-border-strong bg-surface p-6 shadow-[0_24px_60px_rgba(0,0,0,0.55)]" onClick={(e) => e.stopPropagation()}>
-            <div className="mb-4 flex items-center justify-between">
-              <h3 className="flex items-center gap-2 text-sm font-semibold tracking-tight">
-                <ShieldOff className="h-5 w-5 text-warning" />
-                Accept Risk
-              </h3>
-              <button onClick={() => !acceptingRisk && setRiskAcceptItems(null)} className="text-muted hover:text-foreground">
-                <X className="h-5 w-5" />
-              </button>
-            </div>
-            <p className="mb-3 text-sm text-muted">
-              Accepting risk for <span className="font-medium text-foreground">{riskAcceptItems.length}</span> control{riskAcceptItems.length !== 1 ? 's' : ''}.
-              Accepted controls will be excluded from the Defense Score.
-            </p>
-            <div className="mb-4 max-h-32 overflow-y-auto rounded-md border border-border bg-raised p-2 font-mono text-xs">
-              {riskAcceptItems.slice(0, 10).map((item, i) => (
-                <div key={i} className="truncate text-muted">
-                  {item.test_name}{item.control_id ? `::${item.control_id}` : ''}
-                </div>
-              ))}
-              {riskAcceptItems.length > 10 && (
-                <div className="text-muted">...and {riskAcceptItems.length - 10} more</div>
-              )}
-            </div>
-            <div className="mb-4">
-              <label className="mb-1.5 block text-[11px] uppercase tracking-wider text-faint">Scope</label>
-              <div className="flex overflow-hidden rounded-md border border-border">
-                <button
-                  type="button"
-                  onClick={() => setRiskScope('global')}
-                  className={`flex-1 px-3 py-1.5 text-sm transition-colors ${riskScope === 'global' ? 'bg-warning-dim text-warning' : 'bg-transparent text-muted hover:bg-raised'}`}
-                >
-                  All Hosts
-                </button>
-                <button
-                  type="button"
-                  onClick={() => setRiskScope('host')}
-                  className={`flex-1 border-l border-border px-3 py-1.5 text-sm transition-colors ${riskScope === 'host' ? 'bg-warning-dim text-warning' : 'bg-transparent text-muted hover:bg-raised'}`}
-                >
-                  This Host Only
-                </button>
-              </div>
-              <p className="mt-1 text-xs text-faint">
-                {riskScope === 'global'
-                  ? 'Excluded from Defense Score across all hosts in the organization.'
-                  : 'Excluded from Defense Score only for the specific host(s) where it was observed.'}
-              </p>
-            </div>
-            <div className="mb-4">
-              <label className="mb-1.5 block text-[11px] uppercase tracking-wider text-faint">
-                Justification <span className="text-danger">*</span>
-              </label>
-              <textarea
-                value={riskJustification}
-                onChange={(e) => setRiskJustification(e.target.value)}
-                placeholder="Describe why this risk is being accepted (min 10 characters)..."
-                rows={3}
-                className="w-full resize-none rounded-md border border-border bg-raised px-3 py-2 text-sm placeholder:text-faint outline-none focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-accent"
-              />
-              {riskJustification.length > 0 && riskJustification.trim().length < 10 && (
-                <p className="mt-1 text-xs text-danger">Minimum 10 characters required</p>
-              )}
-            </div>
-            <div className="flex justify-end gap-3">
-              <Button variant="ghost" onClick={() => { setRiskAcceptItems(null); setRiskJustification(''); }} disabled={acceptingRisk}>
-                Cancel
-              </Button>
-              <Button
-                variant="outline"
-                className="border-warning/40 text-warning hover:bg-warning-dim"
-                onClick={handleAcceptRiskConfirm}
-                disabled={acceptingRisk || riskJustification.trim().length < 10}
-              >
-                {acceptingRisk && <Loader2 className="animate-spin" />}
-                Accept Risk
-              </Button>
-            </div>
-          </div>
-        </div>
-      )}
 
-      {/* Revoke Risk Acceptance Dialog */}
-      {revokeTarget && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-background/70" onClick={() => !acceptingRisk && setRevokeTarget(null)}>
-          <div className="mx-4 w-full max-w-md rounded-[10px] border border-border-strong bg-surface p-6 shadow-[0_24px_60px_rgba(0,0,0,0.55)]" onClick={(e) => e.stopPropagation()}>
-            <div className="mb-4 flex items-center justify-between">
-              <h3 className="flex items-center gap-2 text-sm font-semibold tracking-tight">
-                <ShieldAlert className="h-5 w-5 text-warning" />
-                Revoke Risk Acceptance
-              </h3>
-              <button onClick={() => !acceptingRisk && setRevokeTarget(null)} className="text-muted hover:text-foreground">
-                <X className="h-5 w-5" />
-              </button>
-            </div>
-            <p className="mb-3 text-sm text-muted">
-              Revoking acceptance for <span className="font-medium text-foreground">{revokeTarget.testName}</span>.
-              This control will be included in the Defense Score again.
-            </p>
-            <div className="mb-4">
-              <label className="mb-1.5 block text-[11px] uppercase tracking-wider text-faint">
-                Reason <span className="text-danger">*</span>
-              </label>
-              <textarea
-                value={revokeReason}
-                onChange={(e) => setRevokeReason(e.target.value)}
-                placeholder="Describe why this acceptance is being revoked (min 10 characters)..."
-                rows={3}
-                className="w-full resize-none rounded-md border border-border bg-raised px-3 py-2 text-sm placeholder:text-faint outline-none focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-accent"
-              />
-              {revokeReason.length > 0 && revokeReason.trim().length < 10 && (
-                <p className="mt-1 text-xs text-danger">Minimum 10 characters required</p>
-              )}
-            </div>
-            <div className="flex justify-end gap-3">
-              <Button variant="ghost" onClick={() => { setRevokeTarget(null); setRevokeReason(''); }} disabled={acceptingRisk}>
-                Cancel
-              </Button>
-              <Button
-                variant="outline"
-                className="border-warning/40 text-warning hover:bg-warning-dim"
-                onClick={handleRevokeConfirm}
-                disabled={acceptingRisk || revokeReason.trim().length < 10}
-              >
-                {acceptingRisk && <Loader2 className="animate-spin" />}
-                Revoke Acceptance
-              </Button>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* Test Info Modal */}
-      {infoModal && (
-        <TestInfoModal
-          open={infoModal.open}
-          onClose={() => setInfoModal(null)}
-          testUuid={infoModal.testUuid}
-          testName={infoModal.testName}
-          hasInfoCard={infoModal.hasInfoCard}
-          hasReadme={infoModal.hasReadme}
-          scrollToValidator={infoModal.scrollToValidator}
-        />
-      )}
+      {dialogs.dialogs}
     </div>
   );
 }
