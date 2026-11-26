@@ -605,3 +605,10 @@ export interface CoverageMatrixHostsResponse {
   pageSize: number;
   truncated: boolean;
 }
+
+// Score movement (GET /api/analytics/score-movement)
+
+/** Where a failure in play came from, decided at its first failing moment. */
+export type MovementOrigin = 'open_at_start' | 'older_retested' | 'regression' | 'new_test' | 'first_on_endpoint';
+/** What became of a failure in play by the end of the period. */
+export type MovementOutcome = 'fixed' | 'still_failing' | 'not_retested' | 'left_untested';
