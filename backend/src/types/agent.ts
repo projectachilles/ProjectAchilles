@@ -366,6 +366,12 @@ export interface CreateTaskOptions {
   noticeId?: string | null;
   /** Campaign run these tasks belong to; NULL/absent = not part of a campaign. */
   campaignRunId?: string | null;
+  /**
+   * The scheduled run each agent's task belongs to (see scheduleRunKey), when a
+   * schedule creates the tasks. Per agent, because a per-machine schedule can
+   * dispatch slots of two days in one tick. Absent = no schedule created them.
+   */
+  scheduleRunFor?: (agentId: string) => string | null;
 }
 
 export interface CreateTaskRequest {

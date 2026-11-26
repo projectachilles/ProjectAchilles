@@ -525,6 +525,10 @@ export function initializeTables(database: Database.Database): void {
   // Hot path for the retry worker: filter by status + ingestion flag.
   database.prepare(`CREATE INDEX IF NOT EXISTS idx_tasks_es_ingested ON tasks(status, es_ingested)`).run();
 
+  // Migration: tasks.schedule_run (which scheduled run created a task). After
+  // the retry columns above, which it reads; it never recreates the table.
+  migrateTaskScheduleRun(database);
+
   // Migration: tasks.test_uuid + its triggers and indexes. Keep this last: it
   // needs es_ingested, and restores what a table-recreate migration dropped.
   migrateTaskTestUuid(database);
@@ -674,6 +678,7 @@ function migrateExecuteCommandType(database: Database.Database): void {
     colSet.has('campaign_run_id') ? 'campaign_run_id TEXT DEFAULT NULL' : null,
     colSet.has('result_compacted_at') ? 'result_compacted_at TEXT DEFAULT NULL' : null,
     colSet.has('test_uuid') ? 'test_uuid TEXT DEFAULT NULL' : null,
+    colSet.has('schedule_run') ? 'schedule_run TEXT DEFAULT NULL' : null,
   ].filter(Boolean);
 
   database.exec(`DROP TABLE IF EXISTS tasks_new`);
@@ -706,6 +711,7 @@ function migrateExecuteCommandType(database: Database.Database): void {
     ${colSet.has('notice_id') ? 'CREATE INDEX IF NOT EXISTS idx_tasks_notice ON tasks(notice_id);' : ''}
     ${colSet.has('campaign_run_id') ? 'CREATE INDEX IF NOT EXISTS idx_tasks_campaign_run ON tasks(campaign_run_id);' : ''}
     ${colSet.has('result_compacted_at') ? 'CREATE INDEX IF NOT EXISTS idx_tasks_compactable ON tasks(completed_at) WHERE result_compacted_at IS NULL;' : ''}
+    ${colSet.has('schedule_run') ? 'CREATE INDEX IF NOT EXISTS idx_tasks_schedule_run ON tasks(schedule_run) WHERE schedule_run IS NOT NULL;' : ''}
   `);
   // DROP TABLE also dropped the test_uuid indexes and triggers; put them back.
   if (colSet.has('test_uuid') && colSet.has('es_ingested')) {
@@ -723,6 +729,24 @@ function migrateExecuteCommandType(database: Database.Database): void {
  * Runs last in initializeTables(), on every start: a table-recreate migration
  * (DROP TABLE) silently drops triggers and indexes, and this puts them back.
  */
+/**
+ * `tasks.schedule_run`: the scheduled run that created a task, as
+ * "<schedule id>:<local date of the slot>" (see scheduleRun.ts). The scheduler
+ * writes it and retries inherit it; the task list groups by it, so a run that
+ * reaches its agents one at a time is one entry with or without notices.
+ * Listed in migrateExecuteCommandType's optionalCols and index recreation.
+ */
+function migrateTaskScheduleRun(database: Database.Database): void {
+  const cols = database.prepare('PRAGMA table_info(tasks)').all() as { name: string }[];
+  if (!cols.some((c) => c.name === 'schedule_run')) {
+    database.exec('ALTER TABLE tasks ADD COLUMN schedule_run TEXT DEFAULT NULL');
+  }
+  // Partial: most tasks on most installs have no schedule.
+  database.exec(
+    'CREATE INDEX IF NOT EXISTS idx_tasks_schedule_run ON tasks(schedule_run) WHERE schedule_run IS NOT NULL',
+  );
+}
+
 function migrateTaskTestUuid(database: Database.Database): void {
   const cols = database.prepare(`PRAGMA table_info(tasks)`).all() as { name: string }[];
   if (!cols.some((c) => c.name === 'test_uuid')) {
