@@ -966,21 +966,30 @@ export function listTasks(
 }
 
 /**
- * What one entry of the task list is. Tasks announced by a pre-execution
- * notice form one run per notice and test, whatever their batch: a run with a
- * randomized start per machine makes one single-task batch per agent, hours apart, and
- * they are one run to the person who started it. The test is part of the key
- * because one notice can cover several tests (a campaign, a scheduler tick).
- * The organization is part of the key too: a notice written before notices
- * were per-organization can cover several, and a run must never show one
- * organization another's tasks (the page's tasks are matched by this key).
- * Tasks without a notice keep the batch as their run: nothing is merged by
- * guessing from names or times. (A task without a batch, which no code path
- * writes, is a run of its own.) The alias must be `t`.
+ * What one entry of the task list is: a run. In order:
+ *
+ * 1. Tasks a schedule created form one run per scheduled run (`schedule_run`:
+ *    the schedule and the day of the slot), whatever their batch or notice. A
+ *    schedule with a time per machine makes one single-task batch per agent,
+ *    hours apart; they are one run to the person who scheduled it, with
+ *    notices on or off. A retry keeps its original's `schedule_run`.
+ * 2. Other tasks announced by a pre-execution notice form one run per notice
+ *    and test (a notice can cover several tests: a campaign).
+ * 3. Every other task keeps its batch as its run. Nothing is merged by
+ *    guessing from names or times. (A task without a batch, which no code
+ *    path writes, is a run of its own.)
+ *
+ * The organization is part of the first two keys: a notice written before
+ * notices were per-organization can cover several, and a run must never show
+ * one organization another's tasks (the page's tasks are matched by this key).
+ * The alias must be `t`.
  */
+const RUN_TEST_SQL = `COALESCE(NULLIF(t.test_uuid, ''), json_extract(t.payload, '$.test_uuid'), '')`;
 const RUN_KEY_SQL = `CASE
+  WHEN t.schedule_run IS NOT NULL
+    THEN 's:' || t.schedule_run || '|' || COALESCE(t.org_id, '') || '|' || t.type || '|' || ${RUN_TEST_SQL}
   WHEN t.notice_id IS NOT NULL
-    THEN 'n:' || t.notice_id || '|' || COALESCE(t.org_id, '') || '|' || t.type || '|' || COALESCE(NULLIF(t.test_uuid, ''), json_extract(t.payload, '$.test_uuid'), '')
+    THEN 'n:' || t.notice_id || '|' || COALESCE(t.org_id, '') || '|' || t.type || '|' || ${RUN_TEST_SQL}
   ELSE 'b:' || COALESCE(t.batch_id, t.id)
 END`;
 
@@ -1094,18 +1103,21 @@ export function listTasksGrouped(
   const countRow = { total: runRows[0].total_runs };
 
   // 3. Fetch every task of the runs on this page, matching the filters or not:
-  //    a group is described whole. The indexed batch and notice ids narrow the
-  //    rows; the run key then decides, in SQL, because a notice can cover other
-  //    tests (a 100-test campaign is one notice) and a batch can hold a retry
-  //    that was announced by a notice of its own.
+  //    a group is described whole. The indexed batch, notice and scheduled-run
+  //    ids narrow the rows; the run key then decides, in SQL, because a notice
+  //    can cover other tests (a 100-test campaign is one notice) and a batch can
+  //    hold a task that belongs to another run.
   const pageKeys = new Set(runRows.map((r) => r.run_key));
   const batchIds: string[] = [];
   const noticeIdSet = new Set<string>();
+  const scheduleRunSet = new Set<string>();
   for (const key of pageKeys) {
     if (key.startsWith('b:')) batchIds.push(key.slice(2));
+    else if (key.startsWith('s:')) scheduleRunSet.add(key.slice(2, key.indexOf('|')));
     else noticeIdSet.add(key.slice(2, key.indexOf('|')));
   }
   const noticeIds = [...noticeIdSet];
+  const scheduleRuns = [...scheduleRunSet];
   const marks = (ids: string[]) => ids.map(() => '?').join(', ');
   const membership: string[] = [];
   const membershipParams: string[] = [];
@@ -1117,6 +1129,10 @@ export function listTasksGrouped(
   if (noticeIds.length > 0) {
     membership.push(`t.notice_id IN (${marks(noticeIds)})`);
     membershipParams.push(...noticeIds);
+  }
+  if (scheduleRuns.length > 0) {
+    membership.push(`t.schedule_run IN (${marks(scheduleRuns)})`);
+    membershipParams.push(...scheduleRuns);
   }
   // A caller scoped to an organization never gets another's rows, whatever a batch or notice holds.
   const orgClause = filters.org_id ? 'AND t.org_id = ?' : '';
