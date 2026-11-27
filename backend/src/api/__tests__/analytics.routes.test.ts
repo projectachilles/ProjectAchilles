@@ -8,7 +8,12 @@ vi.mock('@clerk/express', () => ({
   requireAuth: () => (_req: any, _res: any, next: any) => next(),
 }));
 
+// Whether the caller holds analytics:risk:read (hasRequestPermission); the coverage matrix tests flip it.
+const auth = vi.hoisted(() => ({ riskRead: true }));
+
 vi.mock('../../middleware/clerk.middleware.js', () => ({
+  hasRequestPermission: (_req: any, ...permissions: string[]) =>
+    permissions.every((p) => p !== 'analytics:risk:read' || auth.riskRead),
   clerkAuth: (_req: any, _res: any, next: any) => next(),
   requireClerkAuth: () => (req: any, _res: any, next: any) => {
     req.auth = { userId: 'test-user-001' };
@@ -621,6 +626,22 @@ describe('analytics routes', () => {
       expect(mockGetPaginatedExecutions).not.toHaveBeenCalled();
       expect(mockGetGroupedPaginatedExecutions).not.toHaveBeenCalled();
     });
+
+    // Keep this test last in the block: the limiter lives in the route module,
+    // so its per-user count is shared by every test of this file.
+    it('limits one user to a few requests per minute', async () => {
+      const { HEAVY_READ_MAX_PER_MINUTE } = await import('../analytics.routes.js');
+      expect(HEAVY_READ_MAX_PER_MINUTE).toBe(30);
+      const statuses: number[] = [];
+      for (let i = 0; i < HEAVY_READ_MAX_PER_MINUTE + 1; i++) statuses.push((await get()).status);
+      expect(statuses).toContain(429);
+      expect(statuses.filter((code) => code === 200).length).toBeLessThan(HEAVY_READ_MAX_PER_MINUTE);
+      const limited = await get();
+      expect(limited.status).toBe(429);
+      expect(limited.body).toEqual({ success: false, error: 'Too many requests, please try again later' });
+      // Each limited route has a budget of its own.
+      expect((await request(createApp()).get('/api/analytics/score-movement')).status).not.toBe(429);
+    });
   });
 
   describe('coverage matrix', () => {
@@ -641,7 +662,25 @@ describe('analytics routes', () => {
       expect(mockCoverageMatrix).toHaveBeenCalledWith(
         expect.objectContaining({ from: 'now-30d', org: 'o1', hostnames: 'h1', threatActors: 'APT29' }),
         { rows: 'tests' },
+        { acceptedRisks: true },
       );
+    });
+
+    it('shows accepted risks only to a caller with analytics:risk:read', async () => {
+      auth.riskRead = false;
+      try {
+        await get();
+        await get('?rows=hosts&state=risk_accepted');
+      } finally {
+        auth.riskRead = true;
+      }
+      await get();
+
+      expect(mockCoverageMatrix.mock.calls.map((c) => c[2])).toEqual([
+        { acceptedRisks: false },
+        { acceptedRisks: false },
+        { acceptedRisks: true },
+      ]);
     });
 
     it('pages rows = hosts: 25 a page by default, 100 at most, 1 at least', async () => {
@@ -738,6 +777,22 @@ describe('analytics routes', () => {
       const fs = await import('fs');
       expect(fs.readFileSync(new URL('../../server.ts', import.meta.url), 'utf8')).toMatch(/scoreMovement:\s*true/);
       expect(fs.readFileSync(new URL('../../../../backend-serverless/src/app.ts', import.meta.url), 'utf8')).toMatch(/scoreMovement:\s*false/);
+    });
+
+    // Keep this test last in the block: the limiter lives in the route module,
+    // so its per-user count is shared by every test of this file.
+    it('limits one user to a few requests per minute', async () => {
+      const { HEAVY_READ_MAX_PER_MINUTE } = await import('../analytics.routes.js');
+      expect(HEAVY_READ_MAX_PER_MINUTE).toBe(30);
+      const statuses: number[] = [];
+      for (let i = 0; i < HEAVY_READ_MAX_PER_MINUTE + 1; i++) statuses.push((await get()).status);
+      expect(statuses).toContain(429);
+      expect(statuses.filter((code) => code === 200).length).toBeLessThan(HEAVY_READ_MAX_PER_MINUTE);
+      const limited = await get();
+      expect(limited.status).toBe(429);
+      expect(limited.body).toEqual({ success: false, error: 'Too many requests, please try again later' });
+      // Each limited route has a budget of its own.
+      expect((await request(createApp()).get('/api/analytics/coverage-matrix')).status).not.toBe(429);
     });
   });
 

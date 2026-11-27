@@ -38,7 +38,7 @@ Each row is one test, with its name written once and one mark per host. Hosts ke
 | ▲ amber | Detected | The test ran and an EDR alert named it; nothing stopped it. |
 | ✕ red | Unprotected | The test ran and nothing alerted. |
 | ? grey | No verdict | The test ran on this host in the window, with no conclusive result. |
-| ⊘ blue | Risk accepted | A risk acceptance covers every result of this test on this host. |
+| ⊘ blue | Risk accepted | A risk acceptance covers every result of this test on this host. Shown only to roles that may see risk acceptances (Analyst and up); for an Explorer the pair is left out, as it is from the Defense Score, so the host reads as never run there. |
 | dashed, empty | Never run | The host has results in the window, none for this test. |
 
 The states are the Defense Score's: the same latest result per test and host, counted the same way. A test whose newest run has no verdict keeps showing its older conclusive result. A multi-stage attack is one mark per host. Under each name, "caught on x of y hosts" counts protected and detected among the hosts with a verdict.

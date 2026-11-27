@@ -245,20 +245,21 @@ describe('runRunStartBackfill', () => {
   });
 
   it('reads started_at from tasks.result with bound parameters and logs', async () => {
+    const END = new Date(Date.parse(START) + 60_000).toISOString();
     const log = vi.spyOn(console, 'log').mockImplementation(() => {});
     try {
       mockSearch.mockResolvedValueOnce(page(hit('t1::A'), hit('t2', [2]), hit('t3', [3])));
       mockSearch.mockResolvedValueOnce(page());
       mockBulk.mockResolvedValue({ items: [UPDATED] });
       mockAll.mockReturnValue([
-        { id: 't1', result: JSON.stringify({ started_at: START }) },
+        { id: 't1', payload: JSON.stringify({ execution_timeout: 300 }), result: JSON.stringify({ started_at: START, completed_at: END }) },
         { id: 't2', result: 'not json' },
         { id: 't3', result: null },
       ]);
 
       const res = await runRunStartBackfill();
 
-      expect(mockPrepare).toHaveBeenCalledWith('SELECT id, result FROM tasks WHERE id IN (?,?,?)');
+      expect(mockPrepare).toHaveBeenCalledWith('SELECT id, payload, result FROM tasks WHERE id IN (?,?,?)');
       expect(mockAll).toHaveBeenCalledWith('t1', 't2', 't3');
       expect(res).toEqual({ scanned: 3, filled: 1, unfillable: 2, errors: [] });
       expect(log).toHaveBeenCalledWith('[Run-Start-Backfill] scanned=3 filled=1 unfillable=2');

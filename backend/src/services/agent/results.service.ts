@@ -12,6 +12,7 @@ import { createResultsIndex, RESULTS_INDEX_MAPPING } from '../analytics/index-ma
 import { IntegrationsSettingsService } from '../integrations/settings.js';
 import { enrichBundleWithCentralPosture } from './central-compliance.js';
 import { validTestVersion } from './testVersionPayload.js';
+import { boundedRunStart } from './runStart.js';
 import type { EdrTermination } from '../edr/agent-kill-evidence.js';
 
 function pad2(n: number): string { return n < 10 ? `0${n}` : `${n}`; }
@@ -166,13 +167,13 @@ export function testVersionField(
 
 /**
  * `routing.run_started_at` fragment: the start in UTC ISO form, or nothing when
- * it is not a date. One stored form, because an index that maps the field as
- * `date` rejects the whole document over a value it cannot parse.
+ * it is not a date or not within the task's execution timeout of the end
+ * (boundedRunStart, runStart.ts). One stored form, because an index that maps
+ * the field as `date` rejects the whole document over a value it cannot parse.
  */
-function runStartedAtField(startedAt: unknown): { run_started_at: string } | Record<string, never> {
-  return typeof startedAt === 'string' && startedAt !== '' && !Number.isNaN(new Date(startedAt).getTime())
-    ? { run_started_at: new Date(startedAt).toISOString() }
-    : {};
+function runStartedAtField(task: Task, startedAt: unknown, completedAt: unknown): { run_started_at: string } | Record<string, never> {
+  const start = boundedRunStart(startedAt, completedAt, task.payload?.execution_timeout);
+  return start ? { run_started_at: start } : {};
 }
 
 /** Standard whole-test document; shared by `ingestResult` and `ingestEdrTerminatedResult`. */
@@ -181,7 +182,7 @@ function buildStandardDoc(task: Task, eventTime: string | undefined, hostname: s
   return {
     routing: {
       event_time: eventTime,
-      ...runStartedAtField(runStartedAt),
+      ...runStartedAtField(task, runStartedAt, eventTime),
       oid: task.org_id,
       hostname,
     },
@@ -366,7 +367,7 @@ async function ingestBundleControls(
       {
         routing: {
           event_time: result.completed_at,
-          ...runStartedAtField(result.started_at),
+          ...runStartedAtField(task, result.started_at, result.completed_at),
           oid: task.org_id,
           hostname: result.hostname,
         },

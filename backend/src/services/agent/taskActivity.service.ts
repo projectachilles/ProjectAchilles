@@ -55,6 +55,9 @@ const FIELD: Record<TaskBucket, Exclude<keyof TaskActivityBucket, 'from' | 'to'>
  * cancel) and must see them. The work is bounded: 30 days of tasks through
  * idx_tasks_created (also for an organization caller, see taskListConditions),
  * only the part of each result the bucket needs, asked once a minute per open page.
+ * It still grows with the tasks of those 30 days and runs synchronously (about
+ * 1.3 s on 50,000 bundle tasks), so the route limits each user to
+ * TASK_ACTIVITY_MAX_PER_MINUTE requests (tasks.routes.ts).
  */
 export function getTaskActivity(filters: TaskActivityFilters, tz: string, nowMs = Date.now()): TaskActivityResponse {
   const { buckets: bounds } = activityBuckets(nowMs - TASK_ACTIVITY_DAYS * DAY_MS, nowMs, tz);

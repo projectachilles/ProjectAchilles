@@ -237,7 +237,7 @@ Not available on the Vercel backend (`testRunRecency` is absent from `/api/capab
 GET /api/agent/admin/tasks/activity?tz=America/Santo_Domingo
 ```
 
-Tasks per day over the last 30 days, by creation time, for the strip on the Tasks page. Needs `endpoints:tasks:read`; an organization caller counts its own organization's tasks only. Not available on the Vercel backend (`activityStrip` is `false` in `/api/capabilities`).
+Tasks per day over the last 30 days, by creation time, for the strip on the Tasks page. Needs `endpoints:tasks:read`; an organization caller counts its own organization's tasks only. Each user may call it 20 times a minute (`429` after that); the page calls it once a minute and after its own actions. Not available on the Vercel backend (`activityStrip` is `false` in `/api/capabilities`).
 
 | Query | Notes |
 |-------|-------|

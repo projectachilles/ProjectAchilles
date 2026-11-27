@@ -142,9 +142,10 @@ const FLEET: Doc[] = [
   control(T0, 'CH-2', 0, { host: 'host-2' }),
 ];
 
-const matrix = async (docs: Doc[], params: Params = RANGE, es = createService()) => {
+/** The matrix as a caller with analytics:risk:read sees it, unless `acceptedRisks` says otherwise. */
+const matrix = async (docs: Doc[], params: Params = RANGE, es = createService(), acceptedRisks = true) => {
   useIndex(docs);
-  return (await es.getCoverageMatrix(params, { rows: 'tests' })) as CoverageMatrixTestsResponse;
+  return (await es.getCoverageMatrix(params, { rows: 'tests' }, { acceptedRisks })) as CoverageMatrixTestsResponse;
 };
 
 function cell(view: CoverageMatrixTestsResponse, testUuid: string, hostname: string, org = 'org-a'): MatrixCell | undefined {
@@ -274,6 +275,47 @@ describe('getCoverageMatrix', () => {
       expect(cell(view, SOLO, 'host-2')).toEqual({ i: view.hosts.findIndex((h) => h.hostname === 'host-2'), verdict: 'risk_accepted', at: iso(T0) });
       expect(cell(view, SOLO, 'host-1')).toMatchObject({ verdict: 'protected' });
       expect(view.tests.find((t) => t.testUuid === SOLO)!.counts).toMatchObject({ protected: 1, unprotected: 0, riskAccepted: 1 });
+    });
+
+    describe('for a caller without analytics:risk:read', () => {
+      // Accepted on host-2 only, so the accepted cell would name host-2 and the test.
+      const SOLO_ON_HOST_2 = {
+        bool: { must_not: [{ bool: { must: [{ term: { 'f0rtika.test_name': 'Solo test' } }, { term: { 'routing.hostname': 'host-2' } }] } }] },
+      };
+
+      it('shows no accepted pair: the cell is what the exclusion leaves, as in the Defense Score', async () => {
+        mockExclusion.mockResolvedValue(SOLO_ON_HOST_2);
+
+        const view = await matrix(FLEET, RANGE, createService(), false);
+
+        expect(cell(view, SOLO, 'host-2')).toBeUndefined();
+        expect(cell(view, SOLO, 'host-1')).toMatchObject({ verdict: 'protected' });
+        expect(view.tests.find((t) => t.testUuid === SOLO)!.counts).toMatchObject({ protected: 1, unprotected: 0, riskAccepted: 0 });
+        expect(JSON.stringify(view)).not.toContain('risk_accepted');
+      });
+
+      it('does not list a host that only an accepted pair puts on the matrix', async () => {
+        mockExclusion.mockResolvedValue({ bool: { must_not: [{ term: { 'routing.hostname': 'host-9' } }] } });
+        const docs = [single(T0, SOLO, 126), single(T0, SOLO, 101, { host: 'host-9' })];
+
+        const view = await matrix(docs, RANGE, createService(), false);
+
+        expect(view.hosts.map((h) => h.hostname)).toEqual(['host-1']);
+        expect((await matrix(docs)).hosts.map((h) => h.hostname)).toContain('host-9');
+      });
+
+      it('lists no host for the risk_accepted state', async () => {
+        mockExclusion.mockResolvedValue(SOLO_ON_HOST_2);
+        useIndex(FLEET);
+        const es = createService();
+        const view = { rows: 'hosts', page: 1, pageSize: 25, testUuid: SOLO, verdict: 'risk_accepted' } as const;
+
+        const without = (await es.getCoverageMatrix(RANGE, view)) as CoverageMatrixHostsResponse;
+        const withRead = (await es.getCoverageMatrix(RANGE, view, { acceptedRisks: true })) as CoverageMatrixHostsResponse;
+
+        expect(JSON.stringify(without)).not.toContain('host-2');
+        expect(JSON.stringify(withRead)).toContain('host-2');
+      });
     });
 
     it('keeps a chain\'s verdict when one of its stages is accepted', async () => {

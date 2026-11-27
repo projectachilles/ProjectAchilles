@@ -1,5 +1,5 @@
 import { Router } from 'express';
-import { requireClerkAuth, requirePermission } from '../middleware/clerk.middleware.js';
+import { requireClerkAuth, requirePermission, hasRequestPermission } from '../middleware/clerk.middleware.js';
 import { scopeResultsToCallerOrg } from '../middleware/orgScope.js';
 import { requireInstallOperator } from '../middleware/installScope.js';
 import { asyncHandler, AppError } from '../middleware/error.middleware.js';
@@ -19,6 +19,8 @@ import type { CurrentTestVersion, ResultVersionState } from '../types/testVersio
 import { RESULT_VERSION_STATES, MAX_VERSION_FILTER_TESTS } from '../services/analytics/testVersionState.js';
 import { currentFingerprintMap } from '../services/browser/currentFingerprints.js';
 import { parseTimeZone } from './timeZoneParam.js';
+import rateLimit from 'express-rate-limit';
+import { uiLimiterKey } from '../middleware/rateLimitKeys.js';
 
 const router = Router();
 
@@ -57,6 +59,31 @@ function parseCount(value: unknown, fallback: number, min: number, error: string
 
 /** Most hosts on one page of the coverage matrix's rows = hosts. */
 const MATRIX_MAX_PAGE_SIZE = 100;
+
+/** Requests one user may make per minute to each route below that is limited by heavyReadLimiter. */
+export const HEAVY_READ_MAX_PER_MINUTE = 30;
+
+/**
+ * A per-user budget for one route whose Elasticsearch work grows with the data
+ * in its window, not with the answer: score movement (a year before the period
+ * plus the period, several pair reads) and the executions strip (up to
+ * COMPOSITE_MAX_PAGES pages of bundle runs). Their readers include the explorer
+ * role and read-scoped API keys, and the general budget (1,000 per 15 minutes)
+ * would let one of them keep Elasticsearch busy. The console asks once per
+ * Dashboard load or filter change. Each call makes a budget of its own.
+ */
+function heavyReadLimiter() {
+  return rateLimit({
+    windowMs: 60 * 1000,
+    max: HEAVY_READ_MAX_PER_MINUTE,
+    standardHeaders: true,
+    legacyHeaders: false,
+    keyGenerator: uiLimiterKey,
+    message: { success: false, error: 'Too many requests, please try again later' },
+  });
+}
+const executionsActivityLimiter = heavyReadLimiter();
+const scoreMovementLimiter = heavyReadLimiter();
 
 // Extract extended filter params from Express query object.
 // Dashboard endpoints pass these through so filter bar affects all metrics.
@@ -745,7 +772,7 @@ router.get('/stage-coverage', asyncHandler(async (req, res) => {
 // the caller's time zone (`tz`, an IANA name; UTC when absent), each with its
 // runs counted as the Dashboard's cadence card counts them. It follows the
 // filter bar except its outcome filters, like the coverage matrix.
-router.get('/executions/activity', asyncHandler(async (req, res) => {
+router.get('/executions/activity', executionsActivityLimiter, asyncHandler(async (req, res) => {
   const { tz, basis: _basis, scoringMode: _scoringMode, ...query } = req.query;
   const timeZone = parseTimeZone(tz);
   const es = await getEsService();
@@ -779,6 +806,9 @@ router.get('/coverage-matrix', asyncHandler(async (req, res) => {
           ...(state ? { verdict: state as MatrixVerdict } : {}),
         }
       : { rows: 'tests' },
+    // Which host and test a risk acceptance covers is for analytics:risk:read
+    // (the explorer role reads dashboards, not this): without it, no risk_accepted cells.
+    { acceptedRisks: hasRequestPermission(req, 'analytics:risk:read') },
   );
   res.json(result);
 }));
@@ -787,7 +817,7 @@ router.get('/coverage-matrix', asyncHandler(async (req, res) => {
 // and how new attack tests did on their first run. Always latest-result
 // posture, any-stage: basis and scoringMode are ignored; the service ignores
 // the outcome filters.
-router.get('/score-movement', asyncHandler(async (req, res) => {
+router.get('/score-movement', scoreMovementLimiter, asyncHandler(async (req, res) => {
   const { basis: _basis, scoringMode: _scoringMode, ...query } = req.query;
   const es = await getEsService();
   res.json(await es.getScoreMovement(extractFilterParams(query)));

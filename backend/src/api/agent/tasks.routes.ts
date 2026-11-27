@@ -436,6 +436,26 @@ function parseCreatedRange(from: unknown, to: unknown): { created_from?: string;
   return range;
 }
 
+/** Requests one user may make to the task activity endpoint per minute. */
+export const TASK_ACTIVITY_MAX_PER_MINUTE = 20;
+
+/**
+ * The strip reads every task of the last 30 days and parses each finished
+ * one's result, synchronously (better-sqlite3): about 1.3 s on 50,000 bundle
+ * tasks, during which the process serves nothing else. The page asks once a
+ * minute and after its own actions (a retry, a cancel, a new filter); the
+ * general budget (1,000 per 15 minutes) would let one caller keep the server
+ * busy. Per user, like the general limiter.
+ */
+const taskActivityLimiter = rateLimit({
+  windowMs: 60 * 1000,
+  max: TASK_ACTIVITY_MAX_PER_MINUTE,
+  standardHeaders: true,
+  legacyHeaders: false,
+  keyGenerator: uiLimiterKey,
+  message: { success: false, error: 'Too many requests, please try again later' },
+});
+
 /**
  * GET /admin/tasks/activity
  * Tasks per local day over the last 30 days, by creation time and by the run
@@ -447,6 +467,7 @@ function parseCreatedRange(from: unknown, to: unknown): { created_from?: string;
 adminTasksRouter.get(
   '/tasks/activity',
   requirePermission('endpoints:tasks:read'),
+  taskActivityLimiter,
   asyncHandler(async (req, res) => {
     const tz = parseTimeZone(req.query.tz);
     const types = parseTaskTypes(req.query.type);
