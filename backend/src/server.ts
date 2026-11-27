@@ -349,6 +349,7 @@ async function startServer() {
       testFleet: true,
       stageCoverage: true,
       coverageMatrix: true,
+      activityStrip: true,
       scoreMovement: true,
       testRunRecency: true,
       about: true,

@@ -1,4 +1,4 @@
-import { useState, useCallback, useMemo, useEffect } from 'react';
+import { useState, useCallback, useMemo, useEffect, useRef } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import { joinFilterList, splitFilterList } from '@/lib/filterList';
 import type { ExtendedFilterParams, ResultVersionState } from '@/services/api/analytics';
@@ -181,7 +181,20 @@ export function toApiParams(filters: AnalyticsFilterState): ExtendedFilterParams
   return params;
 }
 
-export function useAnalyticsFilters(syncWithUrl = true): UseAnalyticsFiltersReturn {
+export interface UseAnalyticsFiltersOptions {
+  /**
+   * Address parameters that belong to the date range and are dropped when it
+   * changes (the activity strip's selected bucket). They leave in the same
+   * address update that writes the new range: a second `setSearchParams` in the
+   * same tick would start from the same address, and the last one would win.
+   * Pass a constant array.
+   */
+  rangeBoundParams?: readonly string[];
+}
+
+const rangeKeyOf = (range: DateRangeValue) => `${range.preset}|${range.from ?? ''}|${range.to ?? ''}`;
+
+export function useAnalyticsFilters(syncWithUrl = true, { rangeBoundParams }: UseAnalyticsFiltersOptions = {}): UseAnalyticsFiltersReturn {
   const [searchParams, setSearchParams] = useSearchParams();
 
   // Initialize from URL params; the date range falls back to the one
@@ -198,11 +211,16 @@ export function useAnalyticsFilters(syncWithUrl = true): UseAnalyticsFiltersRetu
   }, [filters.dateRange]);
 
   const [isExpanded, setIsExpanded] = useState(false);
+  /** The range the address was last synced with: the first sync (the page opening) drops nothing. */
+  const syncedRange = useRef(rangeKeyOf(filters.dateRange));
 
   // Sync URL when filters change (preserve non-filter params like 'tab')
   useEffect(() => {
     if (syncWithUrl) {
       const filterParams = serializeToUrlParams(filters);
+      const rangeKey = rangeKeyOf(filters.dateRange);
+      const rangeChanged = syncedRange.current !== rangeKey;
+      syncedRange.current = rangeKey;
       setSearchParams(prev => {
         // Start with existing params to preserve non-filter params like 'tab'
         const newParams = new URLSearchParams(prev);
@@ -210,6 +228,8 @@ export function useAnalyticsFilters(syncWithUrl = true): UseAnalyticsFiltersRetu
         // 'severities' is a removed filter; still cleared so a legacy link's param doesn't linger
         const filterKeys = ['org', 'date', 'from', 'to', 'result', 'hostnames', 'tests', 'techniques', 'categories', 'severities', 'threatActors', 'tags', 'errorNames', 'errorCodes', 'bundleNames', 'versionState'];
         filterKeys.forEach(key => newParams.delete(key));
+        // What was picked within the old range goes with it.
+        if (rangeChanged) rangeBoundParams?.forEach(key => newParams.delete(key));
         // Add back the current filter params
         Object.entries(filterParams).forEach(([key, value]) => {
           newParams.set(key, value);
@@ -217,7 +237,7 @@ export function useAnalyticsFilters(syncWithUrl = true): UseAnalyticsFiltersRetu
         return newParams;
       }, { replace: true });
     }
-  }, [filters, syncWithUrl, setSearchParams]);
+  }, [filters, syncWithUrl, setSearchParams, rangeBoundParams]);
 
   // Calculate active filter count (all executions-tab filters)
   const activeFilterCount = useMemo(() => {

@@ -339,6 +339,34 @@ describe('export and archive by date', () => {
     expect(screen.getByRole('button', { name: 'Exporting SB Export…' })).toBeDisabled();
   });
 
+  it('draws what the page puts above the views between the switches and the matrix', async () => {
+    setup({ strip: <div data-testid="the-strip">bars</div> });
+    const heading = await screen.findByRole('heading', { name: 'Solo test' });
+    const strip = screen.getByTestId('the-strip');
+
+    expect(screen.getByRole('button', { name: 'Matrix' }).compareDocumentPosition(strip) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(strip.compareDocumentPosition(heading) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+  });
+
+  it('draws it above the list as well, also where the server has no matrix', async () => {
+    const user = userEvent.setup();
+    const { unmount } = setup({ strip: <div data-testid="the-strip">bars</div> });
+    await screen.findByRole('heading', { name: 'Solo test' });
+    await user.click(screen.getByRole('button', { name: 'List' }));
+    expect(screen.getByTestId('the-strip')).toBeInTheDocument();
+    unmount();
+
+    caps.coverageMatrix = false;
+    setup({ strip: <div data-testid="the-strip">bars</div> });
+    expect(screen.getByTestId('the-strip')).toBeInTheDocument();
+  });
+
+  it('does not draw it before the server has said what it supports', () => {
+    caps.loaded = false;
+    setup({ strip: <div data-testid="the-strip">bars</div> });
+    expect(screen.queryByTestId('the-strip')).toBeNull();
+  });
+
   it('are the list\'s own in the list view: one toolbar, never two', async () => {
     const user = userEvent.setup();
     setup({ onFetchAllExecutions: vi.fn(), onArchiveByDate: vi.fn() });

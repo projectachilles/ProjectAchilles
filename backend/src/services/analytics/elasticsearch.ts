@@ -7,6 +7,7 @@ import { attackSimulationExclusions } from './attack-simulation-filter.js';
 import { NOT_STAGELESS } from './enrichment-eligibility.js';
 import { EDR_PREVENTED_ERROR_STAGE, SKIPPED as SKIPPED_FILTER, rollupEdrFlags } from '../reports/stageOutcome.js';
 import { AppError } from '../../middleware/error.middleware.js';
+import { activityBuckets, bucketIndexOf } from './activityBuckets.js';
 import {
   MAX_FRESHNESS_DAYS,
   applyOutcomeFilters,
@@ -39,6 +40,7 @@ import {
 import type { EdrResultFlags } from '../outcomes/vendors.js';
 import type {
   ExecutionActivityResponse,
+  ExecutionsActivityResponse,
   AnalyticsSettings,
   AnalyticsQueryParams,
   DefenseScoreResponse,
@@ -284,6 +286,24 @@ function parseRangeTime(v: string, nowMs: number): number {
   const m = v.match(/^now(?:-(\d+)([dhwmM]))?$/);
   if (m) return m[1] ? nowMs - parseInt(m[1], 10) * RANGE_UNIT_MS[m[2]] : nowMs;
   return Date.parse(v);
+}
+
+type ActivityCounts = { protected: number; unprotected: number; inconclusive: number };
+
+/** Dates the activity strip accepts: within a year of what a Date can hold (about ±270,000 years), so bucket bounds stay valid dates. */
+const ACTIVITY_MAX_INSTANT_MS = 8.64e15 - 400 * DAY_MS;
+
+/**
+ * The outcome of one bundle run, from the sub-aggregations of activityRules:
+ * no conclusive stage is no verdict; a cyber-hygiene run is protected only when
+ * every conclusive control passed; an attack run when any stage was protected.
+ */
+function activityRunVerdict(bucket: any): keyof ActivityCounts {
+  const conclusiveDocs = Number(bucket.conclusive?.doc_count) || 0;
+  const protectedDocs = Number(bucket.protected?.doc_count) || 0;
+  if (conclusiveDocs === 0) return 'inconclusive';
+  if ((Number(bucket.hygiene?.doc_count) || 0) > 0) return protectedDocs === conclusiveDocs ? 'protected' : 'unprotected';
+  return protectedDocs > 0 ? 'protected' : 'unprotected';
 }
 
 /** A from/to value resolvePostureWindow can parse: absent, now[-N<unit>] or a date. */
@@ -4187,56 +4207,15 @@ export class ElasticsearchService {
       dayKeys.push(new Date(todayMs - i * DAY_MS).toISOString().slice(0, 10));
     }
 
-    const orgFilter = this.buildOrgFilter(org);
-    // Real test results only (see getExecutionActivity).
-    const countedFilter = {
-      bool: {
-        filter: [this.buildTestDataFilter(), ...(orgFilter ? [orgFilter] : [])],
-        must_not: [
-          { term: { 'event.ERROR': this.UPLOAD_CONFIRMATION_CODE } },
-          {
-            bool: {
-              filter: [
-                { term: { 'f0rtika.is_bundle_control': true } },
-                { term: { 'event.ERROR': 0 } },
-              ],
-            },
-          },
-        ],
-      },
-    };
+    const rules = this.activityRules();
+    const countedFilter = this.activityCountedFilter(org);
     const filters: any[] = [
       { range: { 'routing.event_time': { gte: `now-${spanDays - 1}d/d` } } },
       countedFilter,
     ];
-    const bundleDoc = { exists: { field: 'f0rtika.bundle_id' } };
+    const bundleDoc = rules.bundleDoc;
 
-    const conclusive = this.buildConclusiveResultsFilter();
-    // A standalone result counts on its own evidence.
-    const detected = {
-      bool: {
-        should: [
-          { term: { 'f0rtika.is_protected': true } },
-          edrOwnDetectedClause(),
-        ],
-        minimum_should_match: 1,
-      },
-    };
-    const protectedFilter = { bool: { filter: [conclusive, detected] } };
-    const unprotectedFilter = { bool: { filter: [conclusive], must_not: [detected] } };
-    const inconclusiveFilter = { bool: { must_not: [conclusive] } };
-    // A bundle run's verdict is chain-level: an alert that named the bundle counts.
-    const runProtected = {
-      bool: {
-        filter: [
-          conclusive,
-          { bool: { should: [{ term: { 'f0rtika.is_protected': true } }, ...edrDetectedTerms()], minimum_should_match: 1 } },
-        ],
-      },
-    };
-
-    type DayCounts = { protected: number; unprotected: number; inconclusive: number };
-    const byDay = new Map<string, DayCounts>(dayKeys.map((d) => [d, { protected: 0, unprotected: 0, inconclusive: 0 }]));
+    const byDay = new Map<string, ActivityCounts>(dayKeys.map((d) => [d, { protected: 0, unprotected: 0, inconclusive: 0 }]));
 
     const [response, bundleRuns] = await Promise.all([
       this.client.search({
@@ -4254,11 +4233,7 @@ export class ElasticsearchService {
                   min_doc_count: 0,
                   extended_bounds: { min: dayKeys[0], max: dayKeys[dayKeys.length - 1] },
                 },
-                aggs: {
-                  protected: { filter: protectedFilter },
-                  unprotected: { filter: unprotectedFilter },
-                  inconclusive: { filter: inconclusiveFilter },
-                },
+                aggs: rules.standaloneAggs,
               },
             },
           },
@@ -4284,20 +4259,11 @@ export class ElasticsearchService {
         'activity_runs',
         this.BUNDLE_RUN_PAGE_SIZE,
         this.BUNDLE_RUN_SOURCES,
-        {
-          conclusive: { filter: conclusive },
-          protected: { filter: runProtected },
-          hygiene: { filter: { term: { 'f0rtika.category': 'cyber-hygiene' } } },
-        },
+        rules.runAggs,
         (b) => {
           const ts = parseEsTime(b.key?.ts);
           if (!Number.isFinite(ts)) return;
-          const conclusiveDocs = Number(b.conclusive?.doc_count) || 0;
-          const protectedDocs = Number(b.protected?.doc_count) || 0;
-          let verdict: keyof DayCounts;
-          if (conclusiveDocs === 0) verdict = 'inconclusive';
-          else if ((Number(b.hygiene?.doc_count) || 0) > 0) verdict = protectedDocs === conclusiveDocs ? 'protected' : 'unprotected';
-          else verdict = protectedDocs > 0 ? 'protected' : 'unprotected';
+          const verdict = activityRunVerdict(b);
           // Counted here, not collected: memory stays at one counter set per
           // day however many runs the window holds.
           const day = byDay.get(new Date(ts).toISOString().slice(0, 10));
@@ -4335,6 +4301,177 @@ export class ElasticsearchService {
       executions7d: runs7d,
       protectedPct7d: conclusive7d > 0 ? Math.round((protected7d / conclusive7d) * 1000) / 10 : null,
       endpointsTested7d: aggs?.last_7d?.endpoints?.value ?? 0,
+      ...(bundleRuns.truncated ? { truncated: true as const } : {}),
+    };
+  }
+
+  /**
+   * The documents the activity counts are made of: real test results only
+   * (the test-data filter, no upload confirmations, no skipped bundle stages),
+   * of one organization. Shared by the cadence card and the executions strip.
+   */
+  private activityCountedFilter(org: string | undefined): any {
+    const orgFilter = this.buildOrgFilter(org);
+    return {
+      bool: {
+        filter: [this.buildTestDataFilter(), ...(orgFilter ? [orgFilter] : [])],
+        must_not: [
+          { term: { 'event.ERROR': this.UPLOAD_CONFIRMATION_CODE } },
+          {
+            bool: {
+              filter: [
+                { term: { 'f0rtika.is_bundle_control': true } },
+                { term: { 'event.ERROR': 0 } },
+              ],
+            },
+          },
+        ],
+      },
+    };
+  }
+
+  /**
+   * How a run's outcome is counted, for the cadence card and the executions
+   * strip alike (see getExecutionActivity for the rules in words). One place,
+   * so the two can never disagree: `standaloneAggs` splits standalone results,
+   * `runAggs` are the sub-aggregations of one bundle run, read by
+   * `activityRunVerdict`.
+   */
+  private activityRules(): { bundleDoc: any; standaloneAggs: Record<string, any>; runAggs: Record<string, any> } {
+    const conclusive = this.buildConclusiveResultsFilter();
+    // A standalone result counts on its own evidence.
+    const detected = {
+      bool: {
+        should: [
+          { term: { 'f0rtika.is_protected': true } },
+          edrOwnDetectedClause(),
+        ],
+        minimum_should_match: 1,
+      },
+    };
+    // A bundle run's verdict is chain-level: an alert that named the bundle counts.
+    const runProtected = {
+      bool: {
+        filter: [
+          conclusive,
+          { bool: { should: [{ term: { 'f0rtika.is_protected': true } }, ...edrDetectedTerms()], minimum_should_match: 1 } },
+        ],
+      },
+    };
+    return {
+      bundleDoc: { exists: { field: 'f0rtika.bundle_id' } },
+      standaloneAggs: {
+        protected: { filter: { bool: { filter: [conclusive, detected] } } },
+        unprotected: { filter: { bool: { filter: [conclusive], must_not: [detected] } } },
+        inconclusive: { filter: { bool: { must_not: [conclusive] } } },
+      },
+      runAggs: {
+        conclusive: { filter: conclusive },
+        protected: { filter: runProtected },
+        hygiene: { filter: { term: { 'f0rtika.category': 'cyber-hygiene' } } },
+      },
+    };
+  }
+
+  /**
+   * Runs per time bucket for the strip above All Executions: the filter bar's
+   * window cut into hours, days or weeks of the caller's time zone
+   * (activityBuckets), each with its runs counted as the cadence card counts
+   * them (activityRules). It follows every filter-bar filter except the outcome
+   * ones, like the coverage matrix: the strip shows the split by outcome itself.
+   * Risk-accepted results are counted, by their verdict.
+   *
+   * The bucket bounds are computed once and used for both searches: a
+   * date_range over standalone results and the pass over bundle runs. Two
+   * calendars (one of Elasticsearch, one here) could disagree on a day the
+   * clocks change.
+   */
+  async getExecutionsActivity(
+    params: Partial<AnalyticsQueryParams> & Partial<ExtendedAnalyticsQueryParams>,
+    tz: string,
+  ): Promise<ExecutionsActivityResponse> {
+    const nowMs = Date.now();
+    // A bound that is not one string (given twice in the query), not a date, or a date too far
+    // out to be cut into buckets and written back is the caller's mistake: 400, never a 500.
+    const bound = (value: unknown, fallback: number): number => {
+      if (value === undefined || value === '') return fallback;
+      const ms = typeof value === 'string' ? parseRangeTime(value, nowMs) : Number.NaN;
+      if (!Number.isFinite(ms) || Math.abs(ms) > ACTIVITY_MAX_INSTANT_MS) throw new AppError('Invalid date range', 400);
+      return ms;
+    };
+    const toMs = bound(params.to, nowMs);
+    // No start: the 7 days before the end, as for the coverage matrix.
+    const fromMs = bound(params.from, toMs - 7 * DAY_MS);
+
+    const { interval, buckets: bounds, capped } = activityBuckets(fromMs, toMs, tz);
+    if (bounds.length === 0) return { interval, timeZone: tz, buckets: [] };
+
+    const rules = this.activityRules();
+    const filters: any[] = [
+      // Every bucket is read whole (the first and last reach past the window), so a bar equals what its
+      // click lists. Only what is drawn is read: a window longer than a year is cut to its last 365 days.
+      { range: { 'routing.event_time': { gte: new Date(bounds[0].from).toISOString(), lte: new Date(bounds[bounds.length - 1].to).toISOString() } } },
+      this.activityCountedFilter(params.org),
+      ...this.buildFilterBarClauses(params, { excludeOutcome: true }),
+    ];
+    const counts: ActivityCounts[] = bounds.map(() => ({ protected: 0, unprotected: 0, inconclusive: 0 }));
+    const indexOfStart = new Map(bounds.map((b, i) => [b.from, i]));
+
+    const [response, bundleRuns] = await Promise.all([
+      this.client.search({
+        index: this.settings.indexPattern,
+        size: 0,
+        query: { bool: { filter: filters } },
+        aggs: {
+          standalone: {
+            filter: { bool: { must_not: [rules.bundleDoc] } },
+            aggs: {
+              per_bucket: {
+                date_range: {
+                  field: 'routing.event_time',
+                  format: 'epoch_millis',
+                  // A range's `to` is exclusive: the next bucket's start.
+                  ranges: bounds.map((b) => ({ from: b.from, to: b.to + 1 })),
+                },
+                aggs: rules.standaloneAggs,
+              },
+            },
+          },
+        },
+      } as any),
+      this.paginateComposite(
+        [...filters, rules.bundleDoc],
+        'strip_runs',
+        this.BUNDLE_RUN_PAGE_SIZE,
+        this.BUNDLE_RUN_SOURCES,
+        rules.runAggs,
+        (b) => {
+          const i = bucketIndexOf(bounds, parseEsTime(b.key?.ts));
+          if (i >= 0) counts[i][activityRunVerdict(b)]++;
+        },
+        COMPOSITE_MAX_PAGES,
+      ),
+    ]);
+
+    for (const b of ((response.aggregations as any)?.standalone?.per_bucket?.buckets ?? []) as any[]) {
+      const i = indexOfStart.get(Number(b.from));
+      if (i === undefined) continue;
+      counts[i].protected += b.protected?.doc_count ?? 0;
+      counts[i].unprotected += b.unprotected?.doc_count ?? 0;
+      counts[i].inconclusive += b.inconclusive?.doc_count ?? 0;
+    }
+
+    return {
+      interval,
+      timeZone: tz,
+      buckets: bounds.map((b, i) => ({
+        from: new Date(b.from).toISOString(),
+        to: new Date(b.to).toISOString(),
+        protected: counts[i].protected,
+        unprotected: counts[i].unprotected,
+        noVerdict: counts[i].inconclusive,
+      })),
+      ...(capped ? { capped: true as const } : {}),
       ...(bundleRuns.truncated ? { truncated: true as const } : {}),
     };
   }
