@@ -349,7 +349,7 @@ The latest result of every test on every host: one cell per test x host pair. Th
 | `detected` | The test ran and an EDR alert named it; nothing stopped it. |
 | `unprotected` | The test ran and nothing alerted. |
 | `no_verdict` | The pair has results in the window, none of them conclusive. A pair whose newest run has no verdict still shows its older conclusive result, as the Defense Score does. |
-| `risk_accepted` | A risk acceptance covers every result of the pair, with or without a verdict. It is not counted as caught. An acceptance on one stage of a chain does not accept the chain: the cell is judged by the other stages. |
+| `risk_accepted` | A risk acceptance covers every result of the pair, with or without a verdict. It is not counted as caught. An acceptance on one stage of a chain does not accept the chain: the cell is judged by the other stages. Only for a caller with `analytics:risk:read`: without it the pair is left out, as from the Defense Score (no cell, no host that only such pairs put on the matrix, `riskAccepted` counts 0, `state=risk_accepted` lists no host). |
 
 "Caught" is `protected` plus `detected`. A multi-stage attack chain is one cell per host (protected if any stage of its latest run is). A cyber-hygiene bundle is one row whose cells carry a `ratio` and no `verdict`: `compliant` of `evaluated` controls by their latest results, plus `notAssessed` (controls that never had a conclusive result) and `accepted` (controls a risk acceptance covers). An attack cell also lists `earlier`: the pair's conclusive results on the days (UTC) before the run shown, the latest of each day, newest first, at most six.
 
@@ -402,7 +402,7 @@ Everywhere else the cells add up to the any-stage, latest-result Defense Score o
 GET /api/analytics/score-movement
 ```
 
-What became of the failures in the selected range, and how new attack tests did on their first run. A failure is a test on an endpoint whose result the Defense Score counts as unprotected. The unit is one test on one endpoint: a multi-stage test and a run of the same test that ended before any stage count as one item. A cyber-hygiene control on an endpoint is its own item. It takes the same parameters as [`/defense-score`](#defense-score) (`from`, `to`, `org` and the shared filter parameters). `basis`, `scoringMode` and the outcome filters are ignored: it always reads the latest result per item, any-stage, with the same window cap of 365 days. An invalid range is a 400 `Invalid date range`. The answer is kept for 30 seconds per set of parameters, so repeated calls inside that time return the same numbers. Not available on `backend-serverless` (`scoreMovement: false` in `/api/capabilities`).
+What became of the failures in the selected range, and how new attack tests did on their first run. A failure is a test on an endpoint whose result the Defense Score counts as unprotected. The unit is one test on one endpoint: a multi-stage test and a run of the same test that ended before any stage count as one item. A cyber-hygiene control on an endpoint is its own item. It takes the same parameters as [`/defense-score`](#defense-score) (`from`, `to`, `org` and the shared filter parameters). `basis`, `scoringMode` and the outcome filters are ignored: it always reads the latest result per item, any-stage, with the same window cap of 365 days. An invalid range is a 400 `Invalid date range`. The answer is kept for 30 seconds per set of parameters, so repeated calls inside that time return the same numbers. Each user may call it 30 times a minute (`429` after that); the Dashboard calls it once per load. Not available on `backend-serverless` (`scoreMovement: false` in `/api/capabilities`).
 
 A failure is in play when it was failing at the start of the range (and in the score then), was an older failure that was re-tested in the range, or failed at some point in the range. Each one has an origin, decided at its first failing moment, and an outcome, from its latest result at the end of the range.
 
@@ -516,7 +516,7 @@ Only real test results are counted: upload confirmations (exit 200) and Skipped 
 GET /api/analytics/executions/activity
 ```
 
-Test runs per time bucket over the filter window, for the strip above **All Executions**. Not available on `backend-serverless` (`activityStrip` capability).
+Test runs per time bucket over the filter window, for the strip above **All Executions**. Each user may call it 30 times a minute (`429` after that); the same parameters asked again within 5 seconds get the same answer. Not available on `backend-serverless` (`activityStrip` capability).
 
 | Parameter | Type | Description |
 |-----------|------|-------------|
