@@ -8,6 +8,7 @@ import type { Client } from '@elastic/elasticsearch';
 import { SettingsService } from '../analytics/settings.js';
 import { createEsClient } from '../analytics/client.js';
 import { getDatabase } from './database.js';
+import { boundedRunStart } from './runStart.js';
 
 export interface RunStartBackfillResult {
   scanned: number;
@@ -157,21 +158,28 @@ export async function backfillRunStart(
   return result;
 }
 
-/** Reads each task's `started_at` from `tasks.result` with one bound-parameter query. */
-function lookupStartedAt(taskIds: string[]): Map<string, string> {
+/**
+ * Reads each task's `started_at` from `tasks.result` with one bound-parameter
+ * query. Only a start ingestion would record now (boundedRunStart: within the
+ * task's execution timeout of its `completed_at`), so the pass never writes a
+ * start that a new result could not get.
+ */
+export function lookupStartedAt(taskIds: string[]): Map<string, string> {
   const out = new Map<string, string>();
   if (taskIds.length === 0) return out;
   const placeholders = taskIds.map(() => '?').join(',');
   const rows = getDatabase()
-    .prepare(`SELECT id, result FROM tasks WHERE id IN (${placeholders})`)
-    .all(...taskIds) as Array<{ id: string; result: string | null }>;
+    .prepare(`SELECT id, payload, result FROM tasks WHERE id IN (${placeholders})`)
+    .all(...taskIds) as Array<{ id: string; payload: string | null; result: string | null }>;
   for (const row of rows) {
     if (!row.result) continue;
     try {
-      const started = (JSON.parse(row.result) as { started_at?: unknown } | null)?.started_at;
-      if (typeof started === 'string') out.set(row.id, started);
+      const result = JSON.parse(row.result) as { started_at?: unknown; completed_at?: unknown } | null;
+      const payload = row.payload ? (JSON.parse(row.payload) as { execution_timeout?: unknown } | null) : null;
+      const started = boundedRunStart(result?.started_at, result?.completed_at, payload?.execution_timeout);
+      if (started) out.set(row.id, started);
     } catch {
-      // Unparseable result: the task has no usable start.
+      // Unparseable result or payload: the task has no usable start.
     }
   }
   return out;

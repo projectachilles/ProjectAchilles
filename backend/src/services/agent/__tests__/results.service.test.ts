@@ -218,7 +218,7 @@ describe('results.service', () => {
 
   describe('document building', () => {
     it('builds correct routing fields from result', async () => {
-      const result = makeResult({ completed_at: '2026-02-01T12:00:00Z', hostname: 'host-42' });
+      const result = makeResult({ started_at: '2026-02-01T11:58:00Z', completed_at: '2026-02-01T12:00:00Z', hostname: 'host-42' });
       const task = makeTask({ org_id: 'org-99' });
 
       await ingestResult(task, result);
@@ -226,7 +226,7 @@ describe('results.service', () => {
       const indexedDoc = mockEsIndex.mock.calls[0][0].document;
       expect(indexedDoc.routing).toEqual({
         event_time: '2026-02-01T12:00:00Z',
-        run_started_at: '2026-01-01T00:00:00.000Z',
+        run_started_at: '2026-02-01T11:58:00.000Z',
         oid: 'org-99',
         hostname: 'host-42',
       });
@@ -239,8 +239,31 @@ describe('results.service', () => {
       ['an offset (the UTC instant)', '2026-11-01T12:00:00+02:00'],
       ['a parseable non-ISO string', 'Sun, 01 Nov 2026 10:00:00 GMT'],
     ])('stores routing.run_started_at in UTC ISO form for %s', async (_label, startedAt) => {
-      await ingestResult(makeTask(), makeResult({ started_at: startedAt }));
+      await ingestResult(makeTask(), makeResult({ started_at: startedAt, completed_at: '2026-11-01T10:01:00Z' }));
       expect(mockEsIndex.mock.calls[0][0].document.routing.run_started_at).toBe('2026-11-01T10:00:00.000Z');
+    });
+
+    // The agent reports both times: a start long before the end would make an
+    // old alert of the test on that host read as evidence of this run.
+    it('records a start only within the task\'s execution timeout of the end', async () => {
+      const at = (startedAt: string, timeout: number | null) => {
+        mockEsIndex.mockClear();
+        const task = makeTask();
+        const { execution_timeout: _timeout, ...rest } = task.payload;
+        task.payload = (timeout === null ? rest : { ...rest, execution_timeout: timeout }) as Task['payload'];
+        return ingestResult(task, makeResult({ started_at: startedAt, completed_at: '2026-11-01T12:00:00Z' }))
+          .then(() => mockEsIndex.mock.calls[0][0].document.routing.run_started_at);
+      };
+
+      // 600 s timeout + 120 s grace = 12 minutes.
+      expect(await at('2026-11-01T11:48:00Z', 600)).toBe('2026-11-01T11:48:00.000Z');
+      expect(await at('2026-11-01T11:47:59Z', 600)).toBeUndefined();
+      expect(await at('2025-11-01T12:00:00Z', 600)).toBeUndefined();
+      // After the end: no run.
+      expect(await at('2026-11-01T12:00:01Z', 600)).toBeUndefined();
+      // No timeout in the payload: the tasks table's default, 300 s.
+      expect(await at('2026-11-01T11:53:00Z', null)).toBe('2026-11-01T11:53:00.000Z');
+      expect(await at('2026-11-01T11:52:59Z', null)).toBeUndefined();
     });
 
     it('omits routing.run_started_at when started_at is missing or not a date', async () => {
@@ -395,26 +418,33 @@ describe('results.service', () => {
     });
 
     it('stamps every stage doc with routing.run_started_at, and omits it for a bad started_at', async () => {
-      await ingestResult(makeTask(), makeResult({ started_at: '2026-03-01T08:00:00Z', bundle_results: makeBundle() }));
+      const completed_at = '2026-03-01T08:01:00Z';
+      await ingestResult(makeTask(), makeResult({ started_at: '2026-03-01T08:00:00Z', completed_at, bundle_results: makeBundle() }));
       const ops = mockEsBulk.mock.calls[0][0].operations;
       const docs = ops.filter((_: unknown, i: number) => i % 2 === 1);
       expect(docs.length).toBeGreaterThan(1);
       for (const d of docs) expect(d.routing.run_started_at).toBe('2026-03-01T08:00:00.000Z');
 
       mockEsBulk.mockClear();
-      await ingestResult(makeTask(), makeResult({ started_at: '2026-03-01T10:00:00+02:00', bundle_results: makeBundle() }));
+      await ingestResult(makeTask(), makeResult({ started_at: '2026-03-01T10:00:00+02:00', completed_at, bundle_results: makeBundle() }));
       const offset = mockEsBulk.mock.calls[0][0].operations.filter((_: unknown, i: number) => i % 2 === 1);
       for (const d of offset) expect(d.routing.run_started_at).toBe('2026-03-01T08:00:00.000Z');
 
       mockEsBulk.mockClear();
-      await ingestResult(makeTask(), makeResult({ started_at: 'Sun, 01 Mar 2026 08:00:00 GMT', bundle_results: makeBundle() }));
+      await ingestResult(makeTask(), makeResult({ started_at: 'Sun, 01 Mar 2026 08:00:00 GMT', completed_at, bundle_results: makeBundle() }));
       const rfc2822 = mockEsBulk.mock.calls[0][0].operations.filter((_: unknown, i: number) => i % 2 === 1);
       for (const d of rfc2822) expect(d.routing.run_started_at).toBe('2026-03-01T08:00:00.000Z');
 
       mockEsBulk.mockClear();
-      await ingestResult(makeTask(), makeResult({ started_at: 'garbage', bundle_results: makeBundle() }));
+      await ingestResult(makeTask(), makeResult({ started_at: 'garbage', completed_at, bundle_results: makeBundle() }));
       const bad = mockEsBulk.mock.calls[0][0].operations.filter((_: unknown, i: number) => i % 2 === 1);
       for (const d of bad) expect('run_started_at' in d.routing).toBe(false);
+
+      // A start long before the end is left out of every stage doc too.
+      mockEsBulk.mockClear();
+      await ingestResult(makeTask(), makeResult({ started_at: '2026-02-01T08:00:00Z', completed_at, bundle_results: makeBundle() }));
+      const old = mockEsBulk.mock.calls[0][0].operations.filter((_: unknown, i: number) => i % 2 === 1);
+      for (const d of old) expect('run_started_at' in d.routing).toBe(false);
     });
 
     it('sets per-control f0rtika fields correctly', async () => {
