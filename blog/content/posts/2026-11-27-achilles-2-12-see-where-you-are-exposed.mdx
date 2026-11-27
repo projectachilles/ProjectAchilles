@@ -89,7 +89,7 @@ After the upgrade, tests you built before 2.12 read **Unknown build** until you 
 
 - **Intune and other management tools.** The **Enroll agent** dialog has a **Management tool** tab with `Install-AchillesAgent.ps1`, an unattended Windows script for Intune, Group Policy or Configuration Manager. It leaves an agent that is already installed alone. When the agent is signed, it runs only a download signed with exactly the server's certificate.
 - **The console warns before you do something that can't work:** an install command for a platform with no agent binary, or a task with no agent to run it.
-- **Defender evidence belongs to its own run.** A Defender alert stays open for days and gains evidence from later runs. A result now counts only the evidence of its own run. A stage that ran to completion no longer shows **Prevented**, and stored results are corrected once at start-up.
+- **Defender evidence belongs to its own run.** A Defender alert stays open for days and gains evidence from later runs. A result now counts only the evidence of its own run, so an earlier run's detection is never carried to a later one. The cost is honest: a run Defender stops without recording anything new now reads as not detected. A stage that ran to completion no longer shows **Prevented**, and stored results are corrected once at start-up.
 - **Start-up is safer.** The backend no longer rebuilds the task table on every start, two processes starting together can no longer lose it, and a failed migration no longer leaves it serving a half-migrated database.
 
 ## The security round
@@ -106,6 +106,7 @@ This release has 14 security fixes. Most came out of reviewing our own code with
 
 - **Agents:** there is no agent release. Agent 0.7.6 is current; if an install has not registered it yet, do it now.
 - **The first start takes longer on a large install.** It runs one-time jobs: a new index on the task table, attaching past tasks to their schedule runs, a full Defender re-sync with a re-check of stored results, and filling in each result's run start.
+- **Defender labels and past Defense Scores can change once**, after that re-check: a detection that only an earlier run's evidence supported is removed.
 - **Tests built before 2.12 read Unknown build.** Rebuild them with **Build N** as above.
 
 The [release notes](https://github.com/projectachilles/ProjectAchilles/releases/tag/v2.12.0) have the full list.
