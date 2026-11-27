@@ -407,7 +407,8 @@ describe('rows of hosts', () => {
     const [h1chain, h1baseline] = within(rowOf('HOST-1')).getAllByRole('button');
     const [h2chain, h2solo] = within(rowOf('HOST-2')).getAllByRole('button');
 
-    expect([h1chain, h1baseline, h2chain, h2solo].map((b) => b.getAttribute('tabindex'))).toEqual(['0', '-1', '-1', '-1']);
+    // The stop is set in an effect after the marks are drawn: wait for it, the heading can be seen first.
+    await waitFor(() => expect([h1chain, h1baseline, h2chain, h2solo].map((b) => b.getAttribute('tabindex'))).toEqual(['0', '-1', '-1', '-1']));
     h1chain.focus();
     await user.keyboard('{ArrowDown}');
     expect(h2chain).toHaveFocus();
