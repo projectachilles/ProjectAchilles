@@ -259,8 +259,8 @@ Tasks per day over the last 30 days, by creation time, for the strip on the Task
 
 - `buckets` are whole local days (a day can be 23 or 25 hours when the clocks change), oldest first, zero-filled; the first starts at or before 30 days ago.
 - A task counts as the Tasks page's run timeline counts it: in progress while pending, assigned, downloading or executing; a security test by its outcome (protected, unprotected, else no verdict); any other task completed when it ended with exit code 0 (or no result), else failed.
-- A day's `from` and `to`, passed to the grouped list as `from` and `to`, list exactly the tasks it counted (with the same `type` and `search`).
-- Not cached.
+- A day's `from` and `to`, passed to the grouped list as `from` and `to` with the same `type`, list exactly the tasks it counted. With a `search` the two differ: this endpoint counts the tasks that match, the grouped list shows each matching run whole (within the day), so a search by host name lists that run's other hosts too.
+- Only the part of each result the count needs is read (no output, no cyber-hygiene controls). Not cached.
 
 ### List Tasks (Grouped)
 

@@ -100,6 +100,7 @@ Under the filter bar, a short row of bars shows **when tasks were created** over
 - **Click a bar to list that day's tasks.** The list goes back to its first page and keeps the day through its refreshes; the strip keeps showing all 30 days with the bar marked. Click the bar again, or the chip beside the strip, to clear it.
 - **A run that spans two days** (a retry the next day, a schedule run across midnight) lists only that day's tasks under the bar's day; its agent count and status counts still describe the whole run.
 - **What the strip follows:** the type pills and the search box. Not the status filter or an outcome filter from the breakdown above: the strip shows the split itself, and a line under it says when one of those narrows the list.
+- **With a search by host name**, a bar counts that host's tasks, while the list shows each matching run whole, so a day's list can show more tasks (the run's other hosts) than its bar counted.
 - **It does not look empty on a quiet week:** every day has a faint slot, a day with one task still has a visible bar, and with fewer than three days holding tasks the bars give way to one line naming those days.
 - It is read again once a minute, after your own actions (create, retry, cancel, delete) and on **Refresh**; the list's 10-second refresh does not read it.
 - Not shown on a server without it (`backend-serverless`).
