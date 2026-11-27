@@ -2097,10 +2097,18 @@ export class ElasticsearchService {
    * Every view is cut from the same whole model, also the host list of one
    * test (`view.testUuid`): its host order and counts are the matrix's, and it
    * is normally answered from the snapshot the matrix just cached.
+   *
+   * Which pairs a risk acceptance hides is shown only with `acceptedRisks`
+   * (the route passes analytics:risk:read, the permission of the acceptance
+   * routes and of the report's accepted-risk section). Without it the matrix
+   * is built from what the exclusion leaves, as the Defense Score is: a fully
+   * accepted pair is not in it, never a `risk_accepted` cell naming its host
+   * and test. The fetch is the same either way, so both share the cache.
    */
   async getCoverageMatrix(
     params: AnalyticsQueryParams & Partial<ExtendedAnalyticsQueryParams>,
     view: { rows: 'tests' } | ({ rows: 'hosts' } & HostsViewOptions),
+    options: { acceptedRisks?: boolean } = {},
   ): Promise<CoverageMatrixTestsResponse | CoverageMatrixHostsResponse> {
     // The scope's outcome filters are never applied here (they are in-memory
     // filters of the callers that want them), so they need no stripping.
@@ -2112,7 +2120,14 @@ export class ElasticsearchService {
       this.latestPostureFor(scope, 'matrix'),
       this.getMatrixNoVerdictRuns(scope),
     ]);
-    const model = buildCoverageModel({ window, runs, rawRuns, noVerdict: noVerdict.runs, rawNoVerdict: noVerdict.rawRuns });
+    const accepted = options.acceptedRisks === true;
+    const model = buildCoverageModel({
+      window,
+      runs,
+      rawRuns: accepted ? rawRuns : null,
+      noVerdict: noVerdict.runs,
+      rawNoVerdict: accepted ? noVerdict.rawRuns : null,
+    });
     return view.rows === 'tests' ? testsView(model, window.label) : hostsView(model, window.label, view);
   }
 

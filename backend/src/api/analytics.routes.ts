@@ -1,5 +1,5 @@
 import { Router } from 'express';
-import { requireClerkAuth, requirePermission } from '../middleware/clerk.middleware.js';
+import { requireClerkAuth, requirePermission, hasRequestPermission } from '../middleware/clerk.middleware.js';
 import { scopeResultsToCallerOrg } from '../middleware/orgScope.js';
 import { requireInstallOperator } from '../middleware/installScope.js';
 import { asyncHandler, AppError } from '../middleware/error.middleware.js';
@@ -779,6 +779,9 @@ router.get('/coverage-matrix', asyncHandler(async (req, res) => {
           ...(state ? { verdict: state as MatrixVerdict } : {}),
         }
       : { rows: 'tests' },
+    // Which host and test a risk acceptance covers is for analytics:risk:read
+    // (the explorer role reads dashboards, not this): without it, no risk_accepted cells.
+    { acceptedRisks: hasRequestPermission(req, 'analytics:risk:read') },
   );
   res.json(result);
 }));

@@ -8,7 +8,12 @@ vi.mock('@clerk/express', () => ({
   requireAuth: () => (_req: any, _res: any, next: any) => next(),
 }));
 
+// Whether the caller holds analytics:risk:read (hasRequestPermission); the coverage matrix tests flip it.
+const auth = vi.hoisted(() => ({ riskRead: true }));
+
 vi.mock('../../middleware/clerk.middleware.js', () => ({
+  hasRequestPermission: (_req: any, ...permissions: string[]) =>
+    permissions.every((p) => p !== 'analytics:risk:read' || auth.riskRead),
   clerkAuth: (_req: any, _res: any, next: any) => next(),
   requireClerkAuth: () => (req: any, _res: any, next: any) => {
     req.auth = { userId: 'test-user-001' };
@@ -641,7 +646,25 @@ describe('analytics routes', () => {
       expect(mockCoverageMatrix).toHaveBeenCalledWith(
         expect.objectContaining({ from: 'now-30d', org: 'o1', hostnames: 'h1', threatActors: 'APT29' }),
         { rows: 'tests' },
+        { acceptedRisks: true },
       );
+    });
+
+    it('shows accepted risks only to a caller with analytics:risk:read', async () => {
+      auth.riskRead = false;
+      try {
+        await get();
+        await get('?rows=hosts&state=risk_accepted');
+      } finally {
+        auth.riskRead = true;
+      }
+      await get();
+
+      expect(mockCoverageMatrix.mock.calls.map((c) => c[2])).toEqual([
+        { acceptedRisks: false },
+        { acceptedRisks: false },
+        { acceptedRisks: true },
+      ]);
     });
 
     it('pages rows = hosts: 25 a page by default, 100 at most, 1 at least', async () => {
