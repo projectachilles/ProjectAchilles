@@ -133,8 +133,8 @@ Results flagged before this rule are checked once more, under the run rule: a
 result with a detection flag and a run start loses a flag only when the run's
 own alert lookup still finds at least one alert for it and none of the alerts
 found counts for its run. The result carries
-`f0rtika.defender_run_rule: 'run_activity'` once checked. Results checked by the
-previous release (marked `run_evidence`) are checked once more. Stored labels,
+`f0rtika.defender_run_rule: 'run_own_evidence'` once checked. Results checked by
+earlier builds (marked `run_evidence` or `run_activity`) are checked once more. Stored labels,
 and past Defense Scores that include them, can change once when this check runs.
 During this one-time check of a Defender result, no flag is removed until both
 of its alert queries have answered: when one fails, the next pass decides.
@@ -155,8 +155,8 @@ so can be auto-resolved, only when it counts for the run.
 Known limits of this lookup:
 
 - A later run that Defender re-detects without adding a new evidence item gets
-  no credit for that run. A flag already stored on such a result is kept when
-  the stage may have been stopped (see below).
+  no credit for that run, and a flag already stored on such a result is removed
+  (see below).
 - An alert raised late whose only evidence is a file is still not credited.
 - Activity recorded more than 30 minutes after the run's end, or a process
   starting more than 5 minutes after the alert's last activity, is not found.
@@ -169,31 +169,20 @@ Known limits of this lookup:
   Sophos, are unchanged.
 - A result older than 90 days is not revisited.
 
-**A stage that may have been stopped keeps its flags.** Defender can stop a
-file it already knows and update the open alert without adding an evidence
-item. So when the check finds alerts for a stage that started and did not
-finish, or was blocked (an exit code other than 0 and 101), none of them holds
-any evidence of that run, and
-at least one of them already held evidence from before the run began, it
-removes no flag of that result. When only the test-level alerts (the ones about
-the whole test) are in that state, only what they decide is kept: the stage's
-own alerts are judged as usual. An alert that only has evidence from after the
-run keeps nothing. A stage that ran to completion (exit 101) with no evidence of
-its run, and a stage whose alert holds evidence of the run but none for that
-stage, still lose their flags. No flag is ever created this way. The backend's
-`[Defender-Enrichment]` log line counts the results kept this way
-(`keptWithoutRunEvidence=<n>`, each result once, in the pass that checks it).
+**A flag needs evidence of its own run.** When the check finds alerts for a
+result and none of them holds any evidence of that run, the result loses its
+Defender flags, whatever its exit code: an earlier run's detection or
+prevention is never carried to a run that has no evidence of its own. Defender
+can stop a file it already knows and update the open alert without adding an
+evidence item, so a run it really stopped that way reads as not detected and
+not prevented. That case is rare and can be found (next paragraph); the
+opposite, an ordinary failure (exit 999) shown as **Prevented** because of an
+earlier run, is not visible at all. No flag is ever created this way.
 
-What a kept flag does to the verdicts: on a stage that ended with an error code
-(1, 259, 999, …), a kept flag that carries the stage's own prevention keeps it
-**Prevented**, which the Defense Score and the reports count, and a kept stage
-detection alone keeps it **Detected**. A stage with exit code 0 or no exit code
-is not covered and is judged as before: exit 0 is a normal exit, and on a
-multi-stage test it means the stage was skipped and never ran, so having no
-evidence of its run says nothing.
-
-On a recent result (ended within 72 hours) in that situation the backend also
-stores a small note once, `f0rtika.defender_no_run_evidence` (not shown in the
+On a recent result (ended within 72 hours) of a stage that started and did not
+finish, or was blocked (an exit code other than 0 and 101), whose alerts hold
+no evidence of its run and at least one of which held evidence from before the
+run began, the backend also stores a small note once, `f0rtika.defender_no_run_evidence` (not shown in the
 console), and logs
 `[Defender] No evidence of the run for a stage that did not complete, note stored on: <id>`
 (with ` (+<n> more)` past 20 results). The note exists so the case can be
@@ -204,14 +193,9 @@ line. The backend adds this field to an index's mapping before it writes the
 first note there; if that fails, it writes no note to that index and logs one
 warning on each pass that has a note to write. A note is not proof that Defender stopped the stage: it is written the
 first time a stage with such an exit code has alerts holding nothing of its
-run, and it stays even if evidence arrives later. Limits:
-
-- A kept flag can show an alert chip beside an empty alert list, because the
-  list and the report still require evidence of the run.
-- A stage that failed for a reason unrelated to the EDR inside the span of an
-  open alert about its binary also keeps a stale flag.
-- A silent block on a new run is still not credited.
-- Flags already removed by the previous release are not restored.
+run, and it stays even if evidence arrives later. A silent block (Defender
+stops the file and adds no evidence item) is not credited to the run; the note
+is how to find such runs.
 
 **Late actions.** EDRs often add the action after the alert was first
 matched: Defender updates the alert's remediation status, SentinelOne adds

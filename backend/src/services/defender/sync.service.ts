@@ -636,7 +636,7 @@ export class DefenderSyncService {
     try {
       const integrationsService = new IntegrationsSettingsService();
       if (!integrationsService.isDefenderConfigured()) {
-        return { scanned: 0, detected: 0, stageDetected: 0, skipped: 0, batches: 0, alertsMarkedCorrelated: 0, stageDetectionsRemoved: 0, detectionsRemoved: 0, preventionsRemoved: 0, keptWithoutRunEvidence: 0, removedFlagDocs: [], noRunEvidenceDocs: [], errors: [], durationMs: 0 };
+        return { scanned: 0, detected: 0, stageDetected: 0, skipped: 0, batches: 0, alertsMarkedCorrelated: 0, stageDetectionsRemoved: 0, detectionsRemoved: 0, preventionsRemoved: 0, removedFlagDocs: [], noRunEvidenceDocs: [], errors: [], durationMs: 0 };
       }
       const es = this.getEsClient();
       const settingsService = new SettingsService();
@@ -649,7 +649,6 @@ export class DefenderSyncService {
         `stageDetected=${result.stageDetected} skipped=${result.skipped} ` +
         `batches=${result.batches} stageDetectionsRemoved=${result.stageDetectionsRemoved} ` +
         `detectionsRemoved=${result.detectionsRemoved} preventionsRemoved=${result.preventionsRemoved} ` +
-        `keptWithoutRunEvidence=${result.keptWithoutRunEvidence} ` +
         `durationMs=${result.durationMs} errors=${result.errors.length}`,
       );
       if (result.removedFlagDocs.length > 0) {
@@ -667,7 +666,7 @@ export class DefenderSyncService {
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
       console.error(`[Defender-Enrichment] pass threw: ${msg}`);
-      return { scanned: 0, detected: 0, stageDetected: 0, skipped: 0, batches: 0, alertsMarkedCorrelated: 0, stageDetectionsRemoved: 0, detectionsRemoved: 0, preventionsRemoved: 0, keptWithoutRunEvidence: 0, removedFlagDocs: [], noRunEvidenceDocs: [], errors: [msg], durationMs: 0 };
+      return { scanned: 0, detected: 0, stageDetected: 0, skipped: 0, batches: 0, alertsMarkedCorrelated: 0, stageDetectionsRemoved: 0, detectionsRemoved: 0, preventionsRemoved: 0, removedFlagDocs: [], noRunEvidenceDocs: [], errors: [msg], durationMs: 0 };
     }
   }
 
