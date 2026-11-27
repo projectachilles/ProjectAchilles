@@ -174,7 +174,11 @@ export function stageMarks(task: Pick<AgentTask, 'type' | 'status' | 'result'>):
   });
 }
 
-/** Where a task counts in a run's summary. Tests count by outcome, other task types by lifecycle. */
+/**
+ * Where a task counts in a run's summary. Tests count by outcome, other task types by lifecycle.
+ * The backend counts the Tasks activity strip by its twin (taskBucket in
+ * backend/src/services/outcomes/taskOutcome.ts); both read the same golden table. Change both.
+ */
 export type TaskBucket = 'unprotected' | 'no-verdict' | 'in-progress' | 'protected' | 'completed' | 'failed';
 
 const IN_PROGRESS = new Set<AgentTask['status']>(['pending', 'assigned', 'downloading', 'executing']);

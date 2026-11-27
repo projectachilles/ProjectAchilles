@@ -1,0 +1,32 @@
+{
+  "about": "Where a task counts in a run's summary and on the Tasks activity strip. Read by backend/src/services/outcomes/__tests__/taskBucket.test.ts (taskBucket in taskOutcome.ts) and by frontend/src/utils/__tests__/taskBucket.parity.test.ts (taskBucket in testOutcome.ts): one table, so the strip's colours and the run timeline's marks cannot disagree.",
+  "cases": [
+    { "name": "a test waiting for its agent", "type": "execute_test", "status": "pending", "expected": "in-progress" },
+    { "name": "a test handed to its agent", "type": "execute_test", "status": "assigned", "expected": "in-progress" },
+    { "name": "a test downloading its binary", "type": "execute_test", "status": "downloading", "expected": "in-progress" },
+    { "name": "a test running", "type": "execute_test", "status": "executing", "expected": "in-progress" },
+    { "name": "a command running", "type": "execute_command", "status": "executing", "expected": "in-progress" },
+    { "name": "an update waiting", "type": "update_agent", "status": "pending", "expected": "in-progress" },
+    { "name": "a test blocked (126)", "type": "execute_test", "status": "completed", "exit": 126, "expected": "protected" },
+    { "name": "a test blocked (105)", "type": "execute_test", "status": "completed", "exit": 105, "expected": "protected" },
+    { "name": "a test that got through (101)", "type": "execute_test", "status": "completed", "exit": 101, "expected": "unprotected" },
+    { "name": "a test that did not run (260)", "type": "execute_test", "status": "completed", "exit": 260, "expected": "no-verdict" },
+    { "name": "a test error (999)", "type": "execute_test", "status": "completed", "exit": 999, "expected": "no-verdict" },
+    { "name": "a test that exited 0", "type": "execute_test", "status": "completed", "exit": 0, "expected": "no-verdict" },
+    { "name": "a test completed without a result", "type": "execute_test", "status": "completed", "expected": "no-verdict" },
+    { "name": "a test the watchdog failed", "type": "execute_test", "status": "failed", "exit": -1, "expected": "no-verdict" },
+    { "name": "a test whose agent the EDR killed", "type": "execute_test", "status": "failed", "exit": -1, "edrKilled": true, "expected": "protected" },
+    { "name": "a test that expired before it ran", "type": "execute_test", "status": "expired", "expected": "no-verdict" },
+    { "name": "a multi-stage test with a blocked stage", "type": "execute_test", "status": "completed", "exit": 999, "category": "intel-driven", "stages": [[101], [126], [999]], "expected": "protected" },
+    { "name": "a multi-stage test, a stage ran, none blocked", "type": "execute_test", "status": "completed", "exit": 1, "category": "intel-driven", "stages": [[101], [0, true]], "expected": "unprotected" },
+    { "name": "a multi-stage test whose only blocked stage was skipped", "type": "execute_test", "status": "completed", "exit": 999, "category": "intel-driven", "stages": [[126, true], [999]], "expected": "no-verdict" },
+    { "name": "a cyber-hygiene bundle follows its overall exit", "type": "execute_test", "status": "completed", "exit": 101, "category": "cyber-hygiene", "stages": [[126], [101]], "expected": "unprotected" },
+    { "name": "a command that exited 0", "type": "execute_command", "status": "completed", "exit": 0, "expected": "completed" },
+    { "name": "a command completed without a result", "type": "execute_command", "status": "completed", "expected": "completed" },
+    { "name": "a command that exited 1", "type": "execute_command", "status": "completed", "exit": 1, "expected": "failed" },
+    { "name": "a command the watchdog failed", "type": "execute_command", "status": "failed", "exit": -1, "expected": "failed" },
+    { "name": "a command that expired", "type": "execute_command", "status": "expired", "expected": "failed" },
+    { "name": "an update that went through", "type": "update_agent", "status": "completed", "exit": 0, "expected": "completed" },
+    { "name": "an uninstall that failed", "type": "uninstall", "status": "failed", "expected": "failed" }
+  ]
+}

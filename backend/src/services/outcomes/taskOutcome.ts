@@ -42,6 +42,25 @@ export function classifyTaskOutcome(task: { type: TaskType; status: TaskStatus; 
   return exitKind(code);
 }
 
+/**
+ * Where a task counts in a run's summary, and on the Tasks activity strip: tests by outcome, the other
+ * task types by how they ended. The frontend twin is taskBucket in frontend/src/utils/testOutcome.ts
+ * (the run timeline's marks); both read __tests__/fixtures/taskBucketGolden.json. Change both.
+ */
+export type TaskBucket = 'unprotected' | 'no-verdict' | 'in-progress' | 'protected' | 'completed' | 'failed';
+
+const IN_PROGRESS: ReadonlySet<TaskStatus> = new Set<TaskStatus>(['pending', 'assigned', 'downloading', 'executing']);
+
+export function taskBucket(task: { type: TaskType; status: TaskStatus; result: TaskResult | null }): TaskBucket {
+  if (IN_PROGRESS.has(task.status)) return 'in-progress';
+  if (task.type === 'execute_test') {
+    const kind = classifyTaskOutcome(task);
+    return kind === 'protected' || kind === 'unprotected' ? kind : 'no-verdict';
+  }
+  // The agent marks every submitted result "completed"; a non-zero exit code means the command did not work.
+  return task.status === 'completed' && (!task.result || task.result.exit_code === 0) ? 'completed' : 'failed';
+}
+
 export const OFFLINE_ERROR = 'Agent went offline during execution';
 export const TIMEOUT_ERROR = 'Task exceeded execution timeout';
 
