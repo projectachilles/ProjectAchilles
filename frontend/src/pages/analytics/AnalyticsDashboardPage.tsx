@@ -1,5 +1,6 @@
 import { useState, useEffect, useCallback, useRef, useMemo } from 'react';
 import { useSearchParams } from 'react-router-dom';
+import { AddressWriterProvider, useAddressWriter } from '@/hooks/useAddressWriter';
 import { LayoutDashboard, Table, Filter, ChevronUp, ChevronDown, RefreshCw, Settings, ShieldOff } from 'lucide-react';
 import { joinFilterList } from '@/lib/filterList';
 import { CrowdStrikeLogo, DefenderLogo, SentinelOneLogo, SophosLogo } from '@/components/shared/VendorLogos';
@@ -102,7 +103,20 @@ const VERDICT_LABELS: Record<ExecutionVerdict, string> = {
   silent: 'Silent',
 };
 
+/**
+ * Every writer of this page's address (the tab, the filters, the list's selected
+ * run, the matrix, the activity strip's bucket) goes through one writer, so a
+ * write made before the page redraws never erases another.
+ */
 export default function AnalyticsDashboardPage() {
+  return (
+    <AddressWriterProvider>
+      <AnalyticsDashboard />
+    </AddressWriterProvider>
+  );
+}
+
+function AnalyticsDashboard() {
   // Performance measurement (dev only)
   useEffect(() => {
     if (import.meta.env.DEV) {
@@ -111,7 +125,8 @@ export default function AnalyticsDashboardPage() {
   }, []);
 
   // URL state for tab
-  const [searchParams, setSearchParams] = useSearchParams();
+  const [searchParams] = useSearchParams();
+  const address = useAddressWriter();
   const tabFromUrl = searchParams.get('tab') as TabType | null;
   const expandedFromUrl = searchParams.get('expanded');
 
@@ -170,27 +185,22 @@ export default function AnalyticsDashboardPage() {
   const handleTabChange = useCallback((tab: TabType) => {
     setActiveTab(tab);
     if (tab !== 'executions') setExecutionsVerdict(null);
-    const newParams = new URLSearchParams(searchParams);
-    // What the matrix view keeps in the address means nothing on another tab,
-    // and would reopen a pair on the way back.
-    if (tab !== 'executions') for (const key of ['view', 'rows', 'pairTest', 'pairHost', 'run', 'bucketFrom', 'bucketTo']) newParams.delete(key);
-    if (tab === 'dashboard') {
-      newParams.delete('tab');
-    } else {
-      newParams.set('tab', tab);
-    }
-    setSearchParams(newParams, { replace: true });
-  }, [searchParams, setSearchParams]);
+    address.update((next) => {
+      // What the matrix view keeps in the address means nothing on another tab,
+      // and would reopen a pair on the way back.
+      if (tab !== 'executions') for (const key of ['view', 'rows', 'pairTest', 'pairHost', 'run', 'bucketFrom', 'bucketTo']) next.delete(key);
+      if (tab === 'dashboard') next.delete('tab');
+      else next.set('tab', tab);
+    }, { replace: true });
+  }, [address]);
 
   // Master-detail selection deep link (?expanded=<groupKey>)
   const handleExpandedChange = useCallback((key: string | null) => {
-    setSearchParams(prev => {
-      const next = new URLSearchParams(prev);
+    address.update((next) => {
       if (key) next.set('expanded', key);
       else next.delete('expanded');
-      return next;
     }, { replace: true });
-  }, [setSearchParams]);
+  }, [address]);
 
   // Filter state (with URL sync)
   const filterState = useAnalyticsFilters(true, { rangeBoundParams: RANGE_BOUND_PARAMS });

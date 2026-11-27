@@ -1112,6 +1112,47 @@ describe('All Executions: the activity strip', () => {
     expect(screen.getByRole('button', { name: /^Nov 16/ })).toHaveAttribute('aria-pressed', 'true');
   });
 
+  // The list writes its selected run to the address when its rows arrive. Every writer used to
+  // start from the address of the last render, so a bar clicked as the rows arrived was written away.
+  it.each(Array.from({ length: 8 }, (_, i) => i + 1))('never loses a bar clicked from page 2 of the list (%i)', async () => {
+    const row = (page: number) => ({
+      groups: [{
+        groupKey: `run-${page}`, type: 'standalone',
+        representative: { test_uuid: 'u-1', test_name: 'Row', hostname: 'h1', is_protected: false, org: 'o', timestamp: '2026-11-12T12:47:49Z', error_code: 101 },
+        members: [], protectedCount: 0, unprotectedCount: 1, totalCount: 1,
+      }],
+      pagination: { page, pageSize: 25, totalGroups: 5, totalDocuments: 5, totalPages: 5, hasNext: page < 5, hasPrevious: page > 1 },
+    });
+    list().mockImplementation(async (p: { page?: number }) => row(p.page ?? 1));
+    renderAt('?tab=executions&view=list');
+    fireEvent.click((await screen.findByText('Page 1 of 5')).nextElementSibling as HTMLElement);
+    await screen.findByText('Page 2 of 5');
+    await waitFor(() => expect(lastOf(list())).toMatchObject({ page: 2 }));
+
+    // No waiting for the page to settle: the click lands while the rows are on their way.
+    fireEvent.click(await screen.findByRole('button', { name: /^Nov 16/ }));
+    await new Promise((r) => setTimeout(r, 150));
+
+    expect(address().get('bucketFrom')).toBe(NOV16.from);
+    expect(screen.getByRole('button', { name: /^Nov 16/ })).toHaveAttribute('aria-pressed', 'true');
+    await waitFor(() => expect(lastOf(list())).toMatchObject({ from: NOV16.from, page: 1 }));
+  });
+
+  it('keeps both of two changes made by different parts of the page before it redraws', async () => {
+    renderAt('?tab=executions');
+    const bar = await screen.findByRole('button', { name: /^Nov 16/ });
+    const range = screen.getAllByRole('combobox').find((el) => [...(el as HTMLSelectElement).options].some((o) => o.value === '7d')) as HTMLSelectElement;
+
+    // The filters write the range, the strip writes the bucket: one writer each, one address.
+    act(() => {
+      fireEvent.change(range, { target: { value: '7d' } });
+      fireEvent.click(bar);
+    });
+
+    await waitFor(() => expect(address().get('date')).toBe('7d'));
+    expect(address().get('bucketFrom')).toBe(NOV16.from);
+  });
+
   it('goes back to the first page when the bucket is cleared from a later one, in one request', async () => {
     const row = (page: number) => ({
       groups: [{

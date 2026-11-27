@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo } from 'react';
 import { useSearchParams } from 'react-router-dom';
+import { useAddressWriter } from '@/hooks/useAddressWriter';
 import type { BucketRef } from '@/components/shared/activity/activityModel';
 
 const KEYS = ['bucketFrom', 'bucketTo'] as const;
@@ -14,7 +15,8 @@ const KEYS = ['bucketFrom', 'bucketTo'] as const;
  * after its start) is no bucket, and is taken out of the address.
  */
 export function useActivityBucket(): { bucket: BucketRef | null; setBucket: (next: BucketRef | null) => void } {
-  const [params, setParams] = useSearchParams();
+  const [params] = useSearchParams();
+  const address = useAddressWriter();
   const from = params.get('bucketFrom');
   const to = params.get('bucketTo');
   // A missing or unreadable instant parses to NaN, and no comparison with NaN holds.
@@ -24,38 +26,28 @@ export function useActivityBucket(): { bucket: BucketRef | null; setBucket: (nex
   const stray = !valid && (from !== null || to !== null);
   useEffect(() => {
     if (!stray) return;
-    setParams(
-      (prev) => {
-        const next = new URLSearchParams(prev);
-        for (const key of KEYS) next.delete(key);
-        return next;
-      },
-      { replace: true },
-    );
-  }, [stray, setParams]);
+    address.update((next) => {
+      for (const key of KEYS) next.delete(key);
+    }, { replace: true });
+  }, [stray, address]);
 
   const setBucket = useCallback(
     (next: BucketRef | null) => {
-      // One update: two in one tick would each start from the same address.
-      setParams(
-        (prev) => {
-          const p = new URLSearchParams(prev);
-          if (next) {
-            p.set('bucketFrom', next.from);
-            p.set('bucketTo', next.to);
-          } else {
-            for (const key of KEYS) p.delete(key);
-          }
-          // The open pair and its run were read for another stretch of time and may not be in this one.
-          // `expanded` (the list's selected run) stays: a link to a run forces the list, and dropping it
-          // here would turn the page to the matrix under the user. The list copes with a run not on its page.
-          for (const key of ['pairTest', 'pairHost', 'run']) p.delete(key);
-          return p;
-        },
-        { replace: true },
-      );
+      // Through the page's writer (see useAddressWriter): it starts from what is pending, not from the last render.
+      address.update((p) => {
+        if (next) {
+          p.set('bucketFrom', next.from);
+          p.set('bucketTo', next.to);
+        } else {
+          for (const key of KEYS) p.delete(key);
+        }
+        // The open pair and its run were read for another stretch of time and may not be in this one.
+        // `expanded` (the list's selected run) stays: a link to a run forces the list, and dropping it
+        // here would turn the page to the matrix under the user. The list copes with a run not on its page.
+        for (const key of ['pairTest', 'pairHost', 'run']) p.delete(key);
+      }, { replace: true });
     },
-    [setParams],
+    [address],
   );
 
   return { bucket, setBucket };

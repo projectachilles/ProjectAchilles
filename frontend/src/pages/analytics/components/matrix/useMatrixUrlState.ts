@@ -1,5 +1,6 @@
 import { useCallback, useMemo } from 'react';
 import { useSearchParams } from 'react-router-dom';
+import { useAddressWriter } from '@/hooks/useAddressWriter';
 import type { PairRef } from './MatrixRow';
 
 export type ExecutionsViewName = 'matrix' | 'list';
@@ -14,7 +15,8 @@ export type MatrixRows = 'tests' | 'hosts';
  * way to the list.
  */
 export function useMatrixUrlState() {
-  const [params, setParams] = useSearchParams();
+  const [params] = useSearchParams();
+  const address = useAddressWriter();
   const viewParam = params.get('view');
   const view: ExecutionsViewName | null = viewParam === 'matrix' || viewParam === 'list' ? viewParam : null;
   const pairTest = params.get('pairTest');
@@ -24,19 +26,10 @@ export function useMatrixUrlState() {
   const rowsParam = params.get('rows');
   const rows: MatrixRows | null = rowsParam === 'tests' || rowsParam === 'hosts' ? rowsParam : null;
 
-  // One update per change: two updates in one tick would each start from the same address.
+  // Through the page's writer (see useAddressWriter): it starts from what is pending, not from the last render.
   const update = useCallback(
-    (change: (next: URLSearchParams) => void) => {
-      setParams(
-        (prev) => {
-          const next = new URLSearchParams(prev);
-          change(next);
-          return next;
-        },
-        { replace: true },
-      );
-    },
-    [setParams],
+    (change: (next: URLSearchParams) => void) => address.update(change, { replace: true }),
+    [address],
   );
 
   const setView = useCallback(
