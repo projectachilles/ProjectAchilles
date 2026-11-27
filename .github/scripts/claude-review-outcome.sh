@@ -3,11 +3,13 @@
 #
 #   claude-review-outcome.sh report   List the attempt's denied tool calls in the job summary.
 #   claude-review-outcome.sh outcome  Print what the attempt left:
-#       ok     no tool call was denied, or the review posted (a summary or inline comments);
-#              posting nothing with no denials is normal for a trivial PR
-#       prior  nothing posted, but Claude reviewed an earlier push of this PR (the plugin reviews
-#              a PR only once, so later pushes post nothing by design)
-#       empty  tool calls were denied and nothing was posted: the review may not have read the diff
+#       ok      the review posted (a summary or inline comments)
+#       prior   nothing posted, but Claude reviewed an earlier push of this PR (the plugin reviews
+#               a PR only once, so later pushes post nothing by design)
+#       empty   tool calls were denied and nothing was posted: the review may not have read the diff
+#       silent  nothing posted and no tool call denied: the plugin stopped on its own. It does for a
+#               PR it judges trivial, and when it takes an earlier Claude comment for a review (the
+#               security review posts as the same account). Not a review: the job says so.
 #
 # Env: EXECUTION_FILE (the action's execution log), and for `outcome` GH_TOKEN, GITHUB_REPOSITORY,
 # PR, SINCE (ISO time the first attempt started; comments since then count as this review's).
@@ -49,7 +51,6 @@ outcome() {
   : "${GH_TOKEN:?}" "${GITHUB_REPOSITORY:?}" "${PR:?}" "${SINCE:?}"
   local denied summary inline prior
   denied=$(jq '[.[] | select(.type == "result") | .permission_denials[]?] | length' "$EXECUTION_FILE")
-  if [ "${denied:-0}" -eq 0 ]; then echo ok; return; fi
   # The review heads its comment "## Code review" or, in newer plugin versions,
   # "<h2>Code review</h2>"; accept both.
   summary=$(gh api "repos/$GITHUB_REPOSITORY/issues/$PR/comments?since=$SINCE" \
@@ -63,7 +64,8 @@ outcome() {
     gh api --paginate "repos/$GITHUB_REPOSITORY/issues/$PR/comments" \
       --jq '.[] | select(.user.type == "Bot" and .created_at < env.SINCE and (.body | test("(^|\n)(#+ |<h[1-6][^>]*>)Code review"))) | .id'
   } | wc -l)
-  if [ "$prior" -gt 0 ]; then echo prior; else echo empty; fi
+  if [ "$prior" -gt 0 ]; then echo prior; return; fi
+  if [ "${denied:-0}" -gt 0 ]; then echo empty; else echo silent; fi
 }
 
 case "${1:-}" in
