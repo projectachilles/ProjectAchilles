@@ -231,6 +231,37 @@ minute (`429` after that); the console calls it once when a run dialog opens.
 
 Not available on the Vercel backend (`testRunRecency` is absent from `/api/capabilities`).
 
+### Task Activity
+
+```
+GET /api/agent/admin/tasks/activity?tz=America/Santo_Domingo
+```
+
+Tasks per day over the last 30 days, by creation time, for the strip on the Tasks page. Needs `endpoints:tasks:read`; an organization caller counts its own organization's tasks only. Not available on the Vercel backend (`activityStrip` is `false` in `/api/capabilities`).
+
+| Query | Notes |
+|-------|-------|
+| `tz` | The IANA time zone the days are cut in. Default `UTC`. An unknown, empty or repeated value returns `400 — Invalid tz` |
+| `type`, `search` | As for [List Tasks (Grouped)](#list-tasks-grouped). The status filter and `breakdown` are not taken: the response splits each day by outcome itself |
+
+```json
+{
+  "success": true,
+  "data": {
+    "interval": "day",
+    "timeZone": "America/Santo_Domingo",
+    "buckets": [
+      { "from": "2026-11-26T04:00:00.000Z", "to": "2026-11-27T03:59:59.999Z", "unprotected": 2, "failed": 0, "noVerdict": 1, "inProgress": 3, "protected": 6, "completed": 4 }
+    ]
+  }
+}
+```
+
+- `buckets` are whole local days (a day can be 23 or 25 hours when the clocks change), oldest first, zero-filled; the first starts at or before 30 days ago.
+- A task counts as the Tasks page's run timeline counts it: in progress while pending, assigned, downloading or executing; a security test by its outcome (protected, unprotected, else no verdict); any other task completed when it ended with exit code 0 (or no result), else failed.
+- A day's `from` and `to`, passed to the grouped list as `from` and `to` with the same `type`, list exactly the tasks it counted. With a `search` the two differ: this endpoint counts the tasks that match, the grouped list shows each matching run whole (within the day), so a search by host name lists that run's other hosts too.
+- Only the part of each result the count needs is read (no output, no cyber-hygiene controls). Not cached.
+
 ### List Tasks (Grouped)
 
 ```
@@ -261,6 +292,7 @@ Besides the usual status, type, search and paging filters it accepts:
 
 | Query | Notes |
 |-------|-------|
+| `from`, `to` | Only tasks created in that stretch of time: ISO instants, both included (a day of the [activity strip](#task-activity)). Either alone is allowed. A run whose tasks fall outside it lists only the tasks inside; `agent_count` and `status_counts` still describe the whole run, and the type counts count only tasks inside. An unreadable value, a value given twice, or an end before its start returns `400 — Invalid date range` |
 | `breakdown` | Only tasks whose finished outcome matches one key of the 7-day breakdown. Implies `execute_test` tasks and the last 7 days. An unknown shape returns `400 — Invalid breakdown` |
 | `detail` | `full` (the default, also when the value is empty) returns whole tasks. `summary` returns light tasks, below. Any other value, or the parameter given more than once, returns `400 — Invalid detail` |
 

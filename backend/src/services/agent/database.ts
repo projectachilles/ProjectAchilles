@@ -352,6 +352,8 @@ export function initializeTables(database: Database.Database): void {
   // Tasks page 7-day scans (outcomeWindowSql: status IN (...) AND completed_at > ...),
   // run on every metrics poll and by the grouped-list breakdown filter.
   database.exec('CREATE INDEX IF NOT EXISTS idx_tasks_outcome_window ON tasks(status, completed_at)');
+  // The Tasks activity strip (30 days by creation time) and a day selected on it (the grouped list's from/to).
+  database.exec('CREATE INDEX IF NOT EXISTS idx_tasks_created ON tasks(created_at)');
 
   // Migration: add api_key_rotated_at column to agents table
   const agentCols = database.prepare(`PRAGMA table_info(agents)`).all() as { name: string }[];
@@ -878,6 +880,7 @@ function recreateTasksTable(database: Database.Database): void {
     CREATE INDEX IF NOT EXISTS idx_tasks_org ON tasks(org_id);
     CREATE INDEX IF NOT EXISTS idx_tasks_batch ON tasks(batch_id);
     CREATE INDEX IF NOT EXISTS idx_tasks_outcome_window ON tasks(status, completed_at);
+    CREATE INDEX IF NOT EXISTS idx_tasks_created ON tasks(created_at);
     ${colSet.has('notice_id') ? 'CREATE INDEX IF NOT EXISTS idx_tasks_notice ON tasks(notice_id);' : ''}
     ${colSet.has('campaign_run_id') ? 'CREATE INDEX IF NOT EXISTS idx_tasks_campaign_run ON tasks(campaign_run_id);' : ''}
     ${colSet.has('result_compacted_at') ? 'CREATE INDEX IF NOT EXISTS idx_tasks_compactable ON tasks(completed_at) WHERE result_compacted_at IS NULL;' : ''}

@@ -394,7 +394,8 @@ describe('a pair and its runs', () => {
     expect(url()).toContain(`pairTest=${T1}`);
     expect(url()).toContain('pairHost=org-1|HOST-01');
     expect(url()).toContain('run=run-2');
-    expect(prime).toHaveBeenLastCalledWith(expect.objectContaining({ key: 'run-2' }));
+    // The run's detail is primed in an effect after the drawer is drawn.
+    await waitFor(() => expect(prime).toHaveBeenLastCalledWith(expect.objectContaining({ key: 'run-2' })));
   });
 
   it('opens the run the mark shows, not a newer run without a verdict above it', async () => {

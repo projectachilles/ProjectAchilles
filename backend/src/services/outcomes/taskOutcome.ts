@@ -42,6 +42,25 @@ export function classifyTaskOutcome(task: { type: TaskType; status: TaskStatus; 
   return exitKind(code);
 }
 
+/**
+ * Where a task counts in a run's summary, and on the Tasks activity strip: tests by outcome, the other
+ * task types by how they ended. The frontend twin is taskBucket in frontend/src/utils/testOutcome.ts
+ * (the run timeline's marks); both read __tests__/fixtures/taskBucketGolden.json. Change both.
+ */
+export type TaskBucket = 'unprotected' | 'no-verdict' | 'in-progress' | 'protected' | 'completed' | 'failed';
+
+const IN_PROGRESS: ReadonlySet<TaskStatus> = new Set<TaskStatus>(['pending', 'assigned', 'downloading', 'executing']);
+
+export function taskBucket(task: { type: TaskType; status: TaskStatus; result: TaskResult | null }): TaskBucket {
+  if (IN_PROGRESS.has(task.status)) return 'in-progress';
+  if (task.type === 'execute_test') {
+    const kind = classifyTaskOutcome(task);
+    return kind === 'protected' || kind === 'unprotected' ? kind : 'no-verdict';
+  }
+  // The agent marks every submitted result "completed"; a non-zero exit code means the command did not work.
+  return task.status === 'completed' && (!task.result || task.result.exit_code === 0) ? 'completed' : 'failed';
+}
+
 export const OFFLINE_ERROR = 'Agent went offline during execution';
 export const TIMEOUT_ERROR = 'Task exceeded execution timeout';
 
@@ -62,6 +81,32 @@ export function outcomeWindowSql(alias?: string): string {
 export function outcomeResultSql(alias?: string): string {
   const p = alias ? `${alias}.` : '';
   return `CASE WHEN json_valid(${p}result) THEN json_remove(${p}result, '$.stdout', '$.stderr') END`;
+}
+
+/**
+ * SELECT expression for the part of a task's `result` that `taskBucket` reads: the exit code, whether
+ * the EDR stopped the agent (only its presence matters), the bundle category, and each control's id,
+ * exit code and skipped flag (none for a cyber-hygiene bundle, which is judged by its overall exit).
+ * For the activity strip, which reads 30 days of tasks: a cyber-hygiene bundle's controls (names,
+ * expected and actual values, details) would otherwise be parsed for every finished task. Invalid JSON
+ * selects NULL. Read rows with `parseOutcomeResult`; `bucketResultSql.test` holds it to the golden table.
+ */
+export function bucketResultSql(alias?: string): string {
+  const r = alias ? `${alias}.result` : 'result';
+  const controls = `json((SELECT json_group_array(json_object(
+      'control_id', json_extract(c.value, '$.control_id'),
+      'exit_code', json_extract(c.value, '$.exit_code'),
+      'skipped', json_extract(c.value, '$.skipped')))
+    FROM json_each(${r}, '$.bundle_results.controls') c))`;
+  return `CASE WHEN json_valid(${r}) THEN json_object(
+    'exit_code', json_extract(${r}, '$.exit_code'),
+    'edr_terminated', json_extract(${r}, '$.edr_terminated'),
+    'bundle_results', CASE WHEN json_type(${r}, '$.bundle_results') = 'object' THEN json_object(
+      'bundle_category', json_extract(${r}, '$.bundle_results.bundle_category'),
+      'controls', CASE WHEN json_extract(${r}, '$.bundle_results.bundle_category') = 'cyber-hygiene'
+        THEN json_array() ELSE ${controls} END
+    ) END
+  ) END`;
 }
 
 /** A row's result column (from `outcomeResultSql`) as a TaskResult; null when absent or unparseable. */

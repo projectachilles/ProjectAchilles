@@ -234,8 +234,30 @@ export interface ListTasksRequest {
   search?: string;
   /** 7-day outcome breakdown key (e.g. `exit:260`); implies execute_test. */
   breakdown?: string;
+  /** Tasks created at or after this instant (ISO): a day selected on the activity strip. */
+  from?: string;
+  /** Tasks created at or before this instant (ISO, inclusive). */
+  to?: string;
   limit?: number;
   offset?: number;
+}
+
+/** Tasks per local day over the last 30 days (GET /agent/admin/tasks/activity), by the run timeline's buckets. */
+export interface TaskActivityResponse {
+  interval: 'day';
+  /** The IANA zone the days were cut in. */
+  timeZone: string;
+  /** Oldest first, zero-filled; `from` and `to` are ISO instants, both inclusive. */
+  buckets: Array<{
+    from: string;
+    to: string;
+    unprotected: number;
+    failed: number;
+    noVerdict: number;
+    inProgress: number;
+    protected: number;
+    completed: number;
+  }>;
 }
 
 export interface TaskOutcomes7d {

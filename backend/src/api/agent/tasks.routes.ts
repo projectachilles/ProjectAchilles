@@ -37,6 +37,8 @@ import { UpdateTaskStatusSchema, TaskResultSchema } from '../../schemas/agent.sc
 import { resolveRequesterLabels, withoutEmail } from '../../services/agent/requesterLabel.js';
 import { getAgentRunRecency, getTestRunRecency, MAX_RECENCY_TESTS } from '../../services/agent/testRunHistory.js';
 import { TASK_BREAKDOWN_KEY_RE } from '../../services/outcomes/taskOutcome.js';
+import { getTaskActivity } from '../../services/agent/taskActivity.service.js';
+import { parseTimeZone } from '../timeZoneParam.js';
 import {
   CreateTaskSchema,
   CreateTaskBatchSchema,
@@ -412,6 +414,47 @@ adminTasksRouter.get(
 
 const GROUPED_TASK_TYPES: ReadonlySet<string> = new Set<TaskType>(['execute_test', 'execute_command', 'update_agent', 'uninstall']);
 
+/** The type pills of the grouped list and its activity strip: `type` may list several ("update_agent,uninstall"). */
+function parseTaskTypes(value: unknown): TaskType[] {
+  const types = typeof value === 'string' && value ? value.split(',').map((t) => t.trim()).filter(Boolean) : [];
+  if (types.some((t) => !GROUPED_TASK_TYPES.has(t))) throw new AppError('Invalid task type', 400);
+  return types as TaskType[];
+}
+
+/** A day of the activity strip on the grouped list: two ISO instants, both optional, the end not before the start. */
+function parseCreatedRange(from: unknown, to: unknown): { created_from?: string; created_to?: string } {
+  const instant = (value: unknown): string | undefined => {
+    if (value === undefined || value === '') return undefined;
+    // An ISO instant with its zone only: a date-only or local form would be read in the server's zone.
+    const iso = typeof value === 'string' && /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}(:\d{2}(\.\d{1,3})?)?(Z|[+-]\d{2}:\d{2})$/.test(value);
+    const ms = iso ? Date.parse(value as string) : Number.NaN;
+    if (!Number.isFinite(ms)) throw new AppError('Invalid date range', 400);
+    return new Date(ms).toISOString();
+  };
+  const range = { created_from: instant(from), created_to: instant(to) };
+  if (range.created_from && range.created_to && range.created_from > range.created_to) throw new AppError('Invalid date range', 400);
+  return range;
+}
+
+/**
+ * GET /admin/tasks/activity
+ * Tasks per local day over the last 30 days, by creation time and by the run
+ * timeline's buckets, for the strip above the Tasks list. `tz` is the IANA zone
+ * the days are cut in (UTC when absent); `type` and `search` as the grouped list.
+ * Not the status filter or an outcome tile: the strip shows the split itself.
+ * Declared before /tasks/:id, which would take "activity" for an id.
+ */
+adminTasksRouter.get(
+  '/tasks/activity',
+  requirePermission('endpoints:tasks:read'),
+  asyncHandler(async (req, res) => {
+    const tz = parseTimeZone(req.query.tz);
+    const types = parseTaskTypes(req.query.type);
+    const search = typeof req.query.search === 'string' && req.query.search ? req.query.search : undefined;
+    res.json({ success: true, data: getTaskActivity({ org_id: listOrgScope(req), types, search }, tz) });
+  })
+);
+
 /**
  * GET /admin/tasks/grouped
  * List tasks grouped by run (a batch, or the batches of one announced run of one
@@ -425,11 +468,8 @@ adminTasksRouter.get(
   '/tasks/grouped',
   requirePermission('endpoints:tasks:read'),
   asyncHandler(async (req, res) => {
-    // `type` may list several types ("update_agent,uninstall"); each must be known.
-    const types = typeof req.query.type === 'string' && req.query.type
-      ? req.query.type.split(',').map((t) => t.trim()).filter(Boolean)
-      : [];
-    if (types.some((t) => !GROUPED_TASK_TYPES.has(t))) throw new AppError('Invalid task type', 400);
+    const types = parseTaskTypes(req.query.type);
+    const createdRange = parseCreatedRange(req.query.from, req.query.to);
 
     const breakdown = typeof req.query.breakdown === 'string' && req.query.breakdown ? req.query.breakdown : undefined;
     if (breakdown !== undefined && !TASK_BREAKDOWN_KEY_RE.test(breakdown)) throw new AppError('Invalid breakdown', 400);
@@ -441,8 +481,9 @@ adminTasksRouter.get(
       agent_id: req.query.agent_id as string | undefined,
       org_id: listOrgScope(req),
       status: req.query.status as TaskStatus | undefined,
-      types: types as TaskType[],
+      types,
       breakdown,
+      ...createdRange,
       search: req.query.search as string | undefined,
       limit: req.query.limit ? parseInt(req.query.limit as string, 10) : undefined,
       offset: req.query.offset ? parseInt(req.query.offset as string, 10) : undefined,
