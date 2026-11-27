@@ -25,6 +25,7 @@ import type {
   AgentEventType,
   FleetHealthMetrics,
   TaskType,
+  TaskActivityResponse,
 } from '@/types/agent';
 
 export const agentApi = {
@@ -177,6 +178,18 @@ export const agentApi = {
     const data = response.data.data;
     // type_counts: per-type task counts for the type pills (backend/ only).
     return { groups: data.groups ?? [], total: data.total ?? 0, typeCounts: data.type_counts };
+  },
+
+  /** Tasks per local day over the last 30 days, for the Tasks activity strip (backend/ only). */
+  async getTaskActivity(params: { types?: TaskType[]; search?: string }, tz: string): Promise<TaskActivityResponse> {
+    const response = await apiClient.get('/agent/admin/tasks/activity', {
+      params: {
+        tz,
+        ...(params.types?.length ? { type: params.types.join(',') } : {}),
+        ...(params.search ? { search: params.search } : {}),
+      },
+    });
+    return response.data.data;
   },
 
   async getTask(taskId: string): Promise<AgentTask> {

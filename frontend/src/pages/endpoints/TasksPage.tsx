@@ -24,6 +24,9 @@ import { taskTiles, BREAKDOWN_TILE_LABEL } from './utils/taskTiles';
 import type { BreakdownTile } from './utils/taskTiles';
 import { DEFAULT_TASK_KIND, TASK_KINDS, kindCount, typesForKind, type TaskKind } from './utils/taskKinds';
 import { pillClass } from '@/components/shared/ui/pillStyles';
+import { useCapabilities } from '@/hooks/useCapabilities';
+import { TaskActivity } from '@/components/endpoints/tasks/TaskActivity';
+import type { BucketRef } from '@/components/shared/activity/activityModel';
 
 /** Task statuses DELETE /tasks/:id accepts; an active task is cancelled instead. */
 const DELETABLE_TASK_STATUSES = new Set(['completed', 'failed', 'expired']);
@@ -91,6 +94,12 @@ export default function TasksPage() {
   const [searchTerm, setSearchTerm] = useState(initialSearch);
   const [debouncedSearch, setDebouncedSearch] = useState(initialSearch);
   const [selectedTasks, setSelectedTasks] = useState<string[]>([]);
+  // The day selected on the activity strip (a filter of this page, like the others), and a token
+  // that reads the strip again after the page's own actions.
+  const capabilities = useCapabilities();
+  const [activityDay, setActivityDay] = useState<BucketRef | null>(null);
+  const [activityToken, setActivityToken] = useState(0);
+  const refreshActivity = () => setActivityToken((n) => n + 1);
   const searchTimerRef = useRef<ReturnType<typeof setTimeout>>(undefined);
   const canCreateTask = useHasPermission('endpoints:tasks:create');
   const canCancelTask = useHasPermission('endpoints:tasks:cancel');
@@ -112,6 +121,7 @@ export default function TasksPage() {
       ...(typesForKind(taskKind).length ? { types: typesForKind(taskKind) } : {}),
       ...(debouncedSearch ? { search: debouncedSearch } : {}),
       ...(breakdownFilter ? { breakdown: breakdownFilter.key } : {}),
+      ...(activityDay ? { from: activityDay.from, to: activityDay.to } : {}),
       limit: pageSize,
       offset: (page - 1) * pageSize,
     };
@@ -151,7 +161,7 @@ export default function TasksPage() {
       setLoading(false);
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [statusFilter, taskKind, breakdownFilter, debouncedSearch, page, pageSize]);
+  }, [statusFilter, taskKind, breakdownFilter, activityDay, debouncedSearch, page, pageSize]);
 
   const fetchSchedules = useCallback(async () => {
     try {
@@ -188,7 +198,7 @@ export default function TasksPage() {
       // Silent — don't surface transient poll failures
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [statusFilter, taskKind, breakdownFilter, debouncedSearch, page, pageSize]);
+  }, [statusFilter, taskKind, breakdownFilter, activityDay, debouncedSearch, page, pageSize]);
 
   usePolling(poll, 10_000);
 
@@ -209,6 +219,11 @@ export default function TasksPage() {
   }
 
   // --- Filters ---
+
+  function handleActivityDayChange(next: BucketRef | null): void {
+    setActivityDay(next);
+    setPage(1);
+  }
 
   function handleStatusFilterChange(value: TaskStatus | ''): void {
     setStatusFilter(value);
@@ -289,6 +304,7 @@ export default function TasksPage() {
       await agentApi.cancelTask(taskId);
       showToast('Task cancelled');
       fetchTasks();
+      refreshActivity();
     } catch (err) {
       console.error('Failed to cancel task:', err);
     }
@@ -299,6 +315,7 @@ export default function TasksPage() {
       await agentApi.retryTask(taskId);
       showToast('Retry dispatched');
       fetchTasks();
+      refreshActivity();
     } catch (err) {
       console.error('Failed to retry task:', err);
     }
@@ -309,6 +326,7 @@ export default function TasksPage() {
       await agentApi.deleteTask(taskId);
       showToast('Task deleted');
       fetchTasks();
+      refreshActivity();
     } catch (err) {
       console.error('Failed to delete task:', err);
     }
@@ -329,6 +347,7 @@ export default function TasksPage() {
     showToast(`${count} task(s) cancelled`);
     setSelectedTasks([]);
     fetchTasks();
+    refreshActivity();
   }
 
   async function handleBulkDelete(): Promise<void> {
@@ -344,6 +363,7 @@ export default function TasksPage() {
     showToast(`${count} task(s) deleted`);
     setSelectedTasks([]);
     fetchTasks();
+    refreshActivity();
   }
 
   // --- Bulk action enablement ---
@@ -382,6 +402,7 @@ export default function TasksPage() {
   function handleCreated(): void {
     fetchTasks();
     fetchSchedules();
+    refreshActivity();
   }
 
   const rangeStart = totalGroups === 0 ? 0 : (page - 1) * pageSize + 1;
@@ -504,12 +525,31 @@ export default function TasksPage() {
               </span>
             )}
             <div className="flex-grow" />
-            <Button variant="outline" className="shrink-0" onClick={() => { fetchTasks(); fetchSchedules(); }}>
+            <Button variant="outline" className="shrink-0" onClick={() => { fetchTasks(); fetchSchedules(); refreshActivity(); }}>
               <RefreshCw className="w-4 h-4 mr-2" />
               Refresh
             </Button>
           </div>
         </div>
+        )}
+
+        {/* Tasks per day over 30 days; a click narrows the list to that day (backend/ only) */}
+        {view === 'tasks' && capabilities.activityStrip && (
+          <div className="mb-4">
+            <TaskActivity
+              types={typesForKind(taskKind)}
+              search={debouncedSearch}
+              reloadToken={activityToken}
+              selected={activityDay}
+              onSelect={handleActivityDayChange}
+              listOnlyNote={
+                statusFilter && breakdownFilter ? 'The status and outcome filters narrow the list, not the bars.'
+                  : statusFilter ? 'The status filter narrows the list, not the bars.'
+                    : breakdownFilter ? 'The outcome filter narrows the list, not the bars.'
+                      : null
+              }
+            />
+          </div>
         )}
 
         {/* Bulk actions bar */}
