@@ -278,6 +278,9 @@ export const COMPOSITE_MAX_PAGES = 200;
 /** Execution activity answers kept at once (org x days); each is at most 90 day rows. */
 const ACTIVITY_CACHE_MAX_ENTRIES = 64;
 
+/** How long an executions strip answer is reused (stripCache). */
+export const STRIP_CACHE_TTL_MS = 5_000;
+
 const DAY_MS = 86_400_000;
 const RANGE_UNIT_MS: Record<string, number> = { h: 3_600_000, d: DAY_MS, w: 7 * DAY_MS, m: 30 * DAY_MS, M: 30 * DAY_MS };
 
@@ -1381,6 +1384,21 @@ export class ElasticsearchService {
    */
   private readonly activityCache = new TtlPromiseCache<ExecutionActivityResponse>({
     ttlMs: POSTURE_CACHE_OPTIONS.ttlMs,
+    maxEntries: ACTIVITY_CACHE_MAX_ENTRIES,
+    maxEntryWeight: 1,
+    maxTotalWeight: ACTIVITY_CACHE_MAX_ENTRIES,
+    weigh: () => 1,
+  });
+
+  /**
+   * Executions strip answers (getExecutionsActivity), keyed by the exact
+   * searches they come from. Short on purpose: a bar is clicked through to the
+   * uncached list, and the two should agree. It is there so the same question
+   * asked again at once, or by several requests at the same time, is read
+   * from Elasticsearch once (a pending answer is shared).
+   */
+  private readonly stripCache = new TtlPromiseCache<ExecutionsActivityResponse>({
+    ttlMs: STRIP_CACHE_TTL_MS,
     maxEntries: ACTIVITY_CACHE_MAX_ENTRIES,
     maxEntryWeight: 1,
     maxTotalWeight: ACTIVITY_CACHE_MAX_ENTRIES,
@@ -4399,7 +4417,8 @@ export class ElasticsearchService {
    * The bucket bounds are computed once and used for both searches: a
    * date_range over standalone results and the pass over bundle runs. Two
    * calendars (one of Elasticsearch, one here) could disagree on a day the
-   * clocks change.
+   * clocks change. The same searches asked again within STRIP_CACHE_TTL_MS,
+   * or at the same time, are read once (stripCache).
    */
   async getExecutionsActivity(
     params: Partial<AnalyticsQueryParams> & Partial<ExtendedAnalyticsQueryParams>,
@@ -4421,7 +4440,6 @@ export class ElasticsearchService {
     const { interval, buckets: bounds, capped } = activityBuckets(fromMs, toMs, tz);
     if (bounds.length === 0) return { interval, timeZone: tz, buckets: [] };
 
-    const rules = this.activityRules();
     const filters: any[] = [
       // Every bucket is read whole (the first and last reach past the window), so a bar equals what its
       // click lists. Only what is drawn is read: a window longer than a year is cut to its last 365 days.
@@ -4429,6 +4447,20 @@ export class ElasticsearchService {
       this.activityCountedFilter(params.org),
       ...this.buildFilterBarClauses(params, { excludeOutcome: true }),
     ];
+    // What the answer is made of: the searches (their filters hold the window,
+    // the organization and the filter bar) and the buckets.
+    const key = JSON.stringify([tz, interval, capped, bounds.map((b) => b.from), filters]);
+    return this.stripCache.get(key, () => this.loadExecutionsStrip(filters, bounds, interval, tz, capped));
+  }
+
+  private async loadExecutionsStrip(
+    filters: any[],
+    bounds: { from: number; to: number }[],
+    interval: ExecutionsActivityResponse['interval'],
+    tz: string,
+    capped: boolean,
+  ): Promise<ExecutionsActivityResponse> {
+    const rules = this.activityRules();
     const counts: ActivityCounts[] = bounds.map(() => ({ protected: 0, unprotected: 0, inconclusive: 0 }));
     const indexOfStart = new Map(bounds.map((b, i) => [b.from, i]));
 

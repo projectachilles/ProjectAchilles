@@ -626,6 +626,22 @@ describe('analytics routes', () => {
       expect(mockGetPaginatedExecutions).not.toHaveBeenCalled();
       expect(mockGetGroupedPaginatedExecutions).not.toHaveBeenCalled();
     });
+
+    // Keep this test last in the block: the limiter lives in the route module,
+    // so its per-user count is shared by every test of this file.
+    it('limits one user to a few requests per minute', async () => {
+      const { HEAVY_READ_MAX_PER_MINUTE } = await import('../analytics.routes.js');
+      expect(HEAVY_READ_MAX_PER_MINUTE).toBe(30);
+      const statuses: number[] = [];
+      for (let i = 0; i < HEAVY_READ_MAX_PER_MINUTE + 1; i++) statuses.push((await get()).status);
+      expect(statuses).toContain(429);
+      expect(statuses.filter((code) => code === 200).length).toBeLessThan(HEAVY_READ_MAX_PER_MINUTE);
+      const limited = await get();
+      expect(limited.status).toBe(429);
+      expect(limited.body).toEqual({ success: false, error: 'Too many requests, please try again later' });
+      // Each limited route has a budget of its own.
+      expect((await request(createApp()).get('/api/analytics/score-movement')).status).not.toBe(429);
+    });
   });
 
   describe('coverage matrix', () => {
@@ -761,6 +777,22 @@ describe('analytics routes', () => {
       const fs = await import('fs');
       expect(fs.readFileSync(new URL('../../server.ts', import.meta.url), 'utf8')).toMatch(/scoreMovement:\s*true/);
       expect(fs.readFileSync(new URL('../../../../backend-serverless/src/app.ts', import.meta.url), 'utf8')).toMatch(/scoreMovement:\s*false/);
+    });
+
+    // Keep this test last in the block: the limiter lives in the route module,
+    // so its per-user count is shared by every test of this file.
+    it('limits one user to a few requests per minute', async () => {
+      const { HEAVY_READ_MAX_PER_MINUTE } = await import('../analytics.routes.js');
+      expect(HEAVY_READ_MAX_PER_MINUTE).toBe(30);
+      const statuses: number[] = [];
+      for (let i = 0; i < HEAVY_READ_MAX_PER_MINUTE + 1; i++) statuses.push((await get()).status);
+      expect(statuses).toContain(429);
+      expect(statuses.filter((code) => code === 200).length).toBeLessThan(HEAVY_READ_MAX_PER_MINUTE);
+      const limited = await get();
+      expect(limited.status).toBe(429);
+      expect(limited.body).toEqual({ success: false, error: 'Too many requests, please try again later' });
+      // Each limited route has a budget of its own.
+      expect((await request(createApp()).get('/api/analytics/coverage-matrix')).status).not.toBe(429);
     });
   });
 

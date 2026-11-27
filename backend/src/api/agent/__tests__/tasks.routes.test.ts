@@ -58,7 +58,7 @@ vi.mock('../../../services/notices/userLabel.js', () => ({
   resolveUserLabel: async (id: string) => (id === 'user_jane' ? 'Jane Doe (jane@example.com)' : id),
 }));
 
-const { agentTasksRouter, adminTasksRouter, TEST_RECENCY_MAX_PER_MINUTE } = await import('../tasks.routes.js');
+const { agentTasksRouter, adminTasksRouter, TEST_RECENCY_MAX_PER_MINUTE, TASK_ACTIVITY_MAX_PER_MINUTE } = await import('../tasks.routes.js');
 const { errorHandler } = await import('../../../middleware/error.middleware.js');
 
 /**
@@ -907,6 +907,25 @@ describe('the Tasks activity strip', () => {
       const res = await request(createApp()).get(`/admin/tasks/activity${query}`);
       expect(res.status).toBe(400);
       expect(res.body).toEqual({ success: false, error });
+    });
+
+    // Keep this test last in the block: the limiter lives in the route module,
+    // so its per-user count is shared by every test of this file (the tests
+    // above have used part of it).
+    it('limits one user to a few requests per minute', async () => {
+      expect(TASK_ACTIVITY_MAX_PER_MINUTE).toBe(20);
+      const app = createApp();
+      const statuses: number[] = [];
+      for (let i = 0; i < TASK_ACTIVITY_MAX_PER_MINUTE + 1; i++) {
+        statuses.push((await request(app).get('/admin/tasks/activity?tz=UTC')).status);
+      }
+      expect(statuses).toContain(429);
+      expect(statuses.filter((code) => code === 200).length).toBeLessThan(TASK_ACTIVITY_MAX_PER_MINUTE);
+      const limited = await request(app).get('/admin/tasks/activity?tz=UTC');
+      expect(limited.status).toBe(429);
+      expect(limited.body).toEqual({ success: false, error: 'Too many requests, please try again later' });
+      // The task list itself is not affected.
+      expect((await request(app).get('/admin/tasks')).status).toBe(200);
     });
   });
 

@@ -23,7 +23,7 @@ vi.mock('../../risk-acceptance/risk-acceptance.service.js', () => ({
   }),
 }));
 
-const { ElasticsearchService, COMPOSITE_MAX_PAGES } = await import('../elasticsearch.js');
+const { ElasticsearchService, COMPOSITE_MAX_PAGES, STRIP_CACHE_TTL_MS } = await import('../elasticsearch.js');
 
 const settings: AnalyticsSettings = {
   connectionType: 'direct',
@@ -84,6 +84,31 @@ beforeEach(() => {
 });
 
 describe('getExecutionsActivity', () => {
+  // Identical questions, at once or within a few seconds, are read from Elasticsearch once.
+  it('shares one read between identical requests, briefly', async () => {
+    // The cache drops an answer with a timer.
+    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] });
+    try {
+      route();
+      const es = createService();
+
+      const [a, b] = await Promise.all([es.getExecutionsActivity(WINDOW, TZ), es.getExecutionsActivity(WINDOW, TZ)]);
+      expect(b).toEqual(a);
+      // One standalone search and one bundle-run page.
+      expect(mockSearch).toHaveBeenCalledTimes(2);
+
+      await es.getExecutionsActivity({ ...WINDOW, hostnames: 'HOST-1' }, TZ);
+      await es.getExecutionsActivity(WINDOW, 'UTC');
+      expect(mockSearch).toHaveBeenCalledTimes(6);
+
+      vi.advanceTimersByTime(STRIP_CACHE_TTL_MS + 1);
+      await es.getExecutionsActivity(WINDOW, TZ);
+      expect(mockSearch).toHaveBeenCalledTimes(8);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it('answers one entry per bucket of the window, zero-filled, with the interval and the zone', async () => {
     route({ standalone: [rangeBucket(0, 3, 2, 1), rangeBucket(2, 5, 0, 0)] });
 
