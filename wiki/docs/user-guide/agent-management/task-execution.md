@@ -93,6 +93,17 @@ Choosing a row filters the task list to that outcome. A chip next to the search 
 
 If the list can't load while a filter is on (a network error, or the server is restarting), the filter stays and the list retries on its next refresh; rows fetched without the filter are never shown under its chip. Only if the server rejects the filter itself is it cleared, with a "Couldn't filter the task list." message.
 
+### Activity strip
+
+Under the filter bar, a short row of bars shows **when tasks were created** over the last 30 days: one bar per day, cut in your browser's time zone, as tall as that day's tasks are many. A 300-host run counts 300. The colours are the run timeline's: red unprotected and failed at the bottom, then amber no verdict, blue in progress, green protected and completed.
+
+- **Click a bar to list that day's tasks.** The list goes back to its first page and keeps the day through its refreshes; the strip keeps showing all 30 days with the bar marked. Click the bar again, or the chip beside the strip, to clear it.
+- **A run that spans two days** (a retry the next day, a schedule run across midnight) lists only that day's tasks under the bar's day; its agent count and status counts still describe the whole run.
+- **What the strip follows:** the type pills and the search box. Not the status filter or an outcome filter from the breakdown above: the strip shows the split itself, and a line under it says when one of those narrows the list.
+- **It does not look empty on a quiet week:** every day has a faint slot, a day with one task still has a visible bar, and with fewer than three days holding tasks the bars give way to one line naming those days.
+- It is read again once a minute, after your own actions (create, retry, cancel, delete) and on **Refresh**; the list's 10-second refresh does not read it.
+- Not shown on a server without it (`backend-serverless`).
+
 ### Sections: Runs, Schedules, Campaigns
 
 Next to the **Tasks** title are three sections, the three ways tests reach agents:
