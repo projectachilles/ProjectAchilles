@@ -159,6 +159,18 @@ describe('a refresh that fails', () => {
     errors.mockRestore();
   });
 
+  it('does not show the bars of the previous pills while the new ones load', async () => {
+    const { rerenderWith } = setup();
+    await screen.findByRole('group', { name: 'Tasks over time' });
+    getTaskActivity.mockReturnValue(new Promise(() => {}));
+
+    rerenderWith({ types: ['execute_command'] });
+
+    await waitFor(() => expect(screen.queryByRole('group', { name: 'Tasks over time' })).not.toBeInTheDocument());
+    // It holds the strip's height instead.
+    expect(screen.getByTestId('activity-loading')).toBeInTheDocument();
+  });
+
   it('drops them when it was asked for other pills: they would be read as these pills\' bars', async () => {
     const errors = vi.spyOn(console, 'error').mockImplementation(() => {});
     const { container, rerenderWith } = setup();
