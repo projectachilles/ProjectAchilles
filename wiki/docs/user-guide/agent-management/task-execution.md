@@ -258,7 +258,7 @@ Before submitting, the dialog checks for required integrations:
 
 The Tasks page is the central control panel for all task activity.
 
-![Tasks — 7-day summary line and type pills above the task stream, with a selected task's detail panel showing agent, duration, exit code and stdout](/img/screenshots/tasks.png)
+![Tasks — 7-day summary line and type pills, the activity strip with 30 days of tasks per day, then the task stream and a selected task's detail panel showing agent, duration, exit code and stdout](/img/screenshots/tasks.png)
 
 ### Type pills
 

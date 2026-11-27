@@ -26,11 +26,15 @@ Above both views, a short row of bars shows **when the runs happened**: one bar 
 - **What a bar counts:** test runs. The list can show a few rows the bar did not count: upload confirmations, and runs whose every stage was Skipped.
 - The selected bar is in the address (`bucketFrom`, `bucketTo`), so a link narrows the same way. It is dropped when you change the date range or leave the tab, and it is ignored on a server that has no strip. **Archive by date ignores it**, as it ignores every filter.
 
+![A week selected on the activity strip: its bar is outlined, the others dimmed, a chip names the week, and the matrix under it shows only that week's results](/img/screenshots/executions-activity-strip.png)
+
 The counts are the same runs, by the same rules, as the Dashboard's test cadence card. The strip is not shown on a server that does not provide it (`backend-serverless`).
 
 ## Matrix view
 
 Each row is one test, with its name written once and one mark per host. Hosts keep the same order in every row, most exposed first, so a weak host is a column and a hard test is a row.
+
+![All Executions in the Matrix view over 90 days: the activity strip by week above, then one row per attack chain with a mark per host — ✓ protected, ▲ detected, ✕ unprotected, an empty square where the test never ran — and "caught on x of y hosts" under each test](/img/screenshots/executions-matrix.png)
 
 | Mark | State | Meaning |
 |------|-------|---------|
@@ -55,10 +59,12 @@ The states are the Defense Score's: the same latest result per test and host, co
 
 **Rows of hosts.** The **Rows** switch turns the matrix: one row per host, most exposed first, with one mark per test under the tests' names, and "caught on x of y tests" under each hostname. It answers "what is this host exposed to", and it is the way to read marks on a fleet too large for rows of tests, which become bars. Hosts are listed 25 at a time, with **Show more**. Where a host's tests do not fit as squares, the rows scroll sideways inside the card and the hostnames stay in view. A click on a mark opens the same runs and panel; a link to a pair whose host is further down the list shows its runs above the rows. Turning the matrix closes the open pair. The choice is kept in the address and remembered in your browser.
 
+![Rows of hosts: one row per host with "caught on x of y tests", one tile per test with the age of its latest result and a dot per earlier result](/img/screenshots/executions-matrix-hosts.png)
+
 **Export and Archive by date** are above both views. Export follows the filter bar: every matching result, newest first, including the outcome filters the matrix itself ignores. **Archive by date does not follow the filters:** it archives every execution before the date you pick, and its dialog says so. After it the matrix is read again. **Sorting and bulk accept-risk and archive** are in the List view.
 
 :::note
-The screenshot below shows the List view. A screenshot of the Matrix view will be added.
+The screenshot below shows the List view. The Matrix view is pictured above.
 :::
 
 ## List view features
