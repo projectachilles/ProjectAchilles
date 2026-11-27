@@ -43,6 +43,20 @@ const mocks = vi.hoisted(() => {
   };
 });
 
+// Every writer of the page's address, as handed out: they must all be one (see useAddressWriter).
+const addressWriters = vi.hoisted(() => new Set<unknown>());
+vi.mock('@/hooks/useAddressWriter', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('@/hooks/useAddressWriter')>();
+  return {
+    ...actual,
+    useAddressWriter: () => {
+      const writer = actual.useAddressWriter();
+      addressWriters.add(writer);
+      return writer;
+    },
+  };
+});
+
 vi.mock('../../../services/api/analytics', () => ({ analyticsApi: mocks.analytics.api }));
 vi.mock('../../../services/api/defender', () => ({ defenderApi: mocks.defender.api }));
 vi.mock('../../../services/api/crowdstrike', () => ({ crowdstrikeApi: mocks.crowdstrike.api }));
@@ -1138,19 +1152,17 @@ describe('All Executions: the activity strip', () => {
     await waitFor(() => expect(lastOf(list())).toMatchObject({ from: NOV16.from, page: 1 }));
   });
 
-  it('keeps both of two changes made by different parts of the page before it redraws', async () => {
-    renderAt('?tab=executions');
-    const bar = await screen.findByRole('button', { name: /^Nov 16/ });
-    const range = screen.getAllByRole('combobox').find((el) => [...(el as HTMLSelectElement).options].some((o) => o.value === '7d')) as HTMLSelectElement;
+  it('gives every part of the page that writes the address one and the same writer', async () => {
+    // Two writers of their own would each start from what they alone asked for, and two writes
+    // made by different parts of the page before it redraws would erase each other again.
+    addressWriters.clear();
+    renderAt('?tab=executions&view=matrix');
+    await screen.findByRole('button', { name: /^Nov 16/ });
+    fireEvent.click(screen.getByRole('button', { name: 'List' }));
+    await screen.findByText('No executions found');
 
-    // The filters write the range, the strip writes the bucket: one writer each, one address.
-    act(() => {
-      fireEvent.change(range, { target: { value: '7d' } });
-      fireEvent.click(bar);
-    });
-
-    await waitFor(() => expect(address().get('date')).toBe('7d'));
-    expect(address().get('bucketFrom')).toBe(NOV16.from);
+    // The page, the filters, the matrix's state, the strip's bucket: one writer.
+    expect(addressWriters.size).toBe(1);
   });
 
   it('goes back to the first page when the bucket is cleared from a later one, in one request', async () => {

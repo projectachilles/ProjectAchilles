@@ -237,7 +237,9 @@ export function useAnalyticsFilters(syncWithUrl = true, { rangeBoundParams }: Us
         });
       }, { replace: true });
     }
-  }, [filters, syncWithUrl, address, rangeBoundParams]);
+    // Also after a navigation it did not make (an in-page link, the back button): the address is made to
+    // say again what the filters on screen are. A write that changes nothing does not navigate, so no loop.
+  }, [filters, searchParams, syncWithUrl, address, rangeBoundParams]);
 
   // Calculate active filter count (all executions-tab filters)
   const activeFilterCount = useMemo(() => {

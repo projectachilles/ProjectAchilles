@@ -18,8 +18,9 @@ import { useLocation, useNavigate } from 'react-router-dom';
  *
  * Every writer of a page's address should go through one writer: wrap the page
  * in `AddressWriterProvider`. Write from effects and event handlers, not from
- * layout effects (the location it compares with is the committed one, updated
- * in a layout effect of the provider, which runs after its children's).
+ * layout effects: the location it compares with is the committed one, updated
+ * in a layout effect of the provider, which runs after its children's, and at
+ * mount the router ignores the navigation (the writer then forgets it too).
  */
 export interface AddressWriter {
   /** Change the address's search parameters. The callback edits the parameters in place. */
@@ -48,9 +49,12 @@ function useWriter(): AddressWriter {
   // The committed location and navigate function, for writes made from effects and event handlers.
   const committed = useRef(location);
   const go = useRef(navigate);
+  /** The router ignores a navigation asked for before the page has mounted; so must the pending list. */
+  const mounted = useRef(false);
   useLayoutEffect(() => {
     committed.current = location;
     go.current = navigate;
+    mounted.current = true;
   });
   /** Searches asked for and not drawn yet, oldest first. */
   const pending = useRef<string[]>([]);
@@ -67,7 +71,7 @@ function useWriter(): AddressWriter {
     const query = next.toString();
     const search = query ? `?${query}` : '';
     if (search === from) return;
-    pending.current.push(search);
+    if (mounted.current) pending.current.push(search);
     // As setSearchParams does: the same path, this search.
     go.current(`?${query}`, { replace: options.replace });
   }, []);

@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest';
-import { act, renderHook } from '@testing-library/react';
+import { act, render, renderHook } from '@testing-library/react';
 import { MemoryRouter, useLocation, useNavigate, useNavigationType, useSearchParams } from 'react-router-dom';
-import { StrictMode, useEffect, useState, type ReactNode } from 'react';
+import { StrictMode, Suspense, useEffect, useLayoutEffect, useState, type ReactNode } from 'react';
 import { AddressWriterProvider, stillPending, useAddressWriter } from '../useAddressWriter';
 
 // One writer for a page's address: a write starts from what was last asked for,
@@ -84,19 +84,6 @@ describe('useAddressWriter', () => {
     });
 
     expect(params()).toEqual({ tab: 'executions', a: '1', b: '2' });
-  });
-
-  it('starts from what is pending when the page draws something else first', () => {
-    const { result, params, set } = setup();
-
-    act(() => {
-      result.current.writer.update(set('a', '1'), { replace: true });
-      // Another state change renders the page while the address is on its way.
-      result.current.setOther(1);
-      result.current.second.update((p) => { p.delete('tab'); }, { replace: true });
-    });
-
-    expect(params()).toEqual({ a: '1' });
   });
 
   it('starts from the drawn address once it has caught up', () => {
@@ -229,5 +216,87 @@ describe('under StrictMode, which runs every effect twice in development', () =>
     // Replaced, not pushed: back still leads to the entry before.
     act(() => result.current.navigate(-1));
     expect(result.current.location.search).toBe('?tab=dashboard');
+  });
+});
+
+describe('while a navigation is held', () => {
+  // A navigation the page cannot draw yet (a part of it suspends, as a lazy one does): the page keeps
+  // drawing the old address, and other state changes draw with it. A write made then must start from
+  // the address on its way, not from the one on screen.
+  let release: (() => void) | null = null;
+  let held: Promise<void> | null = null;
+  function HoldsOn({ param }: { param: string }) {
+    const { search } = useLocation();
+    if (held && new URLSearchParams(search).has(param)) throw held;
+    return null;
+  }
+  type Seen = { writer: ReturnType<typeof useAddressWriter>; search: string; navigate: ReturnType<typeof useNavigate>; setOther: (n: number) => void; other: number };
+  function Probe({ seen }: { seen: Partial<Seen> }) {
+    const writer = useAddressWriter();
+    const { search } = useLocation();
+    const navigate = useNavigate();
+    const [other, setOther] = useState(0);
+    // What is committed, not what a held render tried.
+    useLayoutEffect(() => { Object.assign(seen, { writer, search, navigate, setOther, other }); });
+    return null;
+  }
+  function setup() {
+    held = new Promise<void>((resolve) => { release = () => { held = null; resolve(); }; });
+    const seen: Partial<Seen> = {};
+    render(
+      <MemoryRouter initialEntries={['/analytics?tab=executions']}>
+        <AddressWriterProvider>
+          <Suspense fallback={<p>loading</p>}>
+            <Probe seen={seen} />
+            <HoldsOn param="a" />
+          </Suspense>
+        </AddressWriterProvider>
+      </MemoryRouter>,
+    );
+    return seen as Seen;
+  }
+
+  it('starts from the held address when the page draws something else first', async () => {
+    const seen = setup();
+    act(() => seen.writer.update((p) => { p.set('a', '1'); }, { replace: true }));
+    expect(seen.search).toBe('?tab=executions');
+
+    // Another state change draws the page, still with the old address.
+    act(() => seen.setOther(1));
+    expect(seen.other).toBe(1);
+    expect(seen.search).toBe('?tab=executions');
+    act(() => seen.writer.update((p) => { p.set('b', '2'); }, { replace: true }));
+    await act(async () => { release!(); await new Promise((r) => setTimeout(r, 0)); });
+
+    expect(seen.search).toBe('?tab=executions&a=1&b=2');
+  });
+});
+
+describe('a write the router refuses', () => {
+  // The router ignores a navigation asked for before the page has mounted (from a layout effect
+  // at mount). The writer must not remember it either, or the next write would bring it back.
+  it('is forgotten, not carried into the next write', () => {
+    const seen: { writer?: ReturnType<typeof useAddressWriter>; search?: string } = {};
+    function TooEarly() {
+      const writer = useAddressWriter();
+      useLayoutEffect(() => { writer.update((p) => { p.set('early', '1'); }, { replace: true }); }, [writer]);
+      return null;
+    }
+    function Probe() {
+      const writer = useAddressWriter();
+      const { search } = useLocation();
+      useLayoutEffect(() => { Object.assign(seen, { writer, search }); });
+      return null;
+    }
+    render(
+      <MemoryRouter initialEntries={['/analytics?tab=executions']}>
+        <AddressWriterProvider><TooEarly /><Probe /></AddressWriterProvider>
+      </MemoryRouter>,
+    );
+    expect(seen.search).toBe('?tab=executions');
+
+    act(() => seen.writer!.update((p) => { p.set('b', '2'); }, { replace: true }));
+
+    expect(seen.search).toBe('?tab=executions&b=2');
   });
 });
