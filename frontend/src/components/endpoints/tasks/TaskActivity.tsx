@@ -42,7 +42,8 @@ const browserTimeZone = () => Intl.DateTimeFormat().resolvedOptions().timeZone |
  * the frontend's).
  */
 export function TaskActivity({ types, search, reloadToken, selected, onSelect, listOnlyNote }: TaskActivityProps) {
-  const [data, setData] = useState<TaskActivityResponse | null>(null);
+  // The answer with the question it answers: a failed refresh of the same question keeps it.
+  const [answer, setAnswer] = useState<{ scope: string; data: TaskActivityResponse } | null>(null);
   const [loading, setLoading] = useState(true);
   const [tick, setTick] = useState(0);
   const request = useRef(0);
@@ -58,13 +59,14 @@ export function TaskActivity({ types, search, reloadToken, selected, onSelect, l
     agentApi
       .getTaskActivity({ types: scopeTypes, search: scopeSearch }, browserTimeZone())
       .then((response) => {
-        if (id === request.current) setData(response);
+        if (id === request.current) setAnswer({ scope: scopeKey, data: response });
       })
       .catch((error) => {
         if (id !== request.current) return;
         // The strip is an extra: the list reports its own failures.
         console.error('Failed to load the task activity:', error);
-        setData(null);
+        // A missed minute keeps the bars it has; bars of other pills or another search would be read as these.
+        setAnswer((kept) => (kept?.scope === scopeKey ? kept : null));
       })
       .finally(() => {
         if (id === request.current) setLoading(false);
@@ -74,6 +76,8 @@ export function TaskActivity({ types, search, reloadToken, selected, onSelect, l
       request.current++;
     };
   }, [scopeKey, reloadToken, tick]);
+
+  const data = answer?.scope === scopeKey ? answer.data : null;
 
   const buckets = useMemo<StripBucket[]>(
     () =>

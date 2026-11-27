@@ -425,7 +425,9 @@ function parseTaskTypes(value: unknown): TaskType[] {
 function parseCreatedRange(from: unknown, to: unknown): { created_from?: string; created_to?: string } {
   const instant = (value: unknown): string | undefined => {
     if (value === undefined || value === '') return undefined;
-    const ms = typeof value === 'string' ? Date.parse(value) : Number.NaN;
+    // An ISO instant with its zone only: a date-only or local form would be read in the server's zone.
+    const iso = typeof value === 'string' && /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}(:\d{2}(\.\d{1,3})?)?(Z|[+-]\d{2}:\d{2})$/.test(value);
+    const ms = iso ? Date.parse(value as string) : Number.NaN;
     if (!Number.isFinite(ms)) throw new AppError('Invalid date range', 400);
     return new Date(ms).toISOString();
   };

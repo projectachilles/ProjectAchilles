@@ -993,13 +993,6 @@ const RUN_KEY_SQL = `CASE
   ELSE 'b:' || COALESCE(t.batch_id, t.id)
 END`;
 
-/**
- * List tasks grouped by run (see RUN_KEY_SQL) with server-side pagination:
- * `limit`, `offset` and `total` count runs.
- * A group is included if ANY task within it matches the filter conditions.
- * `noticeScope` limits each group's `notices` map (Ruling R21); it does not
- * filter the task rows.
- */
 /** An instant as SQLite writes `created_at` (`datetime('now')`: UTC, whole seconds), so the two compare as text. */
 function sqliteSecond(iso: string): string {
   return new Date(Date.parse(iso)).toISOString().slice(0, 19).replace('T', ' ');
@@ -1023,7 +1016,9 @@ export function taskListConditions(
     params.push(filters.agent_id);
   }
   if (filters.org_id) {
-    conditions.push('t.org_id = ?');
+    // With a stretch of creation time, its index must serve the query: written plainly, the organization's
+    // own index wins and reads every task the organization ever had. The unary + only stops that index.
+    conditions.push(filters.created_from || filters.created_to ? '+t.org_id = ?' : 't.org_id = ?');
     params.push(filters.org_id);
   }
   if (filters.search) {
@@ -1046,6 +1041,13 @@ export function taskListConditions(
   return { conditions, params };
 }
 
+/**
+ * List tasks grouped by run (see RUN_KEY_SQL) with server-side pagination:
+ * `limit`, `offset` and `total` count runs.
+ * A group is included if ANY task within it matches the filter conditions.
+ * `noticeScope` limits each group's `notices` map (Ruling R21); it does not
+ * filter the task rows.
+ */
 export function listTasksGrouped(
   filters: ListTasksRequest,
   noticeScope: NoticeScope,
@@ -1230,7 +1232,11 @@ export function listTasksGrouped(
       payload: first?.payload ?? ({} as TaskPayload),
       // One batch keeps its own time. A run of several batches sorts by its
       // newest task, so that is the time it shows.
-      created_at: runBatchIds.length > 1 ? runRow.latest_created : (first?.created_at ?? runRow.latest_created),
+      // With a day selected, the run is dated by its tasks in the day (latest_created is computed under the
+      // same conditions): its batch's time can be another day, and the list draws a day heading from it.
+      created_at: runBatchIds.length > 1 || createdFrom !== null || createdTo !== null
+        ? runRow.latest_created
+        : (first?.created_at ?? runRow.latest_created),
       created_by: first?.created_by ?? null,
       agent_count: new Set(allTasks.map((t) => t.agent_id)).size,
       status_counts: statusCounts,

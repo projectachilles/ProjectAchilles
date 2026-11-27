@@ -1,7 +1,15 @@
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, vi } from 'vitest';
 import type Database from 'better-sqlite3';
 import { createTestDatabase } from '../../../__tests__/helpers/db.js';
 import { initializeTables } from '../database.js';
+
+let testDb!: Database.Database;
+vi.mock('../database.js', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('../database.js')>();
+  return { ...actual, getDatabase: () => testDb };
+});
+vi.mock('../test-catalog.service.js', () => ({ getTestMetadata: () => null }));
+const { taskListConditions } = await import('../tasks.service.js');
 
 // The Tasks activity strip counts 30 days of tasks by creation time, and a day selected on it
 // narrows the grouped list by creation time. Without an index both read every task row.
@@ -24,6 +32,15 @@ describe('tasks created_at index', () => {
        WHERE t.created_at >= ? AND t.created_at <= ?`,
       '2026-10-28T04:00:00.000Z', '2026-11-28T03:59:59.999Z',
     );
+    expect(detail).toContain('idx_tasks_created');
+  });
+
+  it('serves a range of creation times for a caller with an organization too', () => {
+    // An organization caller's query also names t.org_id, which has an index of its own that reads
+    // every task the organization ever had: the range must win.
+    const db = createTestDatabase();
+    const { conditions, params } = taskListConditions({ org_id: 'org-a', created_from: '2026-10-28T04:00:00.000Z', created_to: '2026-11-28T03:59:59.999Z' });
+    const detail = plan(db, `SELECT t.type FROM tasks t LEFT JOIN agents a ON t.agent_id = a.id WHERE ${conditions.join(' AND ')}`, ...params);
     expect(detail).toContain('idx_tasks_created');
   });
 

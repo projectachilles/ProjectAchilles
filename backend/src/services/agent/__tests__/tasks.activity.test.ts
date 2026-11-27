@@ -180,6 +180,20 @@ describe('listTasksGrouped with a stretch of creation time', () => {
     expect(result.groups[0].tasks.map((t) => t.id)).toEqual(['late']);
   });
 
+  it('dates a run by its tasks in the day, so a retry the next day is not listed under the first day', () => {
+    seed({ id: 'run-a', created: '2026-11-25 20:00:00', batch: 'run-1', agentNo: 1 });
+    seed({ id: 'run-b', created: '2026-11-25 20:00:00', batch: 'run-1', agentNo: 2 });
+    // The retry keeps the batch: one run, the next day.
+    seed({ id: 'retry-b', created: '2026-11-26 09:30:00', batch: 'run-1', agentNo: 2 });
+
+    const result = listTasksGrouped(DAY, ALL);
+
+    expect(result.groups[0].tasks.map((t) => t.id)).toEqual(['retry-b']);
+    expect(result.groups[0].created_at).toBe('2026-11-26 09:30:00');
+    // Without a day the run keeps its batch's time.
+    expect(listTasksGrouped({}, ALL).groups[0].created_at).toBe('2026-11-25 20:00:00');
+  });
+
   it('counts the type pills within it', () => {
     seed({ id: 'in', created: '2026-11-26 15:00:00' });
     seed({ id: 'out', created: '2026-11-20 15:00:00' });

@@ -83,6 +83,32 @@ export function outcomeResultSql(alias?: string): string {
   return `CASE WHEN json_valid(${p}result) THEN json_remove(${p}result, '$.stdout', '$.stderr') END`;
 }
 
+/**
+ * SELECT expression for the part of a task's `result` that `taskBucket` reads: the exit code, whether
+ * the EDR stopped the agent (only its presence matters), the bundle category, and each control's id,
+ * exit code and skipped flag (none for a cyber-hygiene bundle, which is judged by its overall exit).
+ * For the activity strip, which reads 30 days of tasks: a cyber-hygiene bundle's controls (names,
+ * expected and actual values, details) would otherwise be parsed for every finished task. Invalid JSON
+ * selects NULL. Read rows with `parseOutcomeResult`; `bucketResultSql.test` holds it to the golden table.
+ */
+export function bucketResultSql(alias?: string): string {
+  const r = alias ? `${alias}.result` : 'result';
+  const controls = `json((SELECT json_group_array(json_object(
+      'control_id', json_extract(c.value, '$.control_id'),
+      'exit_code', json_extract(c.value, '$.exit_code'),
+      'skipped', json_extract(c.value, '$.skipped')))
+    FROM json_each(${r}, '$.bundle_results.controls') c))`;
+  return `CASE WHEN json_valid(${r}) THEN json_object(
+    'exit_code', json_extract(${r}, '$.exit_code'),
+    'edr_terminated', json_extract(${r}, '$.edr_terminated'),
+    'bundle_results', CASE WHEN json_type(${r}, '$.bundle_results') = 'object' THEN json_object(
+      'bundle_category', json_extract(${r}, '$.bundle_results.bundle_category'),
+      'controls', CASE WHEN json_extract(${r}, '$.bundle_results.bundle_category') = 'cyber-hygiene'
+        THEN json_array() ELSE ${controls} END
+    ) END
+  ) END`;
+}
+
 /** A row's result column (from `outcomeResultSql`) as a TaskResult; null when absent or unparseable. */
 export function parseOutcomeResult(raw: string | null): TaskResult | null {
   if (!raw) return null;

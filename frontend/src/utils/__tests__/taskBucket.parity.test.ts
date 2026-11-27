@@ -23,6 +23,7 @@ const GOLDEN: BucketCase[] = JSON.parse(
 ).cases;
 
 function toTask(c: BucketCase): Pick<AgentTask, 'type' | 'status' | 'result'> {
+  if ((c as { errorOnly?: boolean }).errorOnly) return { type: c.type, status: c.status, result: { error: 'Agent went offline during execution' } } as unknown as Pick<AgentTask, 'type' | 'status' | 'result'>;
   if (c.exit === undefined && !c.edrKilled) return { type: c.type, status: c.status, result: null } as Pick<AgentTask, 'type' | 'status' | 'result'>;
   return {
     type: c.type,

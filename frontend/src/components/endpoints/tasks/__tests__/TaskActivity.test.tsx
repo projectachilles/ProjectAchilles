@@ -146,6 +146,32 @@ describe('what it draws', () => {
   });
 });
 
+describe('a refresh that fails', () => {
+  it('keeps the bars it has for the same pills and search: the list must not jump for a missed minute', async () => {
+    const errors = vi.spyOn(console, 'error').mockImplementation(() => {});
+    setup();
+    await screen.findByRole('group', { name: 'Tasks over time' });
+    getTaskActivity.mockRejectedValue(new Error('blip'));
+
+    await act(async () => polls.get(60_000)!());
+
+    expect(screen.getAllByTestId('activity-bar')).toHaveLength(4);
+    errors.mockRestore();
+  });
+
+  it('drops them when it was asked for other pills: they would be read as these pills\' bars', async () => {
+    const errors = vi.spyOn(console, 'error').mockImplementation(() => {});
+    const { container, rerenderWith } = setup();
+    await screen.findByRole('group', { name: 'Tasks over time' });
+    getTaskActivity.mockRejectedValue(new Error('down'));
+
+    rerenderWith({ types: ['execute_command'] });
+
+    await waitFor(() => expect(container).toBeEmptyDOMElement());
+    errors.mockRestore();
+  });
+});
+
 describe('answers that arrive late', () => {
   it('drops the answer of filters that were replaced', async () => {
     let resolveFirst!: (v: TaskActivityResponse) => void;

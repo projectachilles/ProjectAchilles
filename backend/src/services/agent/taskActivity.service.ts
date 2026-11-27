@@ -1,7 +1,7 @@
 import { getDatabase } from './database.js';
 import { taskListConditions } from './tasks.service.js';
 import { activityBuckets, bucketIndexOf } from '../analytics/activityBuckets.js';
-import { outcomeResultSql, parseOutcomeResult, taskBucket, type TaskBucket } from '../outcomes/taskOutcome.js';
+import { bucketResultSql, parseOutcomeResult, taskBucket, type TaskBucket } from '../outcomes/taskOutcome.js';
 import { parseSqliteUtc } from '../edr/agent-kill-evidence.js';
 import type { TaskStatus, TaskType } from '../../types/agent.js';
 
@@ -53,7 +53,8 @@ const FIELD: Record<TaskBucket, Exclude<keyof TaskActivityBucket, 'from' | 'to'>
  *
  * Not cached: the page reads it again after its own actions (a retry, a
  * cancel) and must see them. The work is bounded: 30 days of tasks through
- * idx_tasks_created, no output read, asked once a minute per open page.
+ * idx_tasks_created (also for an organization caller, see taskListConditions),
+ * only the part of each result the bucket needs, asked once a minute per open page.
  */
 export function getTaskActivity(filters: TaskActivityFilters, tz: string, nowMs = Date.now()): TaskActivityResponse {
   const { buckets: bounds } = activityBuckets(nowMs - TASK_ACTIVITY_DAYS * DAY_MS, nowMs, tz);
@@ -75,10 +76,10 @@ export function getTaskActivity(filters: TaskActivityFilters, tz: string, nowMs 
       conditions.push(`t.type IN (${types.map(() => '?').join(', ')})`);
       params.push(...types);
     }
-    // Only a finished task has a result to read, and never its output.
+    // Only a finished task has a result to read, and only the part taskBucket reads.
     const rows = getDatabase().prepare(`
       SELECT t.type, t.status, t.created_at,
-        CASE WHEN t.status IN ('completed', 'failed') THEN ${outcomeResultSql('t')} END AS result
+        CASE WHEN t.status IN ('completed', 'failed') THEN ${bucketResultSql('t')} END AS result
       FROM tasks t LEFT JOIN agents a ON t.agent_id = a.id
       WHERE ${conditions.join(' AND ')}
     `).all(...params) as { type: TaskType; status: TaskStatus; created_at: string; result: string | null }[];

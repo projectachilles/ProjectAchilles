@@ -932,6 +932,9 @@ describe('the Tasks activity strip', () => {
       ['an end that is no date', 'to=2026-13-45T00:00:00Z'],
       ['an end before its start', 'from=2026-11-27T00:00:00.000Z&to=2026-11-26T00:00:00.000Z'],
       ['a start given twice', 'from=2026-11-26T00:00:00.000Z&from=2026-11-27T00:00:00.000Z'],
+      ['a date in a local form, read in the server\'s zone', 'from=11/26/2026'],
+      ['a date without a time, read in the server\'s zone', 'from=2026-11-26'],
+      ['a year past 9999', 'from=%2B010000-01-01T00:00:00.000Z'],
     ])('refuses %s', async (_name, query) => {
       const res = await request(createApp()).get(`/admin/tasks/grouped?${query}`);
       expect(res.status).toBe(400);
