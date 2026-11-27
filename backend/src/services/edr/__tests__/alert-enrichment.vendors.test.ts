@@ -249,9 +249,8 @@ describe.each(VENDORS.filter((v) => v.prefix !== 'defender'))('EDR alert enrichm
       const ops = (bulk.mock.calls[0]?.[0].operations ?? []) as any[];
       expect(JSON.stringify(ops)).not.toContain('no_run_evidence');
       expect(result.noRunEvidenceDocs).toEqual([]);
-      // Nor do they put the note's mapping, or count a keep.
+      // Nor do they put the note's mapping.
       expect(putMapping).not.toHaveBeenCalled();
-      expect(result.keptWithoutRunEvidence).toBe(0);
     } finally {
       vi.useRealTimers();
     }

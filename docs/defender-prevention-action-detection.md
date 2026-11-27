@@ -118,8 +118,8 @@ leave out an alert that names the test only in an earlier run.
 
 A result without `routing.run_started_at`, and an alert without
 `evidence_items`, keep the rules above. Stored results are re-checked once;
-`f0rtika.defender_run_rule: 'run_activity'` marks the ones that were (the previous release used
-`run_evidence`; those results are checked once more). A pass
+`f0rtika.defender_run_rule: 'run_own_evidence'` marks the ones that were (earlier builds used
+`run_evidence` and `run_activity`; those results are checked once more). A pass
 without a run view that sets a detection or prevention flag on a marked result
 clears the marker (`null`), so the result is re-checked once the run rule is
 back. During this re-check (`runRecheck`), no flag is removed from a result in
@@ -168,8 +168,8 @@ the run's start and 30 minutes after its end.
 Known limits:
 
 - A later run that Defender re-detects without adding a new evidence item gets
-  no credit for that run. A flag already stored on such a result is kept when
-  the stage may have been stopped (see the next section).
+  no credit for that run, and a flag already stored on such a result is removed
+  (see the next section).
 - An alert raised late whose only evidence is a file is still not credited (a
   file item counts by when Defender added it).
 - Activity recorded more than 30 minutes after the run's end, or a process
@@ -184,56 +184,29 @@ Known limits:
   SentinelOne and Sophos, are unchanged.
 - A result older than 90 days is not revisited.
 
-### A stage that may have been stopped keeps its flags
+### A flag needs evidence of its own run
 
+When every alert found for a result holds nothing of its run, the result is
+judged like any other: its flags from earlier runs go, whatever its exit code.
 Defender can stop a file it already knows and update the open alert without
-adding an evidence item, so a run it really stopped can look like a run with no
-evidence. In the re-check, for each of a result's two alert queries (the
-stage's own binary; the whole test) the pass notes whether it has nothing of the
-run (`stageNoRunItems` / `wideNoRunItems`): at least one usable alert, none left
-unread, every usable alert holds nothing of the run (`holdsNothingOfRun`,
+adding an evidence item, so a run it really stopped that way reads as not
+detected and not prevented. Until Nov 27 2026 (never released) the re-check
+kept the flags of such a result when its stage may have been stopped (an exit
+code other than 0 and 101); that let an ordinary failure (exit 999) keep an
+earlier run's **Prevented**, which the Defense Score counts. Results that rule
+marked `run_activity` are checked once more under `run_own_evidence`.
+
+For the note below the pass still works out, for each of a result's two alert
+queries (the stage's own binary; the whole test), whether it has nothing of the
+run (`stageNoRunItems` / `wideNoRunItems`): at least one usable alert, none
+left unread, every usable alert holds nothing of the run (`holdsNothingOfRun`,
 `runEvidence.ts`: the alert has an item list, the run has a window, and no item
 of any file is inside it), and at least one usable alert holds an item from
 before the run (`heldItemBeforeRun`: an item whose time, the one `inRun` judges
 it by, a process item's `started_at` when it has one, else `added_at`, is
-earlier than the window start, run start - 60 s). An alert that only has items
-from after the run (found through the 30-minute file tail or its activity span)
-cannot be a file Defender already knew, so it keeps nothing. When the result's
-stage may have been stopped (`mayHaveBeenStopped`: it started and did not
-finish, or was blocked, i.e. an exit code other than 0 and 101), the pass sets
-the unjudged gates it uses for unread alerts,
-`stageUnjudged` and `wideUnjudged`, from those two facts:
+earlier than the window start, run start - 60 s). It sets no unjudged gate.
 
-- the stage query has nothing of the run: both gates are set, so no stored flag
-  of the result is removed (stage detection, `defender_detected`, prevention
-  flags, the stored action, and the "stage not prevented" settling);
-- only the test-level query has nothing of the run: only `wideUnjudged` is set,
-  so only what that query decides is held back.
-
-Still removed as before: the flags of a stage that ran to completion (exit 101)
-with no evidence of its run, and the stage flag of a stage whose alert holds
-items of the run but none for that stage. No flag is ever created by this rule.
-
-The pass result counts the results this rule held back in
-`keptWithoutRunEvidence` (0 for the other EDRs): a result already flagged
-before the pass, counted in the update that writes its run marker (so once per
-result: a later pass no longer re-checks it), when its bulk item comes back
-`updated`. The Defender sync logs it as `keptWithoutRunEvidence=<n>` in the
-`[Defender-Enrichment]` line, after `preventionsRemoved=<n>`.
-
-What a kept flag does to the verdicts (`reports/stageOutcome.ts`): on a stage
-that ended with an error code (1, 259, 999, …) a kept flag that carries the
-stage's own prevention (`defender_stage_prevented`, or on older documents the
-stage detection with a confirmed action) keeps it **Prevented**, which the
-Defense Score counts (`EDR_PREVENTED_ERROR_STAGE`) and the reports show, and a
-kept stage detection alone keeps it **Detected**. A stage with exit code 0 or no
-exit code is not covered by the rule and is judged as before: exit 0 is a
-normal exit, and on a stage of a multi-stage test it means the stage was
-skipped and never executed, so
-having no evidence of its run says nothing, and `classifyStage` never treats
-either as blocked by an EDR.
-
-On a fresh result in that situation the pass also stores a note, once, to learn
+On a fresh result in that situation the pass stores a note, once, to learn
 what Defender writes on the alert: `f0rtika.defender_no_run_evidence =
 { seen_at, kind: 'stage' | 'wide', alerts }`, with at most 5 alerts, each
 `{ id, found_by, updated_at, first_activity_at, last_activity_at, items }`
@@ -267,16 +240,9 @@ when none). The Defender sync logs
 `[Defender] No evidence of the run for a stage that did not complete, note stored on: <id>, <id>`,
 with ` (+<n> more)` from `noRunEvidenceDocsOmitted`.
 
-Limits of this rule:
-
-- A kept flag can show an alert chip beside an empty alert list: the list and
-  the execution report still require evidence of the run.
-- A stage that failed for a reason unrelated to the EDR (for example an error
-  exit from a broken test) inside the span of an open alert about its binary
-  also keeps a stale flag; the rule cannot tell the two apart.
-- A silent block on a new run is still not credited; only a stored flag is kept.
-- A system whose re-check already ran (the previous release) does not get
-  removed flags back.
+Limit: a silent block (Defender stops the file and adds no evidence item) is
+not credited to the run, as detection or as prevention. The note is how to find
+such runs; crediting one would need evidence that this run was the one stopped.
 
 ## Tests
 

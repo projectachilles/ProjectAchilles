@@ -992,7 +992,7 @@ describe('DefenderSyncService', () => {
     it('logs how many flags the run-evidence re-check removed', async () => {
       mockEnrichmentResult = {
         scanned: 9, detected: 1, stageDetected: 1, skipped: 0, batches: 1, alertsMarkedCorrelated: 0,
-        stageDetectionsRemoved: 2, detectionsRemoved: 3, preventionsRemoved: 4, keptWithoutRunEvidence: 5, removedFlagDocs: [], noRunEvidenceDocs: [],
+        stageDetectionsRemoved: 2, detectionsRemoved: 3, preventionsRemoved: 4, removedFlagDocs: [], noRunEvidenceDocs: [],
         errors: [], durationMs: 5,
       };
       const log = vi.spyOn(console, 'log').mockImplementation(() => {});
@@ -1001,7 +1001,7 @@ describe('DefenderSyncService', () => {
         const line = log.mock.calls.map((c) => String(c[0])).find((l) => l.startsWith('[Defender-Enrichment]'));
         expect(line).toContain('stageDetectionsRemoved=2');
         expect(line).toContain('detectionsRemoved=3');
-        expect(line).toContain('preventionsRemoved=4 keptWithoutRunEvidence=5 ');
+        expect(line).toContain('preventionsRemoved=4 durationMs=5 ');
       } finally {
         log.mockRestore();
         mockEnrichmentResult = undefined;
@@ -1011,7 +1011,7 @@ describe('DefenderSyncService', () => {
     describe('the results the run-evidence re-check removed flags on', () => {
       const pass = (over: Record<string, unknown>) => ({
         scanned: 9, detected: 0, stageDetected: 0, skipped: 0, batches: 1, alertsMarkedCorrelated: 0,
-        stageDetectionsRemoved: 0, detectionsRemoved: 0, preventionsRemoved: 0, keptWithoutRunEvidence: 0, removedFlagDocs: [], noRunEvidenceDocs: [],
+        stageDetectionsRemoved: 0, detectionsRemoved: 0, preventionsRemoved: 0, removedFlagDocs: [], noRunEvidenceDocs: [],
         errors: [], durationMs: 5,
         ...over,
       });

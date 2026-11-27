@@ -31,7 +31,7 @@ export interface EnrichmentPassResult {
   alertsMarkedCorrelated: number;
   /**
    * Run-evidence re-check (Defender `runScopedEvidence`, marker
-   * `<vendor>_run_rule: 'run_activity'`): docs whose `<vendor>_stage_detected`
+   * `<vendor>_run_rule: 'run_own_evidence'`): docs whose `<vendor>_stage_detected`
    * went from true to false in this pass. 0 for every other vendor.
    */
   stageDetectionsRemoved: number;
@@ -39,14 +39,6 @@ export interface EnrichmentPassResult {
   detectionsRemoved: number;
   /** As `stageDetectionsRemoved`: docs whose `<vendor>_prevented` or `<vendor>_stage_prevented` went from true to false. */
   preventionsRemoved: number;
-  /**
-   * Results the keep rule held back in this pass (Defender, crediting by
-   * run: a kind whose alerts all hold nothing of the run, on a result that
-   * may have been stopped, i.e. an exit code other than 0 and 101): once per result, in the pass that re-checks
-   * it and writes its run marker, on an `updated` bulk item. 0 for every
-   * other vendor.
-   */
-  keptWithoutRunEvidence: number;
   /**
    * The `_id`s of the results on which the run-evidence re-check removed a
    * flag, counted as the three counters above are (a bulk item answered
