@@ -1,0 +1,122 @@
+---
+title: "Achilles 2.12: See Where You Are Exposed, at a Glance"
+description: "All Executions becomes a matrix of the latest result of every test on every host, both run lists get a strip that shows when things happened, and a new card says why the Defense Score moved. Plus test versions, Intune deployment and a security round."
+date: "2026-11-27"
+tags:
+  - release
+  - analytics
+  - continuous-validation
+  - security
+  - agents
+author: james
+lang: en
+translationKey: release-2-12-coverage-at-a-glance
+image: "/release-2-12/coverage-matrix.png"
+---
+
+## TL;DR
+
+- **All Executions opens on a coverage matrix:** one row per test, one mark per host, the latest result in each. A weak host is a red column, a hard test a red row. Turn it to one row per host with one click.
+- **Both run lists get an activity strip:** a row of bars showing when the runs happened. Click a day or a week to narrow the page to it.
+- **A new Dashboard card says why the Defense Score moved.** On one install the score rose 40.8 points in 90 days while 1 failure out of 1,942 was fixed. The card shows that.
+- **Every result records which version of the test produced it**, and the Test Library says which tests have a newer version published.
+- **Deploy the agent with Intune** or another management tool, with an unattended script that checks the agent's signature.
+- **A security round:** 14 fixes, among them what an agent may download from a build folder and how test ids reach a file path.
+
+---
+
+## A matrix instead of a list
+
+Until now, **Analytics → All Executions** was a list of runs, newest first. It answered "what ran", one row at a time. With 30 hosts and seven tests, a single test name filled most of the screen, and the question you actually had ("where am I exposed?") took scrolling and counting.
+
+In 2.12 the page opens on a matrix. Each row is a test with its name written once. Each column is a host, in the same order in every row, most exposed first. Each mark is the latest result of that test on that host: **✓ protected**, **▲ detected**, **✕ unprotected**, **? no verdict**, a crossed circle for a risk acceptance, and an empty square where the test never ran.
+
+![The coverage matrix over 90 days: the activity strip by week above, then one row per attack chain with a mark per host](/release-2-12/coverage-matrix.png)
+
+Two readings come for free. A host that stops nothing is a red column. A test that nothing stops is a red row. The cells come from the same latest-result pairs as the Defense Score, read by the same code, so a mark and the score never disagree.
+
+The matrix adapts to the size of the fleet. With a few hosts each mark is a tile with the result's age and a dot for each earlier result. With a few dozen it is a small tile with a glyph, then a square. Past what squares can draw, each test becomes one bar that counts its hosts per state; click a segment to list them.
+
+Click a mark and the runs of that pair open under the row, latest first, with a chain's stages as squares. The run you clicked opens in a drawer with the same detail as before: attack chain, stages, EDR alerts, risk acceptance, archive.
+
+The **Rows** switch turns the matrix around: one row per host, one tile per test. "Caught on 6 of 7 tests" under a hostname tells you which machine to look at first.
+
+![Rows of hosts: one row per host with "caught on x of y tests", one tile per test with the age of its latest result](/release-2-12/coverage-matrix-hosts.png)
+
+The list is still there, one click away under **View**, with its sorting, bulk actions and export.
+
+## When did it happen?
+
+A matrix shows where you stand now. It does not show when the runs happened, or whether last week was quieter than usual. So both run lists get an **activity strip**: one bar per hour, day or week, depending on the date range, as tall as its runs are many, coloured by outcome.
+
+![A week selected on the activity strip: its bar is outlined, a chip names the week, and the matrix under it shows only that week's results](/release-2-12/executions-activity-strip.png)
+
+Click a bar and the page narrows to that stretch of time: the matrix, the list, and CSV and JSON export. The strip keeps showing the whole range, so the next week is one click away.
+
+We cared about one thing in particular: the strip must not look broken on a quiet install. Every bucket has a faint slot, so an empty day reads as "nothing ran" and not as a hole. A day with one run still gets a bar you can see and click. One huge day does not flatten the rest, because heights follow the square root of the count. With fewer than three days of activity, the bars give way to one line that names those days.
+
+The **Tasks** page gets the same strip over the last 30 days. Its colours are the run timeline's own: red for unprotected and failed, amber for no verdict, blue for in progress, green for protected and completed. A colour in the strip means what it means on the marks below it.
+
+![The Tasks page with its activity strip over the run timeline](/release-2-12/tasks-activity-strip.png)
+
+The Tasks list itself got lighter: one entry per run, whatever number of batches a schedule or a notice took, and about a tenth of the data per page.
+
+## A score that rises with nothing fixed
+
+The Defense Score can rise with nothing fixed. New tests that pass dilute the failures. Old failures fall out of the date range without being run again. A risk acceptance removes a failing pair from the count. Each of these is legitimate, and none of them is a fix.
+
+The new **What moved the score** card on the Dashboard separates them. It sorts every failure of the range into **Fixed**, **Still failing**, **Not re-tested** and **Left the score untested**, and shows how new tests did on their first run.
+
+![What moved the score over 90 days: 1 of 1,942 failures fixed, 62 of 64 new tests stopped on their first run](/release-2-12/score-movement.png)
+
+That card is from a real install, with names removed. Its Defense Score went up 40.8 points over 90 days, which reads like a good quarter. The card shows what happened: the score went from 4,015 pairs to 81, 1,935 failures left the range without a re-run, and 62 of 64 new tests stopped on their first run. One failure was fixed.
+
+None of that is wrong. A score over a moving window is supposed to move. But a number that rises while nothing was fixed needs its explanation next to it, and every count on the card opens the list of tests and endpoints behind it.
+
+## Which version produced this result?
+
+A test library changes. When a result says "protected", it is fair to ask: protected against which version of the test?
+
+From 2.12, every result records the version of the test that produced it: the library commit, the source date and the build. **Analytics → Executions** shows it on every run, as **current**, **older** (the source changed since that binary was built) or **version unknown**. Campaign evidence and the execution report carry it too.
+
+The Test Library shows where each test stands: **Up to date**, **Update available** when the repository has something newer, **Rebuild needed** when the binary is older than the source, **Not built**, or **Unknown build**.
+
+![The Test Library with a version status under each test, the published-version check at the top, and a note about tests built before versions were recorded](/release-2-12/test-versions.png)
+
+After the upgrade, tests you built before 2.12 read **Unknown build** until you build them once more. To make that one action, filter by **Unknown build**, click **Select**, then **Build N**. The console builds and signs them one at a time and tells you which failed and why.
+
+## Also in 2.12
+
+- **Intune and other management tools.** The **Enroll agent** dialog has a **Management tool** tab with `Install-AchillesAgent.ps1`, an unattended Windows script for Intune, Group Policy or Configuration Manager. It leaves an agent that is already installed alone. When the agent is signed, it runs only a download signed with exactly the server's certificate.
+- **The console warns before you do something that can't work:** an install command for a platform with no agent binary, or a task with no agent to run it.
+- **Defender evidence belongs to its own run.** A Defender alert stays open for days and gains evidence from later runs. A result now counts only the evidence of its own run, so an earlier run's detection is never carried to a later one. The cost is honest: a run Defender stops without recording anything new now reads as not detected. A stage that ran to completion no longer shows **Prevented**, and stored results are corrected once at start-up.
+- **Start-up is safer.** The backend no longer rebuilds the task table on every start, two processes starting together can no longer lose it, and a failed migration no longer leaves it serving a half-migrated database.
+
+## The security round
+
+This release has 14 security fixes. Most came out of reviewing our own code with the same question we ask of your defenses: what is assumed here, and what happens when the assumption is wrong? Five stand out:
+
+- **An agent could download any file in a test's build folder**, not only its binaries. It now gets only the files the build record lists.
+- **Test ids and binary names were accepted as any text**, and the id was joined into a folder path. Both are validated in tasks, schedules and campaigns.
+- **A synced test repository could point the test library at another folder** on the server. Repository content is now treated as content, not as configuration.
+- **The coverage matrix showed Explorers which tests and hosts a risk acceptance covers.** Explorers no longer see that.
+- **Several heavy routes had no bound**: the cadence card's searches, the host coverage data, the run-history lookup. They now have limits, and three activity and score routes have a per-user budget.
+
+## Upgrading to 2.12
+
+- **Agents:** there is no agent release. Agent 0.7.6 is current; if an install has not registered it yet, do it now.
+- **The first start takes longer on a large install.** It runs one-time jobs: a new index on the task table, attaching past tasks to their schedule runs, a full Defender re-sync with a re-check of stored results, and filling in each result's run start.
+- **Defender labels and past Defense Scores can change once**, after that re-check: a detection that only an earlier run's evidence supported is removed.
+- **Tests built before 2.12 read Unknown build.** Rebuild them with **Build N** as above.
+
+The [release notes](https://github.com/projectachilles/ProjectAchilles/releases/tag/v2.12.0) have the full list.
+
+---
+
+## What we learned
+
+**A view has to work at 5 hosts and at 500.** A matrix that is beautiful with 30 hosts is unreadable with 400 and empty with 3. We did not design one view. We designed four forms of the same marks, chosen by the width each host gets. Most of the work was making the switch between forms invisible.
+
+**A rising score needs its explanation next to it.** The Defense Score was right all along, and on the install above it was still misleading. The fix was not a different score. It was a second card that says what the first one counts.
+
+**Two writes in the same moment erased each other.** A click on the activity strip could be lost when the list's rows arrived at the same moment, because every part of the page wrote the address from what it last saw. We found it only because a reviewer ran the same click 25 times. The page now has one writer for its address. The lesson is older than the bug: when several parts of a page share one piece of state, give that state one owner.
