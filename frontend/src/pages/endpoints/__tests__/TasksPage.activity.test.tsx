@@ -108,6 +108,21 @@ describe('the Tasks activity strip', () => {
     expect(activity).toHaveBeenCalledTimes(1);
   });
 
+  it('goes back to the first page when a day is selected from a later one', async () => {
+    const user = userEvent.setup();
+    list.mockResolvedValue({ groups: [], total: 100, typeCounts: {} });
+    renderPage();
+    await user.click(await screen.findByRole('button', { name: /Older/ }));
+    await waitFor(() => expect(lastList()).toMatchObject({ offset: 25 }));
+    list.mockClear();
+
+    await user.click(await screen.findByRole('button', { name: /^Nov 16/ }));
+
+    await waitFor(() => expect(list).toHaveBeenCalled());
+    expect(lastList()).toMatchObject({ from: NOV16.from, offset: 0 });
+    expect(list.mock.calls.some((c) => c[0]!.from === NOV16.from && c[0]!.offset === 25)).toBe(false);
+  });
+
   it('keeps the day in the 10-second refresh of the list, which never asks for the strip', async () => {
     const user = userEvent.setup();
     renderPage();

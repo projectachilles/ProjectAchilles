@@ -86,6 +86,19 @@ describe('getTaskActivity', () => {
     expect(bucket).toMatchObject({ protected: 1, unprotected: 1, noVerdict: 2, inProgress: 1, completed: 1, failed: 1 });
   });
 
+  it('counts a run the EDR stopped by killing the agent as protected, as the run timeline does', () => {
+    // A failed task: its result is read too (the EDR reconciliation pass writes edr_terminated into it).
+    seed({ id: 'killed', created: '2026-11-26 15:00:00', status: 'failed', exit: null });
+    testDb.prepare('UPDATE tasks SET result = ? WHERE id = ?').run(JSON.stringify({
+      exit_code: -1, stdout: '', stderr: '', error: 'Agent went offline during execution',
+      edr_terminated: { vendors: ['defender'], alert_ids: ['a'], killed_at: '', reconciled_at: '' },
+    }), 'killed');
+
+    const bucket = getTaskActivity({}, TZ, NOW).buckets.find((b) => b.from === '2026-11-26T04:00:00.000Z')!;
+
+    expect(bucket).toMatchObject({ protected: 1, noVerdict: 0 });
+  });
+
   it('puts a task created at local midnight in that day only', () => {
     seed({ id: 'before', created: '2026-11-26 03:59:59' });
     seed({ id: 'at', created: '2026-11-26 04:00:00' });
