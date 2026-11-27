@@ -1,0 +1,122 @@
+---
+title: "Achilles 2.12: mira dónde estás expuesto, de un vistazo"
+description: "All Executions se convierte en una matriz con el último resultado de cada prueba en cada equipo, las dos listas de ejecuciones ganan una franja que muestra cuándo pasaron las cosas, y una tarjeta nueva explica por qué se movió el Defense Score. Además: versiones de las pruebas, despliegue con Intune y una ronda de seguridad."
+date: "2026-11-27"
+tags:
+  - release
+  - analytics
+  - continuous-validation
+  - security
+  - agents
+author: james
+lang: es
+translationKey: release-2-12-coverage-at-a-glance
+image: "/release-2-12/coverage-matrix.png"
+---
+
+## TL;DR
+
+- **All Executions abre con una matriz de cobertura:** una fila por prueba, una marca por equipo, el último resultado en cada una. Un equipo débil es una columna roja; una prueba difícil, una fila roja. Con un clic se gira a una fila por equipo.
+- **Las dos listas de ejecuciones ganan una franja de actividad:** una fila de barras que muestra cuándo ocurrieron las ejecuciones. Un clic en un día o una semana acota la página a ese tramo.
+- **Una tarjeta nueva del Dashboard explica por qué se movió el Defense Score.** En una instalación el score subió 40,8 puntos en 90 días mientras se corregía 1 fallo de 1.942. La tarjeta lo muestra.
+- **Cada resultado registra qué versión de la prueba lo produjo**, y el Test Library dice qué pruebas tienen una versión más nueva publicada.
+- **Despliega el agente con Intune** u otra herramienta de gestión, con un script desatendido que verifica la firma del agente.
+- **Una ronda de seguridad:** 14 correcciones, entre ellas qué puede descargar un agente de una carpeta de build y cómo llegan los ids de prueba a una ruta de archivo.
+
+---
+
+## Una matriz en vez de una lista
+
+Hasta ahora, **Analytics → All Executions** era una lista de ejecuciones, la más reciente primero. Respondía "qué se ejecutó", fila por fila. Con 30 equipos y siete pruebas, el nombre de una sola prueba llenaba casi toda la pantalla, y la pregunta que de verdad tenías ("¿dónde estoy expuesto?") exigía desplazarse y contar.
+
+En 2.12 la página abre con una matriz. Cada fila es una prueba, con su nombre escrito una vez. Cada columna es un equipo, en el mismo orden en todas las filas, el más expuesto primero. Cada marca es el último resultado de esa prueba en ese equipo: **✓ protegido**, **▲ detectado**, **✕ desprotegido**, **? sin veredicto**, un círculo tachado para una aceptación de riesgo, y un cuadro vacío donde la prueba nunca se ejecutó.
+
+![La matriz de cobertura sobre 90 días: arriba la franja de actividad por semana, debajo una fila por cadena de ataque con una marca por equipo](/release-2-12/coverage-matrix.png)
+
+Dos lecturas salen gratis. Un equipo que no detiene nada es una columna roja. Una prueba que nada detiene es una fila roja. Las celdas salen de los mismos pares de último resultado que el Defense Score, leídos por el mismo código, así que una marca y el score nunca se contradicen.
+
+La matriz se adapta al tamaño de la flota. Con pocos equipos cada marca es una ficha con la antigüedad del resultado y un punto por cada resultado anterior. Con unas decenas es una ficha pequeña con un glifo, y después un cuadrado. Más allá de lo que caben los cuadrados, cada prueba se vuelve una barra que cuenta sus equipos por estado; un clic en un segmento los lista.
+
+Un clic en una marca abre las ejecuciones de ese par bajo la fila, la más reciente primero, con las etapas de una cadena como cuadrados. La ejecución elegida se abre en un panel con el mismo detalle de antes: cadena de ataque, etapas, alertas del EDR, aceptación de riesgo, archivo.
+
+El interruptor **Rows** gira la matriz: una fila por equipo, una ficha por prueba. "Caught on 6 of 7 tests" bajo un nombre de equipo te dice qué máquina revisar primero.
+
+![Filas de equipos: una fila por equipo con "caught on x of y tests", una ficha por prueba con la antigüedad de su último resultado](/release-2-12/coverage-matrix-hosts.png)
+
+La lista sigue ahí, a un clic bajo **View**, con su orden, sus acciones en lote y su exportación.
+
+## ¿Cuándo pasó?
+
+Una matriz muestra dónde estás ahora. No muestra cuándo ocurrieron las ejecuciones, ni si la semana pasada fue más tranquila de lo normal. Por eso las dos listas de ejecuciones ganan una **franja de actividad**: una barra por hora, día o semana, según el rango de fechas, tan alta como ejecuciones tiene, coloreada por resultado.
+
+![Una semana seleccionada en la franja de actividad: su barra queda marcada, una etiqueta nombra la semana y la matriz debajo muestra solo los resultados de esa semana](/release-2-12/executions-activity-strip.png)
+
+Un clic en una barra acota la página a ese tramo de tiempo: la matriz, la lista y la exportación CSV y JSON. La franja sigue mostrando el rango completo, así que la semana siguiente está a un clic.
+
+Nos importaba una cosa en particular: la franja no debe parecer rota en una instalación con poca actividad. Cada intervalo tiene un hueco tenue, así que un día vacío se lee como "no se ejecutó nada" y no como un agujero. Un día con una sola ejecución tiene igual una barra que se ve y se puede pulsar. Un día enorme no aplasta a los demás, porque la altura sigue la raíz cuadrada del conteo. Con menos de tres días de actividad, las barras dan paso a una línea que nombra esos días.
+
+La página **Tasks** tiene la misma franja sobre los últimos 30 días. Sus colores son los de la línea de tiempo de ejecuciones: rojo para desprotegido y fallido, ámbar para sin veredicto, azul para en curso, verde para protegido y completado. Un color en la franja significa lo mismo que en las marcas de abajo.
+
+![La página Tasks con su franja de actividad sobre la línea de tiempo de ejecuciones](/release-2-12/tasks-activity-strip.png)
+
+La lista de Tasks también se aligeró: una entrada por ejecución, sin importar cuántos lotes tomó un schedule o un aviso, y cerca de una décima parte de los datos por página.
+
+## Un score que sube sin corregir nada
+
+El Defense Score puede subir sin que se corrija nada. Las pruebas nuevas que pasan diluyen los fallos. Los fallos viejos salen del rango de fechas sin volver a ejecutarse. Una aceptación de riesgo saca un par fallido del conteo. Cada una de estas cosas es legítima, y ninguna es una corrección.
+
+La nueva tarjeta **What moved the score** del Dashboard las separa. Ordena cada fallo del rango en **Fixed**, **Still failing**, **Not re-tested** y **Left the score untested**, y muestra cómo les fue a las pruebas nuevas en su primera ejecución.
+
+![What moved the score sobre 90 días: 1 de 1.942 fallos corregido, 62 de 64 pruebas nuevas detenidas en su primera ejecución](/release-2-12/score-movement.png)
+
+Esa tarjeta es de una instalación real, con los nombres quitados. Su Defense Score subió 40,8 puntos en 90 días, lo que parece un buen trimestre. La tarjeta muestra lo que pasó: el score pasó de 4.015 pares a 81, 1.935 fallos salieron del rango sin volver a ejecutarse, y 62 de 64 pruebas nuevas fueron detenidas en su primera ejecución. Se corrigió un fallo.
+
+Nada de eso está mal. Un score sobre una ventana móvil tiene que moverse. Pero un número que sube mientras no se corrigió nada necesita su explicación al lado, y cada conteo de la tarjeta abre la lista de pruebas y equipos que tiene detrás.
+
+## ¿Qué versión produjo este resultado?
+
+Una biblioteca de pruebas cambia. Cuando un resultado dice "protegido", es justo preguntar: ¿protegido contra qué versión de la prueba?
+
+Desde 2.12, cada resultado registra la versión de la prueba que lo produjo: el commit de la biblioteca, la fecha del código y el build. **Analytics → Executions** la muestra en cada ejecución como **current**, **older** (el código cambió desde que se compiló ese binario) o **version unknown**. La evidencia de las campañas y el informe de ejecución también la llevan.
+
+El Test Library muestra en qué punto está cada prueba: **Up to date**, **Update available** cuando el repositorio tiene algo más nuevo, **Rebuild needed** cuando el binario es más viejo que el código, **Not built** o **Unknown build**.
+
+![El Test Library con un estado de versión bajo cada prueba, la comprobación de versiones publicadas arriba y una nota sobre las pruebas compiladas antes de que se registraran versiones](/release-2-12/test-versions.png)
+
+Después de actualizar, las pruebas que compilaste antes de 2.12 dicen **Unknown build** hasta que las compiles una vez más. Para hacerlo en una sola acción, filtra por **Unknown build**, pulsa **Select** y luego **Build N**. La consola las compila y firma una por una y te dice cuáles fallaron y por qué.
+
+## También en 2.12
+
+- **Intune y otras herramientas de gestión.** El diálogo **Enroll agent** tiene una pestaña **Management tool** con `Install-AchillesAgent.ps1`, un script de Windows desatendido para Intune, Group Policy o Configuration Manager. No toca un agente que ya está instalado. Cuando el agente está firmado, solo ejecuta una descarga firmada exactamente con el certificado del servidor.
+- **La consola avisa antes de que hagas algo que no puede funcionar:** un comando de instalación para una plataforma sin binario del agente, o una tarea sin agente que la ejecute.
+- **La evidencia de Defender pertenece a su propia ejecución.** Una alerta de Defender queda abierta durante días y acumula evidencia de ejecuciones posteriores. Ahora un resultado cuenta solo la evidencia de su propia ejecución, así que la detección de una ejecución anterior nunca pasa a una posterior. El costo es honesto: una ejecución que Defender detiene sin registrar nada nuevo ahora se lee como no detectada. Una etapa que se ejecutó completa ya no muestra **Prevented**, y los resultados guardados se corrigen una vez al arrancar.
+- **El arranque es más seguro.** El backend ya no reconstruye la tabla de tareas en cada arranque, dos procesos que arrancan a la vez ya no pueden perderla, y una migración fallida ya no lo deja sirviendo sobre una base de datos migrada a medias.
+
+## La ronda de seguridad
+
+Esta versión tiene 14 correcciones de seguridad. La mayoría salió de revisar nuestro propio código con la misma pregunta que les hacemos a tus defensas: ¿qué se está suponiendo aquí, y qué pasa cuando la suposición es falsa? Cinco destacan:
+
+- **Un agente podía descargar cualquier archivo de la carpeta de build de una prueba**, no solo sus binarios. Ahora recibe solo los archivos que lista el registro del build.
+- **Los ids de prueba y los nombres de binario se aceptaban como cualquier texto**, y el id se unía a la ruta de una carpeta. Ahora se validan en tareas, schedules y campañas.
+- **Un repositorio de pruebas sincronizado podía apuntar el test library a otra carpeta** del servidor. El contenido del repositorio ahora se trata como contenido, no como configuración.
+- **La matriz de cobertura les mostraba a los Explorers qué pruebas y equipos cubre una aceptación de riesgo.** Los Explorers ya no lo ven.
+- **Varias rutas pesadas no tenían límite**: las búsquedas de la tarjeta de cadencia, los datos de cobertura por equipo, la consulta del historial de ejecuciones. Ahora tienen límites, y tres rutas de actividad y de score tienen un presupuesto por usuario.
+
+## Actualizar a 2.12
+
+- **Agentes:** no hay release de agente. El agente 0.7.6 es el actual; si una instalación no lo ha registrado todavía, hazlo ahora.
+- **El primer arranque tarda más en una instalación grande.** Ejecuta tareas de una sola vez: un índice nuevo en la tabla de tareas, asignar las tareas pasadas a sus ejecuciones de schedule, una re-sincronización completa de Defender con una revisión de los resultados guardados, y completar el inicio de ejecución de cada resultado.
+- **Las etiquetas de Defender y los Defense Scores pasados pueden cambiar una vez**, después de esa revisión: se quita una detección que solo sostenía la evidencia de una ejecución anterior.
+- **Las pruebas compiladas antes de 2.12 dicen Unknown build.** Recompílalas con **Build N** como arriba.
+
+Las [notas de la versión](https://github.com/projectachilles/ProjectAchilles/releases/tag/v2.12.0) tienen la lista completa.
+
+---
+
+## Lo que aprendimos
+
+**Una vista tiene que funcionar con 5 equipos y con 500.** Una matriz que se ve bien con 30 equipos es ilegible con 400 y está vacía con 3. No diseñamos una vista. Diseñamos cuatro formas de las mismas marcas, elegidas según el ancho que le toca a cada equipo. La mayor parte del trabajo fue hacer invisible el cambio entre formas.
+
+**Un score que sube necesita su explicación al lado.** El Defense Score estuvo bien todo el tiempo, y en la instalación de arriba igual engañaba. La solución no fue otro score. Fue una segunda tarjeta que dice qué cuenta la primera.
+
+**Dos escrituras en el mismo instante se borraban entre sí.** Un clic en la franja de actividad podía perderse cuando las filas de la lista llegaban en el mismo momento, porque cada parte de la página escribía la dirección a partir de lo último que había visto. Lo encontramos solo porque un revisor repitió el mismo clic 25 veces. Ahora la página tiene un solo escritor para su dirección. La lección es más vieja que el error: cuando varias partes de una página comparten un mismo estado, dale a ese estado un solo dueño.
