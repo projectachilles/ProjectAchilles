@@ -852,3 +852,90 @@ describe('GET /admin/tasks/test-recency', () => {
     expect((await request(app).get('/admin/tasks')).status).toBe(200);
   });
 });
+
+describe('the Tasks activity strip', () => {
+  const at = (iso: string) => new Date(iso).toISOString().slice(0, 19).replace('T', ' ');
+  const total = (b: Record<string, number>) => b.unprotected + b.failed + b.noVerdict + b.inProgress + b.protected + b.completed;
+
+  beforeEach(() => {
+    testDb = createTestDatabase();
+    insertTestAgent(testDb, { id: 'agent-001', hostname: 'HOST-1' });
+  });
+
+  describe('GET /admin/tasks/activity', () => {
+    it('counts the last 30 days by local day, in the time zone asked for', async () => {
+      insertTestTask(testDb, { id: 'today', status: 'completed', created_at: at(new Date().toISOString()) });
+
+      const res = await request(createApp()).get('/admin/tasks/activity?tz=America/Santo_Domingo');
+
+      expect(res.status).toBe(200);
+      expect(res.body.success).toBe(true);
+      expect(res.body.data.interval).toBe('day');
+      expect(res.body.data.timeZone).toBe('America/Santo_Domingo');
+      expect(res.body.data.buckets.length).toBeGreaterThanOrEqual(30);
+      expect(res.body.data.buckets.length).toBeLessThanOrEqual(32);
+      // Local midnight in Santo Domingo is 04:00 UTC.
+      expect(res.body.data.buckets[0].from).toMatch(/T04:00:00\.000Z$/);
+      expect(res.body.data.buckets.reduce((n: number, b: Record<string, number>) => n + total(b), 0)).toBe(1);
+    });
+
+    it('cuts the days in UTC when no time zone is given', async () => {
+      const res = await request(createApp()).get('/admin/tasks/activity');
+      expect(res.status).toBe(200);
+      expect(res.body.data.timeZone).toBe('UTC');
+      expect(res.body.data.buckets[0].from).toMatch(/T00:00:00\.000Z$/);
+    });
+
+    it('follows the type pills and the search box', async () => {
+      insertTestTask(testDb, { id: 'test', status: 'completed', created_at: at(new Date().toISOString()) });
+      insertTestTask(testDb, { id: 'cmd', type: 'execute_command', status: 'completed', created_at: at(new Date().toISOString()), payload: JSON.stringify({ command: 'whoami' }) });
+      const counted = async (query: string) =>
+        (await request(createApp()).get(`/admin/tasks/activity?tz=UTC${query}`)).body.data.buckets.reduce((n: number, b: Record<string, number>) => n + total(b), 0);
+
+      expect(await counted('')).toBe(2);
+      expect(await counted('&type=execute_command')).toBe(1);
+      expect(await counted('&type=update_agent,uninstall')).toBe(0);
+      expect(await counted('&search=whoami')).toBe(1);
+    });
+
+    it.each([
+      ['a zone the runtime does not know', '?tz=Mars/Olympus', 'Invalid tz'],
+      ['an empty zone', '?tz=', 'Invalid tz'],
+      ['a zone given twice', '?tz=UTC&tz=UTC', 'Invalid tz'],
+      ['a task type the list does not have', '?type=execute_rm', 'Invalid task type'],
+    ])('refuses %s', async (_name, query, error) => {
+      const res = await request(createApp()).get(`/admin/tasks/activity${query}`);
+      expect(res.status).toBe(400);
+      expect(res.body).toEqual({ success: false, error });
+    });
+  });
+
+  describe('GET /admin/tasks/grouped with a day', () => {
+    const DAY = 'from=2026-11-26T04:00:00.000Z&to=2026-11-27T03:59:59.999Z';
+    const ids = (body: { data: { groups: { tasks: { id: string }[] }[] } }) => body.data.groups.flatMap((g) => g.tasks.map((t) => t.id)).sort();
+
+    it('lists the tasks created in it, both ends included', async () => {
+      insertTestTask(testDb, { id: 'before', batch_id: 'b1', created_at: '2026-11-26 03:59:59' });
+      insertTestTask(testDb, { id: 'first', batch_id: 'b2', created_at: '2026-11-26 04:00:00' });
+      insertTestTask(testDb, { id: 'last', batch_id: 'b3', created_at: '2026-11-27 03:59:59' });
+      insertTestTask(testDb, { id: 'after', batch_id: 'b4', created_at: '2026-11-27 04:00:00' });
+
+      const res = await request(createApp()).get(`/admin/tasks/grouped?${DAY}`);
+
+      expect(res.status).toBe(200);
+      expect(ids(res.body)).toEqual(['first', 'last']);
+      expect(res.body.data.total).toBe(2);
+    });
+
+    it.each([
+      ['a start that is no date', 'from=yesterday'],
+      ['an end that is no date', 'to=2026-13-45T00:00:00Z'],
+      ['an end before its start', 'from=2026-11-27T00:00:00.000Z&to=2026-11-26T00:00:00.000Z'],
+      ['a start given twice', 'from=2026-11-26T00:00:00.000Z&from=2026-11-27T00:00:00.000Z'],
+    ])('refuses %s', async (_name, query) => {
+      const res = await request(createApp()).get(`/admin/tasks/grouped?${query}`);
+      expect(res.status).toBe(400);
+      expect(res.body).toEqual({ success: false, error: 'Invalid date range' });
+    });
+  });
+});

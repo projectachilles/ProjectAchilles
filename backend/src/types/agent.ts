@@ -471,6 +471,10 @@ export interface ListTasksRequest {
   search?: string;
   /** Grouped list only: a 7-day outcome breakdown key (execute_test tasks finished in the window). */
   breakdown?: string;
+  /** Grouped list only: tasks created at or after this instant (ISO; the Tasks activity strip's day). */
+  created_from?: string;
+  /** Grouped list only: tasks created at or before this instant (ISO, inclusive). */
+  created_to?: string;
   limit?: number;
   offset?: number;
 }

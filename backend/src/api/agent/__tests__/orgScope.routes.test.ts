@@ -157,6 +157,15 @@ describe('lists and metrics are limited to the caller org', () => {
     expect(ids).toEqual(['t-a']);
   });
 
+  it('GET /tasks/activity counts only the caller org tasks', async () => {
+    const res = await request(appAs(ORG_A)).get('/admin/tasks/activity?tz=UTC');
+    expect(res.status).toBe(200);
+    const counted = res.body.data.buckets.reduce(
+      (n: number, b: Record<string, number>) => n + b.unprotected + b.failed + b.noVerdict + b.inProgress + b.protected + b.completed, 0,
+    );
+    expect(counted).toBe(1);
+  });
+
   it('GET /tasks?agent_id=<other org agent> returns nothing', async () => {
     const res = await request(appAs(ORG_A)).get('/admin/tasks?agent_id=b1');
     expect(res.status).toBe(200);

@@ -18,7 +18,7 @@ import { TestUuidSchema } from '../schemas/admin.schemas.js';
 import type { CurrentTestVersion, ResultVersionState } from '../types/testVersion.js';
 import { RESULT_VERSION_STATES, MAX_VERSION_FILTER_TESTS } from '../services/analytics/testVersionState.js';
 import { currentFingerprintMap } from '../services/browser/currentFingerprints.js';
-import { assertTimeZone } from '../services/analytics/activityBuckets.js';
+import { parseTimeZone } from './timeZoneParam.js';
 
 const router = Router();
 
@@ -45,19 +45,6 @@ function parseScoringMode(value: unknown): 'all-stages' | 'any-stage' {
 function parseTestUuid(value: unknown, error: string): string | undefined {
   if (value === undefined || value === '') return undefined;
   if (typeof value !== 'string' || !TestUuidSchema.safeParse(value).success) throw new AppError(error, 400);
-  return value;
-}
-
-/** The `tz` of the activity endpoints: an IANA zone the runtime knows; UTC when absent. */
-function parseTimeZone(value: unknown): string {
-  if (value === undefined) return 'UTC';
-  // Length first: the value never reaches Intl unless it could be a zone's name.
-  if (typeof value !== 'string' || value.length === 0 || value.length > 64) throw new AppError('Invalid tz', 400);
-  try {
-    assertTimeZone(value);
-  } catch {
-    throw new AppError('Invalid tz', 400);
-  }
   return value;
 }
 

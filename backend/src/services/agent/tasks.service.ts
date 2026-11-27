@@ -1000,15 +1000,24 @@ END`;
  * `noticeScope` limits each group's `notices` map (Ruling R21); it does not
  * filter the task rows.
  */
-export function listTasksGrouped(
-  filters: ListTasksRequest,
-  noticeScope: NoticeScope,
-): { groups: TaskGroup[]; total: number; type_counts: Partial<Record<TaskType, number>> } {
-  const db = getDatabase();
+/** An instant as SQLite writes `created_at` (`datetime('now')`: UTC, whole seconds), so the two compare as text. */
+function sqliteSecond(iso: string): string {
+  return new Date(Date.parse(iso)).toISOString().slice(0, 19).replace('T', ' ');
+}
 
+/**
+ * What the Tasks list and its activity strip both narrow by, for a query on
+ * `tasks t LEFT JOIN agents a`: the organization, an agent, the search box, and
+ * a stretch of creation time (ISO instants, both ends included; `created_at` has
+ * whole seconds, so the end is the second that holds it). Status, type and the
+ * outcome breakdown are each caller's own. One helper, so a bar of the strip and
+ * the list it narrows to can never read different tasks.
+ */
+export function taskListConditions(
+  filters: Pick<ListTasksRequest, 'agent_id' | 'org_id' | 'search' | 'created_from' | 'created_to'>,
+): { conditions: string[]; params: (string | number)[] } {
   const conditions: string[] = [];
   const params: (string | number)[] = [];
-
   if (filters.agent_id) {
     conditions.push('t.agent_id = ?');
     params.push(filters.agent_id);
@@ -1016,10 +1025,6 @@ export function listTasksGrouped(
   if (filters.org_id) {
     conditions.push('t.org_id = ?');
     params.push(filters.org_id);
-  }
-  if (filters.status) {
-    conditions.push('t.status = ?');
-    params.push(filters.status);
   }
   if (filters.search) {
     const searchPattern = `%${filters.search}%`;
@@ -1029,6 +1034,28 @@ export function listTasksGrouped(
       OR a.hostname LIKE ?
     )`);
     params.push(searchPattern, searchPattern, searchPattern);
+  }
+  if (filters.created_from) {
+    conditions.push('t.created_at >= ?');
+    params.push(sqliteSecond(filters.created_from));
+  }
+  if (filters.created_to) {
+    conditions.push('t.created_at <= ?');
+    params.push(sqliteSecond(filters.created_to));
+  }
+  return { conditions, params };
+}
+
+export function listTasksGrouped(
+  filters: ListTasksRequest,
+  noticeScope: NoticeScope,
+): { groups: TaskGroup[]; total: number; type_counts: Partial<Record<TaskType, number>> } {
+  const db = getDatabase();
+
+  const { conditions, params } = taskListConditions(filters);
+  if (filters.status) {
+    conditions.push('t.status = ?');
+    params.push(filters.status);
   }
 
   // Task counts per type use every filter except the type, so each type pill
@@ -1162,13 +1189,20 @@ export function listTasksGrouped(
     }
   }
 
+  // A day selected on the activity strip narrows the listed tasks too, like the breakdown: a run that
+  // spans two days lists that day's tasks only (its counts still describe the whole run).
+  const createdFrom = filters.created_from ? sqliteSecond(filters.created_from) : null;
+  const createdTo = filters.created_to ? sqliteSecond(filters.created_to) : null;
+  const inCreatedRange = (createdAt: string) =>
+    (createdFrom === null || createdAt >= createdFrom) && (createdTo === null || createdAt <= createdTo);
+
   // Build TaskGroup objects in the order returned by the run query
   const groups: TaskGroup[] = runRows.map((runRow) => {
     const allTasks = tasksByRun.get(runRow.run_key) ?? [];
     const first = allTasks[0];
     // status_counts / agent_count describe the whole run; only the listed tasks are filtered.
     // agent_count is distinct agents: offline retries join the batch as extra tasks for the same agent.
-    const tasks = breakdownIds ? allTasks.filter((t) => breakdownIds.has(t.id)) : allTasks;
+    const tasks = allTasks.filter((t) => (!breakdownIds || breakdownIds.has(t.id)) && inCreatedRange(t.created_at));
 
     const statusCounts: Partial<Record<TaskStatus, number>> = {};
     for (const t of allTasks) {
