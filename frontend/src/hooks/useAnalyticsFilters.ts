@@ -1,5 +1,6 @@
 import { useState, useCallback, useMemo, useEffect, useRef } from 'react';
 import { useSearchParams } from 'react-router-dom';
+import { useAddressWriter } from './useAddressWriter';
 import { joinFilterList, splitFilterList } from '@/lib/filterList';
 import type { ExtendedFilterParams, ResultVersionState } from '@/services/api/analytics';
 import {
@@ -185,8 +186,7 @@ export interface UseAnalyticsFiltersOptions {
   /**
    * Address parameters that belong to the date range and are dropped when it
    * changes (the activity strip's selected bucket). They leave in the same
-   * address update that writes the new range: a second `setSearchParams` in the
-   * same tick would start from the same address, and the last one would win.
+   * address update that writes the new range: one change, not two writes.
    * Pass a constant array.
    */
   rangeBoundParams?: readonly string[];
@@ -195,7 +195,8 @@ export interface UseAnalyticsFiltersOptions {
 const rangeKeyOf = (range: DateRangeValue) => `${range.preset}|${range.from ?? ''}|${range.to ?? ''}`;
 
 export function useAnalyticsFilters(syncWithUrl = true, { rangeBoundParams }: UseAnalyticsFiltersOptions = {}): UseAnalyticsFiltersReturn {
-  const [searchParams, setSearchParams] = useSearchParams();
+  const [searchParams] = useSearchParams();
+  const address = useAddressWriter();
 
   // Initialize from URL params; the date range falls back to the one
   // remembered from the Dashboard or an earlier visit, then the default.
@@ -221,9 +222,9 @@ export function useAnalyticsFilters(syncWithUrl = true, { rangeBoundParams }: Us
       const rangeKey = rangeKeyOf(filters.dateRange);
       const rangeChanged = syncedRange.current !== rangeKey;
       syncedRange.current = rangeKey;
-      setSearchParams(prev => {
-        // Start with existing params to preserve non-filter params like 'tab'
-        const newParams = new URLSearchParams(prev);
+      // Through the page's writer (see useAddressWriter): it starts from what is pending, not from the last render.
+      address.update(newParams => {
+        // Non-filter params like 'tab' are kept
         // Clear all filter-related params first
         // 'severities' is a removed filter; still cleared so a legacy link's param doesn't linger
         const filterKeys = ['org', 'date', 'from', 'to', 'result', 'hostnames', 'tests', 'techniques', 'categories', 'severities', 'threatActors', 'tags', 'errorNames', 'errorCodes', 'bundleNames', 'versionState'];
@@ -234,10 +235,11 @@ export function useAnalyticsFilters(syncWithUrl = true, { rangeBoundParams }: Us
         Object.entries(filterParams).forEach(([key, value]) => {
           newParams.set(key, value);
         });
-        return newParams;
       }, { replace: true });
     }
-  }, [filters, syncWithUrl, setSearchParams, rangeBoundParams]);
+    // Also after a navigation it did not make (an in-page link, the back button): the address is made to
+    // say again what the filters on screen are. A write that changes nothing does not navigate, so no loop.
+  }, [filters, searchParams, syncWithUrl, address, rangeBoundParams]);
 
   // Calculate active filter count (all executions-tab filters)
   const activeFilterCount = useMemo(() => {

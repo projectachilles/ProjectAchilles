@@ -1,7 +1,7 @@
 import React from 'react';
 import { describe, it, expect, beforeEach } from 'vitest';
 import { renderHook, act } from '@testing-library/react';
-import { MemoryRouter, useLocation } from 'react-router-dom';
+import { MemoryRouter, useLocation, useNavigate } from 'react-router-dom';
 import {
   useAnalyticsFilters,
   ALL_TIME_FROM,
@@ -474,5 +474,40 @@ describe('parameters that belong to the date range', () => {
     act(() => result.current.filters.setDateRange({ preset: '7d' }));
 
     expect(Object.fromEntries(new URLSearchParams(result.current.search))).toEqual({ date: '7d', bucketFrom: 'a', bucketTo: 'b' });
+  });
+});
+
+describe('the address after a navigation the filters did not make', () => {
+  // An in-page link (a vendor tab's test link) or the back button changes the address while the
+  // page stays mounted. The filters on screen are the state's: the address is made to say so again,
+  // or a reload, a copied link or a bookmark would open another page than the one shown.
+  it('puts the filters on screen back into the address', () => {
+    const { result } = renderHook(
+      () => ({ filters: useAnalyticsFilters(), search: useLocation().search, navigate: useNavigate() }),
+      { wrapper: wrapperWithParams('tab=defender&date=7d&org=o1') },
+    );
+
+    act(() => result.current.navigate('/?tab=executions&tests=LSASS%20Dump'));
+
+    expect(Object.fromEntries(new URLSearchParams(result.current.search))).toEqual({ tab: 'executions', date: '7d', org: 'o1' });
+    expect(result.current.filters.filters.tests).toEqual([]);
+  });
+
+  it('writes nothing when the address already says what is on screen', () => {
+    const keys = new Set<string>();
+    const { result } = renderHook(
+      () => {
+        const location = useLocation();
+        keys.add(location.key);
+        return { filters: useAnalyticsFilters(), navigate: useNavigate() };
+      },
+      { wrapper: wrapperWithParams('tab=defender&date=7d') },
+    );
+    const before = keys.size;
+
+    act(() => result.current.navigate('/?tab=executions&date=7d'));
+
+    // The link's own navigation, and no second one to restore what it already says.
+    expect(keys.size).toBe(before + 1);
   });
 });
